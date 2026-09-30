@@ -943,9 +943,9 @@ export interface ExperimentToSavedMetricApi {
     readonly name: string
 }
 
-export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
+export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
 
-export const Kind1Api = {
+export const Kind2Api = {
     ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
     ActionsNode: 'ActionsNode',
 } as const
@@ -1281,7 +1281,7 @@ export interface ExperimentApiExposureConfigApi {
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: number | null
     /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-    kind?: Kind1Api | null
+    kind?: Kind2Api | null
     /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
     properties: (
         | EventPropertyFilterApi
@@ -1327,9 +1327,9 @@ export interface ExperimentApiExposureCriteriaApi {
     multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
-export type KindApi = (typeof KindApi)[keyof typeof KindApi]
+export type Kind1Api = (typeof Kind1Api)[keyof typeof Kind1Api]
 
-export const KindApi = {
+export const Kind1Api = {
     EventsNode: 'EventsNode',
     ActionsNode: 'ActionsNode',
 } as const
@@ -1363,7 +1363,7 @@ export interface ExperimentApiEventSourceApi {
     event?: string | null
     /** Action ID. Required for ActionsNode. */
     id?: number | null
-    kind: KindApi
+    kind: Kind1Api
     /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
     math?: ExperimentMetricMathTypeApi | null
     /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -1420,9 +1420,9 @@ export const ExperimentMetricTypeApi = {
     Retention: 'retention',
 } as const
 
-export type Kind2Api = (typeof Kind2Api)[keyof typeof Kind2Api]
+export type Kind3Api = (typeof Kind3Api)[keyof typeof Kind3Api]
 
-export const Kind2Api = {
+export const Kind3Api = {
     EventsNode: 'EventsNode',
     ActionsNode: 'ActionsNode',
     ExperimentExposureNode: 'ExperimentExposureNode',
@@ -1434,7 +1434,7 @@ export interface ExperimentApiRetentionStartApi {
     /** Action ID. Required for ActionsNode. */
     id?: number | null
     /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
-    kind: Kind2Api
+    kind: Kind3Api
     /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
     math?: ExperimentMetricMathTypeApi | null
     /** Group type index to aggregate over. Required when math is 'unique_group'. */

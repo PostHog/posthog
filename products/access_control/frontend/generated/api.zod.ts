@@ -266,7 +266,68 @@ export const OrganizationsProjectsAccessControlRoleRulesUpdateBody = /* @__PURE_
  */
 export const PropertyAccessControlsCreateBody = /* @__PURE__ */ zod
     .object({
-        property_definition_id: zod.string().describe('The property definition ID this rule applies to.'),
+        property_definition_id: zod
+            .string()
+            .optional()
+            .describe('The existing property definition ID. Provide this or ai_property.'),
+        ai_property: zod
+            .enum([
+                '$ai_trace_id',
+                '$ai_session_id',
+                '$ai_parent_id',
+                '$ai_span_id',
+                '$ai_span_type',
+                '$ai_generation_id',
+                '$ai_experiment_id',
+                '$ai_span_name',
+                '$ai_trace_name',
+                '$ai_prompt_name',
+                '$ai_model',
+                '$ai_provider',
+                '$ai_framework',
+                '$ai_total_tokens',
+                '$ai_input_tokens',
+                '$ai_output_tokens',
+                '$ai_text_input_tokens',
+                '$ai_text_output_tokens',
+                '$ai_image_input_tokens',
+                '$ai_image_output_tokens',
+                '$ai_audio_input_tokens',
+                '$ai_audio_output_tokens',
+                '$ai_video_input_tokens',
+                '$ai_video_output_tokens',
+                '$ai_reasoning_tokens',
+                '$ai_cache_read_input_tokens',
+                '$ai_cache_creation_input_tokens',
+                '$ai_web_search_count',
+                '$ai_input_cost_usd',
+                '$ai_output_cost_usd',
+                '$ai_total_cost_usd',
+                '$ai_request_cost_usd',
+                '$ai_web_search_cost_usd',
+                '$ai_audio_cost_usd',
+                '$ai_image_cost_usd',
+                '$ai_video_cost_usd',
+                '$ai_latency',
+                '$ai_time_to_first_token',
+                '$ai_is_error',
+                '$ai_error',
+                '$ai_error_type',
+                '$ai_error_normalized',
+                '$ai_input',
+                '$ai_output',
+                '$ai_output_choices',
+                '$ai_input_state',
+                '$ai_output_state',
+                '$ai_tools',
+            ])
+            .describe(
+                '\* `$ai_trace_id` - $ai_trace_id\n\* `$ai_session_id` - $ai_session_id\n\* `$ai_parent_id` - $ai_parent_id\n\* `$ai_span_id` - $ai_span_id\n\* `$ai_span_type` - $ai_span_type\n\* `$ai_generation_id` - $ai_generation_id\n\* `$ai_experiment_id` - $ai_experiment_id\n\* `$ai_span_name` - $ai_span_name\n\* `$ai_trace_name` - $ai_trace_name\n\* `$ai_prompt_name` - $ai_prompt_name\n\* `$ai_model` - $ai_model\n\* `$ai_provider` - $ai_provider\n\* `$ai_framework` - $ai_framework\n\* `$ai_total_tokens` - $ai_total_tokens\n\* `$ai_input_tokens` - $ai_input_tokens\n\* `$ai_output_tokens` - $ai_output_tokens\n\* `$ai_text_input_tokens` - $ai_text_input_tokens\n\* `$ai_text_output_tokens` - $ai_text_output_tokens\n\* `$ai_image_input_tokens` - $ai_image_input_tokens\n\* `$ai_image_output_tokens` - $ai_image_output_tokens\n\* `$ai_audio_input_tokens` - $ai_audio_input_tokens\n\* `$ai_audio_output_tokens` - $ai_audio_output_tokens\n\* `$ai_video_input_tokens` - $ai_video_input_tokens\n\* `$ai_video_output_tokens` - $ai_video_output_tokens\n\* `$ai_reasoning_tokens` - $ai_reasoning_tokens\n\* `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens\n\* `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens\n\* `$ai_web_search_count` - $ai_web_search_count\n\* `$ai_input_cost_usd` - $ai_input_cost_usd\n\* `$ai_output_cost_usd` - $ai_output_cost_usd\n\* `$ai_total_cost_usd` - $ai_total_cost_usd\n\* `$ai_request_cost_usd` - $ai_request_cost_usd\n\* `$ai_web_search_cost_usd` - $ai_web_search_cost_usd\n\* `$ai_audio_cost_usd` - $ai_audio_cost_usd\n\* `$ai_image_cost_usd` - $ai_image_cost_usd\n\* `$ai_video_cost_usd` - $ai_video_cost_usd\n\* `$ai_latency` - $ai_latency\n\* `$ai_time_to_first_token` - $ai_time_to_first_token\n\* `$ai_is_error` - $ai_is_error\n\* `$ai_error` - $ai_error\n\* `$ai_error_type` - $ai_error_type\n\* `$ai_error_normalized` - $ai_error_normalized\n\* `$ai_input` - $ai_input\n\* `$ai_output` - $ai_output\n\* `$ai_output_choices` - $ai_output_choices\n\* `$ai_input_state` - $ai_input_state\n\* `$ai_output_state` - $ai_output_state\n\* `$ai_tools` - $ai_tools'
+            )
+            .optional()
+            .describe(
+                'A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.\n\n\* `$ai_trace_id` - $ai_trace_id\n\* `$ai_session_id` - $ai_session_id\n\* `$ai_parent_id` - $ai_parent_id\n\* `$ai_span_id` - $ai_span_id\n\* `$ai_span_type` - $ai_span_type\n\* `$ai_generation_id` - $ai_generation_id\n\* `$ai_experiment_id` - $ai_experiment_id\n\* `$ai_span_name` - $ai_span_name\n\* `$ai_trace_name` - $ai_trace_name\n\* `$ai_prompt_name` - $ai_prompt_name\n\* `$ai_model` - $ai_model\n\* `$ai_provider` - $ai_provider\n\* `$ai_framework` - $ai_framework\n\* `$ai_total_tokens` - $ai_total_tokens\n\* `$ai_input_tokens` - $ai_input_tokens\n\* `$ai_output_tokens` - $ai_output_tokens\n\* `$ai_text_input_tokens` - $ai_text_input_tokens\n\* `$ai_text_output_tokens` - $ai_text_output_tokens\n\* `$ai_image_input_tokens` - $ai_image_input_tokens\n\* `$ai_image_output_tokens` - $ai_image_output_tokens\n\* `$ai_audio_input_tokens` - $ai_audio_input_tokens\n\* `$ai_audio_output_tokens` - $ai_audio_output_tokens\n\* `$ai_video_input_tokens` - $ai_video_input_tokens\n\* `$ai_video_output_tokens` - $ai_video_output_tokens\n\* `$ai_reasoning_tokens` - $ai_reasoning_tokens\n\* `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens\n\* `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens\n\* `$ai_web_search_count` - $ai_web_search_count\n\* `$ai_input_cost_usd` - $ai_input_cost_usd\n\* `$ai_output_cost_usd` - $ai_output_cost_usd\n\* `$ai_total_cost_usd` - $ai_total_cost_usd\n\* `$ai_request_cost_usd` - $ai_request_cost_usd\n\* `$ai_web_search_cost_usd` - $ai_web_search_cost_usd\n\* `$ai_audio_cost_usd` - $ai_audio_cost_usd\n\* `$ai_image_cost_usd` - $ai_image_cost_usd\n\* `$ai_video_cost_usd` - $ai_video_cost_usd\n\* `$ai_latency` - $ai_latency\n\* `$ai_time_to_first_token` - $ai_time_to_first_token\n\* `$ai_is_error` - $ai_is_error\n\* `$ai_error` - $ai_error\n\* `$ai_error_type` - $ai_error_type\n\* `$ai_error_normalized` - $ai_error_normalized\n\* `$ai_input` - $ai_input\n\* `$ai_output` - $ai_output\n\* `$ai_output_choices` - $ai_output_choices\n\* `$ai_input_state` - $ai_input_state\n\* `$ai_output_state` - $ai_output_state\n\* `$ai_tools` - $ai_tools'
+            ),
         access_level: zod
             .enum(['read_write', 'read', 'none'])
             .describe('\* `read_write` - read_write\n\* `read` - read\n\* `none` - none')

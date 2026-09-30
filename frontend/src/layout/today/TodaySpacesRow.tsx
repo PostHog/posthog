@@ -11,9 +11,22 @@ interface TodaySpacesRowProps {
     action?: JSX.Element | null
     /** Stays visible at the end of the row, after the hover action. */
     badge?: JSX.Element | null
+    /** How many icon buttons `action` holds, so the label truncates before them. */
+    actionCount?: 1 | 2
+    unread?: boolean
 }
 
-export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badge }: TodaySpacesRowProps): JSX.Element {
+export function TodaySpacesRow({
+    label,
+    icon,
+    to,
+    active,
+    dataAttr,
+    action,
+    badge,
+    actionCount = 1,
+    unread = false,
+}: TodaySpacesRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
             <Button
@@ -24,13 +37,22 @@ export function TodaySpacesRow({ label, icon, to, active, dataAttr, action, badg
                 data-attr={dataAttr}
                 className={cn(
                     'min-w-0 text-muted-foreground',
-                    active && 'bg-fill-selected text-foreground',
-                    action && !badge && 'pr-8',
+                    (active || unread) && 'text-foreground',
+                    active && 'bg-fill-selected',
+                    action && !badge && (actionCount === 2 ? 'pr-12' : 'pr-8'),
                     badge && 'pr-24'
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
-                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
+                {unread && !active && (
+                    <span
+                        role="img"
+                        aria-label="Unread"
+                        className="size-1.5 shrink-0 rounded-full bg-primary"
+                        data-attr="today-unread-dot"
+                    />
+                )}
             </Button>
             {(action || badge) && (
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">

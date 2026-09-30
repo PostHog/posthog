@@ -1,4 +1,4 @@
-import { TaskRunDetailDTOApi } from '../generated/api.schemas'
+import { PrStateEnumApi, TaskListItemApi, TaskRunDetailDTOApi, TaskSummaryDTOApi } from '../generated/api.schemas'
 
 export interface TaskPullRequest {
     url: string
@@ -63,4 +63,22 @@ export function pullRequestLabel(pullRequest: TaskPullRequest, taskRepository: s
     const task = taskRepository?.toLowerCase()
     const sameRepository = task === pullRequest.repository.toLowerCase() || task === repoName.toLowerCase()
     return sameRepository ? `#${pullRequest.number}` : `${repoName}#${pullRequest.number}`
+}
+
+/** Sessions whose latest run opened a pull request, the only ones the summaries endpoint can give a state for. */
+export function sessionIdsWithPullRequests(tasks: TaskListItemApi[]): string[] {
+    return tasks.filter((task) => taskPullRequests(task.latest_run?.output).length > 0).map((task) => task.id)
+}
+
+/** The known state of each run's main pull request, keyed by its normalized URL. */
+export function pullRequestStates(summaries: TaskSummaryDTOApi[]): Record<string, PrStateEnumApi> {
+    const states: Record<string, PrStateEnumApi> = {}
+    for (const summary of summaries) {
+        const run = summary.latest_run
+        const pullRequest = run?.pr_url ? parsePullRequestUrl(run.pr_url) : null
+        if (pullRequest && run?.pr_state && run.pr_state !== 'unknown') {
+            states[pullRequest.url] = run.pr_state
+        }
+    }
+    return states
 }
