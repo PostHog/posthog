@@ -20,6 +20,7 @@ SOURCES: dict[str, Callable[[SourceContext], list[Candidate]]] = {
     "error_issues": error_issues.collect,
     "github": github.collect,
 }
+SOURCE_NAMES: tuple[str, ...] = tuple(SOURCES)
 
 
 @frozen
@@ -29,6 +30,10 @@ class Collected:
 
 
 def collect_all(ctx: SourceContext) -> Collected:
+    """Every source, one after the other, for the on-demand candidates API.
+
+    Scheduled and first-open briefings run each source as its own Temporal activity instead.
+    """
     candidates: list[Candidate] = []
     failed: list[str] = []
     for name, collect in SOURCES.items():

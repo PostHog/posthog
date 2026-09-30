@@ -11,7 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
-from products.today.backend.logic.generate import collect_and_draft, write_and_check
+from products.today.backend.logic.generate import draft_briefing, write_and_check
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import PRODUCT_DATABASES, TodayTeamScopedTestMixin
@@ -114,11 +114,13 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
         assert len(created) == expected_rows
         assert DailyBriefing.objects.for_team(self.team.id).filter(local_day=date(2026, 9, 30)).count() == expected_rows
 
-    def test_collection_deletes_the_row_when_the_flag_turned_off(self) -> None:
+    def test_draft_deletes_the_row_when_the_flag_turned_off(self) -> None:
         briefing = self._viewer_row()
 
         with patch(FLAG, return_value=False):
-            eligible = collect_and_draft(team_id=self.team.id, briefing_id=str(briefing.id))
+            eligible = draft_briefing(
+                team_id=self.team.id, briefing_id=str(briefing.id), candidates=[], failed_sources=[]
+            )
 
         assert eligible is False
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=briefing.id).exists()

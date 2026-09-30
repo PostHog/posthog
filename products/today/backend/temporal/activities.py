@@ -1,6 +1,10 @@
-"""Temporal activities. Each one only calls logic; payloads carry ids, never briefing content."""
+"""Temporal activities. Each one only calls logic.
+
+Payloads carry ids, except the source results: short titles and scalar facts, never text written by customers.
+"""
 
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -16,10 +20,13 @@ from posthog.temporal.common.client import async_connect
 from ..facade.enums import BriefingStatus, BriefingTrigger
 from ..logic import generate
 from ..logic.briefings import create_briefing
+from ..logic.candidates import Candidate
 from ..logic.eligibility import is_due, is_enabled_for, local_day
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
+    CollectSourceInputs,
+    DraftInputs,
     GenerateBriefingInputs,
     MarkFailedInputs,
     SchedulerInputs,
@@ -34,9 +41,20 @@ STUCK_AFTER = timedelta(minutes=15)
 
 
 @temporalio.activity.defn
-async def collect_and_draft_activity(inputs: GenerateBriefingInputs) -> bool:
-    return await database_sync_to_async(generate.collect_and_draft, thread_sensitive=False)(
-        team_id=inputs.team_id, briefing_id=inputs.briefing_id
+async def collect_source_activity(inputs: CollectSourceInputs) -> list[dict[str, Any]]:
+    candidates = await database_sync_to_async(generate.collect_source, thread_sensitive=False)(
+        team_id=inputs.team_id, briefing_id=inputs.briefing_id, source=inputs.source
+    )
+    return [candidate.to_payload() for candidate in candidates]
+
+
+@temporalio.activity.defn
+async def draft_activity(inputs: DraftInputs) -> bool:
+    return await database_sync_to_async(generate.draft_briefing, thread_sensitive=False)(
+        team_id=inputs.team_id,
+        briefing_id=inputs.briefing_id,
+        candidates=[Candidate.from_payload(payload) for payload in inputs.candidates],
+        failed_sources=list(inputs.failed_sources),
     )
 
 

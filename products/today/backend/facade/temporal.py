@@ -5,7 +5,8 @@ from collections.abc import Callable
 from typing import Any
 
 from ..temporal.activities import (
-    collect_and_draft_activity,
+    collect_source_activity,
+    draft_activity,
     mark_failed_activity,
     start_due_briefings_activity,
     write_and_check_activity,
@@ -15,7 +16,8 @@ from ..temporal.workflows import GenerateTodayBriefingWorkflow, TodayBriefingSch
 
 WORKFLOWS = [GenerateTodayBriefingWorkflow, TodayBriefingSchedulerWorkflow]
 ACTIVITIES: list[Callable[..., Any]] = [
-    collect_and_draft_activity,
+    collect_source_activity,
+    draft_activity,
     write_and_check_activity,
     mark_failed_activity,
     start_due_briefings_activity,

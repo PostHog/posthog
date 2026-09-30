@@ -1,4 +1,4 @@
-"""The two generation steps. Each runs as its own Temporal activity and reads and writes the row."""
+"""The generation steps. Each runs as its own Temporal activity: one per source, then the draft, then the writer."""
 
 from django.utils import timezone
 
@@ -9,13 +9,13 @@ from posthog.models import Team, User
 
 from ..facade.enums import BriefingStatus, BriefingWriter
 from ..models import DailyBriefing
-from .candidates import SourceContext
+from .candidates import Candidate, SourceContext
 from .checks import check_content
 from .draft import build_draft
 from .eligibility import is_enabled_for
 from .fact_sheet import build_fact_sheet
 from .ranking import rank_candidates, select
-from .sources import collect_all, reports
+from .sources import SOURCES, reports
 from .writer import WriterError, write
 
 logger = structlog.get_logger(__name__)
@@ -30,8 +30,18 @@ def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
     return briefing, team, user
 
 
-def collect_and_draft(*, team_id: int, briefing_id: str) -> bool:
-    """Collect, rank and store the fact sheet and the draft.
+def collect_source(*, team_id: int, briefing_id: str, source: str) -> list[Candidate]:
+    """One source's candidates for the briefing's person. Raises, so Temporal retries only this source."""
+    _briefing, team, user = _load(team_id, briefing_id)
+    try:
+        return SOURCES[source](SourceContext(team=team, user=user, now=timezone.now()))
+    except Exception as error:
+        capture_exception(error, {"source": source, "team_id": team_id, "product": "today"})
+        raise
+
+
+def draft_briefing(*, team_id: int, briefing_id: str, candidates: list[Candidate], failed_sources: list[str]) -> bool:
+    """Rank the collected candidates and store the fact sheet and the draft.
 
     False when the person may not get a briefing. The flag can turn off after the row was created,
     so the row is deleted then: a briefing nobody can open is not worth keeping.
@@ -41,8 +51,7 @@ def collect_and_draft(*, team_id: int, briefing_id: str) -> bool:
         briefing.delete()
         return False
     ctx = SourceContext(team=team, user=user, now=timezone.now())
-    collected = collect_all(ctx)
-    items = select(rank_candidates(collected.candidates))
+    items = select(rank_candidates(candidates))
     try:
         reports_count = reports.reports_for_me_count(ctx)
     except Exception as error:
@@ -53,7 +62,7 @@ def collect_and_draft(*, team_id: int, briefing_id: str) -> bool:
         local_day=briefing.local_day,
         items=items,
         reports_for_me_count=reports_count,
-        failed_sources=collected.failed_sources,
+        failed_sources=failed_sources,
     )
     draft = build_draft(fact_sheet)
     briefing.facts = fact_sheet
