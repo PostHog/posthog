@@ -51,11 +51,3 @@ export function hasBriefingText(briefing: BriefingApi | null): boolean {
 export function isBriefingSettled(briefing: Pick<BriefingApi, 'status'>): boolean {
     return briefing.status === 'ready' || briefing.status === 'failed'
 }
-
-export function browserTimezone(): string | undefined {
-    try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
-    } catch {
-        return undefined
-    }
-}

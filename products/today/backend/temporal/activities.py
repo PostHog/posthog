@@ -76,19 +76,29 @@ def _due_briefings() -> list[DailyBriefing]:
         .distinct("team_id", "user_id")
         .values_list("team_id", "user_id", "timezone")
     )
+    due = [
+        (team_id, user_id, timezone_name, local_day(now + timedelta(minutes=SCHEDULE_WINDOW_MINUTES), timezone_name))
+        for team_id, user_id, timezone_name in viewers
+        if is_due(now, timezone_name, SCHEDULE_WINDOW_MINUTES)
+    ]
+    if not due:
+        return []
+    team_ids = {team_id for team_id, _, _, _ in due}
+    user_ids = {user_id for _, user_id, _, _ in due}
+    teams = Team.objects.in_bulk(team_ids)
+    users = User.objects.filter(is_active=True).in_bulk(user_ids)
+    existing = set(
+        DailyBriefing.objects.unscoped()
+        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={day for _, _, _, day in due})
+        .values_list("team_id", "user_id", "local_day")
+    )
     created: list[DailyBriefing] = []
-    for team_id, user_id, timezone_name in viewers:
+    for team_id, user_id, timezone_name, day in due:
         if len(created) >= MAX_STARTS_PER_RUN:
             break
-        if not is_due(now, timezone_name, SCHEDULE_WINDOW_MINUTES):
-            continue
-        day = local_day(now + timedelta(minutes=SCHEDULE_WINDOW_MINUTES), timezone_name)
-        if DailyBriefing.objects.for_team(team_id).filter(user_id=user_id, local_day=day).exists():
-            continue
-        team = Team.objects.get(id=team_id)
-        user = User.objects.filter(id=user_id, is_active=True).first()
+        team, user = teams.get(team_id), users.get(user_id)
         # Someone who opened Today may have lost the flag since. They get no row and no workflow.
-        if user is None or not is_enabled_for(user, team):
+        if (team_id, user_id, day) in existing or team is None or user is None or not is_enabled_for(user, team):
             continue
         created.append(
             create_briefing(

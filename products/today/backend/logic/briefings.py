@@ -65,13 +65,16 @@ def create_briefing(
 
 
 def _current(team: Team, user: User, day: date) -> DailyBriefing | None:
-    rows = DailyBriefing.objects.for_team(team.id).filter(user_id=user.id, local_day=day).order_by("-created_at")
-    ready = rows.filter(status=BriefingStatus.READY).first()
-    pending = rows.filter(status__in=[BriefingStatus.COLLECTING, BriefingStatus.WRITING]).first()
-    if pending is not None and (ready is None or pending.created_at > ready.created_at):
-        # A refresh in progress shows the ready briefing until the new one is written.
-        return ready or pending
-    return ready or rows.first()
+    """The briefing to show: the newest ready one, else the newest in progress, else the newest failed one.
+
+    A refresh in progress keeps the ready briefing on screen until the new one is written.
+    """
+    # A day holds a handful of rows at most (one open, one scheduled, three refreshes).
+    rows = list(DailyBriefing.objects.for_team(team.id).filter(user_id=user.id, local_day=day).order_by("-created_at"))
+    pending_statuses = {BriefingStatus.COLLECTING, BriefingStatus.WRITING}
+    ready = next((row for row in rows if row.status == BriefingStatus.READY), None)
+    pending = next((row for row in rows if row.status in pending_statuses), None)
+    return ready or pending or (rows[0] if rows else None)
 
 
 def get_or_start_briefing(

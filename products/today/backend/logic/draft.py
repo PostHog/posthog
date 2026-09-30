@@ -6,6 +6,8 @@ pass the checks. Same input, same output.
 
 from typing import Any
 
+from .checks import MAX_LABEL_WORDS, MAX_SIGNAL_CHARS
+
 _COUNT_WORDS = ["No", "One", "Two", "Three", "Four", "Five"]
 _REPORT_REASON = {
     "claimed_by_you": "You are working on it",
@@ -42,7 +44,7 @@ def signal_for(item: dict[str, Any]) -> str:
     if item["group"] == "report":
         priority = facts.get("priority")
         text = _REPORT_REASON.get(item["reason"], "Needs you")
-        return f"{priority}, {text[0].lower()}{text[1:]}"[:40] if priority else text[:40]
+        return f"{priority}, {text[0].lower()}{text[1:]}"[:MAX_SIGNAL_CHARS] if priority else text[:MAX_SIGNAL_CHARS]
     if item["source"] == "alerts":
         return "Alert firing"
     if item["group"] == "dashboard":
@@ -56,12 +58,12 @@ def signal_for(item: dict[str, Any]) -> str:
     if item["source"] == "error_tracking":
         return "Assigned to your role" if facts.get("assigned_via_role") else "Assigned to you"
     if item["source"] == "github":
-        return str(facts.get("state") or "Pull request").capitalize()[:40]
+        return str(facts.get("state") or "Pull request").capitalize()[:MAX_SIGNAL_CHARS]
     return ""
 
 
 def label_for(item: dict[str, Any]) -> str:
-    return " ".join(item["title"].split()[:6])
+    return " ".join(item["title"].split()[:MAX_LABEL_WORDS])
 
 
 def build_draft(fact_sheet: dict[str, Any]) -> dict[str, Any]:

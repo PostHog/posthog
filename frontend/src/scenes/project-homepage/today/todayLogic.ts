@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { getLocalTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -18,7 +19,7 @@ import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/toda
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import type { TeamPublicType } from '../../../types'
-import { TodayItemOpenSurface, browserTimezone, hasBriefingText, isBriefingSettled } from './todayBriefingItems'
+import { TodayItemOpenSurface, hasBriefingText, isBriefingSettled } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
@@ -299,7 +300,7 @@ export const todayLogic = kea<todayLogicType>([
                         return null
                     }
                     return await todayBriefingRetrieve(String(values.currentProjectId), {
-                        timezone: browserTimezone(),
+                        timezone: getLocalTimeZone(),
                     })
                 },
             },
@@ -312,7 +313,7 @@ export const todayLogic = kea<todayLogicType>([
                         return null
                     }
                     return await todayBriefingRefreshCreate(String(values.currentProjectId), {
-                        timezone: browserTimezone(),
+                        timezone: getLocalTimeZone(),
                     })
                 },
             },

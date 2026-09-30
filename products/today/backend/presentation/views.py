@@ -49,7 +49,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             429: OpenApiResponse(response=TodayErrorSerializer),
         },
         summary="Refresh today's briefing",
-        description="Start a new generation of today's briefing. Allowed 3 times per day.",
+        description=f"Start a new generation of today's briefing. Allowed {api.MAX_REFRESHES_PER_DAY} times per day.",
     )
     @action(detail=False, methods=["post"], url_path="briefing/refresh")
     def refresh(self, request: Request, **kwargs) -> Response:
@@ -60,7 +60,9 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except api.RefreshLimitReached:
             return Response(
-                {"detail": "You can refresh your briefing 3 times a day. Try again tomorrow."},
+                {
+                    "detail": f"You can refresh your briefing {api.MAX_REFRESHES_PER_DAY} times a day. Try again tomorrow."
+                },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
         return Response(BriefingSerializer(briefing).data)

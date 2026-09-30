@@ -4,7 +4,6 @@ The briefing ranks items across products, so this module only answers "which rep
 person, and how". It does not order across relations; the caller does that.
 """
 
-import json
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
@@ -18,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.models import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingScore, priority_from_judgment
 from products.signals.backend.implementation_pr import implementation_pr_report_filter
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_claims import reports_with_active_claim
@@ -59,49 +58,25 @@ class ReportState:
     status: str
 
 
+def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> list[tuple[str, str]]:
+    """The newest artefact content of one type per report, as `(report_id, content)`."""
+    rows = (
+        SignalReportArtefact.objects.filter(report_id__in=report_ids, type=artefact_type)
+        .order_by("report_id", "-created_at")
+        .distinct("report_id")
+        .values_list("report_id", "content")
+    )
+    return [(str(report_id), content) for report_id, content in rows]
+
+
 def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
     """Latest priority judgment per report, read the same way the inbox serializer reads it."""
     latest: dict[str, str] = {}
-    artefacts = (
-        SignalReportArtefact.objects.filter(
-            report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
-        )
-        .order_by("report_id", "-created_at")
-        .values_list("report_id", "content")
-    )
-    for report_id, content in artefacts:
-        key = str(report_id)
-        if key in latest:
-            continue
-        try:
-            data = json.loads(content)
-        except (TypeError, ValueError):
-            continue
-        priority = data.get("priority") if isinstance(data, dict) else None
-        if isinstance(priority, str):
-            latest[key] = priority
+    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT):
+        priority = priority_from_judgment(content)
+        if priority is not None:
+            latest[report_id] = priority
     return latest
-
-
-class _ServedHead(pydantic.BaseModel):
-    head: str
-    readable: bool = False
-
-
-class _ServedMetadata(pydantic.BaseModel):
-    heads: list[_ServedHead] = []
-
-
-class _ServedResult(pydantic.BaseModel):
-    scores: dict[str, float] = {}
-    metadata: _ServedMetadata = _ServedMetadata()
-
-
-class _ScoreSummary(pydantic.BaseModel):
-    """The parts of a `ranking_score` artefact the briefing reads. Pydantic drops the rest."""
-
-    served_key: str
-    results: dict[str, _ServedResult]
 
 
 def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
@@ -110,26 +85,21 @@ def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
     A head without a holdout AUC is not readable, so its probability is left out rather than
     trusted. The inbox serializer applies the same readability rule.
     """
-    latest = (
-        SignalReportArtefact.objects.filter(
-            report_id__in=report_ids, type=SignalReportArtefact.ArtefactType.RANKING_SCORE
-        )
-        .order_by("report_id", "-created_at")
-        .distinct("report_id")
-        .values_list("report_id", "content")
+    from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the facade import path
+        readable_head_names,
     )
+
     probabilities: dict[str, float] = {}
-    for report_id, content in latest:
+    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.RANKING_SCORE):
         try:
-            summary = _ScoreSummary.model_validate_json(content)
-            served = summary.results[summary.served_key]
-        except (pydantic.ValidationError, KeyError):
-            logger.warning("signals.briefing.ranking_score_unreadable", report_id=str(report_id))
+            score = RankingScore.model_validate_json(content)
+        except pydantic.ValidationError:
+            logger.warning("signals.briefing.ranking_score_unreadable", report_id=report_id)
             continue
-        readable = {head.head for head in served.metadata.heads if head.readable}
+        served = score.results[score.served_key]
         probability = served.scores.get(PR_MERGED_HEAD)
-        if probability is not None and PR_MERGED_HEAD in readable:
-            probabilities[str(report_id)] = probability
+        if probability is not None and PR_MERGED_HEAD in readable_head_names(served.metadata):
+            probabilities[report_id] = probability
     return probabilities
 
 
