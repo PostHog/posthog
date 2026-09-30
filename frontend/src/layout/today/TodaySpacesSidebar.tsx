@@ -8,11 +8,13 @@ import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, Toolt
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
+
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
-import { TodayWorkSectionId, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
+import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
 import { useTodaySectionLayout } from './useTodaySectionLayout'
@@ -33,6 +35,7 @@ export function TodaySpacesSidebar(): JSX.Element {
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
+    const { openNewSpace } = useActions(newSpaceLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
@@ -209,24 +212,42 @@ export function TodaySpacesSidebar(): JSX.Element {
                         divider
                         dataAttr="today-section-spaces"
                         actions={
-                            <Tooltip>
-                                <TooltipTrigger
-                                    delay={0}
-                                    render={
-                                        <Button
-                                            size="icon-sm"
-                                            render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                            aria-current={browsingSpaces ? 'page' : undefined}
-                                            className={cn(browsingSpaces && 'bg-fill-selected')}
-                                            aria-label="Browse spaces"
-                                            data-attr="today-spaces-browse"
-                                        />
-                                    }
-                                >
-                                    <IconList />
-                                </TooltipTrigger>
-                                <TooltipContent>Browse spaces</TooltipContent>
-                            </Tooltip>
+                            <>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-sm"
+                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                                aria-current={browsingSpaces ? 'page' : undefined}
+                                                className={cn(browsingSpaces && 'bg-fill-selected')}
+                                                aria-label="Browse spaces"
+                                                data-attr="today-spaces-browse"
+                                            />
+                                        }
+                                    >
+                                        <IconList />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Browse spaces</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-sm"
+                                                aria-label="New space"
+                                                onClick={openNewSpace}
+                                                data-attr="today-new-space-open-sidebar"
+                                            />
+                                        }
+                                    >
+                                        <IconPlus />
+                                    </TooltipTrigger>
+                                    <TooltipContent>New space</TooltipContent>
+                                </Tooltip>
+                            </>
                         }
                     >
                         {spacesLoading && !visibleSpaces.length ? (
@@ -240,7 +261,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         key={space.id}
                                         label={spaceLabel(space)}
                                         icon={
-                                            space.channel_type === 'private' ? (
+                                            isLockedSpace(space) ? (
                                                 <IconLock className="text-muted-foreground" />
                                             ) : (
                                                 <span aria-hidden className="font-mono text-muted-foreground">

@@ -16,7 +16,7 @@ const SPACES = [
     {
         id: 'space-me',
         name: 'me',
-        channel_type: 'private',
+        channel_type: 'personal',
         github_integration: null,
         repositories: [],
         auto_archive_after_days: null,
