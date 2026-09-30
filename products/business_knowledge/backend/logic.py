@@ -2563,7 +2563,9 @@ def search_knowledge_for_team(
     """
     embedding: list[float] | None = None
     try:
-        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+        embedding = generate_embedding(
+            team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT
+        ).embedding
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)

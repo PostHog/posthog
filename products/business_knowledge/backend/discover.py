@@ -33,6 +33,7 @@ from .constants import (
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     HARD_DISCOVER_CAP,
+    MAX_SITEMAP_FETCHES,
     PREFETCH_CACHE_MAX_BYTES,
     URL_BOT_NAME,
     URL_MAX_BYTES,
@@ -156,7 +157,7 @@ def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:  # n
     queued: set[str] = {candidate}
     attempts = 0
 
-    while pending and len(urls) < HARD_DISCOVER_CAP and attempts < HARD_DISCOVER_CAP:
+    while pending and len(urls) < HARD_DISCOVER_CAP and attempts < MAX_SITEMAP_FETCHES:
         current, depth = pending.popleft()
         if current in seen_sitemaps or depth > _SITEMAP_INDEX_DEPTH:
             continue
@@ -173,15 +174,19 @@ def _discover_sitemap(entry_url: str, *, config: CrawlConfig) -> list[str]:  # n
         remaining = HARD_DISCOVER_CAP - len(urls)
         urls.extend(page_urls[:remaining])
         if depth < _SITEMAP_INDEX_DEPTH:
-            # One index can list far more children than the cap. Queuing them all
-            # would hold that list in memory and then fetch past the cap.
+            # One index can list far more children than the fetch cap. Queuing them all
+            # would hold that list in memory for sitemaps that are never fetched.
+            children: list[tuple[str, int]] = []
             for sub in subs:
-                if attempts + len(pending) >= HARD_DISCOVER_CAP:
+                if len(pending) + len(children) >= MAX_SITEMAP_FETCHES:
                     break
                 if sub in seen_sitemaps or sub in queued:
                     continue
                 queued.add(sub)
-                pending.append((sub, depth + 1))
+                children.append((sub, depth + 1))
+            # Fetch children before queued siblings. A broad root index then cannot use
+            # the whole fetch cap before the section indexes under it list their pages.
+            pending.extendleft(reversed(children))
     return urls
 
 

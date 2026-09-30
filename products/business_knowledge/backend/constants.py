@@ -44,6 +44,10 @@ URL_USER_AGENT = f"{URL_BOT_NAME}/1.0 (+https://posthog.com)"
 # many candidate URLs (BEFORE glob filtering). The cap has to sit above a
 # full docs site, or pages that sort late in the sitemap never get indexed.
 HARD_DISCOVER_CAP = 50_000
+# Sitemap documents one discovery may fetch. This is separate from HARD_DISCOVER_CAP because a
+# sitemap index can list one child per page. Without it, a crafted index makes one request
+# per listed child, whatever `max_pages` the source asks for.
+MAX_SITEMAP_FETCHES = 200
 # Fetch step default cap. Settable per-source via `crawl_config.max_pages`,
 # but users can never exceed MAX_URLS_PER_SOURCE. Crawls run in Temporal, so
 # this is a memory bound, not a request-timeout bound.

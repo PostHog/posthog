@@ -1,4 +1,8 @@
 import asyncio
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
@@ -272,6 +276,28 @@ class TestDocsShadowOverlap(SimpleTestCase):
         self.assertEqual(comparison.recall_at_k, recall_at_k)
 
 
+class _InlineExecutor:
+    def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future:
+        future: Future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except BaseException as exc:
+            future.set_exception(exc)
+        return future
+
+
+def _shadow_team() -> MagicMock:
+    team = MagicMock()
+    team.id = 1
+    team.organization_id = "org"
+    team.uuid = "team-uuid"
+    return team
+
+
+def _search_results(*urls: str) -> list[MagicMock]:
+    return [MagicMock(url=url) for url in urls]
+
+
 class TestDocsShadowFailure(SimpleTestCase):
     @parameterized.expand(
         [
@@ -279,31 +305,27 @@ class TestDocsShadowFailure(SimpleTestCase):
             ("exception", False),
         ]
     )
-    async def test_bk_failure_leaves_inkeep_output_unchanged(self, _name: str, hang: bool) -> None:
+    async def test_bk_failure_leaves_inkeep_output_unchanged(self, _name: str, slow: bool) -> None:
         payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
         expected = format_inkeep_docs_response(payload, include_system_reminder=False)
 
         async def fetch_inkeep() -> dict:
             return payload
 
-        async def bk_search(*_args: object, **_kwargs: object) -> list:
-            if hang:
-                await asyncio.Event().wait()
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            if slow:
+                return _search_results("https://posthog.com/docs/flags")
             raise RuntimeError("search down")
-
-        team = MagicMock()
-        team.id = 1
-        team.organization_id = "org"
-        team.uuid = "team-uuid"
 
         with (
             patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
-            patch("ee.hogai.tools.docs_search_shadow.async_search_knowledge_for_team", bk_search),
-            patch("ee.hogai.tools.docs_search_shadow.SHADOW_TIMEOUT_SECONDS", 0.05),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow.SHADOW_TIMEOUT_SECONDS", -1 if slow else 60),
             patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
         ):
             result = await fetch_inkeep_with_shadow(
-                team=team,
+                team=_shadow_team(),
                 query="how do flags work",
                 fetch_inkeep=fetch_inkeep,
                 surface="posthog_ai",
@@ -312,34 +334,66 @@ class TestDocsShadowFailure(SimpleTestCase):
         self.assertEqual(result, payload)
         self.assertEqual(format_inkeep_docs_response(result, include_system_reminder=False), expected)
         capture.assert_called_once()
-        self.assertEqual(capture.call_args.kwargs["properties"]["bk_error"], "timeout" if hang else "exception")
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["bk_error"], "timeout" if slow else "exception")
+        self.assertEqual(properties["bk_urls"], [])
         self.assertEqual(capture.call_args.kwargs["distinct_id"], "team-uuid")
-        self.assertNotIn("how do flags work", str(capture.call_args.kwargs["properties"]))
+        self.assertNotIn("how do flags work", str(properties))
 
-    async def test_flag_off_does_not_search_or_capture(self) -> None:
+    async def test_capture_sends_only_public_docs_urls(self) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            return _search_results("https://posthog.com/docs/flags", "https://internal.example.com/t/secret-token")
+
+        with (
+            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
+        ):
+            await fetch_inkeep_with_shadow(
+                team=_shadow_team(), query="how do flags work", fetch_inkeep=fetch_inkeep, surface="mcp"
+            )
+
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["bk_urls"], ["https://posthog.com/docs/flags"])
+        self.assertEqual(properties["bk_count"], 2)
+        self.assertEqual(properties["overlap_count"], 1)
+        self.assertNotIn("secret-token", str(properties))
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, 1),
+            ("no_free_search_slot", True, 0),
+        ]
+    )
+    async def test_skipped_shadow_does_not_search_or_capture(self, _name: str, flag: bool, free_slots: int) -> None:
         payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
         called = False
 
         async def fetch_inkeep() -> dict:
             return payload
 
-        async def bk_search(*_args: object, **_kwargs: object) -> list:
+        def bk_search(*_args: object, **_kwargs: object) -> list:
             nonlocal called
             called = True
             return []
 
-        team = MagicMock()
-        team.id = 1
-        team.organization_id = "org"
-        team.uuid = "team-uuid"
-
         with (
-            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=False),
-            patch("ee.hogai.tools.docs_search_shadow.async_search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=flag),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow._search_slots", threading.BoundedSemaphore(1)) as slots,
             patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
         ):
+            for _ in range(1 - free_slots):
+                slots.acquire()
             result = await fetch_inkeep_with_shadow(
-                team=team,
+                team=_shadow_team(),
                 query="how do flags work",
                 fetch_inkeep=fetch_inkeep,
                 surface="mcp",
@@ -363,15 +417,10 @@ class TestDocsShadowFailure(SimpleTestCase):
         async def fetch_inkeep() -> dict:
             return payload
 
-        async def bk_search(*_args: object, **_kwargs: object) -> list:
+        def bk_search(*_args: object, **_kwargs: object) -> list:
             nonlocal searched
             searched = True
             return []
-
-        team = MagicMock()
-        team.id = 1
-        team.organization_id = "org"
-        team.uuid = "team-uuid"
 
         flag_effect = RuntimeError("flag down") if kind == "flag" else None
         with (
@@ -380,14 +429,15 @@ class TestDocsShadowFailure(SimpleTestCase):
                 return_value=True,
                 side_effect=flag_effect,
             ),
-            patch("ee.hogai.tools.docs_search_shadow.async_search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
             patch(
                 "ee.hogai.tools.docs_search_shadow.posthoganalytics.capture",
                 side_effect=RuntimeError("capture down"),
             ),
         ):
             result = await fetch_inkeep_with_shadow(
-                team=team,
+                team=_shadow_team(),
                 query="how do flags work",
                 fetch_inkeep=fetch_inkeep,
                 surface="mcp",
@@ -397,45 +447,41 @@ class TestDocsShadowFailure(SimpleTestCase):
         self.assertEqual(format_inkeep_docs_response(result, include_system_reminder=False), expected)
         self.assertEqual(searched, kind == "capture")
 
-    async def test_search_that_swallows_cancellation_does_not_hold_the_response(self) -> None:
+    async def test_slow_search_does_not_hold_the_response(self) -> None:
         payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
-        release = asyncio.Event()
+        release = threading.Event()
+        captured = threading.Event()
 
         async def fetch_inkeep() -> dict:
             return payload
 
-        async def bk_search(*_args: object, **_kwargs: object) -> list:
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                await release.wait()
-                raise
-            return []
-
-        team = MagicMock()
-        team.id = 1
-        team.organization_id = "org"
-        team.uuid = "team-uuid"
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            release.wait(timeout=10)
+            return _search_results("https://posthog.com/docs/flags")
 
         try:
             with (
                 patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
-                patch("ee.hogai.tools.docs_search_shadow.async_search_knowledge_for_team", bk_search),
-                patch("ee.hogai.tools.docs_search_shadow.SHADOW_TIMEOUT_SECONDS", 0.05),
-                patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
+                patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+                patch(
+                    "ee.hogai.tools.docs_search_shadow.posthoganalytics.capture",
+                    side_effect=lambda **_kwargs: captured.set(),
+                ) as capture,
             ):
                 result = await asyncio.wait_for(
                     fetch_inkeep_with_shadow(
-                        team=team,
+                        team=_shadow_team(),
                         query="how do flags work",
                         fetch_inkeep=fetch_inkeep,
                         surface="posthog_ai",
                     ),
-                    timeout=1,
+                    timeout=5,
                 )
+                self.assertFalse(captured.is_set())
+                release.set()
+                self.assertTrue(captured.wait(timeout=10))
         finally:
             release.set()
 
         self.assertEqual(result, payload)
-        capture.assert_called_once()
-        self.assertEqual(capture.call_args.kwargs["properties"]["bk_error"], "timeout")
+        self.assertEqual(capture.call_args.kwargs["properties"]["overlap_count"], 1)
