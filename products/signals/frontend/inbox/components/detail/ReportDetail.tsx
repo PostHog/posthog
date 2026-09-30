@@ -7,9 +7,9 @@ import {
     IconEllipsis,
     IconExternal,
     IconSearch,
-    IconTrends,
     IconSidebarClose,
     IconSidebarOpen,
+    IconTrends,
 } from '@posthog/icons'
 import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
 
@@ -24,7 +24,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -51,9 +51,11 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
@@ -170,6 +172,8 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
+    impactArtefacts?: SignalReportArtefact[] | null
+    onImpactApproved?: () => void
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -192,15 +196,16 @@ interface InboxDetailFrameProps {
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
  * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
  * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The summary's title stands alone; the priority, the size of the change, and
- * the created/updated times head the "Files changed" tab, where a reviewer weighs the change. The
- * status and actionability chips stay off the page because the inbox section the report came from
- * already says what they said. The rail can be hidden (a persisted preference) so the report column,
- * and above all the diff, takes the full width.
+ * "Report summary" header. The status section collects the report and pull request state. The
+ * summary's title stands alone; the priority, the size of the change, and the created/updated times
+ * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
+ * persisted preference) so the report column, and above all the diff, takes the full width.
  * AgentRunDetail keeps its own layout.
  */
 export function InboxDetailFrame({
     report,
+    impactArtefacts,
+    onImpactApproved,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -322,12 +327,22 @@ export function InboxDetailFrame({
     // "Summary" tab; otherwise it sits under the "Report summary" header.
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
+    const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+    const expectedImpact =
+        expectedImpactEnabled && !summaryPending ? (
+            <ReportExpectedImpact
+                report={report}
+                reportUrl={reportUrl}
+                artefacts={impactArtefacts}
+                onApprovalComplete={onImpactApproved}
+            />
+        ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
@@ -341,6 +356,7 @@ export function InboxDetailFrame({
                         implementButton={implementButton}
                         pullRequestNote={pullRequestNote}
                         impactMetrics={impactMetrics}
+                        expectedImpact={expectedImpact}
                     />
                 ) : (
                     <div className="flex flex-col gap-6">
@@ -349,6 +365,7 @@ export function InboxDetailFrame({
                         </p>
                         {pullRequestNote}
                         {impactMetrics}
+                        {expectedImpact}
                     </div>
                 )}
                 {trailingCharts.length > 0 && (
@@ -409,6 +426,7 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
+                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -416,7 +434,6 @@ export function InboxDetailFrame({
                                 title="Observation"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('observation')}
-                                rightSlot={hideRailButton}
                             >
                                 <ReportPrimaryMetric reportId={report.id} metric={primaryMetric} />
                             </DetailSection>
@@ -427,7 +444,6 @@ export function InboxDetailFrame({
                                 title="Evidence"
                                 collapsible
                                 onToggleCollapsed={captureSectionToggle('evidence')}
-                                rightSlot={primaryMetric ? undefined : hideRailButton}
                             >
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
@@ -610,7 +626,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest } = useActions(logic)
+    const { selectPullRequest, loadReportArtefacts } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -640,6 +656,8 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
+            impactArtefacts={reportArtefacts}
+            onImpactApproved={loadReportArtefacts}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (

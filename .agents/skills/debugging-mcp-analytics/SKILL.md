@@ -26,8 +26,7 @@ The differentiator is **intent**: not "ran `query_run` 14 times" but "was trying
 churn cohort". Explicit non-goal: this does **not** replace LLM analytics / AI observability
 — generation traces, prompt/response, and token cost belong there.
 
-Status: **beta**, TypeScript and Python SDKs shipped, whole product still behind the
-`mcp-analytics` early-access flag (`products/mcp_analytics/frontend/featurePreviewGate.ts`).
+Status: **beta**, TypeScript and Python SDKs shipped, available to every project.
 PostHog dogfoods it — its own MCP server instruments itself, and that data drives the
 dashboard. Public tracking: mega-issue **PostHog/posthog#64016**, which is the live source
 for roadmap and customer wishlist.
@@ -215,9 +214,8 @@ carries the property reference and worked query examples.
    `backend/hogql_queries/` (`base.py`, `dashboard_series.py`, `harness_breakdown.py`,
    `tool_quality_tables.py`, `tool_tables.py`), dispatched via the generic `/query/` endpoint
    and enumerated in `backend/facade/queries.py`, with schemas in `posthog/schema.py`.
-   Gate: `hogql_queries/base.py::validate_mcp_analytics_access` — the feature flag **plus**
-   the `mcp_analytics` RBAC resource. _Breaks:_ flag off, RBAC denies, or Hard rules 1-3
-   ignored.
+   Gate: `hogql_queries/base.py::validate_mcp_analytics_access` — the `mcp_analytics` RBAC
+   resource. _Breaks:_ RBAC denies, or Hard rules 1-3 ignored.
 5. **Intent generation** (on demand, per session) -> collect `$mcp_intent` values -> an LLM
    summary of at most two sentences -> Postgres `posthog_mcp_session`. A second,
    project-level path produces the **intent digest / themes** with structured output, bounded
@@ -337,5 +335,4 @@ though the server independently stamps `$mcp_client_user_agent` and the legacy n
 `mcp_vendor_client` regardless of the pin; harness resolution reads the SDK-emitted
 `$mcp_vendor_client` first and coalesces the legacy name for those rows);
 the exec-property emitter is still absent from
-master (Hard rule 1); the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`;
-and the product remains behind the `mcp-analytics` flag, so a project without it sees nothing.
+master (Hard rule 1); and the clustering schedule still covers only `GUARANTEED_TEAM_IDS = [2]`.

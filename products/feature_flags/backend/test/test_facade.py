@@ -28,6 +28,7 @@ from products.feature_flags.backend.facade.api import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import (
+    _leads_with_unconditional_rollout,
     group_cohort_restriction_blocker,
     groups_carry_restriction_marker,
     replace_release_conditions,
@@ -40,22 +41,23 @@ from products.feature_flags.backend.facade.filters import (
     strip_group_cohort_restriction,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
 
 
 class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
     @parameterized.expand([("user", False), ("system", True)])
-    def test_unsupported_stored_config_cannot_be_updated(self, _name: str, system: bool) -> None:
+    def test_stored_v2_config_can_only_be_disabled_with_its_row_version(self, _name: str, system: bool) -> None:
         filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
         flag = self._create_flag(filters=filters)
-        original_version = flag.version
+        user = None if system else self.user
         with self.assertRaises(ValidationError) as exc:
-            update_flag(flag, {"active": False}, team=self.team, user=None if system else self.user)
-        assert exc.exception.get_codes() == {"filters": ["unsupported_config_version"]}
+            update_flag(flag, {"active": False}, team=self.team, user=user)
+        assert exc.exception.get_codes() == {"version": "required"}
         flag.refresh_from_db()
-        assert flag.active is True
-        assert flag.filters == filters
-        assert flag.version == original_version
+        assert (flag.active, flag.version) == (True, 1)
+        update_flag(flag, {"version": 1, "active": False}, team=self.team, user=user)
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 2, filters)
 
     def _create_flag(self, *, active: bool = True, filters: dict | None = None) -> FeatureFlag:
         return FeatureFlag.objects.create(
@@ -618,12 +620,16 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
     # writes, so they must succeed untouched by any enabled flag approval policy.
     @parameterized.expand(
         [
-            ("destroy", "delete", status.HTTP_204_NO_CONTENT),
-            ("demote_to_concept", "patch", status.HTTP_200_OK),
+            ("destroy", "delete", status.HTTP_204_NO_CONTENT, False),
+            ("demote_to_concept", "patch", status.HTTP_200_OK, False),
+            ("destroy_with_invalid_stored_filters", "delete", status.HTTP_204_NO_CONTENT, True),
+            ("demote_with_invalid_stored_filters", "patch", status.HTTP_200_OK, True),
         ]
     )
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_destroy_and_demote_never_require_approval(self, _name, method, expected_status, _mock_enabled):
+    def test_destroy_and_demote_never_require_approval(
+        self, _name, method, expected_status, invalid_stored_filters, _mock_enabled
+    ):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={"name": "Gated feature", "stage": "beta"},
@@ -632,6 +638,16 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         feature_id = response.json()["id"]
         flag = FeatureFlag.objects.get(team=self.team, key="gated-feature")
+        if invalid_stored_filters:
+            # The person property carries no "key" on purpose: that is what fails validation and
+            # drives cleanup onto the raw fallback. Adding one turns these into gated-write cases.
+            FeatureFlag.objects.filter(pk=flag.pk).update(
+                filters={
+                    "groups": [{"properties": [{"value": "ok", "type": "person"}], "rollout_percentage": 100}],
+                    "feature_enrollment": True,
+                }
+            )
+            flag.refresh_from_db()
         assert flag.has_feature_enrollment
 
         self.organization.available_product_features = [
@@ -659,6 +675,24 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         flag = FeatureFlag.objects.get(pk=flag.pk)
         assert not flag.has_feature_enrollment
         assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    def test_enrollment_clears_on_a_soft_deleted_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Trashed feature", "stage": "beta"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        feature_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="trashed-feature")
+        assert flag.has_feature_enrollment
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert not flag.has_feature_enrollment
 
 
 class TestSetFeatureEnrollment:
@@ -1006,3 +1040,121 @@ class TestExperimentRuleFromFilters:
         with pytest.raises(ConfigFormatError) as exc_info:
             experiment_rule_from_filters(filters)
         assert exc_info.value.config_format.kind == expected_kind
+
+
+V1_GROUPS = [{"properties": [], "rollout_percentage": 40}]
+UNSUPPORTED_DOCUMENTS = [
+    ("v2_document", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
+    ("v2_discriminator_over_v1_keys", {"version": 2, "groups": V1_GROUPS}),
+    ("string_discriminator", {"version": "1", "groups": V1_GROUPS}),
+    ("boolean_discriminator", {"version": True, "groups": V1_GROUPS}),
+    ("null_discriminator", {"version": None, "groups": V1_GROUPS}),
+    ("unknown_future_version", {"version": 3, "groups": V1_GROUPS}),
+]
+ACCESSORS = (
+    "conditions",
+    "has_feature_enrollment",
+    "holdout",
+    "aggregation_group_type_index",
+    "variants",
+    "uses_cohorts",
+)
+
+
+class TestModelAccessorsRequireV1:
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_accessors_raise_instead_of_reading_an_empty_v1_flag(self, _name, filters):
+        flag = FeatureFlag(filters=filters)
+        for accessor in ACCESSORS:
+            with pytest.raises(ConfigFormatError):
+                getattr(flag, accessor)
+        with pytest.raises(ConfigFormatError):
+            flag.get_payload("true")
+        with pytest.raises(ConfigFormatError):
+            flag.get_cohort_ids()
+        assert flag.is_eligible_for_experiment is False
+        assert flag.get_analytics_metadata() == {
+            "created_at": flag.created_at,
+            "config_format": "v2" if filters.get("version") == 2 else "unsupported",
+        }
+
+    @parameterized.expand(
+        [
+            ("empty", {}, [], [], None, None, False),
+            ("explicit_version_1", {"version": 1, "groups": V1_GROUPS}, V1_GROUPS, [], None, None, False),
+            ("null_groups", {"groups": None}, [], [], None, None, False),
+            ("null_multivariate", {"multivariate": None}, [], [], None, None, False),
+            ("null_variants", {"multivariate": {"variants": None}}, [], [], None, None, False),
+            ("null_payloads_and_enrollment", {"payloads": None, "feature_enrollment": None}, [], [], None, None, False),
+            (
+                "full_shape",
+                {
+                    "groups": V1_GROUPS,
+                    "multivariate": {"variants": [{"key": "a", "rollout_percentage": 100}]},
+                    "payloads": {"a": "1"},
+                    "holdout": {"id": 7},
+                    "aggregation_group_type_index": 2,
+                    "feature_enrollment": True,
+                },
+                V1_GROUPS,
+                [{"key": "a", "rollout_percentage": 100}],
+                {"id": 7},
+                2,
+                True,
+            ),
+        ]
+    )
+    def test_v1_shapes_keep_their_values(self, _name, filters, conditions, variants, holdout, index, enrolled):
+        flag = FeatureFlag(filters=filters)
+        assert flag.conditions == conditions
+        assert flag.variants == variants
+        assert flag.holdout == holdout
+        assert flag.aggregation_group_type_index == index
+        assert flag.has_feature_enrollment is enrolled
+        assert flag.get_payload("a") == (filters.get("payloads") or {}).get("a")
+        assert flag.get_analytics_metadata()["groups_count"] == len(conditions)
+
+
+class TestScheduledChangeBuilderRequiresV1:
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_v1_merges_fail_closed_and_status_changes_do_not_read_the_document(self, _name, filters):
+        flag = FeatureFlag(filters=filters)
+        for payload in (
+            {"operation": "add_release_condition", "value": {"groups": V1_GROUPS}},
+            {"operation": "update_variants", "value": {"variants": []}},
+        ):
+            with pytest.raises(ConfigFormatError):
+                build_scheduled_change_serializer_data(flag, payload)
+        assert build_scheduled_change_serializer_data(flag, {"operation": "update_status", "value": True}) == {
+            "active": True
+        }
+
+
+TRANSFORMS = [
+    ("restrict_groups_to_cohort", lambda filters: restrict_groups_to_cohort(filters, 42, **MARKER_KWARGS)),
+    ("strip_group_cohort_restriction", lambda filters: strip_group_cohort_restriction(filters, **MARKER_KWARGS)),
+    ("groups_carry_restriction_marker", lambda filters: groups_carry_restriction_marker(filters, marker_key="m")),
+    ("replace_variant_distribution", lambda filters: replace_variant_distribution(filters, [])),
+    ("replace_release_conditions", lambda filters: replace_release_conditions(filters, [])),
+    ("set_holdout", lambda filters: set_holdout(filters, holdout_id=None, exclusion_percentage=None)),
+    ("set_feature_enrollment", lambda filters: set_feature_enrollment(filters, True)),
+    ("group_cohort_restriction_blocker", group_cohort_restriction_blocker),
+    ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
+    ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
+    ("roll_out_to_everyone", roll_out_to_everyone),
+]
+
+
+class TestFilterTransformsRequireV1:
+    @parameterized.expand(
+        [
+            (f"{transform_name}_{document_name}", transform, filters)
+            for transform_name, transform in TRANSFORMS
+            for document_name, filters in UNSUPPORTED_DOCUMENTS
+        ]
+    )
+    def test_transforms_raise_before_copying(self, _name, transform, filters):
+        pristine = deepcopy(filters)
+        with pytest.raises(ConfigFormatError):
+            transform(filters)
+        assert filters == pristine

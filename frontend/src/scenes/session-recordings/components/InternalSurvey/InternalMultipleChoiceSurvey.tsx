@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SurveyQuestion, SurveyQuestionType } from '~/types'
 
 import { internalMultipleChoiceSurveyLogic } from './internalMultipleChoiceSurveyLogic'
@@ -169,6 +170,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
     const { handleChoiceChange, handleSurveyResponse, setOpenChoice } = useActions(logic)
 
     const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const { todayRailEnabled } = useValues(todayShellLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     //Because we want to run A/B test to see does it help users or not
@@ -232,7 +234,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                         >
                                             {question.buttonText ?? 'Submit'}
                                         </LemonButton>
-                                        {isHelpEnabled && (
+                                        {isHelpEnabled && !todayRailEnabled && (
                                             <LemonButton
                                                 disabledReason={
                                                     !openChoice || openChoice.length < 5

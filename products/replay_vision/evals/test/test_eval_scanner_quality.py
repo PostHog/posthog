@@ -198,6 +198,7 @@ def test_scan_completed_fails_on_schema_breakage() -> None:
         [
             {
                 "problem_type": "design_flaw",
+                "headline": "Navigation panel covers the book list",
                 "start_time": 7,
                 "end_time": 11,
                 "url": "https://example.com/library",
@@ -206,6 +207,7 @@ def test_scan_completed_fails_on_schema_breakage() -> None:
             },
             {
                 "problem_type": "crash",
+                "headline": "Reader errors out after a book opens",
                 "start_time": 23,
                 "end_time": 29,
                 "url": "https://example.com/reader",

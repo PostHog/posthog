@@ -1,6 +1,8 @@
 import {
   ArchiveIcon,
   ArrowClockwiseIcon,
+  BellIcon,
+  BellSlashIcon,
   CaretLeftIcon,
   CaretRightIcon,
   ChartLineIcon,
@@ -106,7 +108,6 @@ import { useFileSearchContext } from "@posthog/ui/features/command/useFileSearch
 import { useSearchRows } from "@posthog/ui/features/command/useSearchRows";
 import { useTaskSearch } from "@posthog/ui/features/command/useTaskSearch";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { useProvisioningStore } from "@posthog/ui/features/provisioning/store";
@@ -114,10 +115,16 @@ import {
   closeSettings,
   openSettings,
 } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import {
+  NOTIFICATION_PAUSE_MS,
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
+import { toast } from "@posthog/ui/primitives/toast";
 import {
   goBackInHistory,
   goForwardInHistory,
@@ -259,12 +266,18 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  const inboxAvailable = useInboxAvailable();
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
   const openFeedback = useFeedbackStore((state) => state.open);
+  const notificationsPausedUntil = useSettingsStore(
+    (state) => state.notificationsPausedUntil,
+  );
+  const setNotificationsPausedUntil = useSettingsStore(
+    (state) => state.setNotificationsPausedUntil,
+  );
+  const pausedNow = notificationsPaused(notificationsPausedUntil);
   const view = useAppView();
   const setReviewMode = useReviewNavigationStore(
     (state) => state.setReviewMode,
@@ -417,27 +430,20 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         shortcut: SHORTCUTS.SETTINGS,
         onRun: () => openSettingsDialog(),
       },
-      ...(inboxAvailable
-        ? [
-            {
-              id: "inbox",
-              label: "Self-driving",
-              keywords: "reports pull requests agents notifications",
-              icon: (
-                <EnvelopeSimpleIcon
-                  size={12}
-                  className="text-muted-foreground"
-                />
-              ),
-              action: "open-inbox",
-              shortcut: SHORTCUTS.INBOX,
-              onRun: () => {
-                closeSettingsDialog();
-                navigateToInbox();
-              },
-            } satisfies Command,
-          ]
-        : []),
+      {
+        id: "inbox",
+        label: "Self-driving",
+        keywords: "reports pull requests agents notifications",
+        icon: (
+          <EnvelopeSimpleIcon size={12} className="text-muted-foreground" />
+        ),
+        action: "open-inbox",
+        shortcut: SHORTCUTS.INBOX,
+        onRun: () => {
+          closeSettingsDialog();
+          navigateToInbox();
+        },
+      },
       {
         id: "archived",
         label: "Archived",
@@ -455,6 +461,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         keywords: "grid tasks parallel dashboard",
         icon: <SquaresFourIcon size={12} className="text-muted-foreground" />,
         action: "open-command-center",
+        shortcut: SHORTCUTS.COMMAND_CENTER,
         onRun: () => {
           closeSettingsDialog();
           navigateToCommandCenter();
@@ -551,6 +558,34 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         action: "toggle-left-sidebar",
         shortcut: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
         onRun: toggleLeftSidebar,
+      },
+      {
+        id: "toggle-notifications-pause",
+        label: pausedNow
+          ? "Resume notifications"
+          : "Pause notifications for 1 hour",
+        keywords: "mute silence sound quiet meeting alerts",
+        icon: pausedNow ? (
+          <BellIcon size={12} className="text-muted-foreground" />
+        ) : (
+          <BellSlashIcon size={12} className="text-muted-foreground" />
+        ),
+        action: "toggle-notifications-pause",
+        onRun: () => {
+          if (pausedNow) {
+            setNotificationsPausedUntil(null);
+            toast.success("Notifications resumed");
+            return;
+          }
+          const until = Date.now() + NOTIFICATION_PAUSE_MS;
+          setNotificationsPausedUntil(until);
+          toast.success(
+            `Notifications paused until ${new Date(until).toLocaleTimeString(
+              [],
+              { hour: "numeric", minute: "2-digit" },
+            )}`,
+          );
+        },
       },
       {
         id: "send-feedback",
@@ -708,6 +743,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     closeSettingsDialog,
     toggleLeftSidebar,
     openFeedback,
+    pausedNow,
+    setNotificationsPausedUntil,
     openReviewPanel,
     reviewTaskId,
     openedTask,
@@ -715,7 +752,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
-    inboxAvailable,
     bluebirdEnabled,
     spacesLayout,
   ]);

@@ -16,7 +16,14 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
-import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import {
+    CyclotronJobTemplateSuggestionsButton,
+    useTemplateEditorCursor,
+} from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import {
+    insertTemplateReference,
+    templateReferenceForOption,
+} from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -84,6 +91,7 @@ function AddAdvancedFieldButtons(): JSX.Element | null {
 function PlainTextEditor(): JSX.Element {
     const { logicProps, templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
 
     return (
         <LemonField name="text" className="flex flex-col flex-1">
@@ -95,7 +103,13 @@ function PlainTextEditor(): JSX.Element {
                             setTemplatingEngine={setTemplatingEngine}
                             value={value}
                             onOptionSelect={(option) => {
-                                onChange(`${value || ''}${option.example}`)
+                                onChange(
+                                    insertTemplateReference(
+                                        value || '',
+                                        templateReferenceForOption(option, templatingEngine),
+                                        cursorOffset()
+                                    )
+                                )
                             }}
                         />
                     </span>
@@ -104,6 +118,7 @@ function PlainTextEditor(): JSX.Element {
                         language={templatingEngine === 'hog' ? 'hogTemplate' : 'liquid'}
                         value={value}
                         onChange={onChange}
+                        onMount={onEditorMount}
                         globals={logicProps.variables}
                         options={{
                             wordWrap: 'on',
@@ -446,6 +461,7 @@ function LiquidSupportedText({
 }): JSX.Element {
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
 
     const templating = templatingEngine ?? 'hog'
 
@@ -457,7 +473,13 @@ function LiquidSupportedText({
                     setTemplatingEngine={setTemplatingEngine}
                     value={value}
                     onOptionSelect={(option) => {
-                        onChange?.(`${value || ''}${option.example}`)
+                        onChange?.(
+                            insertTemplateReference(
+                                value || '',
+                                templateReferenceForOption(option, templating),
+                                cursorOffset()
+                            )
+                        )
                     }}
                 />
             </span>
@@ -468,6 +490,7 @@ function LiquidSupportedText({
                 value={value}
                 language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 onChange={onChange}
+                onMount={onEditorMount}
             />
         </span>
     )

@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from datetime import timedelta
 from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
@@ -239,6 +239,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 #                          others meet. One scope object covers the whole surface, so the two
 #                          exclusions live in `products/replay_vision/backend/scout_writes.py`
 #                          instead: a scout cannot delete, and must cap what it creates or enables.
+#   hog_flow_proposal:write
+#                          Queue a suggested change on a workflow whose owner opted in, for a
+#                          person to approve or reject. Deliberately not `hog_flow:write`, which
+#                          also publishes, updates and test-sends a workflow: this scope can put
+#                          nothing in front of anyone. Creates only; a suggestion is resolved by
+#                          a person. The workflows scout declares it in its SKILL.md
+#                          (`scout-write-scopes`), so no other scout holds it unless granted.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -246,6 +253,13 @@ SCOUT_USER_WRITE_SCOPES: list[str] = [
 # reaches, or drop the scopes. `llm_skill:write` carries the same kind of open question: a scout
 # holding it can rewrite the skill body it runs from. That is accepted while the grant is a
 # deliberate per-scout choice a person makes, and the surfaces that offer it say so.
+# Grantable although INTERNAL, which normally means "never on a token a person can obtain". A scout
+# token is minted server-side from this allowlist and never through the consent flow, and the MCP
+# server gates each tool on the token's own scopes rather than on what OAuth advertises, so the grant
+# still reaches the run. Listed explicitly so a typo or a genuinely unreachable scope still fails
+# `test_grantable_write_scopes_are_mcp_write_scopes`.
+SCOUT_GRANTABLE_INTERNAL_SCOPES: frozenset[str] = frozenset({"hog_flow_proposal:write"})
+
 SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
     {
         "dashboard:write",
@@ -256,6 +270,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_view:write",
         "warehouse_table:write",
         "replay_scanner:write",
+        "hog_flow_proposal:write",
     }
 )
 
@@ -263,7 +278,7 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
 # Derived from posthog.scopes so the token issued to a sandboxed agent cannot
 # drift out of subset of what the MCP server advertises in
 # `services/mcp/src/lib/oauth-scopes.generated.ts` (itself generated from
-# `get_oauth_scopes_supported()` via `bin/build-mcp-oauth-scopes.py`). Scopes
+# `get_oauth_scopes_supported()` via `posthog/scopes_projection.py`). Scopes
 # already covered by INTERNAL_SCOPES are excluded so resolve_scopes() doesn't
 # emit duplicates.
 def _build_mcp_scopes(action: Literal["read", "write"]) -> list[str]:
@@ -584,8 +599,13 @@ def create_oauth_access_token_for_user(
     include_slack_run_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
+    withhold_scopes: Collection[str] = (),
 ) -> str:
-    resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    resolved = [
+        scope
+        for scope in resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+        if scope not in withhold_scopes
+    ]
     if include_mcp_builtin_agent_scope:
         # Provenance marker: the MCP Store uses it to deny the human/member
         # surface and route the agent through its explicit gateway grants. It

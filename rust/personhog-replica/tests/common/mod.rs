@@ -299,6 +299,11 @@ impl TestContext {
     }
 
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM person_tombstone_publish_queue WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
         sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
             .bind(self.team_id)
             .execute(&self.pool)

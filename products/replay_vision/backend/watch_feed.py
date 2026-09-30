@@ -5,6 +5,7 @@ own window), so "outlier" and "rare" mean unusual for that scanner lately, not a
 """
 
 import re
+from collections import deque
 from datetime import datetime
 from statistics import fmean, stdev
 from typing import Any
@@ -36,10 +37,10 @@ NOVEL_SUMMARY_MIN_TOKENS = 8
 # viewer could lean on by hammering the broad feed.
 NOVEL_SUMMARY_MAX_SIBLINGS = 40
 
-# Component weights for the blended watchability score. A lone signal outranks a lone anything-else,
-# but a type hit combined with the scan's own notability can outrank a routine signal — the feed is a
-# portfolio of the window's most watchable rows, not signals first and everything after. Retune here.
-WATCH_WEIGHT_SIGNAL = 1.0
+# Component weights for the blended watchability score. The feed is a portfolio of the window's most
+# watchable rows, not signals first and everything after, so the signal weight sits below the hit weight: a
+# wide outlier or a rare verdict outranks even the most confident lone signal. Retune here.
+WATCH_WEIGHT_SIGNAL = 0.8
 WATCH_WEIGHT_HIT = 0.9
 WATCH_WEIGHT_NOTABILITY = 0.7
 WATCH_WEIGHT_FRICTION = 0.3
@@ -50,6 +51,20 @@ WATCH_SEEN_PENALTY = 0.5
 # A no-baseline "yes" verdict is the weak conventional something-happened phrasing, so it enters the
 # blend below a verdict the scanner's own window shows to be rare.
 VERDICT_YES_STRENGTH = 0.5
+# Signal strength is the row's most confident finding, and emission floors confidence at 0.4, so a live value
+# runs 0.4-1.0. A row scanned before summaries shipped carries a count and no confidence, and takes the
+# midpoint of that range: it neither outranks the rows around it nor sinks below them.
+SIGNAL_LEGACY_STRENGTH = 0.7
+# The share of the feed signal rows may hold, above the leading row and while other rows remain to place.
+# Signals corroborate across sessions, so a window full of them says the scanner is working, not that a
+# reader should watch all of them.
+WATCH_FEED_MAX_SIGNAL_SHARE = 0.4
+# Reason kinds that say nothing about the session: the fall-through for a row that scored on no source at
+# all. They are ordering, not evidence, so the feed carries them only to reach the floor below.
+FILLER_REASON_KINDS = frozenset({"unviewed_recent", "recent"})
+# How short the feed may get before filler rows pad it. A feed of 3 real findings beats one of 3 findings
+# and 17 "new since you last looked", and a feed that empties the moment nothing is wrong reads as broken.
+WATCH_FEED_MIN_ITEMS = 3
 # The score deviation, in stddevs, at which an outlier counts full strength. The hit fires at
 # OUTLIER_STDDEVS; its strength climbs from there to 1.0 by this many stddevs, so a wider outlier ranks
 # above a marginal one instead of both reading as the same boolean hit.
@@ -83,6 +98,8 @@ class _Candidate:
     viewed: bool
     signals_count: int
     signal_problem_types: tuple[str, ...]
+    # (problem_type, headline, confidence) per emitted signal. Empty on rows scanned before this shipped.
+    signal_summaries: tuple[tuple[str, str, float], ...]
     scanner_type: str | None
     verdict: str | None
     score: float | None
@@ -104,6 +121,22 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
     raw_problem_types = result.get("signal_problem_types") if isinstance(result, dict) else None
     signal_problem_types = (
         tuple(pt for pt in raw_problem_types if isinstance(pt, str)) if isinstance(raw_problem_types, list) else ()
+    )
+    raw_summaries = result.get("signal_summaries") if isinstance(result, dict) else None
+    signal_summaries = (
+        tuple(
+            (entry["problem_type"], entry["headline"], float(entry["confidence"]))
+            for entry in raw_summaries
+            if isinstance(entry, dict)
+            and isinstance(entry.get("problem_type"), str)
+            # A blank headline would leave the card's sentence trailing off, so the row counts instead.
+            and isinstance(entry.get("headline"), str)
+            and entry["headline"].strip()
+            and isinstance(entry.get("confidence"), int | float)
+            and not isinstance(entry.get("confidence"), bool)
+        )
+        if isinstance(raw_summaries, list)
+        else ()
     )
     score = output.get("score")
     raw_tags = output.get("tags")
@@ -131,6 +164,7 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         viewed=bool(row.get("feed_viewed")),
         signals_count=signals_count if isinstance(signals_count, int) else 0,
         signal_problem_types=signal_problem_types,
+        signal_summaries=signal_summaries,
         scanner_type=scanner_type,
         verdict=verdict,
         score=float(score) if isinstance(score, int | float) else None,
@@ -260,22 +294,101 @@ def _type_hit(
     return None
 
 
+def _signal_strength(candidate: _Candidate) -> float:
+    """How strongly the row's signals argue for watching it: the confidence of its most confident finding.
+    A flat 1.0 for any signal made a marginal finding rank level with an unmistakable one."""
+    if candidate.signal_summaries:
+        return max(confidence for _, _, confidence in candidate.signal_summaries)
+    return SIGNAL_LEGACY_STRENGTH if candidate.signals_count > 0 else 0.0
+
+
+def _contributions(candidate: _Candidate, hit_strength: float) -> dict[str, float]:
+    """The weighted evidence this row carries, one entry per source. `_watchability` sums these and the
+    displayed reason names the largest of them, so the order and the copy read the same numbers."""
+    return {
+        "signal": WATCH_WEIGHT_SIGNAL * _signal_strength(candidate),
+        "hit": WATCH_WEIGHT_HIT * hit_strength,
+        "notability": WATCH_WEIGHT_NOTABILITY * (candidate.notability if candidate.notability is not None else 0.0),
+        "friction": WATCH_WEIGHT_FRICTION * (1.0 if candidate.friction else 0.0),
+    }
+
+
 def _watchability(candidate: _Candidate, hit_strength: float) -> float:
     """Blend the row's signal, type hit, notability, and friction into one score, then dock a row the
     reader already opened. Every source contributes at once, so a row wins on the sum of its evidence
     rather than on a single dominant flag."""
-    signal_strength = 1.0 if candidate.signals_count > 0 else 0.0
-    notability = candidate.notability if candidate.notability is not None else 0.0
-    friction = 1.0 if candidate.friction else 0.0
-    score = (
-        WATCH_WEIGHT_SIGNAL * signal_strength
-        + WATCH_WEIGHT_HIT * hit_strength
-        + WATCH_WEIGHT_NOTABILITY * notability
-        + WATCH_WEIGHT_FRICTION * friction
-    )
+    score = sum(_contributions(candidate, hit_strength).values())
     if candidate.viewed:
         score -= WATCH_SEEN_PENALTY
     return score
+
+
+def _strongest_reason_part(candidate: _Candidate, contributions: dict[str, float]) -> str | None:
+    """Which source the card should name, or None when the row carries no evidence at all.
+
+    The largest weighted part wins. Ties break signal, hit, notability, friction — the order the old
+    fixed ladder used — so a row with two equal parts reads the way it always did.
+    """
+    parts = dict(contributions)
+    # Notability below the tier threshold still adds to the score, but the card must not say the scan judged
+    # the session worth watching when it did not. The old ladder held this rule; the label holds it now.
+    if candidate.notability is None or candidate.notability < NOTABLE_MIN_SCORE:
+        parts["notability"] = 0.0
+    winner = max(("signal", "hit", "notability", "friction"), key=lambda part: parts[part])
+    return winner if parts[winner] > 0 else None
+
+
+def _cap_signal_share(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
+    """Hold signal cards to WATCH_FEED_MAX_SIGNAL_SHARE of the feed as it is placed.
+
+    The share is checked per place rather than over the whole list, because the view slices the head of this
+    list: a feed of 5 obeys the same share as a feed of 50. Two rows are exempt by design. The best row
+    always leads, whatever it is. And a window with more signal rows than the share can hold runs out of
+    other rows to interleave, so the rest trail the feed rather than disappear from it — reordering the feed
+    is the job here, shortening it is not.
+
+    Because `_trim_filler` runs first, the rows a signal is held against are other findings, not padding.
+    So a window whose only findings are signals returns a feed of signals: the share keeps signals from
+    crowding out an outlier or a rare verdict, and was never meant to dilute them with clips that carry
+    nothing.
+    """
+    placed: list[WatchFeedEntry] = []
+    # A deque, because the candidate cap is 1000 and every admitted row pops from the front.
+    held: deque[WatchFeedEntry] = deque()
+    signals_placed = 0
+    for entry in ranked:
+        if entry.reason["kind"] == "signal_emitted":
+            held.append(entry)
+        else:
+            placed.append(entry)
+        while held and (not placed or (signals_placed + 1) / (len(placed) + 1) <= WATCH_FEED_MAX_SIGNAL_SHARE):
+            placed.append(held.popleft())
+            signals_placed += 1
+    return placed + list(held)
+
+
+def _trim_filler(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
+    """Drop the no-evidence rows once WATCH_FEED_MIN_ITEMS real findings are in the feed.
+
+    `limit` is a ceiling the feed had been filling: a quiet window returned 20 cards of which 17 said
+    "New since you last looked", which buries the few that meant something. Findings are kept whatever
+    their count; filler only makes up the difference to the floor, so a window with nothing to say
+    returns 3 newest clips rather than 20 or an empty state.
+    """
+    findings = [entry for entry in ranked if entry.reason["kind"] not in FILLER_REASON_KINDS]
+    if len(findings) >= WATCH_FEED_MIN_ITEMS:
+        return findings
+    # Walk rather than concatenate, because a row the reader already opened is docked half a point and can
+    # sort below an unviewed filler row — findings are not always a prefix of the list.
+    budget = WATCH_FEED_MIN_ITEMS - len(findings)
+    kept: list[WatchFeedEntry] = []
+    for entry in ranked:
+        if entry.reason["kind"] not in FILLER_REASON_KINDS:
+            kept.append(entry)
+        elif budget > 0:
+            kept.append(entry)
+            budget -= 1
+    return kept
 
 
 def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntry]:
@@ -289,8 +402,16 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
     so an unviewed peer comes first while a strong seen row still holds its place above routine unseen
     rows.
 
-    The displayed reason still names the single strongest source (signal, then hit, then notability,
-    then friction, then seen-state), independent of the score that ordered the row.
+    The displayed reason names the largest weighted part of that same score, so the card explains the
+    position it earned. It used to name a signal whenever the row carried one, which labelled a row as
+    `signal_emitted` even when a wide outlier was the stronger evidence and made the feed read as signals
+    with a few other things in it.
+
+    Rows that scored on nothing are then trimmed to a floor of WATCH_FEED_MIN_ITEMS, and the signal rows
+    that survive are interleaved down to WATCH_FEED_MAX_SIGNAL_SHARE of the result; see `_trim_filler` and
+    `_cap_signal_share`. The trim runs first on purpose: trimming afterwards would strip the very rows the
+    cap interleaved signals against, so a feed that satisfied the share when built would breach it on the
+    way out.
     """
     candidates = [_parse_candidate(row) for row in rows]
     baselines = _baselines(candidates)
@@ -302,17 +423,24 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         hit_result = _type_hit(candidate, baselines[candidate.scanner_id], by_scanner[candidate.scanner_id])
         hit = hit_result[0] if hit_result is not None else None
         hit_strength = hit_result[1] if hit_result is not None else 0.0
-        has_signal = candidate.signals_count > 0
-        notable = candidate.notability is not None and candidate.notability >= NOTABLE_MIN_SCORE
-        if has_signal:
+        contributions = _contributions(candidate, hit_strength)
+        strongest = _strongest_reason_part(candidate, contributions)
+        if strongest == "signal":
             reason: dict[str, Any] = {"kind": "signal_emitted", "signals_count": candidate.signals_count}
             if candidate.signal_problem_types:
                 reason["problem_types"] = list(candidate.signal_problem_types)
-        elif hit is not None:
+            if candidate.signal_summaries:
+                # The card names the findings from this; the confidence stays behind, because it ranks the
+                # row rather than telling a reader anything they can act on.
+                reason["signals"] = [
+                    {"problem_type": problem_type, "headline": headline}
+                    for problem_type, headline, _ in candidate.signal_summaries
+                ]
+        elif strongest == "hit" and hit is not None:
             reason = hit
-        elif notable:
+        elif strongest == "notability":
             reason = {"kind": "notable", "notability": candidate.notability}
-        elif candidate.friction:
+        elif strongest == "friction":
             reason = {"kind": "friction"}
         elif not candidate.viewed:
             reason = {"kind": "unviewed_recent"}
@@ -326,4 +454,4 @@ def rank_watch_feed_candidates(rows: list[dict[str, Any]]) -> list[WatchFeedEntr
         sort_key = (_watchability(candidate, hit_strength), candidate.created_at)
         scored.append((sort_key, WatchFeedEntry(observation_id=candidate.observation_id, reason=reason)))
     scored.sort(key=lambda item: item[0], reverse=True)
-    return [entry for _, entry in scored]
+    return _cap_signal_share(_trim_filler([entry for _, entry in scored]))

@@ -25,9 +25,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
-    CHANNEL_MAX_PRECOMPUTE_DAYS,
-    LAZY_TTL_SECONDS,
-    MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
@@ -36,10 +33,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     channel_rules_shape_key,
-    channel_ttl_schedule,
     events_session_id_expr,
     floor_utc_day,
     has_channel_type_filter,
+    lazy_ttl_schedule,
     test_account_filter_expr,
     user_filter_expr,
     with_channel_rules_key,
@@ -218,7 +215,6 @@ def can_use_lazy_precompute(runner: "WebStatsTableQueryRunner") -> bool:
         log_prefix="web_stats",
         extra_check=_check_stats_eligible,
         allow_channel_type_filter=channel,
-        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if channel else MAX_PRECOMPUTE_DAYS,
     )
 
 
@@ -315,7 +311,7 @@ def ensure_web_stats_precomputed(
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=channel_ttl_schedule(runner.team) if channel else LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",

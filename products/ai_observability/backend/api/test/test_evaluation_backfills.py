@@ -29,11 +29,17 @@ from posthog.rate_limit import (
 from posthog.temporal.ai_observability.run_session_evaluation import AI_EVENTS_RETENTION_DAYS
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.evaluation_backfills import BACKFILL_RETENTION_MARGIN, BACKFILL_START_GRACE
+from products.ai_observability.backend.api.evaluation_backfills import (
+    BACKFILL_AI_EVENTS_LAG,
+    BACKFILL_RETENTION_MARGIN,
+    BACKFILL_START_GRACE,
+)
+from products.ai_observability.backend.backfill_candidates import BackfillScope
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 API_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
+CAPTURE = "posthog.event_usage.posthoganalytics.capture"
 
 
 def _other_team() -> Team:
@@ -99,6 +105,14 @@ def _temporal_client(
     return client
 
 
+def _scope(to_evaluate: int, already_judged: int = 0) -> BackfillScope:
+    return BackfillScope(to_evaluate=to_evaluate, already_judged=already_judged)
+
+
+def _captured(capture: MagicMock, event: str) -> list[dict]:
+    return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs["event"] == event]
+
+
 def _workflow_not_found() -> RPCError:
     return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
 
@@ -118,7 +132,11 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         self.url = f"/api/projects/{self.team.id}/evaluations/{self.evaluation.id}/backfills"
 
     def _running_backfill(
-        self, evaluation: Evaluation | None = None, *, age: timedelta | None = None
+        self,
+        evaluation: Evaluation | None = None,
+        *,
+        age: timedelta | None = None,
+        status: EvaluationBackfillStatus = EvaluationBackfillStatus.RUNNING,
     ) -> EvaluationBackfill:
         now = timezone.now()
         evaluation = evaluation or self.evaluation
@@ -130,6 +148,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             target="generation",
             conditions=[],
             total_count=1,
+            status=status,
+            finished_at=None if status == EvaluationBackfillStatus.RUNNING else now,
         )
         if age is not None:
             # created_at is auto_now_add, so ageing the row past BACKFILL_START_GRACE takes an update.
@@ -143,7 +163,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
     # Guards the wiring and the bucket, not the rate: the team-wide throttle has to reach
     # `get_throttles()`, and a second member of the project has to land in the same bucket, or the
     # count these actions run scales with the number of members and keys again.
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
     @patch("posthog.rate_limit.AIObservabilityBackfillEstimateSustainedThrottle.rate", new="1/hour")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_estimate_is_rate_limited_across_the_project(self, _enabled, _count):
@@ -156,18 +176,40 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         throttled = self.client.post(f"{self.url}/estimate/", _body(), format="json")
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.json()
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=42)
-    def test_estimate_counts_without_creating_a_row(self, _count):
+    @patch(CAPTURE)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42, already_judged=8))
+    def test_estimate_counts_without_creating_a_row(self, _count, capture):
         response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["total_units"] == 42
+        assert response.json()["already_evaluated_units"] == 8
         assert response.json()["unit"] == "generation"
         assert EvaluationBackfill.objects.unscoped().count() == 0
+        [properties] = _captured(capture, "llma evaluation backfill estimated")
+        assert properties == {
+            **properties,
+            "source": "web",
+            "evaluation_id": str(self.evaluation.id),
+            "target": "generation",
+            "evaluation_type": "hog",
+            "units_to_evaluate": 42,
+            "units_already_evaluated": 8,
+            "window_days": 7.0,
+            "rerun_existing": False,
+        }
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=42)
+    @patch(CAPTURE, side_effect=RuntimeError("capture down"))
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42))
+    def test_a_failed_capture_does_not_fail_the_request(self, _count, _capture):
+        response = self.client.post(f"{self.url}/estimate/", _body(), format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @patch(CAPTURE)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(42))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_create_freezes_conditions_and_starts_workflow(self, connect, _count):
+    def test_create_freezes_conditions_and_starts_workflow(self, connect, _count, capture):
         connect.return_value = _temporal_client()
 
         response = self.client.post(f"{self.url}/", _body(), format="json")
@@ -190,7 +232,18 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert call.kwargs["id"] == f"llma-evaluation-backfill-{row.id}"
         assert call.kwargs["task_queue"] == settings.LLMA_TASK_QUEUE
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=7)
+        [properties] = _captured(capture, "llma evaluation backfill started")
+        assert properties == {
+            **properties,
+            "source": "web",
+            "backfill_id": str(row.id),
+            "total_count": 42,
+            "units_to_evaluate": 42,
+            "evaluation_type": "hog",
+            "rerun_existing": False,
+        }
+
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
     def test_create_uses_submitted_conditions_and_rerun_flag(self, connect, _count):
         connect.return_value = _temporal_client()
@@ -216,7 +269,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             ("workflow_unknown_to_temporal", None, _workflow_not_found()),
         ]
     )
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=7)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
     def test_create_rejects_a_second_backfill_while_a_recent_row_is_active(
         self, _case, workflow_status, describe_error, connect, _count
@@ -239,7 +292,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             ("workflow_unknown_to_temporal", None, _workflow_not_found()),
         ]
     )
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=7)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
     def test_create_releases_an_old_row_whose_workflow_is_no_longer_running(
         self, _case, workflow_status, describe_error, connect, _count
@@ -247,14 +300,23 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         connect.return_value = _temporal_client(workflow_status, describe_error)
         stale = self._stale_backfill()
 
-        response = self.client.post(f"{self.url}/", _body(), format="json")
+        with patch("posthog.temporal.ai_observability.evaluation_backfill.ph_background_capture") as capture:
+            response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.CANCELLED
         assert stale.finished_at is not None
+        finished = [
+            call.kwargs["properties"]
+            for call in capture.return_value.call_args_list
+            if call.kwargs["event"] == "llma evaluation backfill finished"
+        ]
+        assert [(event["backfill_id"], event["status"], event["stop_reason"]) for event in finished] == [
+            (str(stale.pk), "failed", "workflow_not_running")
+        ]
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=7)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect")
     def test_create_refuses_when_an_old_rows_workflow_still_runs(self, connect, _count):
         connect.return_value = _temporal_client(WorkflowExecutionStatus.RUNNING)
@@ -305,7 +367,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         stale.refresh_from_db()
         assert stale.status == EvaluationBackfillStatus.CANCELLED
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=7)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
     def test_create_keeps_refusing_when_temporal_cannot_be_reached(self, _connect, _count):
         stale = self._stale_backfill()
@@ -350,7 +412,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             assert "at least one condition set" in response.json()["detail"]
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
     def test_clamps_a_window_wider_than_retention(self, connect, _count):
         connect.return_value = _temporal_client()
@@ -362,14 +424,15 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         estimate = self.client.post(f"{self.url}/estimate/", body, format="json")
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - now) < timedelta(seconds=5)
+        expected_end = now - BACKFILL_AI_EVENTS_LAG
+        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - expected_end) < timedelta(seconds=5)
         expected_start = now - timedelta(days=AI_EVENTS_RETENTION_DAYS)
         assert abs(datetime.fromisoformat(estimate.json()["window_start"]) - expected_start) < timedelta(seconds=5)
 
         created = self.client.post(f"{self.url}/", body, format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         row = EvaluationBackfill.objects.unscoped().get(pk=created.json()["id"])
-        assert abs(row.window_end - now) < timedelta(seconds=5)
+        assert abs(row.window_end - expected_end) < timedelta(seconds=5)
         assert abs(row.window_start - expected_start) < timedelta(seconds=5)
 
     @parameterized.expand(
@@ -382,7 +445,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
             ),
         ]
     )
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
     def test_holds_the_window_back_from_units_the_live_path_is_still_grading(
         self, _case, target, target_config, connect, _count
@@ -405,18 +468,20 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert "has to end before that" in refused.json()["detail"]
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_a_generation_backfill_reaches_up_to_now(self, connect, _count):
+    def test_a_generation_backfill_stops_short_of_the_ai_events_lag(self, connect, _count):
         connect.return_value = _temporal_client()
-        now = timezone.now()
+        margin = BACKFILL_AI_EVENTS_LAG
+        before = timezone.now()
 
         estimate = self.client.post(f"{self.url}/estimate/", _body(), format="json")
 
+        after = timezone.now()
         assert estimate.status_code == status.HTTP_200_OK, estimate.json()
-        assert abs(datetime.fromisoformat(estimate.json()["window_end"]) - now) < timedelta(seconds=30)
+        assert before - margin <= datetime.fromisoformat(estimate.json()["window_end"]) <= after - margin
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=3)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(3))
     @patch(f"{API_MODULE}.sync_connect")
     def test_clamps_the_window_to_the_projects_drop_threshold(self, connect, _count):
         connect.return_value = _temporal_client()
@@ -502,7 +567,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
     @parameterized.expand(["create", "estimate"])
-    def test_a_disabled_evaluation_cannot_be_backfilled(self, case):
+    @patch(CAPTURE)
+    def test_a_disabled_evaluation_cannot_be_backfilled(self, case, capture):
         self.evaluation.enabled = False
         self.evaluation.save()
         path = f"{self.url}/" if case == "create" else f"{self.url}/estimate/"
@@ -512,6 +578,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == "Enable the evaluation before backfilling it."
         assert EvaluationBackfill.objects.unscoped().count() == 0
+        capture.assert_not_called()
 
     @parameterized.expand(["list", "estimate"])
     def test_another_teams_evaluation_is_not_addressable(self, case):
@@ -525,15 +592,22 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=0)
-    def test_create_rejects_empty_window(self, _count):
-        response = self.client.post(f"{self.url}/", _body(), format="json")
+    @parameterized.expand(
+        [
+            ("nothing_matched", 0, "No generations in this range"),
+            # An enabled evaluation covers its own traffic, so a full range is the common zero.
+            ("everything_judged", 9, "Every generation in this range already has a result"),
+        ]
+    )
+    def test_create_rejects_a_window_with_nothing_to_evaluate(self, _case, already_judged, expected_detail):
+        with patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(0, already_judged)):
+            response = self.client.post(f"{self.url}/", _body(), format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "No generations in this range" in response.json()["detail"]
+        assert expected_detail in response.json()["detail"]
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))
     def test_create_rolls_back_row_when_temporal_is_unreachable(self, _connect, _count):
         response = self.client.post(f"{self.url}/", _body(), format="json")
@@ -541,9 +615,10 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code >= 500
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=5)
+    @patch(CAPTURE)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(5))
     @patch(f"{API_MODULE}.sync_connect")
-    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count):
+    def test_create_keeps_the_row_when_the_start_result_is_unknown(self, connect, _count, capture):
         connect.return_value = _temporal_client()
         connect.return_value.start_workflow.side_effect = RuntimeError("stream closed")
 
@@ -552,9 +627,11 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert response.status_code >= 500
         row = EvaluationBackfill.objects.unscoped().get()
         assert row.status == EvaluationBackfillStatus.RUNNING
+        assert _captured(capture, "llma evaluation backfill started") == []
 
+    @patch(CAPTURE)
     @patch(f"{API_MODULE}.sync_connect")
-    def test_cancel_marks_terminal_and_is_idempotent(self, connect):
+    def test_cancel_marks_terminal_and_is_idempotent(self, connect, capture):
         connect.return_value = _temporal_client()
         backfill = self._running_backfill()
 
@@ -569,6 +646,8 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert second.json()["status"] == EvaluationBackfillStatus.CANCELLED
         assert second.json()["finished_at"] == first.json()["finished_at"]
+        [properties] = _captured(capture, "llma evaluation backfill cancelled")
+        assert properties == {**properties, "source": "web", "backfill_id": str(backfill.id), "total_count": 1}
 
     @parameterized.expand(
         [
@@ -588,6 +667,19 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
+
+    def test_list_breaks_created_at_ties_by_ascending_id(self):
+        ids = sorted(str(self._running_backfill(status=EvaluationBackfillStatus.COMPLETED).id) for _ in range(5))
+        # created_at is auto_now_add, so tying the rows to one timestamp takes an update.
+        EvaluationBackfill.objects.unscoped().filter(pk__in=ids).update(created_at=timezone.now())
+
+        walked: list[str] = []
+        for offset in range(0, len(ids), 2):
+            response = self.client.get(f"{self.url}/?limit=2&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            walked.extend(row["id"] for row in response.json()["results"])
+
+        assert walked == ids
 
     def test_list_is_scoped_to_evaluation_and_team(self):
         mine = self._running_backfill()
@@ -638,7 +730,7 @@ class TestEvaluationBackfillsAccessControl(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=4)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(4))
     def test_viewer_can_estimate_but_cannot_create(self, _count):
         body = _body()
 
@@ -650,7 +742,7 @@ class TestEvaluationBackfillsAccessControl(APIBaseTest):
         assert created.status_code == status.HTTP_403_FORBIDDEN, created.json()
         assert EvaluationBackfill.objects.unscoped().count() == 0
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=4)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(4))
     @patch(f"{API_MODULE}.sync_connect")
     def test_editor_on_this_evaluation_can_create_despite_being_a_viewer_on_the_resource(self, connect, _count):
         connect.return_value = _temporal_client()
@@ -661,7 +753,7 @@ class TestEvaluationBackfillsAccessControl(APIBaseTest):
         assert created.status_code == status.HTTP_201_CREATED, created.json()
         assert EvaluationBackfill.objects.unscoped().count() == 1
 
-    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=4)
+    @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(4))
     @patch(f"{API_MODULE}.sync_connect")
     def test_a_personal_api_key_reaches_the_same_per_evaluation_grant_as_a_session(self, connect, _count):
         connect.return_value = _temporal_client()

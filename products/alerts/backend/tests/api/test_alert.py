@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,11 +24,13 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.api import INSIGHT_ALERT_EVENT_IDS, LLMDetectorUnavailableError
 from products.alerts.backend.facade.contracts import AlertDelivery
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
+from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.product_analytics.backend.facade.models import Insight
 
@@ -36,20 +39,28 @@ TEST_DESTINATION_DELIVERY = AlertDelivery(
 )
 
 
-class TestAlert(APIBaseTest, QueryMatchingTest):
+class TrendsInsightAPITest(APIBaseTest):
+    """Base for the alert API tests that hang an alert off a trends insight."""
+
+    def trends_insight_query(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            **overrides,
+        }
+
+    def create_trends_insight(self, **overrides: Any) -> dict[str, Any]:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/insights",
+            data={"query": self.trends_insight_query(**overrides)},
+        ).json()
+
+
+class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -76,6 +87,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "id": mock.ANY,
             "insight": mock.ANY,
             "insight_display_name": mock.ANY,
+            "llm_detector_available": None,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
@@ -363,7 +375,14 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         assert len(body["checks"]) == expected_count
         assert body["checks_total"] == total_checks
 
-    def test_retrieve_check_includes_allowlisted_error_code(self) -> None:
+    @parameterized.expand(
+        [
+            ("email_unavailable", "Email delivery is unavailable."),
+            ("invalid_configuration", "AI data processing consent was withdrawn for this project."),
+            ("llm_detector_unavailable", "The AI detector could not complete this check."),
+        ]
+    )
+    def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -378,16 +397,13 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             alert_configuration=alert_obj,
             calculated_value=None,
             state=AlertState.ERRORED,
-            error={"code": "email_unavailable", "message": "Email delivery is unavailable."},
+            error={"code": code, "message": message},
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["checks"][0]["error"] == {
-            "code": "email_unavailable",
-            "message": "Email delivery is unavailable.",
-        }
+        assert response.json()["checks"][0]["error"] == {"code": code, "message": message}
 
     def test_retrieve_check_hides_internal_error_message(self) -> None:
         creation_request = {
@@ -1629,15 +1645,11 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
 
 
-class TestInvestigationAgentValidation(APIBaseTest):
+class TestInvestigationAgentValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                "interval": "day",
-            },
+            "query": self.trends_insight_query(interval="day"),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
@@ -1691,21 +1703,11 @@ class TestInvestigationAgentValidation(APIBaseTest):
         assert "investigation_gates_notifications" in response.json().get("attr", "")
 
 
-class TestAlertSimulate(APIBaseTest):
+class TestAlertSimulate(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "ActionsLineGraph"},
-                "interval": "day",
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "ActionsLineGraph"}, interval="day"),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
 
@@ -1753,6 +1755,23 @@ class TestAlertSimulate(APIBaseTest):
         assert data["total_points"] == 34  # 35 mock points minus 1 dropped incomplete interval
         assert isinstance(data["scores"], list)
         assert len(data["scores"]) == 34
+
+    @mock.patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulate_short_sql_history_returns_validation_error(self, mock_calculate) -> None:
+        insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "SELECT 1 AS value"})
+        mock_calculate.return_value = mock.MagicMock(result=[[1.0]], columns=["value"], has_more=False)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {
+                "insight": insight.id,
+                "detector_config": {"type": "zscore", "threshold": 0.9, "window": 30},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row", "column": "value"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "needs at least" in response.json()["detail"]
+        assert not AlertCheck.objects.filter(alert_configuration__insight=insight).exists()
 
     @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
     def test_simulate_uses_default_detector_config(self, mock_simulate) -> None:
@@ -1875,19 +1894,10 @@ class TestAlertSimulate(APIBaseTest):
         assert AlertCheck.objects.count() == checks_before
 
 
-class TestAlertTestDelivery(APIBaseTest):
+class TestAlertTestDelivery(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
-        insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                }
-            },
-        ).json()
+        insight = self.create_trends_insight(trendsFilter={"display": "BoldNumber"})
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
             data={
@@ -2223,20 +2233,11 @@ class TestAlertEventProperties(APIBaseTest):
             assert props[key] == value, f"{key} expected {value}, got {props[key]}"
 
 
-class TestAlertListFilters(APIBaseTest):
+class TestAlertListFilters(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -2387,21 +2388,12 @@ class TestAlertListFilters(APIBaseTest):
         assert response.json()["attr"] == expected_attr
 
 
-class TestAlertAPIKeyAccess(APIBaseTest):
+class TestAlertAPIKeyAccess(TrendsInsightAPITest):
     """Test that the alert scope is properly enforced for API key access."""
 
     def setUp(self):
         super().setUp()
-        self.insight = self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "trendsFilter": {"display": "BoldNumber"},
-                },
-            },
-        ).json()
+        self.insight = self.create_trends_insight(trendsFilter={"display": "BoldNumber"})
         self.alert = AlertConfiguration.objects.create(
             team=self.team,
             insight_id=self.insight["id"],
@@ -2535,21 +2527,67 @@ class TestAlertAPIKeyAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    @parameterized.expand(
+        [
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "json"),
+            (["alert:read", "insight:read"], status.HTTP_403_FORBIDDEN, "multipart"),
+            (["alert:write", "insight:read"], status.HTTP_200_OK, "json"),
+        ]
+    )
+    @mock.patch("products.alerts.backend.presentation.views.alert.simulate_detector_on_insight")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_an_ai_simulation_needs_a_write_scope(
+        self, scopes, expected_status, request_format, _flag, mock_simulate
+    ) -> None:
+        # Every other mode of this endpoint only reads. The AI one spends the organization's
+        # model budget, which a token scoped to read alerts and insights was never granted.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_simulate.return_value = {
+            "data": [],
+            "dates": [],
+            "scores": [],
+            "triggered_indices": [],
+            "triggered_dates": [],
+            "interval": "day",
+            "total_points": 0,
+            "anomaly_count": 0,
+        }
+        api_key = self._create_api_key(scopes)
+        self.client.logout()
 
-class TestAlertRealTimeInterval(APIBaseTest):
+        cache.clear()
+        endpoint = f"/api/projects/{self.team.id}/alerts/simulate/"
+        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        payload = {
+            "insight": self.insight["id"],
+            "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
+        }
+        with (
+            mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            mock.patch("posthog.rate_limit.AlertLLMSimulationBurstThrottle.rate", new="1/minute"),
+        ):
+            for _ in range(2 if expected_status == status.HTTP_403_FORBIDDEN else 1):
+                response = self.client.post(
+                    endpoint, payload, format=request_format, HTTP_AUTHORIZATION=f"Bearer {api_key}"
+                )
+                assert response.status_code == expected_status, response.content
+            if expected_status == status.HTTP_403_FORBIDDEN:
+                assert "alert:write" in response.json()["detail"]
+                mock_simulate.assert_not_called()
+                writer_key = self._create_api_key(["alert:write", "insight:read"])
+                response = self.client.post(
+                    endpoint, payload, format=request_format, HTTP_AUTHORIZATION=f"Bearer {writer_key}"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.content
+        cache.clear()
+
+
+class TestAlertRealTimeInterval(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.default_insight_data: dict[str, Any] = {
-            "query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                    }
-                ],
-                "trendsFilter": {"display": "BoldNumber"},
-            },
+            "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
@@ -2805,3 +2843,449 @@ class TestAlertDestinations(APIBaseTest):
 
 def _is_actions_block(block: Any) -> bool:
     return isinstance(block, dict) and block.get("type") == "actions"
+
+
+class TestLLMDetectorValidation(TrendsInsightAPITest):
+    def setUp(self):
+        super().setUp()
+        self.insight = self.create_trends_insight(interval="day")
+
+    def _create_breakdown_insight(self) -> dict[str, Any]:
+        return self.create_trends_insight(
+            interval="day",
+            breakdownFilter={"breakdown": "$browser", "breakdown_type": "event"},
+        )
+
+    def _body(self, *, detector_config: Any, **overrides: Any) -> dict[str, Any]:
+        return {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "AI alert",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+            "detector_config": detector_config,
+            **overrides,
+        }
+
+    def _create(self, detector_config: Any, **overrides: Any):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/alerts", self._body(detector_config=detector_config, **overrides)
+        )
+
+    @parameterized.expand(
+        [
+            ("preprocessing", {"type": "llm", "preprocessing": {"diffs_n": 1}}, "preprocessing"),
+            (
+                "ensemble_member",
+                {
+                    "type": "ensemble",
+                    "operator": "and",
+                    "detectors": [{"type": "zscore", "threshold": 0.95, "window": 30}, {"type": "llm"}],
+                },
+                "combined with other detectors",
+            ),
+            ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
+            ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
+            ("window_too_long", {"type": "llm", "window": 401}, "between 5 and 400"),
+        ]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_llm_configs(self, _name: str, detector_config: dict[str, Any], expected: str, _flag) -> None:
+        response = self._create(detector_config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("off", False, 400, "not enabled for your account"),
+            ("unavailable", None, 503, "could not check rollout access"),
+        ]
+    )
+    def test_rejected_when_flag_is_off(self, _name, flag_value, expected_status, expected_message) -> None:
+        with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == expected_status, response.content
+        assert expected_message in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("scalar_config", "llm"),
+            ("scalar_detectors", {"type": "ensemble", "detectors": 1}),
+            ("list_type", {"type": []}),
+            ("object_sub_type", {"type": "ensemble", "detectors": [{"type": {"llm": True}}, {"type": "mad"}]}),
+        ]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_malformed_detector_containers_return_400(self, _name: str, detector_config: Any, _flag) -> None:
+        response = self._create(detector_config)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "Invalid detector configuration" in response.json()["detail"]
+
+    def test_flag_off_allows_edits_and_disabling_but_blocks_reenabling(self) -> None:
+        with mock.patch("posthoganalytics.feature_enabled", return_value=True):
+            created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        endpoint = f"/api/projects/{self.team.id}/alerts/{created.json()['id']}"
+
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            edited = self.client.patch(
+                endpoint,
+                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            disabled = self.client.patch(
+                endpoint,
+                {"enabled": False, "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            reenabled = self.client.patch(endpoint, {"enabled": True})
+
+        assert edited.status_code == status.HTTP_200_OK, edited.content
+        assert disabled.status_code == status.HTTP_200_OK, disabled.content
+        assert reenabled.status_code == status.HTTP_400_BAD_REQUEST, reenabled.content
+        assert "not enabled for your account" in reenabled.json()["detail"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_without_ai_processing_consent(self, _flag) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "AI data processing is turned off" in response.json()["detail"]
+
+    @parameterized.expand([("create", False), ("concurrent_interval_change", True)])
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_on_the_real_time_cadence(self, _name, concurrent_change, _flag) -> None:
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        if concurrent_change:
+            created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
+            assert created.status_code == status.HTTP_201_CREATED, created.content
+            update = AlertSerializer.update
+
+            def change_interval_before_lock(serializer, instance, validated_data):
+                AlertConfiguration.objects.filter(pk=instance.pk).update(calculation_interval="real_time")
+                return update(serializer, instance, validated_data)
+
+            with mock.patch.object(AlertSerializer, "update", new=change_interval_before_lock):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                    {"detector_config": config},
+                )
+            saved_config = AlertConfiguration.objects.get(pk=created.json()["id"]).detector_config
+            assert saved_config is not None
+            assert saved_config["type"] == "zscore"
+        else:
+            response = self._create(config, calculation_interval="real_time")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "calculation_interval"
+
+    @parameterized.expand(
+        [
+            ("create", False),
+            ("concurrent_create_query_change", True),
+            ("concurrent_insight_change", True),
+            ("concurrent_query_change", True),
+        ]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_rejected_for_a_breakdown_insight(self, _name, concurrent_change, _flag) -> None:
+        breakdown_insight = self._create_breakdown_insight()
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        if _name == "concurrent_create_query_change":
+            create = AlertSerializer.create
+
+            def change_query_before_create(serializer, validated_data):
+                Insight.objects.filter(id=validated_data["insight"].id).update(query=breakdown_insight["query"])
+                return create(serializer, validated_data)
+
+            with mock.patch.object(AlertSerializer, "create", new=change_query_before_create):
+                response = self._create(config)
+            assert not AlertConfiguration.objects.filter(team=self.team).exists()
+        elif concurrent_change:
+            created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
+            assert created.status_code == status.HTTP_201_CREATED, created.content
+            update = AlertSerializer.update
+
+            def change_insight_before_lock(serializer, instance, validated_data):
+                if _name == "concurrent_query_change":
+                    Insight.objects.filter(id=instance.insight_id).update(query=breakdown_insight["query"])
+                else:
+                    AlertConfiguration.objects.filter(pk=instance.pk).update(insight_id=breakdown_insight["id"])
+                return update(serializer, instance, validated_data)
+
+            with mock.patch.object(AlertSerializer, "update", new=change_insight_before_lock):
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                    {"detector_config": config},
+                )
+            saved_config = AlertConfiguration.objects.get(pk=created.json()["id"]).detector_config
+            assert saved_config is not None
+            assert saved_config["type"] == "zscore"
+        else:
+            response = self._create(config, insight=breakdown_insight["id"])
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "does not support breakdown insights" in response.json()["detail"]
+
+    @parameterized.expand(
+        [("instructions", "Only care about drops"), ("threshold", 0.9), ("window", 30), ("window", 90)]
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_detector_edits_reset_state_and_schedule(self, field, value, _flag) -> None:
+        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        created = self._create(config, calculation_interval="monthly")
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        scheduled_check = datetime.now(UTC) + timedelta(days=20)
+        AlertConfiguration.objects.filter(pk=created.json()["id"]).update(
+            state=AlertState.FIRING, next_check_at=scheduled_check
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+            {"detector_config": {**config, field: value}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        saved = AlertConfiguration.objects.get(pk=created.json()["id"])
+        if config.get(field) != value:
+            assert saved.state == AlertState.NOT_FIRING
+            assert saved.next_check_at is not None
+            assert saved.next_check_at <= datetime.now(UTC)
+        else:
+            assert saved.state == AlertState.FIRING
+            assert saved.next_check_at == scheduled_check
+
+    @mock.patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_simulate_rejects_a_breakdown_insight_before_any_model_call(self, _flag, mock_calculate, mock_ask) -> None:
+        breakdown_insight = self._create_breakdown_insight()
+        days = [f"2024-01-{i:02d}" for i in range(1, 36)]
+        mock_calculate.return_value = mock.MagicMock(
+            result=[
+                {"data": [10.0] * 35, "days": days, "labels": days, "label": browser, "breakdown_value": browser}
+                for browser in ("Chrome", "Firefox")
+            ]
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": breakdown_insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "does not support breakdown insights" in response.json()["detail"]
+        mock_ask.assert_not_called()
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_create_refuses_an_insight_deleted_before_the_lock(self, _flag) -> None:
+        # The insight lock holds a soft-deleted row too, and the scheduler never runs such an alert.
+        lock = "products.alerts.backend.presentation.views.alert.lock_insight_for_evaluation"
+
+        def delete_then_lock(*, team_id: int, insight_id: int) -> bool:
+            Insight.objects.filter(id=insight_id).update(deleted=True)
+            return True
+
+        with mock.patch(lock, side_effect=delete_then_lock):
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "was deleted" in response.json()["detail"]
+        assert not AlertConfiguration.objects.filter(insight_id=self.insight["id"]).exists()
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_created_with_instructions_stripped(self, _flag) -> None:
+        response = self._create({"type": "llm", "threshold": 0.7, "window": 90, "instructions": "  only drops  "})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        alert = AlertConfiguration.objects.get(id=response.json()["id"])
+        assert alert.detector_config is not None
+        assert alert.detector_config["instructions"] == "only drops"
+
+    @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_blocks_a_second_enabled_alert(self, _flag, _cap) -> None:
+        first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        second = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
+        assert "1 of 1 alerts using the AI detector" in second.json()["detail"]
+
+        # A disabled one never runs, so it costs nothing and is allowed.
+        disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+        assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
+
+    @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_still_lets_you_edit_the_alert_at_the_cap(self, _flag, _cap) -> None:
+        created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+
+        # An edit that cannot add an AI alert must not take the team's cap lock either.
+        with mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit") as lock:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
+                {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        lock.assert_not_called()
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_is_read_before_the_cap_lock_is_taken(self, _flag) -> None:
+        # The cap is a flag read that can go to the network, so it must not run under the lock.
+        order = mock.Mock()
+        with (
+            mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", order.cap, create=True),
+            mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit", order.lock, create=True),
+        ):
+            order.cap.return_value = 5
+            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [call[0] for call in order.mock_calls[:2]] == ["cap", "lock"]
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:
+        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=2):
+            first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            second = self._create({"type": "llm", "threshold": 0.7, "window": 90}, name="second")
+            disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+        assert {first.status_code, second.status_code, disabled.status_code} == {status.HTTP_201_CREATED}
+
+        with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
+            renamed = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
+                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            )
+            enabled = self.client.patch(
+                f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
+                {"enabled": True},
+            )
+
+        assert renamed.status_code == status.HTTP_200_OK, renamed.content
+        assert enabled.status_code == status.HTTP_400_BAD_REQUEST, enabled.content
+        assert "alerts using the AI detector" in str(enabled.json())
+
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_simulate_is_gated_by_the_same_flag(self, _flag) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "not enabled for your account" in response.json()["detail"]
+
+    @mock.patch(
+        "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight",
+        side_effect=LLMDetectorUnavailableError("The AI detector could not reach the model: timeout"),
+    )
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_simulate_reports_a_model_outage_as_503_not_500(self, _flag, _simulate) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate",
+            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
+        assert response.json()["code"] == "llm_detector_unavailable"
+
+    @parameterized.expand([("rolled_out", True), ("not_rolled_out", False)])
+    def test_retrieve_reports_whether_the_creator_can_use_the_ai_detector(self, _name, rolled_out) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "name": "creator access",
+        }
+        alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
+
+        with mock.patch("posthoganalytics.feature_enabled", return_value=rolled_out):
+            detail = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}").json()
+            listed = self.client.get(f"/api/projects/{self.team.id}/alerts").json()["results"]
+
+        assert detail["llm_detector_available"] is rolled_out
+        assert listed[0]["llm_detector_available"] is None
+
+    @parameterized.expand([("normal", False), ("impersonated", True)])
+    @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
+    @mock.patch("products.alerts.backend.judge.llm.LLMSeriesJudge._ask_model")
+    @mock.patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_preview_preserves_dates_and_impersonation_billing(
+        self, _name, impersonated, _flag, ask, calculate
+    ) -> None:
+        Insight.objects.filter(id=self.insight["id"]).update(
+            query=self.trends_insight_query(interval="day", dateRange={"date_from": "-1d"})
+        )
+        dates = [f"2026-01-0{i + 1}" for i in range(7)]
+        calculate.return_value = mock.MagicMock(
+            result=[
+                {
+                    "data": [100, 98, 101, 99, 12, 15, 16],
+                    "days": dates,
+                    "labels": dates,
+                    "label": "pageview",
+                    "action": {"name": "pageview"},
+                    "actions": [],
+                    "count": 7,
+                }
+            ]
+        )
+        ask.return_value = LLMDetectionVerdict(
+            is_anomaly=False, confidence=0.9, kind="none", rationale="Expected range."
+        )
+        with mock.patch("products.alerts.backend.presentation.views.alert.is_impersonated", return_value=impersonated):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate",
+                {"insight": self.insight["id"], "detector_config": {"type": "llm", "window": 5}},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert ask.call_args.kwargs["attribution"].is_agent_billable is (not impersonated)
+        series = ask.call_args.kwargs["series"]
+        # Seven points, the incomplete last one dropped, then only the 5-point window is described.
+        assert "2026-01-02 to 2026-01-06" in series.metric_description
+        assert "2026-01-01" not in series.metric_description
+        assert "-1d" not in series.metric_description
+
+    @parameterized.expand(
+        [
+            ("burst_json", "AlertLLMSimulationBurstThrottle", "2/minute", "json"),
+            ("daily_json", "AlertLLMSimulationDailyThrottle", "2/day", "json"),
+            ("burst_multipart", "AlertLLMSimulationBurstThrottle", "2/minute", "multipart"),
+        ]
+    )
+    @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @mock.patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_llm_simulation_is_rate_limited_per_team(
+        self, _name, throttle_class, rate, request_format, _flag, _rate_limit_enabled
+    ) -> None:
+        cache.clear()
+        endpoint = f"/api/projects/{self.team.id}/alerts/simulate"
+        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        payload = {
+            "insight": self.insight["id"],
+            # A form-encoded body carries the config as a JSON string, which must throttle too.
+            "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
+        }
+
+        with mock.patch(f"posthog.rate_limit.{throttle_class}.rate", new=rate):
+            for expected in (
+                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_400_BAD_REQUEST,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ):
+                response = self.client.post(endpoint, payload, format=request_format)
+                assert response.status_code == expected, response.content
+        cache.clear()

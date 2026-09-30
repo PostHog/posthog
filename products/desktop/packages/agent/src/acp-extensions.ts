@@ -104,7 +104,18 @@ export const POSTHOG_NOTIFICATIONS = {
   MCP_RESPONSE: "_posthog/mcp_response",
   CREDENTIAL_REQUEST: "_posthog/credential_request",
   CREDENTIAL_RESPONSE: "_posthog/credential_response",
+  PROCESS_KILLED: "_posthog/process_killed",
 } as const;
+
+export type ProcessKilledParams = {
+  pid: number;
+  comm: string;
+  treeRssBytes: number;
+  memoryCurrentBytes: number;
+  memoryLimitBytes: number;
+  signal: string;
+  at: string;
+};
 
 export type SteerDeclineCause =
   | "cancelled"
@@ -189,4 +200,34 @@ export function isMethod(
   expected: PosthogMethod,
 ): boolean {
   return matchesExt(method, expected);
+}
+
+/**
+ * Names `traceId` on a turn-complete notification that reports none.
+ *
+ * The codex adapter mints this notification itself and reports no trace id, so
+ * a rating on the turn has nothing to open. The gateway groups the run's
+ * generations under the run id, which makes that id the turn's trace.
+ */
+export function withTurnTraceId(
+  message: Record<string, unknown>,
+  traceId: string | null | undefined,
+): Record<string, unknown> {
+  if (
+    !traceId ||
+    !isNotification(
+      message.method as string | undefined,
+      POSTHOG_NOTIFICATIONS.TURN_COMPLETE,
+    )
+  ) {
+    return message;
+  }
+  const params = message.params;
+  if (typeof params !== "object" || params === null) {
+    return message;
+  }
+  if (typeof (params as { traceId?: unknown }).traceId === "string") {
+    return message;
+  }
+  return { ...message, params: { ...params, traceId } };
 }

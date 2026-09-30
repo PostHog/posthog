@@ -4,12 +4,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
-from products.managed_warehouse.backend.facade.api import get_duckgres_query_server_config
+import requests
+
+from products.managed_warehouse.backend.facade.api import get_managed_warehouse_trino_password
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
     ManagedWarehouseTrinoConnectionUnavailable,
 )
 from products.managed_warehouse.backend.trino_target import get_ready_trino_connection_target
+from products.warehouse_sources.backend.facade import source_management
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
@@ -23,12 +26,12 @@ def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedW
         )
 
     try:
-        root_connection = get_duckgres_query_server_config(organization_id)
+        password = get_managed_warehouse_trino_password(organization_id)
     except ValueError as error:
         raise ManagedWarehouseTrinoConnectionUnavailable(
             "The organization does not have a stored managed warehouse credential"
         ) from error
-    if not root_connection.password:
+    if not password:
         raise ManagedWarehouseTrinoConnectionUnavailable(
             "The organization does not have a stored managed warehouse credential"
         )
@@ -38,7 +41,7 @@ def resolve_managed_warehouse_trino_connection(organization_id: str) -> ManagedW
         port=target.port,
         catalog=target.catalog,
         username=target.username,
-        password=root_connection.password,
+        password=password,
     )
 
 
@@ -48,17 +51,22 @@ def connect_managed_warehouse_trino(organization_id: str) -> Iterator[Connection
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
     config = resolve_managed_warehouse_trino_connection(organization_id)
-    connection = connect(
-        host=config.host,
-        port=config.port,
-        user=config.username,
-        catalog=config.catalog,
-        http_scheme="https",
-        auth=BasicAuthentication(config.username, config.password),
-        request_timeout=60,
-        verify=True,
-    )
-    try:
-        yield connection
-    finally:
-        connection.close()
+    with requests.Session() as http_session:
+        # Only known hosted Trino endpoints bypass the proxy's private-IP restrictions.
+        if source_management.is_posthog_managed_trino_host(config.host) and config.port == 443:
+            http_session.trust_env = False
+        connection = connect(
+            host=config.host,
+            port=config.port,
+            user=config.username,
+            catalog=config.catalog,
+            http_scheme="https",
+            auth=BasicAuthentication(config.username, config.password),
+            request_timeout=60,
+            verify=True,
+            http_session=http_session,
+        )
+        try:
+            yield connection
+        finally:
+            connection.close()
