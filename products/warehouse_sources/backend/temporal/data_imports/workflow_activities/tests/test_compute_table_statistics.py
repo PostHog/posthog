@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _parse_commit_actions,
     _parse_log_value,
     compute_table_statistics_activity,
     compute_table_statistics_sync,
@@ -137,6 +138,32 @@ class TestAggregateAddActionStats:
         assert stats["v"].max_value == expected_max
 
 
+class TestParseCommitActions:
+    @parameterized.expand([("next_line", "\u0085"), ("line_separator", "\u2028"), ("paragraph_separator", "\u2029")])
+    def test_string_stat_holding_a_unicode_line_boundary_stays_one_action(self, _name, char) -> None:
+        # Regression: splitlines() broke the commit on these characters, which a string column's
+        # min/max carries through into `stats`, so the fragment raised JSONDecodeError. delta-rs
+        # writes them raw rather than escaped, hence ensure_ascii=False here.
+        stats = json.dumps(
+            {"numRecords": 3, "minValues": {"title": f"a{char}b"}, "maxValues": {"title": "z"}}, ensure_ascii=False
+        )
+        raw = (json.dumps({"add": {"path": "part-0.parquet", "stats": stats}}, ensure_ascii=False) + "\n").encode()
+        assert char.encode() in raw
+
+        actions = _parse_commit_actions(raw)
+
+        assert len(actions) == 1
+        assert json.loads(actions[0]["add"]["stats"])["minValues"]["title"] == f"a{char}b"
+
+    def test_reads_every_action_and_keeps_stats_floats_exact(self) -> None:
+        raw = b'{"protocol": {"minReaderVersion": 1}}\n{"add": {"path": "part-0.parquet", "size": 0.1}}\n'
+
+        actions = _parse_commit_actions(raw)
+
+        assert [next(iter(action)) for action in actions] == ["protocol", "add"]
+        assert actions[1]["add"]["size"] == Decimal("0.1")
+
+
 class TestParseLogValue:
     def test_decimal_using_its_full_precision_is_not_mistaken_for_unparseable(self) -> None:
         # Regression: quantize() used the default decimal context (28 significant digits), which is
@@ -180,7 +207,8 @@ class TestComputeTableStatisticsSync:
         delta_table.version.return_value = version
         delta_table.get_add_actions.return_value = add_actions
         delta_table.table_uri = "s3://bucket/data/stripe_charge/"
-        fields = [{"name": name, "type": kind} for name, kind in (delta_types or {"amount": "long"}).items()]
+        types = {"amount": "long"} if delta_types is None else delta_types
+        fields = [{"name": name, "type": kind} for name, kind in types.items()]
         delta_table.schema.return_value.to_json.return_value = json.dumps({"type": "struct", "fields": fields})
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(return_value=delta_table)
@@ -371,6 +399,26 @@ class TestComputeTableStatisticsSync:
                 "2023-12-31 23:00:00+00:00",
                 "2024-06-01 12:30:00.000123+00:00",
             ),
+            (
+                "timestamp_logged_without_an_offset",
+                "timestamp",
+                "2024-01-01 00:00:00+00:00",
+                "2024-02-01 00:00:00+00:00",
+                "2023-12-31T23:00:00",
+                "2024-06-01T12:30:00.000123",
+                "2023-12-31 23:00:00+00:00",
+                "2024-06-01 12:30:00.000123+00:00",
+            ),
+            (
+                "timestamp_ntz_logged_with_an_offset",
+                "timestamp_ntz",
+                "2024-01-01 00:00:00",
+                "2024-02-01 00:00:00",
+                "2023-12-31T23:00:00Z",
+                "2024-06-01T12:30:00Z",
+                "2023-12-31 23:00:00",
+                "2024-06-01 12:30:00",
+            ),
             ("decimal", "decimal(10,2)", "1.50", "9.99", 0.5, 12.5, "0.50", "12.50"),
         ]
     )
@@ -388,6 +436,8 @@ class TestComputeTableStatisticsSync:
         # The stored bound is `str()` of the typed value the Add-action scan yields; the commit log
         # carries the same value in JSON form. A fold that compared the two as text, or stored the
         # log's spelling, would drift from what the next full scan writes.
+        # A timestamp is the one type whose two sides can disagree on spelling the offset, which
+        # made the fold compare a naive datetime with an aware one and abandon itself.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value=stored_min, max_value=stored_max)
@@ -495,6 +545,35 @@ class TestComputeTableStatisticsSync:
         mock_capture.assert_called_once()
         reported = str(mock_capture.call_args[0][0])
         assert "not-a-number" not in reported
+
+    @parameterized.expand(
+        [
+            ("turned_nested", {"amount": {"type": "struct", "fields": []}}),
+            ("left_the_schema", {}),
+        ]
+    )
+    def test_a_column_whose_stored_bounds_lost_their_type_falls_back(self, _name: str, delta_types: dict) -> None:
+        # Schema evolution can turn a column the last full scan recorded bounds for into a nested
+        # type, or drop it from the Delta schema. The fold cannot keep those bounds current, so it
+        # has to fall back to the full scan rather than raise.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, min_value="2", max_value="50")
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=8, delta_types=delta_types)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "capture_exception") as mock_capture,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        mock_capture.assert_not_called()
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.row_count == 99
 
     def test_a_nested_column_neither_blocks_nor_gains_bounds_from_the_fold(self) -> None:
         team = self._team()

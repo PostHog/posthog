@@ -90,6 +90,22 @@ function stripMcpResultMeta(value: unknown): unknown {
   return value;
 }
 
+const API_TOOL_ID = /^[a-zA-Z0-9_-]+$/;
+
+// Secret redaction can rewrite part of a stored id. The repair depends on the id alone, so
+// a tool_use and its tool_result keep the same id when each is repaired on its own line.
+// The digest keeps apart two ids that differ only in the characters the API rejects.
+function toApiToolId(id: string): string {
+  if (API_TOOL_ID.test(id)) return id;
+  const digest = createHash("sha256").update(id).digest("hex").slice(0, 8);
+  return `${id.replace(/[^a-zA-Z0-9_-]/g, "_")}_${digest}`;
+}
+
+const TOOL_ID_KEY: Record<string, string | undefined> = {
+  tool_use: "id",
+  tool_result: "tool_use_id",
+};
+
 function isEmptyRecord(value: unknown): boolean {
   return (
     typeof value === "object" &&
@@ -472,7 +488,7 @@ export function conversationTurnsToJsonlEntries(
         for (const tc of turn.toolCalls) {
           allBlocks.push({
             type: "tool_use",
-            id: tc.toolCallId,
+            id: toApiToolId(tc.toolCallId),
             name: tc.toolName,
             // undefined would be dropped on stringify; the API requires input
             input: tc.input ?? {},
@@ -550,7 +566,7 @@ export function conversationTurnsToJsonlEntries(
                 content: [
                   {
                     type: "tool_result",
-                    tool_use_id: tc.toolCallId,
+                    tool_use_id: toApiToolId(tc.toolCallId),
                     content: resultText,
                   },
                 ],
@@ -592,10 +608,11 @@ function recordSanitized(
 }
 
 // Heals a persisted transcript that would otherwise 400 on every resume:
-// empty content blocks, missing tool_use.input, and images the API can't
-// process (unsupported type or over the per-image byte limit). The image case
-// is why a session that once read/attached a bad image keeps re-triggering the
-// same error on nearly every subsequent turn until the block is neutralized.
+// empty content blocks, missing tool_use.input, tool ids the API rejects, and
+// images the API can't process (unsupported type or over the per-image byte
+// limit). The image case is why a session that once read/attached a bad image
+// keeps re-triggering the same error on nearly every subsequent turn until the
+// block is neutralized.
 export async function sanitizeSessionJsonl(
   jsonlPath: string,
 ): Promise<boolean> {
@@ -636,6 +653,13 @@ export async function sanitizeSessionJsonl(
     for (const block of message.content as (Record<string, unknown> | null)[]) {
       if (block?.type === "tool_use" && block.input == null) {
         block.input = {};
+        lineChanged = true;
+      }
+      const idKey =
+        typeof block?.type === "string" ? TOOL_ID_KEY[block.type] : undefined;
+      const id = block && idKey ? block[idKey] : undefined;
+      if (block && idKey && typeof id === "string" && toApiToolId(id) !== id) {
+        block[idKey] = toApiToolId(id);
         lineChanged = true;
       }
     }

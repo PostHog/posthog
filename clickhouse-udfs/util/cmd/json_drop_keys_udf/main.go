@@ -20,174 +20,29 @@ import (
 )
 
 // a struct for hierarchical keys, e.g. if someone wants to drop "properties.foo.bar", works only for objects
+
+// jsonKey is a tree of dot-separated paths to drop. A nil child marks the end of a path.
 type jsonKey map[string]jsonKey
 
-type node interface {
-	Write(*bytes.Buffer)
-	DropKeys(keys jsonKey) node
-}
-
-type scalarNode fastjson.Value
-
-func (v *scalarNode) Write(buf *bytes.Buffer) {
-	value := (*fastjson.Value)(v)
-	if value.Type() == fastjson.TypeString {
-		writeJSONString(buf, value.GetStringBytes())
-	} else {
-		buf.Write(value.MarshalTo(buf.AvailableBuffer()))
-	}
-}
-
-func (v *scalarNode) DropKeys(jsonKey) node {
-	return v
-}
-
-type objectEntry struct {
-	key   string
-	value node
-}
-
-type objectNode struct {
-	entries []objectEntry
-}
-
-func (o *objectNode) Write(buf *bytes.Buffer) {
-	buf.WriteByte('{')
-	for i, entry := range o.entries {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		writeJSONString(buf, []byte(entry.key))
-		buf.WriteByte(':')
-		entry.value.Write(buf)
-	}
-	buf.WriteByte('}')
-}
-
-func (o *objectNode) DropKeys(keysToDrop jsonKey) node {
-	if len(o.entries) == 0 {
-		return o
-	}
-
-	o.entries = expandDottedEntries(o.entries)
-
-	for i, e := range o.entries {
-		if val, ok := keysToDrop[e.key]; ok && val != nil {
-			o.entries[i].value = o.entries[i].value.DropKeys(val)
-		}
-	}
-
-	writeIdx := 0
-	for _, entry := range o.entries {
-		if val, toDrop := keysToDrop[entry.key]; toDrop && val == nil {
-			recycleNode(entry.value)
-			continue
-		}
-		o.entries[writeIdx] = entry
-		writeIdx++
-	}
-	o.entries = o.entries[:writeIdx]
-
-	return o
-}
-
-type mergeKey struct {
-	parent *objectNode
-	key    string
-}
-
-var dottedIndexPool = sync.Pool{
-	New: func() interface{} {
-		return make(map[mergeKey]*objectNode)
-	},
-}
-
-func expandDottedEntries(entries []objectEntry) []objectEntry {
-	needsExpand := false
-	for _, entry := range entries {
-		if indexByte(entry.key, '.') >= 0 {
-			needsExpand = true
-			break
-		}
-	}
-	if !needsExpand {
-		return entries
-	}
-
-	expanded := make([]objectEntry, 0, len(entries))
-	index := dottedIndexPool.Get().(map[mergeKey]*objectNode)
-	for _, entry := range entries {
-		if indexByte(entry.key, '.') < 0 {
-			appendEntry(nil, &expanded, entry.key, entry.value, index)
-			continue
-		}
-		insertDottedKey(nil, &expanded, entry.key, entry.value, index)
-	}
-
-	if len(index) <= 4096 {
-		clear(index)
-		dottedIndexPool.Put(index)
-	}
-
-	return expanded
-}
-
-func appendEntry(parent *objectNode, entries *[]objectEntry, key string, value node, index map[mergeKey]*objectNode) {
-	*entries = append(*entries, objectEntry{key: key, value: value})
-	mk := mergeKey{parent: parent, key: key}
-	if obj, ok := value.(*objectNode); ok {
-		index[mk] = obj
-	} else {
-		delete(index, mk)
-	}
-}
-
-func insertDottedKey(parent *objectNode, entries *[]objectEntry, key string, value node, index map[mergeKey]*objectNode) {
+// resolveKey matches an object key against the filter one dot-separated segment at a time.
+// The key "a.b" and the nested path {"a":{"b":...}} address the same property, so dropping "a.b" removes both
+// without restructuring the document. It returns drop=true when the key is on or under a dropped path, and
+// otherwise the filter for the key's value, which is nil when no dropped path continues below this key.
+func resolveKey(keys jsonKey, key []byte) (childKeys jsonKey, drop bool) {
 	for {
-		dot := indexByte(key, '.')
-		if dot < 0 {
-			appendEntry(parent, entries, key, value, index)
-			return
+		segment, rest, dotted := bytes.Cut(key, []byte{'.'})
+		child, ok := keys[string(segment)]
+		if !ok {
+			return nil, false
 		}
-		head := key[:dot]
-		rest := key[dot+1:]
-		mk := mergeKey{parent: parent, key: head}
-		target := index[mk]
-		if target == nil {
-			target = objectNodePool.Get().(*objectNode)
-			target.entries = target.entries[:0]
-			appendEntry(parent, entries, head, target, index)
+		if child == nil {
+			return nil, true
 		}
-		parent = target
-		entries = &parent.entries
-		key = rest
-	}
-}
-
-func indexByte(s string, c byte) int {
-	return strings.IndexByte(s, c)
-}
-
-type arrayNode struct {
-	values []node
-}
-
-func (a *arrayNode) Write(buf *bytes.Buffer) {
-	buf.WriteByte('[')
-	for i, value := range a.values {
-		if i > 0 {
-			buf.WriteByte(',')
+		if !dotted {
+			return child, false
 		}
-		value.Write(buf)
+		keys, key = child, rest
 	}
-	buf.WriteByte(']')
-}
-
-func (a *arrayNode) DropKeys(keys jsonKey) node {
-	for i := range a.values {
-		a.values[i] = a.values[i].DropKeys(keys)
-	}
-	return a
 }
 
 func writeJSONString(buf *bytes.Buffer, s []byte) {
@@ -240,100 +95,6 @@ var parserPool = sync.Pool{
 	},
 }
 
-var objectNodePool = sync.Pool{
-	New: func() interface{} {
-		return &objectNode{}
-	},
-}
-
-var arrayNodePool = sync.Pool{
-	New: func() interface{} {
-		return &arrayNode{}
-	},
-}
-
-func recycleNode(n node) {
-	switch v := n.(type) {
-	case *objectNode:
-		for _, entry := range v.entries {
-			recycleNode(entry.value)
-		}
-		if cap(v.entries) > 4096 {
-			v.entries = nil
-		} else {
-			clear(v.entries[:cap(v.entries)])
-			v.entries = v.entries[:0]
-		}
-		objectNodePool.Put(v)
-	case *arrayNode:
-		for _, child := range v.values {
-			recycleNode(child)
-		}
-		if cap(v.values) > 4096 {
-			v.values = nil
-		} else {
-			clear(v.values[:cap(v.values)])
-			v.values = v.values[:0]
-		}
-		arrayNodePool.Put(v)
-	}
-}
-
-func convertFastJSON(value *fastjson.Value) (node, error) {
-	switch value.Type() {
-	case fastjson.TypeObject:
-		obj, err := value.Object()
-		if err != nil {
-			return nil, err
-		}
-
-		objNode := objectNodePool.Get().(*objectNode)
-		if cap(objNode.entries) >= obj.Len() {
-			objNode.entries = objNode.entries[:0]
-		} else {
-			objNode.entries = make([]objectEntry, 0, obj.Len())
-		}
-		obj.Visit(func(key []byte, v *fastjson.Value) {
-			child, convErr := convertFastJSON(v)
-			if convErr != nil {
-				err = convErr
-				return
-			}
-			objNode.entries = append(objNode.entries, objectEntry{key: string(key), value: child})
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return objNode, nil
-	case fastjson.TypeArray:
-		values, err := value.Array()
-		if err != nil {
-			return nil, err
-		}
-
-		arrNode := arrayNodePool.Get().(*arrayNode)
-		if cap(arrNode.values) >= len(values) {
-			arrNode.values = arrNode.values[:0]
-		} else {
-			arrNode.values = make([]node, 0, len(values))
-		}
-		for _, item := range values {
-			child, convErr := convertFastJSON(item)
-			if convErr != nil {
-				return nil, convErr
-			}
-			arrNode.values = append(arrNode.values, child)
-		}
-
-		return arrNode, nil
-	case fastjson.TypeString, fastjson.TypeNumber, fastjson.TypeTrue, fastjson.TypeFalse, fastjson.TypeNull:
-		return (*scalarNode)(value), nil
-	default:
-		return nil, fmt.Errorf("unexpected fastjson type %v", value.Type())
-	}
-}
-
 func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
 	parser := parserPool.Get().(*cachedParser)
 	defer parserPool.Put(parser)
@@ -359,28 +120,10 @@ func processLine(keys jsonKey, rawLine []byte, buf *bytes.Buffer) error {
 	return writeFilteredJSON(buf, value, keys)
 }
 
-// Nil keys leave dotted names untouched below paths the filter does not visit.
 func writeFilteredJSON(buf *bytes.Buffer, value *fastjson.Value, keys jsonKey) error {
 	switch value.Type() {
 	case fastjson.TypeObject:
 		obj, _ := value.Object()
-		if keys != nil {
-			hasDottedKeys := false
-			obj.Visit(func(key []byte, _ *fastjson.Value) {
-				hasDottedKeys = hasDottedKeys || bytes.IndexByte(key, '.') >= 0
-			})
-			if hasDottedKeys {
-				// Dotted expansion must preserve duplicate entries and their original merge order.
-				parsed, err := convertFastJSON(value)
-				if err != nil {
-					return err
-				}
-				result := parsed.DropKeys(keys)
-				result.Write(buf)
-				recycleNode(result)
-				return nil
-			}
-		}
 		buf.WriteByte('{')
 		first := true
 		var err error
@@ -388,8 +131,8 @@ func writeFilteredJSON(buf *bytes.Buffer, value *fastjson.Value, keys jsonKey) e
 			if err != nil {
 				return
 			}
-			childKeys, drop := keys[string(key)]
-			if drop && childKeys == nil {
+			childKeys, drop := resolveKey(keys, key)
+			if drop {
 				return
 			}
 			if !first {
@@ -422,7 +165,6 @@ func writeFilteredJSON(buf *bytes.Buffer, value *fastjson.Value, keys jsonKey) e
 	return nil
 }
 
-// parseSingleQuotedArray parses a Python-style array like ['a', 'b\'c']
 func parseSingleQuotedArray(s string) ([]string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {

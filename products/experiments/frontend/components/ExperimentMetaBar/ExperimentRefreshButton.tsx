@@ -38,7 +38,7 @@ function RefreshButton({
             icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
             onClick={onRefresh}
             disabledReason={isRefreshing ? (queuedHint ?? loadingText) : undefined}
-            tooltip={isRefreshing ? undefined : 'Refresh results'}
+            aria-label={isRefreshing ? undefined : 'Refresh results'}
             data-attr="refresh-experiment"
         >
             {isRefreshing ? (
