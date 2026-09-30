@@ -440,8 +440,7 @@ class CuratedGitHubSource:
         """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
-        parses the whole runs source again. Per-PR push counts come from the push-activity query in
-        ``pull_request_list`` for that reason, not from a second rollup here.
+        parses the whole runs source again.
         """
         return f"runs AS {self.run_source()}"
 
@@ -503,7 +502,7 @@ class CuratedGitHubSource:
 
         Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs, and the CTE of the ``ready``
         measure when ``select`` reads it, and fills its ``__PR_SOURCE__`` placeholder with the
-        curated pull-requests source — the steps the cards and PR-list queries always do together.
+        curated pull-requests source. The cards and PR-list queries always do these steps together.
         ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes the rollup scan,
         see ``_pr_scope_cte``); a PR outside it joins as if it had no runs.
         """

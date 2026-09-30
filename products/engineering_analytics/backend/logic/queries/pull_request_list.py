@@ -75,27 +75,22 @@ _SELECT = f"""
 """
 
 
-# What the author did to each visible PR: its per-push CI rounds for the push-history sparkline, and
-# the ``pushes`` and ``rerun_cycles`` counts. Verdicts collapse like ``ci_rollup``: latest run per
-# (push, workflow) via argMax, then any decisive failure turns the round red and any not-yet-completed
-# run marks it pending. Wall time is the round's earliest run start to its latest completed run end
-# (``updated_at`` is the end time the duration column uses).
+# Per-push CI rounds for the visible PRs, for the push-history sparkline, plus each PR's ``pushes`` and
+# ``rerun_cycles``. Verdicts collapse like ``ci_rollup``: latest run per (push, workflow) via argMax,
+# then any decisive failure turns the round red and any not-yet-completed run marks it pending. Wall
+# time is the round's earliest run start to its latest completed run end (``updated_at`` is the end
+# time the duration column uses).
 #
-# Merge-queue gate runs are excluded, even though the runs builder credits them to the PR they were
-# landing. A gate branch's head SHA is a rebase the queue made, so counting it would report a push
-# nobody made, once per merge attempt. They are also the newest rounds a PR has, since they happen at
-# merge time, so leaving them in would push the author's real pushes out of the capped window below.
-# Cost and CI-health surfaces keep the gate run, because they measure spend and outcomes, not authoring.
+# Merge-queue gate runs are excluded. A gate branch's head SHA is a rebase the queue made, not a push
+# the author made. Gate runs are also a PR's newest rounds, so they would push the author's real pushes
+# out of the capped window below.
 #
-# Every result is keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone, because PR
-# numbers restart per repository and a source can span repositories.
-#
-# ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the result to the most
+# ``LIMIT __PUSH_HISTORY_LIMIT__ BY (repo_owner, repo_name, pr_number)`` bounds the scan to the most
 # recent N pushes per PR *in ClickHouse* (rows are ordered newest-first, so the cap keeps the newest),
 # rather than fetching every push and slicing in Python — a PR with hundreds of pushes never ships more
-# than the sparkline shows. The window counts run before ``LIMIT BY``, so ``pushes`` and
-# ``rerun_cycles`` still cover every push. The trailing ``LIMIT`` is the overall ceiling (≤ 1000 PRs ×
-# N); without it HogQL applies its default 100-row limit and silently truncates the whole result.
+# than the sparkline shows. The window functions run before ``LIMIT BY``, so ``pushes`` and
+# ``rerun_cycles`` count every push. The trailing ``LIMIT`` is the overall ceiling (≤ 1000 PRs × N);
+# without it HogQL applies its default 100-row limit and silently truncates the whole result.
 _PUSH_ACTIVITY_SELECT = """
     SELECT
         repo_owner, repo_name, pr_number, head_sha, started_at, wall_seconds, failed, pending,
