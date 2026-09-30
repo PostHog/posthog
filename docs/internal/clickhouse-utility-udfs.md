@@ -209,8 +209,10 @@ These local measurements should be repeated on deployment hardware before estima
 ### `JSONDropKeysPool(json, keys)`
 
 Removes the given keys from a JSON document and returns the result as a `String`.
-It produces the same output as `JSONDropKeys(keys)(json)`, including dotted-key expansion.
+It produces the same output as `JSONDropKeys(keys)(json)`.
 Each key is a dot-separated path, such as `properties.secret`.
+A dotted key name and the nested path it spells are the same property, so `a.b` drops both `{"a.b":1}` and `{"a":{"b":1}}`.
+The function removes matching keys and leaves the rest of the document in its original shape.
 
 ```sql
 SELECT JSONDropKeysPool('{"a":1,"b":{"c":2,"d":3}}', ['a', 'b.c']);
