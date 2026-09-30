@@ -74,30 +74,6 @@ database "posthog" {
     }
   }
 
-  table "kafka_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2, 'member'=3, 'not_member'=4)"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
-    }
-    engine "kafka" {
-      collection = "msk_cluster"
-      topic_list = "cohort_membership_changed"
-      group_name = "clickhouse_cohort_membership_changed"
-      format     = "JSONEachRow"
-    }
-  }
-
   table "kafka_distinct_id_usage" {
     column "team_id" {
       type = "Int64"
@@ -608,30 +584,6 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_app_metrics2"
       sharding_key    = "rand()"
-    }
-  }
-
-  table "writable_cohort_membership" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "cohort_membership"
     }
   }
 
@@ -1183,35 +1135,6 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
-    }
-  }
-
-  materialized_view "cohort_membership_mv" {
-    to_table = "posthog.writable_cohort_membership"
-    query    = <<SQL
-SELECT
-  team_id,
-  cohort_id,
-  person_id,
-  multiIf(status = 'member', 'entered', status = 'not_member', 'left', status) AS status,
-  last_updated
-FROM posthog.kafka_cohort_membership
-SQL
-
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "String"
-    }
-    column "last_updated" {
-      type = "DateTime64(6)"
     }
   }
 
