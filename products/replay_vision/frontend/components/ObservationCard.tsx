@@ -158,15 +158,7 @@ export function ObservationPrimaryOutput({
 
     if (scannerType === 'monitor') {
         const verdict = result.verdict
-        // Neutral accent, not success-green: a "yes" verdict isn't inherently good.
-        const tagType =
-            verdict === 'yes'
-                ? 'highlight'
-                : verdict === 'no'
-                  ? 'default'
-                  : verdict === 'inconclusive'
-                    ? 'muted'
-                    : 'muted'
+        const tagType = verdict === 'yes' ? 'info' : verdict === 'no' ? 'default' : 'muted'
         const tagLabel =
             verdict === 'yes' || verdict === 'no' || verdict === 'inconclusive' ? VERDICT_LABEL[verdict] : '—'
         return (
