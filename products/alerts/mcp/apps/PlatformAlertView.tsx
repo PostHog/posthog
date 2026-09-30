@@ -50,11 +50,17 @@ export function PlatformAlertStateBadge({ state }: { state: PlatformAlertState }
 function groupStateBadge(alert: PlatformAlertData): ReactElement | null {
     if (alert.alerts.length > 1) {
         const firing = alert.alerts.filter((group) => group.state === 'firing').length
-        return firing > 0 ? (
-            <Badge variant="destructive">
-                {firing} of {alert.alerts.length} firing
-            </Badge>
-        ) : null
+        if (firing > 0) {
+            return (
+                <Badge variant="destructive">
+                    {firing} of {alert.alerts.length} firing
+                </Badge>
+            )
+        }
+        const failed = (['broken', 'errored'] as const).find((state) =>
+            alert.alerts.some((group) => group.state === state)
+        )
+        return failed ? <PlatformAlertStateBadge state={failed} /> : null
     }
     const state = alert.alerts[0]?.state ?? 'not_firing'
     return state === 'not_firing' ? null : <PlatformAlertStateBadge state={state} />
@@ -68,7 +74,7 @@ export function summarizePlatformAlert(alert: PlatformAlertData): ReactElement {
     const failures = alert.consecutive_failures
     // A failed check keeps the group state until the alert breaks, so this count is the only sign that checks fail.
     if (failures === 0) {
-        return state ?? <Badge variant="success">OK</Badge>
+        return state ?? (alert.alerts.length > 0 ? <Badge variant="success">OK</Badge> : <Badge>Not checked</Badge>)
     }
     const failedChecks = (
         <Badge variant="warning">
