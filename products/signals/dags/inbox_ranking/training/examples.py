@@ -27,7 +27,9 @@ with no label event gets LABEL_DEFAULTS, so never-engaged reports are negatives 
 A set may ask for the scoring-moment grain instead (one row per report per snapshot, whose label is
 a hazard conditional on the report still being live) or the report grain (the first snapshot of the
 window where the report is a usable moment), and cap the rows one head keeps. Both knobs live on
-the `FeatureSet`, because the examples object is per set.
+the `FeatureSet`, because the examples object is per set. The cap limits history, not rows inside a
+day: it keeps whole report-creation days, newest first, so the kept label rate is the population
+rate of those days and the scores stay calibrated.
 """
 
 import datetime
@@ -55,10 +57,6 @@ PROVENANCE_LABEL_COLUMNS = ("latest_status_event", "status_event_team_id")
 # A forward run stamps features_observed_at a few hours after the snapshot end. Anything read later
 # than this is a backfill that carries current Postgres state, not the state as of the snapshot.
 STATE_LAG_LIMIT = datetime.timedelta(days=2)
-
-# Fixed, so a re-run of a partition keeps the same rows under a row budget and two candidates of the
-# same day are fit on one example set.
-EXAMPLE_SAMPLE_SEED = 0
 
 
 def state_columns(feature_set: FeatureSet) -> tuple[str, ...]:
@@ -178,9 +176,41 @@ def build_examples(
     The moments are chosen first and the features built second, so a set under a row budget builds
     1536 columns for the rows it keeps rather than for every row it then throws away.
     """
+    return build_head_examples(snapshots, head, feature_set, extras).examples
+
+
+@frozen
+class HeadExamples:
+    """One head's examples and the report-creation window they cover."""
+
+    examples: pd.DataFrame
+    # The earliest report-creation day kept, or None when the head has no example.
+    window_start: datetime.date | None
+    # True when the row budget dropped at least one older day.
+    cap_bound: bool
+
+    def window(self) -> dict[str, object]:
+        return {
+            "example_window_start": self.window_start.isoformat() if self.window_start else None,
+            "example_cap_bound": self.cap_bound,
+        }
+
+
+def build_head_examples(
+    snapshots: Mapping[datetime.date, Snapshot],
+    head: Head,
+    feature_set: FeatureSet,
+    extras: Extras = NO_EXTRAS,
+) -> HeadExamples:
+    """`build_examples` with the window the row budget left, which the candidate records per head."""
     moments = example_moments(snapshots, head, feature_set, extras)
     kept = cap_examples(moments, feature_set.max_examples_per_head)
-    return _with_features(kept, snapshots, feature_set, extras)
+    days = _creation_days(kept).dropna()
+    return HeadExamples(
+        examples=_with_features(kept, snapshots, feature_set, extras),
+        window_start=days.min().date() if len(days) else None,
+        cap_bound=len(kept) < len(moments),
+    )
 
 
 def example_moments(
@@ -281,22 +311,27 @@ def reports_missing_birth_snapshot(snapshots: Mapping[datetime.date, Snapshot], 
     return sum(int(birth_day_mask(reports, date).sum()) for date in set(dates).difference(snapshots))
 
 
+def _creation_days(moments: pd.DataFrame) -> pd.Series:
+    return pd.to_datetime(moments["report_created_at"], utc=True).dt.floor("D")
+
+
 def cap_examples(moments: pd.DataFrame, limit: int | None) -> pd.DataFrame:
-    """`moments` within `limit` rows, keeping every positive and a seeded sample of the negatives.
+    """`moments` cut to the newest whole report-creation days that fit within `limit` rows.
 
     A row budget is how a wide set stays inside one partition's object and the training job's
-    runtime. Positives are the scarce side of every head here and AUC is rank-based, so spending
-    the budget on them costs the base rate the scores are calibrated to rather than the ranking read
-    the family exists for. Positives are kept whole even past the budget: a head with that many
-    positives is not the case the budget is for.
+    runtime. The budget limits history: it keeps whole days, newest first, and never samples rows
+    inside a day. A sample that keeps every positive raises the base rate the booster fits, so its
+    scores overstate every probability. Whole days keep the population rate, keep the holdout a clean
+    time split, and keep the population the sweep scores. The newest day is kept even when it alone
+    exceeds `limit`, so a head never trains on nothing.
     """
     if limit is None or len(moments) <= limit:
         return moments
-    positives = moments[moments["label"] == 1]
-    negatives = moments[moments["label"] != 1]
-    room = max(limit - len(positives), 0)
-    sampled = negatives.sample(n=min(room, len(negatives)), random_state=EXAMPLE_SAMPLE_SEED)
-    return pd.concat([positives, sampled]).sort_index().reset_index(drop=True)
+    days = _creation_days(moments)
+    per_day = days.value_counts().sort_index(ascending=False)
+    within = per_day.index[per_day.cumsum().to_numpy() <= limit]
+    cutoff = within.min() if len(within) else per_day.index[0]
+    return moments[days >= cutoff].reset_index(drop=True)
 
 
 def _with_features(

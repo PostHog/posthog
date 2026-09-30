@@ -4325,6 +4325,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["hog_flow"] == flow_id
         assert response.json()["variables"] == batch_job_data["variables"]
         assert response.json()["status"] == "queued"
+        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["filters"] == HogFlow.objects.get(pk=flow_id).trigger["filters"]
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
