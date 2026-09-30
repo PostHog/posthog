@@ -54,7 +54,7 @@ export function ReleaseStageTag({
                     {product.flag ? (
                         <>
                             <span>
-                                Only people with the <code>{product.flag}</code> feature flag can see it.
+                                People need the <code>{product.flag}</code> feature flag to see it.
                             </span>
                             <Link
                                 to={`${POSTHOG_PROJECT_URL}/feature_flags?search=${encodeURIComponent(product.flag)}`}
@@ -65,8 +65,9 @@ export function ReleaseStageTag({
                             </Link>
                         </>
                     ) : (
-                        <span>Everyone can see it.</span>
+                        <span>No feature flag controls who can see it.</span>
                     )}
+                    <span>Access controls can also hide it.</span>
                 </div>
             }
         >
