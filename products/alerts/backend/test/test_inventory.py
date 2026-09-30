@@ -1,6 +1,11 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import OperationalError, connection
 
 from posthog.models import Team
 
@@ -54,3 +59,24 @@ class TestAlertInventory(BaseTest):
             ("logs", "broken", False): 1,
         }
         assert len(inventory.alerts) == len(SourceKind) * len(PlatformAlert.State) * 2
+
+    def test_a_slow_count_is_canceled_by_the_statement_timeout(self) -> None:
+        def slow_count(
+            execute: Callable[[str, object, bool, dict[str, object]], object],
+            sql: str,
+            params: object,
+            many: bool,
+            context: dict[str, object],
+        ) -> object:
+            if "COUNT(" in sql:
+                return execute("SELECT pg_sleep(5)", None, False, context)
+            return execute(sql, params, many, context)
+
+        with (
+            patch("products.alerts.backend.logic.inventory.INVENTORY_STATEMENT_TIMEOUT_MS", 50),
+            connection.execute_wrapper(slow_count),
+            pytest.raises(OperationalError) as caught,
+        ):
+            count_inventory(NOW)
+
+        assert getattr(caught.value.__cause__, "sqlstate", None) == "57014"

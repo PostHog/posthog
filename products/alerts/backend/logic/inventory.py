@@ -9,9 +9,15 @@ import datetime as dt
 from django.db.models import Count, Q
 
 from posthog.dataclasses import frozen
+from posthog.models.utils import execute_with_timeout
 
 from products.alerts.backend.facade.contracts import SourceKind
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+
+# Per statement. Both counts scan every row, unlike discovery, which reads only the due index.
+# The count runs inside the discovery activity, so a slow scan must fail fast and leave that
+# activity's time budget to discovery.
+INVENTORY_STATEMENT_TIMEOUT_MS = 1000
 
 
 @frozen
@@ -37,20 +43,22 @@ class AlertInventory:
 
 
 def count_inventory(now: dt.datetime) -> AlertInventory:
-    # Cross-team by definition, like demand discovery.
-    configuration_counts = {
-        (row["source_kind"], row["enabled"]): row["n"]
-        for row in PlatformAlertConfiguration.objects.unscoped()
-        .values("source_kind", "enabled")
-        .annotate(n=Count("id"))
-    }
-    alert_counts = {
-        (row["configuration__source_kind"], row["state"]): (row["total"], row["muted"])
-        for row in PlatformAlert.objects.unscoped()
-        .filter(configuration__enabled=True)
-        .values("configuration__source_kind", "state")
-        .annotate(total=Count("id"), muted=Count("id", filter=Q(snooze_until__gt=now)))
-    }
+    # Cross-team by definition, like demand discovery. Both queries are evaluated inside the block,
+    # because the timeout is transaction-local.
+    with execute_with_timeout(INVENTORY_STATEMENT_TIMEOUT_MS):
+        configuration_counts = {
+            (row["source_kind"], row["enabled"]): row["n"]
+            for row in PlatformAlertConfiguration.objects.unscoped()
+            .values("source_kind", "enabled")
+            .annotate(n=Count("id"))
+        }
+        alert_counts = {
+            (row["configuration__source_kind"], row["state"]): (row["total"], row["muted"])
+            for row in PlatformAlert.objects.unscoped()
+            .filter(configuration__enabled=True)
+            .values("configuration__source_kind", "state")
+            .annotate(total=Count("id"), muted=Count("id", filter=Q(snooze_until__gt=now)))
+        }
 
     configurations: list[ConfigurationCount] = []
     alerts: list[AlertCount] = []
