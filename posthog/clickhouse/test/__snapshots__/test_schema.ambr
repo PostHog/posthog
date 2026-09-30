@@ -5857,6 +5857,7 @@
       AND person_mode != 'propertyless'
       AND group_key != ''
   GROUP BY team_id, group_type_index, group_key, distinct_id
+  SETTINGS optimize_inverse_dictionary_lookup = 0
   
   '''
 # ---
