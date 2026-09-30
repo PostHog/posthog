@@ -209,7 +209,11 @@ impl CatalogHandle {
     /// look identical to one that never loaded.
     #[hotpath::measure(impl_type = "CatalogHandle")]
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
-        match self.refresh_from(|| load_realtime_cohorts(pool)).await {
+        let team_ids = allowlisted_team_ids(&self.allowlist);
+        match self
+            .refresh_from(|| load_realtime_cohorts(pool, team_ids.as_deref()))
+            .await
+        {
             Ok(stats) => {
                 gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
                 counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
@@ -277,7 +281,16 @@ fn now_unix_seconds() -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Drop rows outside the configured team scope before catalog construction.
+/// The team ids to scope the load query to, or `None` when every team is in scope.
+fn allowlisted_team_ids(allowlist: &TeamAllowlist) -> Option<Vec<i32>> {
+    match allowlist {
+        TeamAllowlist::All => None,
+        TeamAllowlist::Only(ids) => Some(ids.iter().copied().collect()),
+    }
+}
+
+/// Drop rows outside the configured team scope before catalog construction. The load query is
+/// already scoped, so this is a guard.
 fn retain_allowlisted(rows: &mut Vec<CohortRow>, allowlist: &TeamAllowlist) {
     rows.retain(|row| allowlist.includes(row.team_id));
 }
@@ -633,5 +646,12 @@ mod tests {
 
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
+
+        let scoped = CatalogHandle::with_allowlist(TeamAllowlist::Only(HashSet::new()), false);
+        let scoped_stats = scoped
+            .refresh(&pool)
+            .await
+            .expect("team-scoped refresh against live posthog_cohort");
+        assert_eq!(scoped_stats.teams, 0);
     }
 }

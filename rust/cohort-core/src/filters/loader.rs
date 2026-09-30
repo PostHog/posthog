@@ -27,6 +27,15 @@ pub const REALTIME_COHORTS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
      JOIN posthog_team t ON t.id = c.team_id \
      WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL";
 
+/// [`REALTIME_COHORTS_SQL`] scoped to the `int4[]` of team ids in `$1`, so Postgres does not read
+/// and send the `filters` of teams the caller drops anyway.
+pub const REALTIME_COHORTS_FOR_TEAMS_SQL: &str = "SELECT c.id, c.team_id, c.filters, \
+            c.behavioral_filters_shape_hash, c.person_filters_shape_hash, t.timezone \
+     FROM posthog_cohort c \
+     JOIN posthog_team t ON t.id = c.team_id \
+     WHERE c.cohort_type = 'realtime' AND c.deleted = false AND c.filters IS NOT NULL \
+       AND c.team_id = ANY($1)";
+
 /// One realtime cohort row; `filters` is the `jsonb` column decoded to a `Value`.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CohortRow {
@@ -39,11 +48,16 @@ pub struct CohortRow {
     pub timezone: String,
 }
 
-pub async fn load_realtime_cohorts(pool: &PgPool) -> Result<Vec<CohortRow>, FilterError> {
-    let rows = sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_SQL)
-        .fetch_all(pool)
-        .await?;
-    Ok(rows)
+/// Load realtime cohorts for every team, or only for `team_ids` when it is `Some`.
+pub async fn load_realtime_cohorts(
+    pool: &PgPool,
+    team_ids: Option<&[i32]>,
+) -> Result<Vec<CohortRow>, FilterError> {
+    let query = match team_ids {
+        None => sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_SQL),
+        Some(ids) => sqlx::query_as::<_, CohortRow>(REALTIME_COHORTS_FOR_TEAMS_SQL).bind(ids),
+    };
+    Ok(query.fetch_all(pool).await?)
 }
 
 /// Group rows by team into a catalog. A cohort that fails to parse is counted, warned, and skipped
