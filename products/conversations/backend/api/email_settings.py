@@ -21,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.models.instance_setting import get_instance_setting
@@ -143,23 +144,23 @@ def _is_organization_admin(user: User, team: Team) -> bool:
     ).exists()
 
 
-def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
-    """Parse config_id from request body, look up config scoped to team.
-
-    Returns (user, team, config) or a Response on failure.
-    """
+def _resolve_config(request: Request, config_id: uuid.UUID) -> tuple[User, Team, EmailChannel] | Response:
     result = _get_team_from_request(request)
     if isinstance(result, Response):
         return result
     user, team = result
 
-    id_serializer = ConfigIdSerializer(data=request.data)
-    id_serializer.is_valid(raise_exception=True)
-    config = _get_config_for_team(id_serializer.validated_data["config_id"], team)
+    config = _get_config_for_team(config_id, team)
     if not config:
         return Response({"error": "Email config not found"}, status=404)
 
     return user, team, config
+
+
+def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailChannel] | Response:
+    id_serializer = ConfigIdSerializer(data=request.data)
+    id_serializer.is_valid(raise_exception=True)
+    return _resolve_config(request, id_serializer.validated_data["config_id"])
 
 
 def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict[str, object]:
@@ -829,23 +830,21 @@ class EmailSetDefaultView(APIView):
 
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
-    @extend_schema(
-        request=ConfigIdSerializer,
+    @validated_request(
+        request_serializer=ConfigIdSerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):
             return result
         user, team = result
 
-        id_serializer = ConfigIdSerializer(data=request.data)
-        id_serializer.is_valid(raise_exception=True)
-        config_id = id_serializer.validated_data["config_id"]
+        config_id = request.validated_data["config_id"]
 
         with transaction.atomic():
             # Serialize all per-team default changes on the team row (the connect path takes the
@@ -875,30 +874,24 @@ class EmailSetDefaultView(APIView):
 class EmailSetTrustedRelayView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
-    @extend_schema(
+    @validated_request(
         tags=["conversations"],
-        request=EmailSetTrustedRelaySerializer,
+        request_serializer=EmailSetTrustedRelaySerializer,
         responses={
             200: EmailChannelOperationResponseSerializer,
             400: OpenApiResponse(response=EmailChannelErrorSerializer),
             404: OpenApiResponse(response=EmailChannelErrorSerializer),
         },
     )
-    def post(self, request: Request, *args, **kwargs) -> Response:
-        result = _get_team_from_request(request)
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = _resolve_config(request, request.validated_data["config_id"])
         if isinstance(result, Response):
             return result
-        user, team = result
-
-        serializer = EmailSetTrustedRelaySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        config = _get_config_for_team(serializer.validated_data["config_id"], team)
-        if config is None:
-            return Response({"error": "Email config not found"}, status=404)
+        user, team, config = result
         if config.kind != EmailChannelKind.SUPPORT:
             return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
 
-        trusted_relay_sender: str = serializer.validated_data["trusted_relay_sender"]
+        trusted_relay_sender: str = request.validated_data["trusted_relay_sender"]
         config.trusted_relay_sender = trusted_relay_sender
         config.save(update_fields=["trusted_relay_sender"])
 

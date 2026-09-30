@@ -1133,7 +1133,9 @@ class TestConversationEvents(BaseTest):
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_persists_organization_id(self, mock_get_persons, mock_capture):
+    def test_capture_ticket_created_persists_organization_id_for_verified_relayed_ticket(
+        self, mock_get_persons, mock_capture
+    ):
         from posthog.models.person.person import Person
 
         person_org = Organization.objects.create(name="Persist Org")
@@ -1141,6 +1143,9 @@ class TestConversationEvents(BaseTest):
         OrganizationMembership.objects.create(user=person_user, organization=person_org)
 
         mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+        self.ticket.channel_source = "email"
+        self.ticket.identity_verified = True
+        self.ticket.anonymous_traits = {**(self.ticket.anonymous_traits or {}), "email_relayed": True}
 
         assert self.ticket.organization_id is None
         capture_ticket_created(self.ticket)

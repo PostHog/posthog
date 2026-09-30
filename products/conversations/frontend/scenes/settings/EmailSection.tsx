@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonLabel, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -11,6 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
+import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
 
 interface DnsRecord {
@@ -18,6 +19,27 @@ interface DnsRecord {
     name: string
     value: string
     valid: string
+}
+
+function defaultEmailDisabledReason(
+    adminRestrictionReason: string | null | undefined,
+    config: EmailConfigStatus,
+    isSettingAnyDefault: boolean
+): string | undefined {
+    if (adminRestrictionReason) {
+        return adminRestrictionReason
+    }
+    if (config.is_default) {
+        return 'This is already the primary email address'
+    }
+    if (isSettingAnyDefault) {
+        return 'Updating the primary address…'
+    }
+    return undefined
+}
+
+function trustedRelaySenderValue(config: EmailConfigStatus, trustedRelaySenderDrafts: Record<string, string>): string {
+    return trustedRelaySenderDrafts[config.id] ?? config.trusted_relay_sender ?? ''
 }
 
 function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | null {
@@ -81,15 +103,12 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
 
-    const sendingRecords = config.dns_records?.sending_dns_records as DnsRecord[] | undefined
+    const sendingRecords = (config.dns_records?.sending_dns_records as DnsRecord[] | undefined) ?? []
     const isVerifying = emailVerifyingConfigId === config.id
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
-    const trustedRelaySender = trustedRelaySenderDrafts[config.id] ?? config.trusted_relay_sender ?? ''
-    const isTrustedRelayDirty = trustedRelaySender.trim().toLowerCase() !== (config.trusted_relay_sender ?? '')
-    const isSavingTrustedRelay = trustedRelaySavingConfigId === config.id
-    const isSavingAnyTrustedRelay = trustedRelaySavingConfigId !== null
+    const trustedRelaySender = trustedRelaySenderValue(config, trustedRelaySenderDrafts)
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -100,7 +119,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 <label className="font-medium text-sm">Domain verification</label>
                 <p className="text-xs text-muted-alt mb-1">Add DNS records to enable outbound sending (SPF/DKIM).</p>
 
-                {sendingRecords && sendingRecords.length > 0 && <DnsRecordsTable records={sendingRecords} />}
+                <DnsRecordsTable records={sendingRecords} />
 
                 {!config.domain_verified && (
                     <LemonBanner type="info" className="mt-2">
@@ -137,41 +156,15 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
             </div>
 
             {config.trusted_relay_sender !== undefined && (
-                <div className="border-t pt-3">
-                    <LemonLabel htmlFor={`trusted-relay-sender-${config.id}`}>Trusted relay sender</LemonLabel>
-                    <p className="text-xs text-muted-alt mb-2">
-                        Enter the exact From address used by your email relay. PostHog will identify the customer from
-                        X-PostHog-Requester or Reply-To only for authenticated email from this address. Clear the field
-                        to disable this behavior.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <LemonInput
-                            id={`trusted-relay-sender-${config.id}`}
-                            type="email"
-                            value={trustedRelaySender}
-                            onChange={(value) => setTrustedRelaySenderDraft(config.id, value)}
-                            placeholder="no-reply@example.com"
-                            disabled={!!adminRestrictionReason || isSavingAnyTrustedRelay}
-                            fullWidth
-                        />
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => saveTrustedRelaySender(config.id)}
-                            loading={isSavingTrustedRelay}
-                            disabledReason={
-                                adminRestrictionReason ??
-                                (!isTrustedRelayDirty
-                                    ? 'No changes to save'
-                                    : isSavingAnyTrustedRelay
-                                      ? 'Saving a trusted relay sender'
-                                      : undefined)
-                            }
-                        >
-                            Save relay sender
-                        </LemonButton>
-                    </div>
-                </div>
+                <TrustedRelaySenderSettings
+                    configId={config.id}
+                    value={trustedRelaySender}
+                    savedValue={config.trusted_relay_sender}
+                    restrictionReason={adminRestrictionReason}
+                    savingConfigId={trustedRelaySavingConfigId}
+                    onChange={(value) => setTrustedRelaySenderDraft(config.id, value)}
+                    onSave={() => saveTrustedRelaySender(config.id)}
+                />
             )}
 
             {/* Default + disconnect */}
@@ -180,14 +173,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                     type="secondary"
                     size="small"
                     loading={isSettingDefault}
-                    disabledReason={
-                        adminRestrictionReason ??
-                        (config.is_default
-                            ? 'This is already the primary email address'
-                            : isSettingAnyDefault
-                              ? 'Updating the primary address…'
-                              : undefined)
-                    }
+                    disabledReason={defaultEmailDisabledReason(adminRestrictionReason, config, isSettingAnyDefault)}
                     tooltip="Tickets opened from the widget are sent from the primary address"
                     onClick={() => setDefaultEmail(config.id)}
                 >

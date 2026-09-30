@@ -439,7 +439,7 @@ def _trusted_relay_requester(
                 if (
                     not _is_plausible_email(normalized_email)
                     or normalized_email in excluded_addresses
-                    or normalized_email.startswith(f"team-{config.inbound_token}@")
+                    or _extract_inbound_token(normalized_email) is not None
                     or (inbound_domain and normalized_email.rpartition("@")[2] == inbound_domain)
                 ):
                     continue

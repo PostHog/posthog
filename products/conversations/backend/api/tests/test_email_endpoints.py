@@ -1571,6 +1571,20 @@ class TestEmailTrustedRelaySettings(BaseTest):
         other_config.refresh_from_db()
         assert other_config.trusted_relay_sender == ""
 
+    def test_invalid_trusted_relay_sender_returns_field_error(self):
+        response = self.client.post(
+            "/api/conversations/v1/email/set-trusted-relay",
+            {
+                "config_id": str(self.config.id),
+                "trusted_relay_sender": "not-an-email",
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        assert response.json()["attr"] == "trusted_relay_sender"
+        assert response.json()["detail"] == "Enter a valid email address."
+
 
 class TestEmailInboundRegionRouting(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
@@ -2415,7 +2429,7 @@ class TestEmailInboundTrustedRelay(MailgunWebhookTestMixin, BaseTest):
             (
                 "posthog_inbound_requester_falls_back_to_reply_to",
                 {
-                    "X-PostHog-Requester": "team-deadbeef@mg.posthog.com",
+                    "X-PostHog-Requester": "team-deadbeef@mg.eu.posthog.com",
                     "Reply-To": "Jane Doe <jane@example.net>",
                 },
                 "jane@example.net",

@@ -188,7 +188,12 @@ describe('supportSettingsLogic', () => {
                 post: {
                     '/api/conversations/v1/email/set-trusted-relay': () => [
                         400,
-                        { detail: 'Enter a valid email address.' },
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'Enter a valid email address.',
+                            attr: 'trusted_relay_sender',
+                        },
                     ],
                 },
             })
