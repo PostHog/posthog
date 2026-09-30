@@ -11830,6 +11830,10 @@ snapshots:
         hash: v1.k794b7964.46c3676ea704fe9e4f852ad3d2cfc4cbf52b73702f85ab5dcd8da3e5f9942e11.tDpspUfV1-0J6Je388a-zL5Hz4GF08OZxN07HDDjaSI
     scenes-app-replay-vision--observation-detail-feedback-prompt--light:
         hash: v1.k794b7964.a6f7ac9bb7bf41efdf053f3ddbb1197a34a1520338163ce7f62bd9cdf4eccdc8.1USpUTscp78iHSfe0PsOCAZQc7OvoJjbFswIbwH-byA
+    scenes-app-replay-vision--observation-detail-inline-scan--dark:
+        hash: v1.k794b7964.469118c967c1853dac03f00d28c4e7d7e188bb1d8ae75b3d511adea3342dd2dd.mEelxIjF-c3I38H9laWSDr0ifGTsU3uARojIGp-L0o4
+    scenes-app-replay-vision--observation-detail-inline-scan--light:
+        hash: v1.k794b7964.0bb6a64fd2139185b9d87b50dfb0944d0f6ca8a41a9ecd295703ce0b890b3f27.EVRjxz1f12rueYw5_6Y02wLMEEFPk-3dcSyPX1xnaPg
     scenes-app-replay-vision--observation-detail-monitor--dark:
         hash: v1.k794b7964.1e35aa5e9f235571af2f50dde85f00309d3da79d05c703ba240ec3cdc3c7a879.70bC14X0u8NTb7_zoTehmiN4cQCy61tmjKiEgEHZV-U
     scenes-app-replay-vision--observation-detail-monitor--light:
@@ -11850,6 +11854,10 @@ snapshots:
         hash: v1.k794b7964.2517a855343f68c1423542c539840c5398a38fa2ac275fde776d25ef4669c68c.wIVR49t9ZcB53TpdbiV-N-1jq9ISB4jHWg4drk1m3cA
     scenes-app-replay-vision--observation-detail-scorer--light:
         hash: v1.k794b7964.d2913d4e783c2f87536a851a63426e083d286806b064e2d42e34849b633f3a3e.9D-FS9PdTLBLBV9kIWUzvapu97SHdq0MrQB3F0fYMnQ
+    scenes-app-replay-vision--observation-detail-summarize-button--dark:
+        hash: v1.k794b7964.de611d0919ecdbf574e0cc68b87ff8b43d4b693a48925708ac38dc8222af6ad5.Cebsg_fmVC59ZMN6ibQn30wWdRYEzymxgtM06GnDWCU
+    scenes-app-replay-vision--observation-detail-summarize-button--light:
+        hash: v1.k794b7964.9b24f17d0296ba5dcfb8e2f03af9a0e13b0277160c24381c502f12189c4f8861.eWuSEs61l3ZPVMmiB3dxWKyehhuyoczwyZYaScexYMA
     scenes-app-replay-vision--scanner-alerts--dark:
         hash: v1.k794b7964.07adaa26f0b868d6c64d7d99e3d1a317307dff376b1dc5d740c9c9cc9c2ff926.c9kS5X0nGVIU2VHq4sxwidzwpjG5bpqnlvPM-r8yEf8
     scenes-app-replay-vision--scanner-alerts--light:
