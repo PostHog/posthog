@@ -68,7 +68,7 @@ def test_webhook_verifies_signature_and_routes_payment(
 ) -> None:
     source = PaymongoSource()
     timestamp = str(int(time.time()) - (600 if case == "expired" else 0))
-    payload = {
+    payload: dict[str, Any] = {
         "data": {
             "id": "evt_fake",
             "attributes": {

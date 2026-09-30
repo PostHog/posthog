@@ -1,5 +1,5 @@
 import json
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Generator, Iterator
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
@@ -85,25 +85,26 @@ def get_resource(name: str) -> EndpointResource:
     endpoint: Endpoint = {"path": settings.path, "data_selector": "data", "data_selector_required": True}
     if settings.pagination == "single":
         # Payment Links documents no cursor; fail instead of silently importing a partial collection.
-        endpoint.update(
-            paginator="single_page",
-            response_actions=[
-                {
-                    "status_code": 200,
-                    "json_field": "has_more",
-                    "json_values": [True],
-                    "action": "raise",
-                    "message": "PayMongo returned more payment links than its documented list API can retrieve.",
-                }
-            ],
-        )
+        endpoint["paginator"] = "single_page"
+        endpoint["response_actions"] = [
+            {
+                "status_code": 200,
+                "json_field": "has_more",
+                "json_values": [True],
+                "action": "raise",
+                "message": "PayMongo returned more payment links than its documented list API can retrieve.",
+            }
+        ]
     elif settings.pagination == "payout":
-        endpoint.update(
-            params={"limit": PAGE_SIZE},
-            paginator={"type": "cursor", "cursor_path": "pagination.next_cursor", "cursor_param": "after"},
-        )
+        endpoint["params"] = {"limit": PAGE_SIZE}
+        endpoint["paginator"] = {
+            "type": "cursor",
+            "cursor_path": "pagination.next_cursor",
+            "cursor_param": "after",
+        }
     else:
-        endpoint.update(params={"limit": PAGE_SIZE}, paginator=PaymongoCursorPaginator())
+        endpoint["params"] = {"limit": PAGE_SIZE}
+        endpoint["paginator"] = PaymongoCursorPaginator()
     if name == "refunds":
         endpoint["params"] = {
             "payment_id": {"type": "resolve", "resource": "payments", "field": "id"},
@@ -115,7 +116,7 @@ def get_resource(name: str) -> EndpointResource:
 
 def pull_rows(
     api_key: str, inputs: SourceInputs, manager: ResumableSourceManager[PaymongoResumeConfig]
-) -> Iterator[list[dict[str, Any]]]:
+) -> Generator[list[dict[str, Any]]]:
     state = manager.load_state() if manager.can_resume() else None
     if state and state.finished:
         return

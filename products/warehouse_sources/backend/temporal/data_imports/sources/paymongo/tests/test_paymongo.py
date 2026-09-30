@@ -1,9 +1,9 @@
 import json
 import asyncio
-from collections.abc import Iterator
+from collections.abc import AsyncIterable, Iterator
 from datetime import UTC, datetime
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -108,8 +108,8 @@ def test_pagination_auth_normalization_and_checkpoint(
     assert list(pages) == []
     assert manager.save_state.call_args.args[0].finished
     assert sent[0].headers["Authorization"] == "Basic c2tfdGVzdF9mYWtlOg=="
-    assert parse_qs(urlsplit(sent[0].url).query) == {"limit": ["10"]}
-    assert parse_qs(urlsplit(sent[1].url).query) == {"limit": ["10"], "after": ["pay_1"]}
+    assert parse_qs(urlsplit(sent[0].url or "").query) == {"limit": ["10"]}
+    assert parse_qs(urlsplit(sent[1].url or "").query) == {"limit": ["10"], "after": ["pay_1"]}
 
 
 @pytest.mark.parametrize("finished", [False, True])
@@ -121,7 +121,7 @@ def test_resume_skips_completed_pages(http: MagicMock, manager: MagicMock, finis
     if finished:
         assert sent == []
     else:
-        assert parse_qs(urlsplit(sent[0].url).query)["after"] == ["pay_saved"]
+        assert parse_qs(urlsplit(sent[0].url or "").query)["after"] == ["pay_saved"]
 
 
 def test_refund_fanout_keeps_payment_and_child_cursors(http: MagicMock, manager: MagicMock) -> None:
@@ -136,7 +136,7 @@ def test_refund_fanout_keeps_payment_and_child_cursors(http: MagicMock, manager:
     )
     rows = [item for page in pull_rows("fake", source_inputs("refunds"), manager) for item in page]
     assert [item["id"] for item in rows] == ["ref_one", "ref_two", "ref_three"]
-    queries = [parse_qs(urlsplit(request.url).query) for request in sent[1:]]
+    queries = [parse_qs(urlsplit(request.url or "").query) for request in sent[1:]]
     assert queries == [
         {"data.attributes.payment_id": ["pay_one"], "data.attributes.limit": ["10"]},
         {
@@ -185,8 +185,11 @@ def test_credential_probe_status_mapping(
     sent = respond(http, [{"data": []}], [status])
     result, error = PaymongoClient("fake").validate_credentials(schema)
     assert result is valid
-    assert message in error if message else error is None
-    assert parse_qs(urlsplit(sent[0].url).query) == {"limit": ["1"]}
+    if message:
+        assert error is not None and message in error
+    else:
+        assert error is None
+    assert parse_qs(urlsplit(sent[0].url or "").query) == {"limit": ["1"]}
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
@@ -223,7 +226,7 @@ def test_webhook_management_reuses_matching_url_and_disables_only_owned_endpoint
     result = client.create_webhook(url)
     assert result.success and result.extra_inputs == {"signing_secret": "fake-secret"}
     assert client.delete_webhook(url).success
-    assert [(r.method, urlsplit(r.url).path) for r in sent] == [
+    assert [(r.method, urlsplit(r.url or "").path) for r in sent] == [
         ("GET", "/v1/webhooks"),
         ("PUT", "/v1/webhooks/hook_one"),
         ("POST", "/v1/webhooks/hook_one/enable"),
@@ -239,7 +242,7 @@ def test_webhook_creation_saves_or_requests_signing_secret(http: MagicMock, secr
     assert result.success
     assert result.pending_inputs == ([] if secret else ["signing_secret"])
     assert result.extra_inputs == ({"signing_secret": secret} if secret else {})
-    assert json.loads(sent[1].body)["data"]["attributes"]["url"] == "https://example.com/hook"
+    assert json.loads(sent[1].body or b"")["data"]["attributes"]["url"] == "https://example.com/hook"
 
 
 def test_webhook_batch_deduplicates_and_matches_poll_shape() -> None:
@@ -286,7 +289,8 @@ def test_webhook_sync_does_not_poll(http: MagicMock, manager: MagicMock) -> None
     response = paymongo_source("fake", source_inputs(), manager, webhook_manager)
 
     async def collect() -> list[Any]:
-        return [table async for table in response.items()]
+        items = cast(AsyncIterable[Any], response.items())
+        return [table async for table in items]
 
     assert asyncio.run(collect())[0].to_pylist() == [{"id": "pay_one"}]
     http.assert_not_called()
@@ -311,7 +315,7 @@ def test_refund_resume_continues_child_cursor(http: MagicMock, manager: MagicMoc
         "ref_two",
         "ref_three",
     ]
-    assert parse_qs(urlsplit(sent[1].url).query)["data.attributes.after"] == ["ref_one"]
+    assert parse_qs(urlsplit(sent[1].url or "").query)["data.attributes.after"] == ["ref_one"]
 
 
 def test_refund_webhooks_refresh_payment_once(http: MagicMock) -> None:
@@ -357,9 +361,12 @@ def test_refund_permissions_probe_child_endpoint(http: MagicMock, status: int) -
     sent = respond(http, [{"data": [row("pay_one")]}, {"data": []}], [200, status])
     valid, message = PaymongoClient("fake").validate_credentials("refunds")
     assert valid is (status == 200)
-    assert message is None if status == 200 else "permissions" in message
-    assert urlsplit(sent[1].url).path == "/v1/refunds"
-    assert parse_qs(urlsplit(sent[1].url).query) == {
+    if status == 200:
+        assert message is None
+    else:
+        assert message is not None and "permissions" in message
+    assert urlsplit(sent[1].url or "").path == "/v1/refunds"
+    assert parse_qs(urlsplit(sent[1].url or "").query) == {
         "data.attributes.payment_id": ["pay_one"],
         "data.attributes.limit": ["1"],
     }
