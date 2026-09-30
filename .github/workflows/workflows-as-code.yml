@@ -1,0 +1,63 @@
+name: Workflows as code
+
+on:
+    pull_request:
+        paths:
+            - 'products/workflows/workflows/**'
+            - '.github/workflows/workflows-as-code.yml'
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/workflows/workflows/**'
+            - '.github/workflows/workflows-as-code.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    check:
+        name: Check workflow files
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/workflows/workflows
+                  sparse-checkout-cone-mode: false
+
+            - uses: Silthus/posthog-workflows-action@3c3269cc77433a70d093564b3619f01afae9c0b8 # v0.1.0
+              with:
+                  api-key: ${{ secrets.POSTHOG_WORKFLOWS_CHECK_API_KEY }}
+                  project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
+                  host: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
+                  files: products/workflows/workflows/*.yaml
+                  mode: check
+
+    apply:
+        name: Apply workflow files
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Only master may deploy to this environment, so a pull request run cannot read its write key.
+        environment: workflows-as-code
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/workflows/workflows
+                  sparse-checkout-cone-mode: false
+
+            - uses: Silthus/posthog-workflows-action@3c3269cc77433a70d093564b3619f01afae9c0b8 # v0.1.0
+              with:
+                  api-key: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
+                  project-id: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
+                  host: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
+                  files: products/workflows/workflows/*.yaml
+                  mode: apply
