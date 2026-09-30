@@ -16,7 +16,7 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import MasterFailureGroup, RepoRef
+from products.engineering_analytics.backend.facade.contracts import CIEngine, MasterFailureGroup, RepoRef
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
@@ -108,6 +108,7 @@ def query_master_failures(
                     "first_seen": run_started_at,
                     "last_seen": run_started_at,
                     "latest_run_id": run_id,
+                    "latest_ci_engine": ci_engine,
                 },
             )
             group["run_ids"].add((ci_engine, run_id))
@@ -116,6 +117,7 @@ def query_master_failures(
             if run_started_at > group["last_seen"]:
                 group["last_seen"] = run_started_at
                 group["latest_run_id"] = run_id
+                group["latest_ci_engine"] = ci_engine
 
     return sorted(
         (
@@ -127,6 +129,7 @@ def query_master_failures(
                 first_seen=group["first_seen"],
                 last_seen=group["last_seen"],
                 latest_run_id=group["latest_run_id"],
+                latest_ci_engine=CIEngine(group["latest_ci_engine"]),
             )
             for (repo_owner, repo_name, workflow_name, failed_job), group in groups.items()
         ),

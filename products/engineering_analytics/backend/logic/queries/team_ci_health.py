@@ -67,12 +67,12 @@ _ROSTER_SELECT = f"""
             runner,
             nodeid,
             argMax(owner_team, run_signal_at) AS owner_team,
-            groupUniqArrayIf(run_id, recovered_in_run AND is_current) AS recovery_runs_current,
-            groupUniqArrayIf(run_id, recovered_in_run AND NOT is_current) AS recovery_runs_prior,
-            groupUniqArrayIf(run_id, failed_in_run AND is_current) AS failed_runs_current,
-            groupUniqArrayIf(run_id, failed_in_run AND NOT is_current) AS failed_runs_prior,
-            groupUniqArrayIf(run_id, quarantined_in_run AND is_current) AS xfail_runs_current,
-            groupUniqArrayIf(run_id, quarantined_in_run AND NOT is_current) AS xfail_runs_prior,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), recovered_in_run AND is_current) AS recovery_runs_current,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), recovered_in_run AND NOT is_current) AS recovery_runs_prior,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), failed_in_run AND is_current) AS failed_runs_current,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), failed_in_run AND NOT is_current) AS failed_runs_prior,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), quarantined_in_run AND is_current) AS xfail_runs_current,
+            groupUniqArrayIf((ci_engine, workflow_run_key, head_sha, run_id), quarantined_in_run AND NOT is_current) AS xfail_runs_prior,
             countIf(failed_in_run AND branch IN ('master', 'main') AND is_current) > 0
                 OR uniqIf(pr_number, failed_in_run AND pr_number != '' AND is_current) >= {{min_failed_prs}}
                 AS blast_radius_current,

@@ -160,7 +160,7 @@ export function WorkflowRunsScene(): JSX.Element {
             render: (_, run) => (
                 <Link
                     to={withScope(
-                        urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id),
+                        urls.engineeringAnalyticsWorkflowRun(run.repoOwner, run.repoName, run.id, run.ciEngine),
                         searchParams,
                         sourceId
                     )}
@@ -461,7 +461,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             size="small"
                             embedded
                             loading={runsLoading}
-                            rowKey={(run) => `${run.id}-${run.runAttempt}`}
+                            rowKey={(run) => `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`}
                             useURLForSorting={false}
                             defaultSorting={{ columnKey: 'started', order: -1 }}
                             pagination={{ pageSize: 25 }}
@@ -469,18 +469,20 @@ export function WorkflowRunsScene(): JSX.Element {
                                 className: 'cursor-pointer',
                                 onClick: () =>
                                     setRunExpanded(
-                                        `${run.id}-${run.runAttempt}`,
-                                        !expandedRunKeys.includes(`${run.id}-${run.runAttempt}`),
+                                        `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`,
+                                        !expandedRunKeys.includes(`${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`),
                                         run.runId,
-                                        run.runAttempt
+                                        run.runAttempt,
+                                        run.ciEngine
                                     ),
                             })}
                             expandable={{
                                 noIndent: true,
-                                isRowExpanded: (run) => expandedRunKeys.includes(`${run.id}-${run.runAttempt}`),
+                                isRowExpanded: (run) =>
+                                    expandedRunKeys.includes(`${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`),
                                 expandedRowRender: (run) => (
                                     <GroupedJobsTable
-                                        jobs={runJobs[jobCacheKey(run.id, run.runAttempt)]}
+                                        jobs={runJobs[jobCacheKey(run.id, run.runAttempt, run.ciEngine)]}
                                         loading={runJobsLoading}
                                         embedded
                                     />
