@@ -7118,6 +7118,22 @@ snapshots:
         hash: v1.k794b7964.79b55888f68b8fdecde60eb59f9941838eed95754b51bd361ab65be360277270.lJwqiaG6UTf6bczX7v1jw_bImsnq7LK-tuxsBFZt2F4
     products-subscriptions-subscriptions-table--with-pagination--light:
         hash: v1.k794b7964.c54c1003b71f29a08808fa1e4e7413ee7c61f514eb1198c924d936cc95c834e5.1PL1n6t2LsJ6X33Z6txXpmifcmqNP6HrVtrLhnMrWMA
+    products-tasks-infrastructure-admin--awaiting-pin--dark:
+        hash: v1.k794b7964.b331773e650f3814efa771ab8b32c8e66c563b1b0360cde5121a181fc5462717.UYUmVzEWVr8qigZH8qRiXa1_7PGDoEEv9xy1yuFSLJk
+    products-tasks-infrastructure-admin--awaiting-pin--light:
+        hash: v1.k794b7964.405694015db96ed95c1f66ed618843bfe79f69ca60579b535e80a8ab4d90ff8f.DJOz93cqatah7EDNwPXP8bL1GXe2fALdFI-2hdSajKA
+    products-tasks-infrastructure-admin--narrow--dark:
+        hash: v1.k794b7964.19e2b4eedfa858e97b329167a99067c237a31913024c6f5f304cea5f4b8d07da.tpH_j31SSyiHMGSWG0CRKRKeQ4LrFp_y3ryjNabxiTo
+    products-tasks-infrastructure-admin--narrow--light:
+        hash: v1.k794b7964.64de379b2dd92d1becc68ac09c5ae5a29da3f40c69bfce31baa78467c9495025.2FkqZYE31H1NuTuV-G9dU-f_3kVrHvno4kM7EhaB_II
+    products-tasks-infrastructure-admin--rolling-out--dark:
+        hash: v1.k794b7964.c8d441069bb006547cbbb32db84233d4b205116effbef92c1f41f3709cd75f77.bH9rqew-wPGXn8ZevKbA_puMvskQO7C0ezUXyWCgqlg
+    products-tasks-infrastructure-admin--rolling-out--light:
+        hash: v1.k794b7964.020c96bacfd2998c676a9be37c03487621a5e0c259aeabb5760d3bca3b5de46a.EBdT6IBK0hAm0OpjQlUEnrApTl03IQ7Ylczgy1fUYy0
+    products-tasks-infrastructure-admin--unavailable--dark:
+        hash: v1.k794b7964.8392888d1451f2e1acffebc341b8b03bbdbea75fdd0247c3d13dc9d863d4f797.eJXrTs0V9AyaT_dG1xQD40Pjx4G7_qCwxX1sQGr7UNs
+    products-tasks-infrastructure-admin--unavailable--light:
+        hash: v1.k794b7964.a5e5d20f5b00a5dc8fb93a713ded98c230517d1910604f8b380992720d9f82b4.55AgBX1suG_-a-UMTZvfgMD4UTbiv9My5Wg7R2ZeY9A
     products-tracing-operationstable--default--dark:
         hash: v1.k794b7964.58421fb9485687230fc55051bb13eeefff6fec4dbc8cc0eeb9a9a9f3f39a30cd.QacFiUZLBgSAOZZnr3OoUeIP2e-0gBXYobLZf-MTcMM
     products-tracing-operationstable--default--light:
