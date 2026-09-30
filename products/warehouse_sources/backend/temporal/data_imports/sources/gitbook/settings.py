@@ -1,11 +1,13 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass(frozen=True)
+@frozen
 class GitBookEndpointConfig:
     name: str
     # Path relative to the API base URL. Fan-out endpoints carry a single `{parent_id}`
@@ -115,8 +117,8 @@ GITBOOK_ENDPOINTS: dict[str, GitBookEndpointConfig] = {
         incremental_param="from",
         sort_mode="desc",
     ),
-    # Team membership rows nest the member under `organization`; the member's user id is lifted to
-    # a top-level `user_id` column so it can key the table.
+    # Team membership rows nest the user under `organization.user`; its id is lifted to a top-level
+    # `user_id` column so it can key the table.
     "team_members": GitBookEndpointConfig(
         name="team_members",
         path="/orgs/{organization_id}/teams/{parent_id}/members",

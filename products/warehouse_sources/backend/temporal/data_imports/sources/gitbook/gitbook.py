@@ -128,7 +128,7 @@ def _flatten_pages(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _lift_team_member_user_id(row: dict[str, Any]) -> dict[str, Any]:
-    row["user_id"] = (row.get("organization") or {}).get("id")
+    row["user_id"] = ((row.get("organization") or {}).get("user") or {}).get("id")
     return row
 
 

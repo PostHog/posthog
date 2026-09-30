@@ -215,7 +215,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "organization_id": "ID of the organization the team belongs to (added by PostHog during sync).",
             "team_id": "ID of the team (added by PostHog during sync).",
-            "user_id": "ID of the user who is a member of the team (added by PostHog during sync from organization.id).",
+            "user_id": "ID of the user who is a member of the team (added by PostHog during sync from organization.user.id).",
             "organization": "The user's organization membership, including their user profile and organization role.",
             "team": "The user's membership in the team, including their team role.",
             "permissions": "The set of permissions the token has on the team member.",

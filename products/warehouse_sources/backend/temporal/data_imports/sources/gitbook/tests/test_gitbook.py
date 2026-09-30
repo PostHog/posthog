@@ -241,8 +241,12 @@ class TestFanOut:
                 "teams",
                 "/orgs/{org}/teams/{parent}/members",
                 "team_id",
-                {"organization": {"id": "user1"}, "team": {"role": "member"}},
-                {"organization": {"id": "user1"}, "team": {"role": "member"}, "user_id": "user1"},
+                {"organization": {"id": "membership1", "user": {"id": "user1"}}, "team": {"role": "member"}},
+                {
+                    "organization": {"id": "membership1", "user": {"id": "user1"}},
+                    "team": {"role": "member"},
+                    "user_id": "user1",
+                },
             ),
         ]
     )
