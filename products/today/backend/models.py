@@ -29,7 +29,6 @@ class DailyBriefing(ProductTeamModel):
     content = models.JSONField(default=dict)
     writer = models.CharField(max_length=16, choices=[(w.value, w.value) for w in BriefingWriter], null=True)
     error = models.TextField(null=True, blank=True)
-    llm_cost_usd = models.DecimalField(max_digits=10, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     ready_at = models.DateTimeField(null=True, blank=True)
     # The last time the person opened Today with this briefing; the schedule only serves recent viewers.

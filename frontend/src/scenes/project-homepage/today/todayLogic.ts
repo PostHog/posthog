@@ -431,8 +431,9 @@ export const todayLogic = kea<todayLogicType>([
         ],
         briefingItems: [
             (s) => [s.personalBriefing, s.showPersonalBriefing],
+            // The page and the left bar show the same items: the ones the text names.
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
-                showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
+                showPersonalBriefing && personalBriefing ? personalBriefing.items.filter((item) => item.in_text) : [],
         ],
         briefingWaiting: [
             (s) => [s.personalBriefing, s.pendingBriefingId, s.refreshedBriefingLoading],

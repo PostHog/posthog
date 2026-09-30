@@ -51,7 +51,6 @@ class Migration(migrations.Migration):
                     models.CharField(choices=[("llm", "llm"), ("template", "template")], max_length=16, null=True),
                 ),
                 ("error", models.TextField(blank=True, null=True)),
-                ("llm_cost_usd", models.DecimalField(blank=True, decimal_places=6, max_digits=10, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("ready_at", models.DateTimeField(blank=True, null=True)),
                 ("last_viewed_at", models.DateTimeField(blank=True, null=True)),

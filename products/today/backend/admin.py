@@ -21,7 +21,6 @@ class DailyBriefingAdmin(admin.ModelAdmin):
         "trigger",
         "status",
         "writer",
-        "llm_cost_usd",
         "created_at",
         "ready_at",
     )
@@ -39,7 +38,6 @@ class DailyBriefingAdmin(admin.ModelAdmin):
         "status",
         "writer",
         "error",
-        "llm_cost_usd",
         "created_at",
         "ready_at",
         "last_viewed_at",

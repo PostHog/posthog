@@ -1,5 +1,4 @@
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from typing import Any
 
 import time_machine
@@ -58,7 +57,7 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         expected_content: dict[str, Any] | None,
         expected_calls: int,
     ) -> None:
-        with patch(WRITE, side_effect=[(answer, Decimal("0.03")) for answer in answers]) as write:
+        with patch(WRITE, side_effect=list(answers)) as write:
             write_and_check(team_id=self.team.id, briefing_id=str(self.briefing.id))
 
         self.briefing.refresh_from_db()
@@ -66,7 +65,6 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
         assert self.briefing.writer == expected_writer
         assert self.briefing.content == (expected_content or self.draft)
         assert write.call_count == expected_calls
-        assert self.briefing.llm_cost_usd == Decimal("0.03") * expected_calls
         if expected_calls == 2:
             assert write.call_args.kwargs["problems"]
 

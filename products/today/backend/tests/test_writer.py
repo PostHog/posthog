@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models import Team, User
 
 from products.today.backend.logic.writer import WriterError, WriterOutput, write
+from products.today.backend.models import DailyBriefing
 
 OUTPUT = WriterOutput.model_validate(
     {
@@ -24,30 +25,37 @@ OUTPUT = WriterOutput.model_validate(
 
 
 def _response(stop_reason: str, parsed_output: WriterOutput | None) -> SimpleNamespace:
-    return SimpleNamespace(
-        stop_reason=stop_reason,
-        parsed_output=parsed_output,
-        usage=SimpleNamespace(input_tokens=3000, output_tokens=1000),
-    )
+    return SimpleNamespace(stop_reason=stop_reason, parsed_output=parsed_output)
 
 
 class TestWrite(SimpleTestCase):
-    def _write(self, response: SimpleNamespace) -> tuple[dict[str, Any], Any]:
+    def _write(self, response: SimpleNamespace) -> dict[str, Any]:
         client = MagicMock()
         client.messages.parse.return_value = response
-        with patch("products.today.backend.logic.writer.build_anthropic_client", return_value=client):
+        with patch("products.today.backend.logic.writer.build_anthropic_client", return_value=client) as build:
+            self.build_client = build
             return write(
                 team=cast(Team, SimpleNamespace(id=1)),
                 user=cast(User, SimpleNamespace(distinct_id="person-1")),
+                briefing=cast(DailyBriefing, SimpleNamespace(id="b-1", edition="morning", trigger="schedule")),
                 fact_sheet={"items": []},
+                attempt=1,
             )
 
     def test_items_become_the_stored_labels_and_signals(self) -> None:
-        content, _cost = self._write(_response("end_turn", OUTPUT))
+        content = self._write(_response("end_turn", OUTPUT))
 
         assert content["labels"] == {"report:1": "Checkout button hidden", "ticket:9": "Ticket #1042"}
         assert content["signals"] == {"report:1": "P2, waits for you", "ticket:9": "6 unread messages"}
         assert content["paragraphs"][0][0] == {"text": "The checkout report", "item_key": "report:1", "highlight": True}
+
+    def test_every_attempt_is_traced_under_its_briefing(self) -> None:
+        self._write(_response("end_turn", OUTPUT))
+
+        kwargs = self.build_client.call_args.kwargs
+        assert kwargs["trace_id"] == "b-1"
+        assert kwargs["ai_product"] == "today"
+        assert kwargs["properties"]["today_attempt"] == "1"
 
     @parameterized.expand([("refusal", "refusal", None), ("cut off", "max_tokens", OUTPUT)])
     def test_an_unfinished_answer_is_a_writer_error(

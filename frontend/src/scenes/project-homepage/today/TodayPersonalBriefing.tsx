@@ -43,20 +43,18 @@ function PersonalBriefingChips(): JSX.Element | null {
     return (
         <TodayChipStack
             dataAttr="today-briefing-item-chip"
-            chips={briefingItems
-                .filter((item) => item.in_text)
-                .map((item) => {
-                    const source = itemSource(item)
-                    return {
-                        key: item.key,
-                        label: item.label,
-                        color: source.color,
-                        icon: <TodayIcon icon={source.icon} />,
-                        active: hoveredItemKey === item.key,
-                        onClick: () => openItem(item, 'chip'),
-                        onHoverChange: (hovered) => setHoveredItemKey(hovered ? item.key : null),
-                    }
-                })}
+            chips={briefingItems.map((item) => {
+                const source = itemSource(item)
+                return {
+                    key: item.key,
+                    label: item.label,
+                    color: source.color,
+                    icon: <TodayIcon icon={source.icon} />,
+                    active: hoveredItemKey === item.key,
+                    onClick: () => openItem(item, 'chip'),
+                    onHoverChange: (hovered) => setHoveredItemKey(hovered ? item.key : null),
+                }
+            })}
         />
     )
 }

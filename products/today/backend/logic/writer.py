@@ -1,8 +1,6 @@
 """One LLM call that turns the fact sheet into the briefing text. Code chose the items; this only writes."""
 
 import json
-import uuid
-from decimal import Decimal
 from typing import Any, Literal
 
 import structlog
@@ -11,6 +9,8 @@ from pydantic import BaseModel, ValidationError
 from posthog.llm.gateway_client import build_anthropic_client
 from posthog.models import Team, User
 
+from ..models import DailyBriefing
+
 logger = structlog.get_logger(__name__)
 
 MODEL = "claude-opus-5-5"
@@ -18,9 +18,7 @@ MODEL = "claude-opus-5-5"
 MAX_OUTPUT_TOKENS = 8000
 # The items and their order are chosen by code, so the writer reasons only about the prose.
 EFFORT: Literal["medium"] = "medium"
-# Estimated list price per million tokens (input, output), for the admin cost column only.
-# The gateway's $ai_generation event carries the billed cost.
-_PRICE_PER_MILLION = (Decimal(4), Decimal(20))
+AI_PRODUCT = "today"
 
 SYSTEM_PROMPT = """You write the Today briefing for one person from a fact sheet. Code already chose the items and their order. You only write. Items with "in_text": true go in the text. Every item also appears in the left bar with a short label and a signal.
 
@@ -41,7 +39,7 @@ Rules:
 7. Never name a time of day (this morning, this afternoon, tonight). The page greets the person with the time of day, and the text stays up for hours.
 
 What to write:
-- "headline": one sentence that counts what is in the text. With report items, count them (counts.reports_in_text), for example "Three reports need your input". Without report items, count every text item (counts.items_in_text), for example "Four things need your attention".
+- "headline": one sentence that counts every item in the text (counts.items_in_text), so the count matches the row of icons next to it. Call them reports only when every text item is a report ("Three reports need your input"); otherwise call them items ("Five items need your attention").
 - "paragraphs": 2 or 3 short paragraphs, in rank order, each a list of segments {"text", "item_key", "highlight"}.
   - The first paragraph opens with the top item: what it is, why it needs the person (from its reason and facts), and its key number when there is one.
   - Every other text item gets a full sentence of its own that says what it is and why it matters now. Two items may share one sentence only when they are the same kind and the sentence still reads naturally.
@@ -95,14 +93,30 @@ def _user_message(fact_sheet: dict[str, Any], problems: list[str] | None) -> str
 
 
 def write(
-    *, team: Team, user: User, fact_sheet: dict[str, Any], problems: list[str] | None = None
-) -> tuple[dict[str, Any], Decimal]:
-    """The writer's content and its estimated cost. ``problems`` feeds back the checks of a failed try."""
+    *,
+    team: Team,
+    user: User,
+    briefing: DailyBriefing,
+    fact_sheet: dict[str, Any],
+    attempt: int,
+    problems: list[str] | None = None,
+) -> dict[str, Any]:
+    """The writer's content. ``problems`` feeds back the checks of a failed try.
+
+    Every attempt for one briefing shares its id as the trace, and the properties name the edition
+    and the attempt, so AI observability shows the cost and the retries per briefing.
+    """
     client = build_anthropic_client(
         product="posthog_ai",
-        ai_product="posthog_ai",
-        trace_id=str(uuid.uuid4()),
-        properties={"ai_stage": "today_briefing"},
+        ai_product=AI_PRODUCT,
+        trace_id=str(briefing.id),
+        properties={
+            "ai_stage": "today_briefing_writer",
+            "today_briefing_id": str(briefing.id),
+            "today_edition": str(briefing.edition),
+            "today_trigger": str(briefing.trigger),
+            "today_attempt": str(attempt),
+        },
         distinct_id=str(user.distinct_id),
         team_id=team.id,
     )
@@ -118,10 +132,6 @@ def write(
     except ValidationError as error:
         # The SDK validates the text while it parses. A refusal or a cut-off answer does not match the schema.
         raise WriterError(f"writer output did not match the schema: {error}") from error
-    usage = response.usage
-    cost = (
-        Decimal(usage.input_tokens) * _PRICE_PER_MILLION[0] + Decimal(usage.output_tokens) * _PRICE_PER_MILLION[1]
-    ) / Decimal(1_000_000)
     if response.stop_reason != "end_turn" or response.parsed_output is None:
         raise WriterError(f"writer stopped with {response.stop_reason} and no valid output")
-    return response.parsed_output.to_content(), cost
+    return response.parsed_output.to_content()

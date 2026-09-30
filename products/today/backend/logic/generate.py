@@ -73,9 +73,11 @@ def write_and_check(*, team_id: int, briefing_id: str) -> None:
     fact_sheet = briefing.facts
     if fact_sheet.get("items") and team.organization.is_ai_data_processing_approved:
         problems: list[str] | None = None
-        for _ in range(WRITER_ATTEMPTS):
+        for attempt in range(1, WRITER_ATTEMPTS + 1):
             try:
-                content, cost = write(team=team, user=user, fact_sheet=fact_sheet, problems=problems)
+                content = write(
+                    team=team, user=user, briefing=briefing, fact_sheet=fact_sheet, attempt=attempt, problems=problems
+                )
             except WriterError as error:
                 problems = [str(error)]
                 continue
@@ -84,7 +86,6 @@ def write_and_check(*, team_id: int, briefing_id: str) -> None:
                 capture_exception(error, {"team_id": team.id, "product": "today"})
                 briefing.error = f"writer failed: {error}"[:1000]
                 break
-            briefing.llm_cost_usd = (briefing.llm_cost_usd or 0) + cost
             problems = check_content(fact_sheet, content)
             if not problems:
                 briefing.content = content
@@ -95,7 +96,7 @@ def write_and_check(*, team_id: int, briefing_id: str) -> None:
             briefing.error = ("checks failed: " + "; ".join(problems))[:1000]
     briefing.status = BriefingStatus.READY
     briefing.ready_at = timezone.now()
-    briefing.save(update_fields=["content", "writer", "error", "llm_cost_usd", "status", "ready_at"])
+    briefing.save(update_fields=["content", "writer", "error", "status", "ready_at"])
 
 
 def mark_failed(*, team_id: int, briefing_id: str, error: str) -> None:

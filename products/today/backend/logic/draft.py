@@ -97,14 +97,13 @@ def build_draft(fact_sheet: dict[str, Any]) -> dict[str, Any]:
     in_text = [item for item in items if item["in_text"]]
     reports = [item for item in in_text if item["group"] == "report"]
 
-    if reports:
-        count = len(reports)
-        headline = f"{_COUNT_WORDS[count]} {'report needs' if count == 1 else 'reports need'} your input"
-    elif in_text:
-        count = len(in_text)
-        headline = f"{_COUNT_WORDS[count]} {'thing needs' if count == 1 else 'things need'} your attention"
-    else:
+    count = len(in_text)
+    if not in_text:
         headline = "Nothing needs you right now"
+    elif len(reports) == count:
+        headline = f"{_COUNT_WORDS[count]} {'report needs' if count == 1 else 'reports need'} your input"
+    else:
+        headline = f"{_COUNT_WORDS[count]} {'item needs' if count == 1 else 'items need'} your attention"
 
     paragraphs: list[list[dict[str, Any]]] = []
     for index, item in enumerate(in_text):

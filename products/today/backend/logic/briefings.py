@@ -120,18 +120,18 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
 
 
 def _inbox_counts(team: Team, user_id: int, items: list[dict[str, Any]]) -> tuple[int, int]:
-    """Open reports beyond the left bar, for the person and for the whole project, counted now.
+    """Open reports beyond the ones the page shows, for the person and for the whole project, counted now.
 
     The briefing itself is hours old, so these come from the live tables rather than the fact sheet.
     """
-    reports_in_bar = sum(1 for item in items if item["group"] == ItemGroup.REPORT.value)
+    reports_shown = sum(1 for item in items if item["in_text"] and item["group"] == ItemGroup.REPORT.value)
     try:
         for_me = signals.reports_for_me_count(team_id=team.id, user_id=user_id)
         in_project = signals.open_reports_count(team_id=team.id)
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return 0, 0
-    return max(for_me - reports_in_bar, 0), max(in_project - reports_in_bar, 0)
+    return max(for_me - reports_shown, 0), max(in_project - reports_shown, 0)
 
 
 def _live_states(team: Team, items: list[dict[str, Any]]) -> dict[str, ItemState]:
