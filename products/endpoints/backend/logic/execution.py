@@ -24,7 +24,6 @@ from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -44,6 +43,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
 from posthog.api.services.query import process_query_model
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
