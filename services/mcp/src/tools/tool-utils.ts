@@ -38,16 +38,7 @@ export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
     if (Array.isArray(result)) {
         return { results: result, _agentNote: note } as unknown as WithAgentNote<T>
     }
-    const formatted = (result as Record<string, unknown> | null | undefined)?.[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
-    // Both exec and direct tool responses prefer this text over the serialized result.
-    // Attach the declared note here so it survives that choice and later result enrichment.
-    return {
-        ...result,
-        _agentNote: note,
-        ...(typeof formatted === 'string' && note.length > 0
-            ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: `${formatted}\n\n_agentNote: ${JSON.stringify(note)}` }
-            : {}),
-    } as WithAgentNote<T>
+    return { ...result, _agentNote: note } as WithAgentNote<T>
 }
 
 const INFORMATIONAL_RESPONSE_NOTICE =

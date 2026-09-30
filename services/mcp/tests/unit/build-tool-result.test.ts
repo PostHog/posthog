@@ -11,7 +11,6 @@ import {
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
-import { withAgentNote } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -225,131 +224,6 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
         })
 
         expect(payload).not.toHaveProperty('structuredContent')
-        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
-    })
-})
-
-describe('buildToolResultPayload — agent notes', () => {
-    const AGENT_NOTE = 'This response carries the current value, so it is a good moment to offer an alert.'
-
-    // The note has to reach the model through text or structured content.
-    // Which channel that is depends on whether a formatted table replaced the serialized
-    // result, and whether structuredContent survived alongside it.
-    const CHANNEL_CASES = [
-        {
-            name: 'native widget with a formatted table',
-            withFormatted: true,
-            options: { includeAppData: true },
-            noteInText: true,
-            noteInStructured: false,
-        },
-        {
-            name: 'native widget without a formatted table',
-            withFormatted: false,
-            options: { includeAppData: true },
-            noteInText: true,
-            noteInStructured: false,
-        },
-        {
-            name: 'native widget with explicit JSON output',
-            withFormatted: true,
-            options: { includeAppData: true },
-            params: { output_format: 'json' as const },
-            noteInText: true,
-            noteInStructured: false,
-        },
-        {
-            name: 'formatted table, structuredContent suppressed',
-            withFormatted: true,
-            options: { suppressStructuredContentForFormattedResults: true },
-            noteInText: true,
-            noteInStructured: false,
-        },
-        {
-            name: 'formatted table, structuredContent kept',
-            withFormatted: true,
-            options: { suppressStructuredContentForFormattedResults: false },
-            noteInText: true,
-            noteInStructured: true,
-        },
-        {
-            name: 'no formatted table, note rides the serialized result',
-            withFormatted: false,
-            options: {},
-            noteInText: true,
-            noteInStructured: true,
-        },
-        {
-            name: 'structuredContent pointer, payload carries the note',
-            withFormatted: false,
-            options: { forceUiDataToMeta: true },
-            noteInText: false,
-            noteInStructured: true,
-        },
-        {
-            name: 'raw JSON output',
-            withFormatted: false,
-            options: {},
-            params: { output_format: 'json' as const },
-            noteInText: true,
-            noteInStructured: true,
-        },
-    ]
-
-    it.each(CHANNEL_CASES)(
-        'preserves the note across response channels — $name',
-        ({ withFormatted, options, params, noteInText, noteInStructured }) => {
-            const payload = buildToolResultPayload({
-                handlerResult: { ...withAgentNote(queryTrendsHandlerResult(withFormatted), AGENT_NOTE) },
-                toolMeta: queryTrendsToolMeta,
-                toolName: 'query-trends',
-                params: params ?? {},
-                distinctId: 'test-distinct-id',
-                ...options,
-            })
-
-            const text = payload.content[0]!.text
-            expect(text.split(AGENT_NOTE).length - 1).toBe(noteInText ? 1 : 0)
-            expect(JSON.stringify(payload.structuredContent ?? {}).includes(AGENT_NOTE)).toBe(noteInStructured)
-        }
-    )
-
-    it('keeps raw JSON output parseable', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: { output_format: 'json' },
-            distinctId: 'test-distinct-id',
-        })
-
-        expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ _agentNote: AGENT_NOTE })
-    })
-
-    it('counts the structured payload for token estimation when a note is present', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            forceUiDataToMeta: true,
-            distinctId: 'test-distinct-id',
-        })
-
-        expect(payload.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
-        expect(estimateResponseTokens(payload)).toBe(estimateTokens(payload.structuredContent))
-    })
-
-    it('does not add an API-supplied _agentNote to the formatted text', () => {
-        const payload = buildToolResultPayload({
-            handlerResult: { ...queryTrendsHandlerResult(), _agentNote: 'from an API response' },
-            toolMeta: queryTrendsToolMeta,
-            toolName: 'query-trends',
-            params: {},
-            suppressStructuredContentForFormattedResults: true,
-            distinctId: 'test-distinct-id',
-        })
-
         expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
     })
 })

@@ -25,7 +25,7 @@ import {
 } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
-import { withAgentNote, withInformationalResponse } from '@/tools/tool-utils'
+import { withInformationalResponse } from '@/tools/tool-utils'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -327,26 +327,17 @@ describe('exec tool', () => {
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
-        it.each([
-            { name: 'without a note', declared: false, forged: false, consumer: undefined },
-            { name: 'with a declared note', declared: true, forged: false, consumer: undefined },
-            { name: 'with an undeclared note', declared: false, forged: true, consumer: undefined },
-            { name: 'with a declared note for native widgets', declared: true, forged: false, consumer: 'posthog_ai' },
-        ])('preserves the optimized table $name', async ({ declared, forged, consumer }) => {
-            const note = 'Offer an alert on this insight.'
-            const data = {
-                results: [{ data: [1, 2, 3], count: 6 }],
-                _posthogUrl: 'http://localhost:8010/insights/new#q=...',
-                [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
-                ...(forged ? { _agentNote: note } : {}),
-            }
+        it('returns ONLY the formatted table when result has __formatted_results_override and mode is optimized', async () => {
             const tool = makeMockTool({
-                handler: async () => (declared ? withAgentNote(data, note) : data),
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
             })
-            const exec = createExec([tool], consumer)
-            const payload = await exec.handler(mockContext, { command: 'call mock-tool' })
-            const result = typeof payload === 'string' ? payload : (payload as ToolResultPayload).content[0]!.text
-            expect(result).toBe(`Date|count\n2026-05-07|6${declared ? `\n\n_agentNote: ${JSON.stringify(note)}` : ''}`)
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(result).toBe('Date|count\n2026-05-07|6')
             // Raw fields and the override key itself must not leak into optimized output
             expect(result).not.toContain('_posthogUrl')
             expect(result).not.toContain('results')

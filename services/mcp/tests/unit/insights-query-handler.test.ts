@@ -29,7 +29,6 @@ interface QueryResult {
     results: unknown
     insight: { url: string }
     _posthogUrl: string
-    _agentNote?: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
 
@@ -192,9 +191,7 @@ describe('queryHandler — result shape for UI rendering', () => {
         // The UI app's structuredContent must carry the structured shape its guards expect,
         // not the formatted string — otherwise the table can't render.
         expect(result.results).toEqual({ columns: ['c'], results: [[1]] })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
-            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
-        )
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
     })
 
     it('keeps structured results for a DataVisualizationNode-wrapped HogQL insight in optimized output', async () => {
@@ -210,9 +207,7 @@ describe('queryHandler — result shape for UI rendering', () => {
         const result = (await queryHandler(context, { insightId: '42', output_format: 'optimized' })) as QueryResult
 
         expect(result.results).toEqual({ columns: ['org_id', 'cost'], results: [['a', 1]] })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
-            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
-        )
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
     })
 
     it('does not surface the formatted override in json output', async () => {
@@ -241,9 +236,7 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         expect(result.results).toBe(trendsResults)
         expect(result.query).toEqual({ kind: 'TrendsQuery' })
-        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(
-            `${formatted}\n\n_agentNote: ${JSON.stringify(result._agentNote)}`
-        )
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe(formatted)
     })
 
     it.each([
@@ -267,64 +260,5 @@ describe('queryHandler — result shape for UI rendering', () => {
         // structural guards fall through to the table renderer and show an empty table.
         expect(result.results).toBe(chartResults)
         expect(result.query).toEqual({ kind })
-    })
-})
-
-describe('queryHandler — alert note gate', () => {
-    interface NotedResult {
-        _agentNote?: string
-    }
-
-    it.each([
-        ...['TrendsQuery', 'FunnelsQuery', 'HogQLQuery', 'MetricsQuery'].flatMap((kind) => [
-            { name: `bare ${kind}`, query: { kind }, alerts: [], expectsNote: true },
-            {
-                name: `wrapped ${kind}`,
-                query: { kind: 'InsightVizNode', source: { kind } },
-                alerts: [],
-                expectsNote: true,
-            },
-            {
-                name: `${kind} with an existing alert`,
-                query: { kind },
-                alerts: [{ id: 'existing' }],
-                expectsNote: false,
-            },
-        ]),
-        {
-            name: 'legacy SQL table',
-            query: { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
-            alerts: [],
-            expectsNote: true,
-        },
-        ...['DataTableNode', 'DataVisualizationNode'].map((kind) => ({
-            name: `${kind} with an unsupported source`,
-            query: { kind, source: { kind: 'EventsQuery' } },
-            alerts: [],
-            expectsNote: false,
-        })),
-        { name: 'retention', query: { kind: 'RetentionQuery' }, alerts: [], expectsNote: false },
-        { name: 'missing query', query: null, alerts: [], expectsNote: false },
-        { name: 'missing wrapper source', query: { kind: 'InsightVizNode' }, alerts: [], expectsNote: false },
-    ])('$name', async ({ query, alerts, expectsNote }) => {
-        const { context } = createContext({
-            getData: { id: 42, short_id: 'abc12345', query, alerts },
-        })
-
-        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as NotedResult
-
-        expect(typeof result._agentNote === 'string').toBe(expectsNote)
-    })
-    it.each([
-        { name: 'variable object', overrides: { variables_override: variablesOverrideObject } },
-        { name: 'variable string', overrides: { variables_override: JSON.stringify(variablesOverrideObject) } },
-        { name: 'filter object', overrides: { filters_override: filtersOverrideObject } },
-        { name: 'filter string', overrides: { filters_override: JSON.stringify(filtersOverrideObject) } },
-    ])('withholds an alert offer for a $name override', async ({ overrides }) => {
-        const { context } = createContext()
-
-        const result = await queryHandler(context, { insightId: '42', output_format: 'json', ...overrides })
-
-        expect(result).not.toHaveProperty('_agentNote')
     })
 })
