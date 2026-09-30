@@ -772,6 +772,11 @@ export interface RecordingsQueryExperimentExposureFilter {
     /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
     variant?: string
     /**
+     * Narrow to persons exposed to any of these variants. Defaults to all of the experiment's variants.
+     * Do not combine with `variant`, the single-variant form that predates this field.
+     */
+    variants?: string[]
+    /**
      * Only sessions carrying in-session exposure evidence: an event matching the experiment's exposure criteria
      * inside the session (with the stamped `$feature/<flag_key>` property standing in when the exposure event was
      * never captured with a session id). Defaults to all exposed persons' sessions from first exposure onward.

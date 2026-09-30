@@ -53156,6 +53156,8 @@ export namespace Schemas {
       in_session?: boolean | null;
       /** Narrow to persons exposed to this variant. Defaults to all of the experiment's variants. */
       variant?: string | null;
+      /** Narrow to persons exposed to any of these variants. Defaults to all of the experiment's variants. Do not combine with `variant`, the single-variant form that predates this field. */
+      variants?: string[] | null;
     }
 
     export type RecordingOrder = typeof RecordingOrder[keyof typeof RecordingOrder];
