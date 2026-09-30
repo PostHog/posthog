@@ -6,6 +6,8 @@ use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
+use crate::utils::json_size::estimate_json_heap_size;
+
 mod properties;
 mod raw;
 pub use properties::PersonPredicate;
@@ -23,6 +25,8 @@ pub static MAX_CONFIG_BYTES: Lazy<usize> = Lazy::new(|| {
 pub const MAX_RULES: usize = 100;
 pub const MAX_PREDICATES: usize = 100;
 pub const MAX_SEED_LENGTH: usize = 400;
+pub const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
+pub const MAX_OBJECT_DEPTH: usize = 20;
 pub const CONFIG_FIELDS: &[&str] = &[
     "version",
     "return_type",
@@ -100,7 +104,7 @@ impl NonV1Config {
 
 #[derive(Clone)]
 pub struct Config {
-    pub default_value: Option<bool>,
+    pub default_value: Option<Value>,
     pub rules: Vec<Rule>,
 }
 
@@ -114,10 +118,10 @@ pub struct Rule {
 #[derive(Clone)]
 pub enum Outcome {
     TargetedRelease {
-        value: bool,
+        value: Value,
     },
     PercentageRollout {
-        value: bool,
+        value: Value,
         rollout_percentage: f64,
         on_rollout_miss: RolloutMiss,
         seed: String,
@@ -159,13 +163,13 @@ impl fmt::Debug for Outcome {
 impl Config {
     pub(super) fn parse(document: &Map<String, Value>) -> Result<Self, ParseError> {
         closed(document, CONFIG_FIELDS, "filters")?;
-        match string(document, "return_type")? {
-            "boolean" => {}
-            "string" | "number" | "object" => {
-                return Err(ParseError::Unsupported("return_type"));
-            }
+        let return_type = match string(document, "return_type")? {
+            "boolean" => ReturnType::Boolean,
+            "string" => ReturnType::String,
+            "number" => ReturnType::Number,
+            "object" => ReturnType::Object,
             _ => return Err(ParseError::Malformed("return_type")),
-        }
+        };
         if let Some(group) = document.get("aggregation_group_type_index") {
             if !group
                 .as_f64()
@@ -177,7 +181,7 @@ impl Config {
         }
         let default_value = match required(document, "default_value")? {
             Value::Null => None,
-            Value::Bool(value) => Some(*value),
+            value if return_type.accepts(value) => Some(value.clone()),
             _ => return Err(ParseError::Malformed("default_value")),
         };
         let rules = required(document, "rules")?
@@ -190,7 +194,7 @@ impl Config {
         let rules = rules
             .iter()
             .map(|value| {
-                let rule = Rule::parse(value)?;
+                let rule = Rule::parse(value, return_type)?;
                 if !seen.insert(rule.id) {
                     return Err(ParseError::Malformed("rule.id"));
                 }
@@ -205,7 +209,10 @@ impl Config {
 
     #[doc(hidden)]
     pub fn estimated_heap_bytes(&self) -> usize {
-        self.rules.capacity() * std::mem::size_of::<Rule>()
+        self.default_value
+            .as_ref()
+            .map_or(0, estimate_json_heap_size)
+            + self.rules.capacity() * std::mem::size_of::<Rule>()
             + self
                 .rules
                 .iter()
@@ -215,7 +222,7 @@ impl Config {
 }
 
 impl Rule {
-    fn parse(value: &Value) -> Result<Self, ParseError> {
+    fn parse(value: &Value, return_type: ReturnType) -> Result<Self, ParseError> {
         let rule = object(value, "rule")?;
         let rule_type = string(rule, "rule_type")?;
         let fields: &[&str] = match rule_type {
@@ -238,9 +245,11 @@ impl Rule {
             return Err(ParseError::Malformed("metadata"));
         }
         let targeting = properties::parse_targeting(required(rule, "targeting")?)?;
-        let value = required(rule, "value")?
-            .as_bool()
-            .ok_or(ParseError::Malformed("value"))?;
+        let value = required(rule, "value")?;
+        if !return_type.accepts(value) {
+            return Err(ParseError::Malformed("value"));
+        }
+        let value = value.clone();
         let outcome = if rule_type == "targeted_release" {
             Outcome::TargetedRelease { value }
         } else {
@@ -284,9 +293,51 @@ impl Rule {
                 .map(PersonPredicate::estimated_heap_bytes)
                 .sum::<usize>()
             + match &self.outcome {
-                Outcome::PercentageRollout { seed, .. } => seed.capacity(),
-                Outcome::TargetedRelease { .. } => 0,
+                Outcome::PercentageRollout { seed, value, .. } => {
+                    seed.capacity() + estimate_json_heap_size(value)
+                }
+                Outcome::TargetedRelease { value } => estimate_json_heap_size(value),
             }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ReturnType {
+    Boolean,
+    String,
+    Number,
+    Object,
+}
+
+impl ReturnType {
+    /// Whether `value` is a non-null value of this type; a null default is handled by the caller.
+    fn accepts(self, value: &Value) -> bool {
+        match self {
+            Self::Boolean => value.is_boolean(),
+            Self::String => value.as_str().is_some_and(|s| !s.is_empty()),
+            Self::Number => is_safe_number(value),
+            Self::Object => value.is_object() && is_nested_value(value, 1),
+        }
+    }
+}
+
+fn is_safe_number(value: &Value) -> bool {
+    value
+        .as_f64()
+        .is_some_and(|n| (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&n))
+}
+
+/// Depth counts object and array containers, with the returned object at level 1.
+fn is_nested_value(value: &Value, depth: usize) -> bool {
+    match value {
+        Value::Object(map) => {
+            depth <= MAX_OBJECT_DEPTH && map.values().all(|v| is_nested_value(v, depth + 1))
+        }
+        Value::Array(items) => {
+            depth <= MAX_OBJECT_DEPTH && items.iter().all(|v| is_nested_value(v, depth + 1))
+        }
+        Value::Number(_) => is_safe_number(value),
+        Value::Null | Value::Bool(_) | Value::String(_) => true,
     }
 }
 
