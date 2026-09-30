@@ -33,7 +33,7 @@ from posthog.models.integration_repository_cache import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.permissions import posthog_feature_flag_enabled
 
 from .learning_settings import get_environment_business_knowledge_config
 from .models import TeamBusinessKnowledgeConfig
@@ -118,21 +118,20 @@ class RepositoryFile:
     truncated: bool
 
 
-def has_github_repos_feature_flag(team: Team) -> bool:
-    """Org-keyed, same as the product flag. On in DEBUG so a local playground can call the tools."""
+def has_github_repos_feature_flag(team: Team, distinct_id: str) -> bool:
+    """Same person, organization and project context as the API permission, so the prompt and the tools agree.
+
+    On in DEBUG so a local playground can call the tools.
+    """
     if settings.DEBUG:
         return True
-    return feature_enabled_or_false(
-        GITHUB_REPOS_FLAG,
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        send_feature_flag_events=False,
+    return posthog_feature_flag_enabled(
+        GITHUB_REPOS_FLAG, distinct_id, organization_id=team.organization_id, team_id=team.id
     )
 
 
-def repository_tools_enabled(team: Team) -> bool:
-    if not has_github_repos_feature_flag(team):
+def repository_tools_enabled(team: Team, distinct_id: str) -> bool:
+    if not has_github_repos_feature_flag(team, distinct_id):
         return False
     integration_id, repos = selected_repositories(team)
     return integration_id is not None and bool(repos)
@@ -280,7 +279,17 @@ def warm_selected_repository(team_id: int, integration_id: int, full_name: str) 
     if integration is None:
         return
     github = GitHubIntegration(integration, source="business_knowledge", priority=Priority.BATCH)
-    async_to_sync(GitHubRepositoryFullCache(github).sync_full_cache_entry_async)(full_name)
+    try:
+        async_to_sync(GitHubRepositoryFullCache(github).sync_full_cache_entry_async)(full_name)
+    except GitHubIntegrationError as exc:
+        # GitHub answers 404 when the repository left the installation. Drop the cached tree and README
+        # so search cannot return them. The selection stays, so access comes back if the repo is re-added.
+        if exc.status_code != 404:
+            raise
+        IntegrationRepositoryCacheEntry.objects.filter(
+            team_id=team_id, integration_id=integration_id, full_name=full_name
+        ).delete()
+        logger.info("business_knowledge.github_repo_evicted", team_id=team_id, repo=full_name)
 
 
 def enqueue_repository_warm(team_id: int, integration_id: int, full_name: str, *, force: bool) -> bool:
@@ -290,9 +299,15 @@ def enqueue_repository_warm(team_id: int, integration_id: int, full_name: str, *
     key = f"business_knowledge:github_warm:{team_id}:{full_name}"
     if not force and not cache.add(key, "1", timeout=WARM_DEBOUNCE_SECONDS):
         return False
+    try:
+        warm_business_knowledge_github_repo.delay(team_id, integration_id, full_name)
+    except Exception:
+        # Release the debounce key so the next search retries the warm instead of waiting it out.
+        cache.delete(key)
+        logger.warning("business_knowledge.github_warm_enqueue_failed", team_id=team_id, repo=full_name, exc_info=True)
+        return False
     if force:
         cache.set(key, "1", timeout=WARM_DEBOUNCE_SECONDS)
-    warm_business_knowledge_github_repo.delay(team_id, integration_id, full_name)
     return True
 
 
@@ -317,7 +332,24 @@ def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
     integration = _integration_for(team.id, integration_id)
     if integration is None:
         raise GithubReposError("GitHub installation not found on this project.")
+    accessible = _installation_repo_names(integration)
+    allowed = [full_name for full_name in allowed if full_name in accessible]
+    if not allowed:
+        raise GithubReposError("The selected repositories are no longer on this GitHub installation.")
     return integration, allowed
+
+
+def _installation_repo_names(integration: Integration) -> set[str]:
+    # A pure read of the stored repository list, so a repository removed from the installation
+    # stops being searchable as soon as that list refreshes, even while its cache row remains.
+    listed = GitHubIntegration(integration, source="business_knowledge").list_all_cached_repositories(
+        allow_refresh=False
+    )
+    return {
+        item["full_name"].lower()
+        for item in listed
+        if isinstance(item, dict) and isinstance(item.get("full_name"), str)
+    }
 
 
 def _targets(allowed: list[str], repo: str | None) -> list[str]:
@@ -388,10 +420,13 @@ def _cache_states(team_id: int, integration_id: int, repos: list[str]) -> list[R
 def _search_paths(team_id: int, integration_id: int, repos: list[str], terms: list[str]) -> list[RepositorySearchHit]:
     # tree_paths is the whole default-branch file list, several MB on a large repo.
     # Match in Postgres so that text never crosses into the worker.
+    # The tree_paths prefilter skips the unnest for a repository with no matching path, so only
+    # repositories that can produce a hit expand into one row per file.
     table = IntegrationRepositoryCacheEntry._meta.db_table
     patterns = [_ilike_pattern(term) for term in terms]
     score = " + ".join(["(CASE WHEN path ILIKE %s ESCAPE '\\' THEN 1 ELSE 0 END)"] * len(patterns))
     matched = " OR ".join(["path ILIKE %s ESCAPE '\\'"] * len(patterns))
+    tree_matched = " OR ".join(["e.tree_paths ILIKE %s ESCAPE '\\'"] * len(patterns))
     repo_placeholders = ", ".join(["%s"] * len(repos))
     sql = f"""
         SELECT full_name, path, default_branch_sha, ({score}) AS score
@@ -402,13 +437,14 @@ def _search_paths(team_id: int, integration_id: int, repos: list[str], terms: li
             WHERE e.team_id = %s
               AND e.integration_id = %s
               AND e.full_name IN ({repo_placeholders})
+              AND ({tree_matched})
               AND u.path <> ''
         ) paths
         WHERE {matched}
         ORDER BY score DESC, length(path), full_name, path
         LIMIT %s
     """
-    params: list[Any] = [*patterns, team_id, integration_id, *repos, *patterns, MAX_SEARCH_HITS]
+    params: list[Any] = [*patterns, team_id, integration_id, *repos, *patterns, *patterns, MAX_SEARCH_HITS]
     hits: list[RepositorySearchHit] = []
     with connection.cursor() as cursor:
         cursor.execute(sql, params)
@@ -452,7 +488,7 @@ def _search_readmes(team_id: int, integration_id: int, repos: list[str], terms: 
                 RepositorySearchHit(
                     repo=full_name,
                     path="",
-                    url=f"https://github.com/{full_name}#readme",
+                    url=f"https://github.com/{full_name}/tree/{sha}#readme",
                     kind=RepositoryHitKind.README,
                     excerpt=_excerpt(readme, terms),
                 )

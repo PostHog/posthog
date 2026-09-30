@@ -47,6 +47,7 @@ export function GithubReposSetting(): JSX.Element {
                         loading={connecting}
                         disabledReason={connecting ? 'Connecting GitHub' : undefined}
                         onClick={() => connectGithub(integration.id)}
+                        data-attr="business-knowledge-github-connect"
                     >
                         Connect {integration.display_name || `installation ${integration.id}`}
                     </LemonButton>
@@ -80,6 +81,7 @@ export function GithubReposSetting(): JSX.Element {
                     status="danger"
                     loading={disconnecting}
                     disabledReason={disconnecting ? 'Disconnecting GitHub' : undefined}
+                    data-attr="business-knowledge-github-disconnect"
                     onClick={() => {
                         LemonDialog.open({
                             title: 'Disconnect GitHub?',
@@ -103,7 +105,7 @@ export function GithubReposSetting(): JSX.Element {
             </p>
             <div className="flex flex-wrap gap-1">
                 {draftRepos.map((repo) => (
-                    <LemonSnack key={repo} onClose={() => removeRepo(repo)}>
+                    <LemonSnack key={repo} onClose={saving ? undefined : () => removeRepo(repo)}>
                         {repo}
                     </LemonSnack>
                 ))}
@@ -129,6 +131,7 @@ export function GithubReposSetting(): JSX.Element {
                         !changed ? 'No repository changes to save' : saving ? 'Saving repositories' : undefined
                     }
                     onClick={saveRepos}
+                    data-attr="business-knowledge-github-save-repos"
                 >
                     Save repositories
                 </LemonButton>

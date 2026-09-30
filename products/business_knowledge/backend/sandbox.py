@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import CreatedTaskDTO, TaskRunDTO
@@ -226,6 +227,11 @@ def open_sandbox_task_ids(*, team_id: int, user_id: int) -> set[UUID]:
     )
 
 
+def _distinct_id_for(user_id: int) -> str:
+    distinct_id = User.objects.filter(pk=user_id).values_list("distinct_id", flat=True).first()
+    return str(distinct_id)
+
+
 def start_sandbox_run(
     *,
     team: Team,
@@ -259,7 +265,9 @@ def start_sandbox_run(
         created = tasks_facade.create_and_run_task(
             team=team,
             title=_title_for(question),
-            description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
+            description=build_sandbox_prompt(
+                question, always_on, repo_tools=repository_tools_enabled(team, _distinct_id_for(user_id))
+            ),
             origin_product=origin,
             user_id=user_id,
             repository=None,

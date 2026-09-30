@@ -26,6 +26,10 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         self.warm = patch(
             "products.business_knowledge.backend.tasks.tasks.warm_business_knowledge_github_repo.delay"
         ).start()
+        self.installation_repos = patch(
+            "products.business_knowledge.backend.github_repos.GitHubIntegration.list_all_cached_repositories",
+            return_value=[{"full_name": BILLING}, {"full_name": OTHER}],
+        ).start()
         self.addCleanup(patch.stopall)
 
     def _github_integration(self, team) -> Integration:
@@ -109,7 +113,27 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         paths = [hit["path"] for hit in response.json()["results"] if hit["kind"] == "path"]
         assert paths == ["src/billing.py"]
         assert all(hit["repo"] == BILLING for hit in response.json()["results"])
+        readme_urls = [hit["url"] for hit in response.json()["results"] if hit["kind"] == "readme"]
+        assert readme_urls == ["https://github.com/acme/billing/tree/abc123#readme"]
         assert self.warm.called is False
+
+    def test_repository_removed_from_installation_is_not_searchable(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING, OTHER]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py", readme="Billing prorates.")
+        self._cache(self.team, self.integration, OTHER, tree_paths="src/billing_other.py")
+        self.installation_repos.return_value = [{"full_name": OTHER}]
+
+        search = self.client.get(f"{self.base}/search/", {"query": "billing"})
+        assert search.status_code == 200, search.json()
+        assert {hit["repo"] for hit in search.json()["results"]} == {OTHER}
+        scoped = self.client.get(f"{self.base}/search/", {"query": "billing", "repo": BILLING})
+        assert scoped.status_code == 400
+        read = self.client.get(f"{self.base}/file/", {"repo": BILLING, "path": "src/billing.py"})
+        assert read.status_code == 400
+
+        self.installation_repos.return_value = []
+        assert self.client.get(f"{self.base}/search/", {"query": "billing"}).status_code == 400
 
     def test_search_enqueues_one_refresh_for_a_stale_cache(self, _capture, _flag) -> None:
         # Set the allowlist directly. Selection also queues a warm and would trip the debounce.
