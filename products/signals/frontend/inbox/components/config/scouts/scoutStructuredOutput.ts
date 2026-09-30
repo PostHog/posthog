@@ -13,6 +13,36 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * The byte count the API compares with the cap. The API measures Python's default `json.dumps`,
+ * which puts a space after every `,` and `:` and writes each UTF-16 code unit outside printable
+ * ASCII as a 6-byte `\uXXXX` escape. Compact UTF-8 counts fewer bytes, so it lets through schemas
+ * the API refuses.
+ */
+function apiSerializedByteLength(value: unknown): number {
+    const json = JSON.stringify(value)
+    let bytes = json.length
+    let inString = false
+    for (let index = 0; index < json.length; index++) {
+        const char = json[index]
+        if (inString) {
+            if (char === '\\') {
+                // Every escape JSON.stringify writes is ASCII, and Python writes one of the same length.
+                index++
+            } else if (char === '"') {
+                inString = false
+            } else if (char > '~') {
+                bytes += 5
+            }
+        } else if (char === '"') {
+            inString = true
+        } else if (char === ',' || char === ':') {
+            bytes += 1
+        }
+    }
+    return bytes
+}
+
+/**
  * Read the editor text as a record schema, applying the shape rules the config API applies, so a
  * malformed schema is named under the field rather than coming back as a rejected save. The API
  * also refuses schema constructs that would attack the worker, such as a reference to another
@@ -38,7 +68,7 @@ export function parseScoutStructuredOutputSchema(text: string): ScoutStructuredO
     if (parsed.type !== 'object') {
         return { schema: null, error: 'The schema must set "type": "object" at its root.' }
     }
-    if (new TextEncoder().encode(JSON.stringify(parsed)).length > SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES) {
+    if (apiSerializedByteLength(parsed) > SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES) {
         return {
             schema: null,
             error: `The schema is over the ${SCOUT_STRUCTURED_OUTPUT_SCHEMA_MAX_BYTES} byte limit. Describe fewer fields.`,

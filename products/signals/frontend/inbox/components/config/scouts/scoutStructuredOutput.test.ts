@@ -30,14 +30,25 @@ describe('scoutStructuredOutput', () => {
         expect(parseScoutStructuredOutputSchema(text)).toEqual({ schema, error: null })
     })
 
-    it('rejects a schema over the size the API accepts', () => {
-        const properties = Object.fromEntries(
-            Array.from({ length: 900 }, (_value, index) => [`field_${index}`, { type: 'string' }])
-        )
-        const { schema, error } = parseScoutStructuredOutputSchema(JSON.stringify({ type: 'object', properties }))
+    const stringFields = (count: number): Record<string, unknown> => ({
+        type: 'object',
+        properties: Object.fromEntries(
+            Array.from({ length: count }, (_value, index) => [`field_${index}`, { type: 'string' }])
+        ),
+    })
 
-        expect(schema).toBeNull()
-        expect(error).toContain('20000 byte limit')
+    // Each pair sits on the API's limit: the byte counts are what Python's json.dumps gives, and
+    // compact UTF-8 counts both schemas in a pair well under the limit.
+    it.each([
+        ['608 fields, 19988 bytes to the API', stringFields(608), false],
+        ['609 fields, 20021 bytes to the API', stringFields(609), true],
+        ['3327 accented letters, 19999 bytes to the API', { type: 'object', description: 'é'.repeat(3327) }, false],
+        ['3328 accented letters, 20005 bytes to the API', { type: 'object', description: 'é'.repeat(3328) }, true],
+    ])('measures the size the way the API does, for %s', (_name, input, refused) => {
+        const { schema, error } = parseScoutStructuredOutputSchema(JSON.stringify(input))
+
+        expect(schema).toEqual(refused ? null : input)
+        expect(error).toEqual(refused ? 'The schema is over the 20000 byte limit. Describe fewer fields.' : null)
     })
 
     it.each([
