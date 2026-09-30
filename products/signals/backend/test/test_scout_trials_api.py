@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Literal
+from typing import Literal, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -25,11 +26,13 @@ from products.signals.backend.scout_harness.trial_launch import (
     create_trial_launch,
     load_trial_context,
     load_trial_launch,
+    resolve_trial_source_model,
 )
 from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus, export_trial_result
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, memory_snapshot
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
 
 
 class TestScoutTrialAPI(APIBaseTest):
@@ -744,3 +747,43 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result.status_code == (404 if invalid == "nonstaff" else 400), result.data
             dispatch.assert_not_called()
         assert not self.documents
+
+
+class TestTrialSourceModel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "scout_pin_beats_pipeline_block",
+                ScoutModel(model="gpt-5.5", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
+                AgentRuntime(runtime_adapter="claude", model="claude-sonnet-4-6", reasoning_effort="high"),
+                ScoutModel(model="gpt-5.5", runtime_adapter="codex", reasoning_effort="medium", service_tier="flex"),
+            ),
+            (
+                "pipeline_block_with_runtime",
+                ScoutModel(model=None, runtime_adapter=None),
+                AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort="xhigh", service_tier="flex"),
+                ScoutModel(model="gpt-5.5", runtime_adapter="codex", reasoning_effort="xhigh", service_tier="flex"),
+            ),
+            (
+                "model_only_pipeline_block_is_ignored",
+                ScoutModel(model=None, runtime_adapter=None),
+                AgentRuntime(model="claude-sonnet-4-6", reasoning_effort="high", service_tier="flex"),
+                ScoutModel(model=get_default_model_for_runtime_adapter("claude"), runtime_adapter="claude"),
+            ),
+        ]
+    )
+    def test_source_model_matches_runner_resolution(
+        self, _name: str, scout_choice: ScoutModel, pipeline_choice: AgentRuntime, expected: ScoutModel
+    ) -> None:
+        config = cast(
+            SignalScoutConfig,
+            SimpleNamespace(team=SimpleNamespace(), team_id=1, skill_name="signals-scout-example", model=None),
+        )
+        with (
+            patch("products.signals.backend.scout_harness.trial_launch.resolve_scout_model", return_value=scout_choice),
+            patch(
+                "products.signals.backend.scout_harness.trial_launch.resolve_agent_runtime",
+                return_value=pipeline_choice,
+            ),
+        ):
+            assert resolve_trial_source_model(config, uuid4()) == expected

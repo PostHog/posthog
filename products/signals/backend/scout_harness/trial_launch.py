@@ -15,7 +15,7 @@ from posthog.models import Team, User
 from posthog.storage import object_storage
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
+from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutNote, SignalScoutRun, SignalScratchpad
 from products.signals.backend.scout_harness.model_selection import ScoutModel, resolve_scout_model
 from products.signals.backend.scout_harness.serializers import validate_scout_repositories
@@ -204,17 +204,20 @@ def assert_trial_capabilities_supported(config: SignalScoutConfig, skill: Loaded
 def resolve_trial_source_model(config: SignalScoutConfig, identifier: UUID) -> ScoutModel:
     model_choice = resolve_scout_model(config.team, config.skill_name, str(identifier), configured_model=config.model)
     pipeline_choice = resolve_agent_runtime(config.team_id, STEP_SCOUT)
-    adapter = model_choice.runtime_adapter if model_choice.model else pipeline_choice.runtime_adapter
-    adapter = adapter or "claude"
-    model = model_choice.model or pipeline_choice.model or get_default_model_for_runtime_adapter(adapter)
+    # The scout runner ignores a pipeline block that has no runtime adapter. The baseline must ignore it
+    # too, because otherwise it runs a model that the real scout does not run.
+    source: ScoutModel | AgentRuntime = (
+        model_choice if model_choice.model else pipeline_choice if pipeline_choice.runtime_adapter else AgentRuntime()
+    )
+    adapter = source.runtime_adapter or "claude"
+    model = source.model or get_default_model_for_runtime_adapter(adapter)
     if model is None or adapter not in {"claude", "codex"}:
         raise ScoutTrialLaunchError("The scout's model could not be resolved.")
-    effort = model_choice.reasoning_effort if model_choice.model else pipeline_choice.reasoning_effort
     return ScoutModel(
         model=model,
         runtime_adapter=adapter,
-        reasoning_effort=effort,
-        service_tier=model_choice.service_tier if model_choice.model else pipeline_choice.service_tier,
+        reasoning_effort=source.reasoning_effort,
+        service_tier=source.service_tier,
     )
 
 
