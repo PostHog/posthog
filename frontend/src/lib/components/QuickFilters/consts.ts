@@ -7,7 +7,11 @@ export const QuickFiltersEvents = {
     QuickFiltersModalOpened: 'quick filters modal opened',
 }
 
-/** Auto-discovered values come only from these events, so a filter offers values its context can match. */
+/**
+ * Event names sent with the values lookup for each context.
+ * Only a scan of the events table applies them. Values read from the precomputed
+ * property values table come from all events, because that table has no event column.
+ */
 export const QUICK_FILTER_VALUE_EVENT_NAMES: Partial<Record<QuickFilterContext, string[]>> = {
     [QuickFilterContext.ErrorTrackingIssueFilters]: ['$exception'],
 }
