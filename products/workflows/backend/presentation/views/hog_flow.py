@@ -103,9 +103,6 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.messaging.backend.api.design_operations import apply_design_operations
@@ -135,6 +132,16 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
     strip_secrets_from_content,
+)
+from products.workflows.backend.facade.templates import get_function_template_schema
+from products.workflows.backend.facade.validation import (
+    DURATION_PATTERN,
+    duration_error,
+    duration_minutes,
+    find_behavioral_cohort_name,
+    find_clock_function,
+    is_duration,
+    is_signed_duration,
 )
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
@@ -211,7 +218,6 @@ from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
 )
-from products.workflows.backend.services.wait_clock_conditions import find_clock_function
 from products.workflows.backend.services.workflow_email_health import (
     StaffPausedError,
     pause_requires_staff,
@@ -219,13 +225,6 @@ from products.workflows.backend.services.workflow_email_health import (
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
-from products.workflows.backend.utils.durations import (
-    DURATION_PATTERN,
-    duration_error,
-    duration_minutes,
-    is_duration,
-    is_signed_duration,
-)
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -1261,27 +1260,17 @@ class HogFlowActionSerializer(serializers.Serializer):
         ]
         if not cohort_ids:
             return
-        project_id = self.context["get_team"]().project_id
-        for cohort_id in cohort_ids:
-            try:
-                cohort = Cohort.objects.get(pk=cohort_id, team__project_id=project_id, deleted=False)
-            except (Cohort.DoesNotExist, ValueError, TypeError):
-                continue  # missing/invalid cohort surfaces during audience resolution, not here
-            if cohort.is_static:
-                continue
-            for dep in [cohort, *get_all_cohort_dependencies(cohort)]:
-                if dep.is_static:
-                    continue
-                if any(p.type == "behavioral" for p in dep.properties.flat):
-                    raise serializers.ValidationError(
-                        {
-                            "filters": (
-                                f"Cohort '{dep.name}' targets event behavior, which batch/schedule audiences "
-                                "can't evaluate. Use a static or property-based cohort, or an event trigger "
-                                "for behavioral targeting."
-                            )
-                        }
+        cohort_name = find_behavioral_cohort_name(self.context["get_team"]().project_id, cohort_ids)
+        if cohort_name is not None:
+            raise serializers.ValidationError(
+                {
+                    "filters": (
+                        f"Cohort '{cohort_name}' targets event behavior, which batch/schedule audiences "
+                        "can't evaluate. Use a static or property-based cohort, or an event trigger "
+                        "for behavioral targeting."
                     )
+                }
+            )
 
     def _validate_create_task_action(self, inputs: dict) -> None:
         """Save-time checks for the "Create AI task" step beyond input shape: whether the
@@ -1587,7 +1576,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                 get_team = self.context.get("get_team")
                 if get_team is not None:
                     _apply_email_template_content(config, get_team(), strict, self.context)
-            template = HogFunctionTemplate.get_template(template_id)
+            template = get_function_template_schema(template_id)
             gating_flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
             already_stored = data.get("id") in (self.context.get("stored_gated_template_action_ids") or set())
             if template is not None and gating_flag is not None and not already_stored:
