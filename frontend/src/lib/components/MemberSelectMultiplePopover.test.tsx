@@ -114,6 +114,39 @@ describe('multi-select member pickers', () => {
         )
     })
 
+    it('docks an offscreen selection outside the scrollable list without covering its rows', async () => {
+        renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
+        await userEvent.click(screen.getByText('Created by (1)'))
+        const members = await screen.findByRole('list', { name: 'Members' })
+        await within(members).findByText('Rose')
+        const scrollArea = members.parentElement!
+        const rowHeight = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(32)
+        try {
+            Object.defineProperty(members, 'scrollHeight', { configurable: true, value: 400 })
+            Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 160 })
+            Object.defineProperty(scrollArea.parentElement!, 'clientHeight', { configurable: true, value: 320 })
+
+            scrollArea.scrollTop = 160
+            fireEvent.scroll(scrollArea)
+            const dock = screen.getByRole('list', { name: 'Selected members above' })
+            const selectedRow = within(dock).getByText('Rose')
+            expect(scrollArea.contains(selectedRow)).toBe(false)
+            expect(within(members).queryByText('Rose')).not.toBeInTheDocument()
+            expect(members.children).toHaveLength(5)
+            expect(screen.getAllByText('Rose')).toHaveLength(1)
+
+            await userEvent.click(selectedRow)
+            expect(selectedRow.closest('[role="menuitemcheckbox"]')).toHaveAttribute('aria-checked', 'false')
+
+            scrollArea.scrollTop = 0
+            fireEvent.scroll(scrollArea)
+            expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
+            expect(within(members).getByText('Rose')).toBeInTheDocument()
+        } finally {
+            rowHeight.mockRestore()
+        }
+    })
+
     it('keeps three adjacent members in place while the pointer stays on the list', async () => {
         renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
@@ -147,18 +180,20 @@ describe('multi-select member pickers', () => {
         }
     })
 
-    it('does not pin selected members in a short list or during search', async () => {
+    it('does not dock selected members in a short list or during search', async () => {
         renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
         await userEvent.click(screen.getByText('Created by (1)'))
         const members = await screen.findByRole('list', { name: 'Members' })
         await within(members).findByText('Rose')
         expect(screen.getAllByText('Rose')).toHaveLength(1)
-        expect(within(members).getByText('Rose').closest('li')).not.toHaveClass('sticky')
+        expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('list', { name: 'Selected members below' })).not.toBeInTheDocument()
         expectListedInOrder(members, 'John', 'Rose')
 
         fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'Rose' } })
         await within(members).findByText('Rose')
-        expect(within(members).getByText('Rose').closest('li')).not.toHaveClass('sticky')
+        expect(screen.queryByRole('list', { name: 'Selected members above' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('list', { name: 'Selected members below' })).not.toBeInTheDocument()
     })
 
     it.each([

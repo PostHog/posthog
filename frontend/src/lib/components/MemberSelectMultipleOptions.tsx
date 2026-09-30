@@ -10,33 +10,21 @@ import { MemberSelectRow } from './MemberSelectRow'
 
 const NO_EXCLUDED_MEMBERS: number[] = []
 
-type StickyRow = { id: number; height: number }
-type StickyOffset = { top?: number; bottom?: number }
+type DockedRow = { id: number; height: number }
+type Docks = { top: DockedRow[]; bottom: DockedRow[] }
 
-function edgeOffsets(
-    rows: StickyRow[],
-    maxHeight: number,
-    gap: number,
-    edge: 'top' | 'bottom'
-): Record<number, StickyOffset> {
+function dockedAtEdge(rows: DockedRow[], maxHeight: number, gap: number, edge: 'top' | 'bottom'): DockedRow[] {
     const closestFirst = edge === 'top' ? rows.reverse() : rows
-    const pinned: StickyRow[] = []
+    const docked: DockedRow[] = []
     let height = 0
     for (const row of closestFirst) {
         if (height + row.height > maxHeight) {
             break
         }
-        pinned.push(row)
+        docked.push(row)
         height += row.height + gap
     }
-
-    const offsets: Record<number, StickyOffset> = {}
-    let offset = 0
-    for (const row of pinned.reverse()) {
-        offsets[row.id] = edge === 'top' ? { top: offset } : { bottom: offset }
-        offset += row.height + gap
-    }
-    return offsets
+    return edge === 'top' ? docked.reverse() : docked
 }
 
 export type MemberSelectMultipleOptionsProps = {
@@ -54,8 +42,8 @@ export function MemberSelectMultipleOptions({
 }: MemberSelectMultipleOptionsProps): JSX.Element {
     const { me, selectableMembers, membersLoading, search } = useValues(membersLogic)
     const { setSearch } = useActions(membersLogic)
-    const [stickyIds, setStickyIds] = useState(() => new Set(value))
-    const [pinnedRows, setPinnedRows] = useState<Record<number, StickyOffset>>({})
+    const [dockableIds, setDockableIds] = useState(() => new Set(value))
+    const [docks, setDocks] = useState<Docks>({ top: [], bottom: [] })
     const [pointerOverList, setPointerOverList] = useState(false)
     const lastSelectionAt = useRef(Date.now())
     const scrollRef = useRef<HTMLDivElement>(null)
@@ -67,10 +55,10 @@ export function MemberSelectMultipleOptions({
         }
         const remainingDelay = Math.max(0, 600 - (Date.now() - lastSelectionAt.current))
         if (remainingDelay === 0) {
-            setStickyIds(new Set(value))
+            setDockableIds(new Set(value))
             return
         }
-        const timeout = setTimeout(() => setStickyIds(new Set(value)), remainingDelay)
+        const timeout = setTimeout(() => setDockableIds(new Set(value)), remainingDelay)
         return () => clearTimeout(timeout)
     }, [value, pointerOverList])
 
@@ -83,24 +71,23 @@ export function MemberSelectMultipleOptions({
             return
         }
 
-        const updatePinnedRows = (): void => {
-            let next: Record<number, StickyOffset> = {}
+        const updateDocks = (): void => {
+            let next: Docks = { top: [], bottom: [] }
             if (!search && list.scrollHeight > scrollArea.clientHeight) {
                 const rows = Array.from(list.children) as HTMLElement[]
                 const gap = Number.parseFloat(getComputedStyle(list).rowGap) || 0
-                const listTop = list.getBoundingClientRect().top - scrollArea.getBoundingClientRect().top
-                const maxEdgeHeight = scrollArea.clientHeight / 3
-                const above: StickyRow[] = []
-                const below: StickyRow[] = []
+                const maxEdgeHeight = (scrollArea.parentElement?.clientHeight || scrollArea.clientHeight) / 3
+                const above: DockedRow[] = []
+                const below: DockedRow[] = []
                 let offset = 0
 
                 for (const [index, member] of members.entries()) {
                     const height = rows[index]?.offsetHeight ?? 0
-                    if (stickyIds.has(member.user.id)) {
-                        const naturalTop = listTop + offset
-                        if (naturalTop < maxEdgeHeight) {
+                    if (dockableIds.has(member.user.id)) {
+                        const naturalTop = offset - scrollArea.scrollTop
+                        if (naturalTop + height <= 0) {
                             above.push({ id: member.user.id, height })
-                        } else if (naturalTop + height > scrollArea.clientHeight - maxEdgeHeight) {
+                        } else if (naturalTop >= scrollArea.clientHeight) {
                             below.push({ id: member.user.id, height })
                         }
                     }
@@ -108,23 +95,23 @@ export function MemberSelectMultipleOptions({
                 }
 
                 next = {
-                    ...edgeOffsets(above, maxEdgeHeight, gap, 'top'),
-                    ...edgeOffsets(below, maxEdgeHeight, gap, 'bottom'),
+                    top: dockedAtEdge(above, maxEdgeHeight, gap, 'top'),
+                    bottom: dockedAtEdge(below, maxEdgeHeight, gap, 'bottom'),
                 }
             }
-            setPinnedRows((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next))
+            setDocks((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next))
         }
 
-        updatePinnedRows()
-        scrollArea.addEventListener('scroll', updatePinnedRows, { passive: true })
-        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updatePinnedRows)
+        updateDocks()
+        scrollArea.addEventListener('scroll', updateDocks, { passive: true })
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateDocks)
         observer?.observe(scrollArea)
         observer?.observe(list)
         return () => {
-            scrollArea.removeEventListener('scroll', updatePinnedRows)
+            scrollArea.removeEventListener('scroll', updateDocks)
             observer?.disconnect()
         }
-    }, [stickyIds, search, members, membersLoading])
+    }, [dockableIds, search, members, membersLoading])
 
     const toggleMember = (userId: number): void => {
         const selected = new Set(value)
@@ -135,6 +122,30 @@ export function MemberSelectMultipleOptions({
         }
         lastSelectionAt.current = Date.now()
         onChange(Array.from(selected))
+    }
+
+    const renderRow = (member: (typeof members)[number]): JSX.Element => (
+        <MemberSelectRow
+            key={member.user.uuid}
+            member={member}
+            isYou={member.user.uuid === me?.user.uuid}
+            onClick={() => toggleMember(member.user.id)}
+            checked={value.includes(member.user.id)}
+        />
+    )
+    const memberById = new Map(members.map((member) => [member.user.id, member]))
+    const dockedHeights = new Map([...docks.top, ...docks.bottom].map((row) => [row.id, row.height]))
+
+    const renderDock = (rows: DockedRow[], label: string, edge: 'top' | 'bottom'): JSX.Element | null => {
+        const dockedMembers = rows.flatMap((row) => {
+            const member = memberById.get(row.id)
+            return member ? [member] : []
+        })
+        return dockedMembers.length ? (
+            <ul className={`flex flex-col gap-px ${edge === 'top' ? 'border-b' : 'border-t'}`} aria-label={label}>
+                {dockedMembers.map(renderRow)}
+            </ul>
+        ) : null
     }
 
     return (
@@ -153,35 +164,44 @@ export function MemberSelectMultipleOptions({
                 Clear selection
             </LemonButton>
             <div
-                ref={scrollRef}
-                className="max-h-80 overflow-y-auto flex flex-col gap-px"
-                onScroll={() =>
-                    setStickyIds((current) =>
-                        current.size === value.length && value.every((id) => current.has(id)) ? current : new Set(value)
-                    )
-                }
+                className="flex max-h-80 flex-col"
                 onMouseEnter={() => setPointerOverList(true)}
                 onMouseLeave={() => setPointerOverList(false)}
             >
-                <ul ref={listRef} className="flex flex-col gap-px" aria-label="Members">
-                    {members.map((member) => (
-                        <MemberSelectRow
-                            key={member.user.uuid}
-                            member={member}
-                            isYou={member.user.uuid === me?.user.uuid}
-                            onClick={() => toggleMember(member.user.id)}
-                            checked={value.includes(member.user.id)}
-                            stickyStyle={pinnedRows[member.user.id]}
-                        />
-                    ))}
-                    {membersLoading ? (
-                        <li className="p-2 text-secondary italic truncate border-t">Loading...</li>
-                    ) : members.length === 0 ? (
-                        <li className="p-2 text-secondary italic truncate border-t">
-                            {search ? 'No matches' : 'No users'}
-                        </li>
-                    ) : null}
-                </ul>
+                {renderDock(docks.top, 'Selected members above', 'top')}
+                <div
+                    ref={scrollRef}
+                    className="min-h-0 flex-1 overflow-y-auto"
+                    onScroll={() =>
+                        setDockableIds((current) =>
+                            current.size === value.length && value.every((id) => current.has(id))
+                                ? current
+                                : new Set(value)
+                        )
+                    }
+                >
+                    <ul ref={listRef} className="flex flex-col gap-px" aria-label="Members">
+                        {members.map((member) =>
+                            dockedHeights.has(member.user.id) ? (
+                                <li
+                                    key={member.user.uuid}
+                                    aria-hidden="true"
+                                    style={{ height: dockedHeights.get(member.user.id) }}
+                                />
+                            ) : (
+                                renderRow(member)
+                            )
+                        )}
+                        {membersLoading ? (
+                            <li className="p-2 text-secondary italic truncate border-t">Loading...</li>
+                        ) : members.length === 0 ? (
+                            <li className="p-2 text-secondary italic truncate border-t">
+                                {search ? 'No matches' : 'No users'}
+                            </li>
+                        ) : null}
+                    </ul>
+                </div>
+                {renderDock(docks.bottom, 'Selected members below', 'bottom')}
             </div>
         </div>
     )
