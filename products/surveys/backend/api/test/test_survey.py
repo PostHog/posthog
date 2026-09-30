@@ -8293,6 +8293,10 @@ class TestGlobalSurveyCooldown(APIBaseTest):
                     return prop["value"]
         return None
 
+    def _payload_wait_period(self, survey: Survey) -> int | None:
+        payload = next(s for s in get_surveys_response(self.team)["surveys"] if s["id"] == str(survey.id))
+        return (payload["conditions"] or {}).get("seenSurveyWaitPeriodInDays")
+
     @parameterized.expand(
         [
             ("survey_only", None, 7, 7),
@@ -8311,6 +8315,7 @@ class TestGlobalSurveyCooldown(APIBaseTest):
         survey = self._create_survey({"seenSurveyWaitPeriodInDays": survey_days})
 
         assert self._flag_wait_period(survey) == (f"{expected}d" if expected else None)
+        assert (self._payload_wait_period(survey) or None) == expected
 
     def _patch_survey_config(self, path: str, survey_config: dict) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -8330,6 +8335,7 @@ class TestGlobalSurveyCooldown(APIBaseTest):
         self._patch_survey_config("projects", {"seenSurveyWaitPeriodInDays": 10})
         assert self._flag_wait_period(running) == "10d"
         assert self._flag_wait_period(archived) is None
+        assert self._payload_wait_period(running) == 10
 
         self._patch_survey_config("projects", {"appearance": {"backgroundColor": "#eeeded"}})
         assert self.team.survey_config["seenSurveyWaitPeriodInDays"] == 10

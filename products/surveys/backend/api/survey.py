@@ -78,7 +78,11 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.global_cooldown import build_user_interacted_filters, get_effective_wait_period_days
+from products.surveys.backend.global_cooldown import (
+    WAIT_PERIOD_KEY,
+    build_user_interacted_filters,
+    get_effective_wait_period_days,
+)
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -3501,7 +3505,16 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
-        return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+        conditions = get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
+        # Only the SDK payload passes the team. SDKs enforce the wait period on the device too,
+        # so that payload sends the effective value.
+        team = self.context.get("team")
+        if team is None:
+            return conditions
+        wait_period_days = get_effective_wait_period_days(conditions, team.survey_config)
+        if wait_period_days is None:
+            return conditions
+        return {**(conditions or {}), WAIT_PERIOD_KEY: wait_period_days}
 
     @extend_schema_field(
         serializers.DictField(child=serializers.DictField(child=serializers.CharField()), allow_null=True)
@@ -3584,6 +3597,7 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # Launch order (oldest first) keeps that winner deterministic across cache rebuilds.
         .order_by("start_date", "created_at", "id"),
         many=True,
+        context={"team": team},
     ).data
 
     return {"surveys": surveys}
