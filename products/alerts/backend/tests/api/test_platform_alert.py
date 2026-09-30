@@ -105,7 +105,6 @@ class TestPlatformAlertAPI(APIBaseTest):
     ) -> None:
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors")
-        headers: dict[str, str] = {}
         if key_scopes is None:
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -121,13 +120,11 @@ class TestPlatformAlertAPI(APIBaseTest):
             )
             self.client.force_login(member)
         else:
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}"
             self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(key_scopes)}")
 
-        list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/", **headers)
-        retrieve_response = self.client.get(
-            f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/", **headers
-        )
+        list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{configuration.id}/")
 
         assert list_response.status_code == status.HTTP_200_OK, list_response.json()
         assert [r["id"] for r in list_response.json()["results"]] == ([str(configuration.id)] if visible else [])
