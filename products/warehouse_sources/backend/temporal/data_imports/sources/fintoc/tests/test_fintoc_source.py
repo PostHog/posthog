@@ -1,4 +1,6 @@
 import json
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -107,7 +109,9 @@ def test_pipeline_selects_backfill_or_webhook_rows(
         ),
     ):
         result = FintocSource().source_for_pipeline(FintocSourceConfig(api_key="sk_test_example"), manager, inputs)
-        assert list(result.items()) == [[{"id": "webhook_invoice" if webhook_enabled else "invoice_example"}]]
+        assert list(cast(Iterable[Any], result.items())) == [
+            [{"id": "webhook_invoice" if webhook_enabled else "invoice_example"}]
+        ]
     assert http_mock.call_count == (0 if webhook_enabled else 1)
     assert result.supports_resume is not webhook_enabled
 

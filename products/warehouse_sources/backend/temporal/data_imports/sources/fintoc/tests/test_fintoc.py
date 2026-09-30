@@ -2,7 +2,8 @@ import hmac
 import json
 import time
 import hashlib
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -57,7 +58,7 @@ def test_pages_and_resume_after_yield(
         (200, [{"id": "last"}], {"Link": f'<https://api.fintoc.com{path}?page=1>; rel="prev"'}),
     ]
     source = FintocAPI("sk_test_example", "2026-02-01").source(name, [], inputs, manager)
-    rows = iter(source.items())
+    rows = iter(cast(Iterable[Any], source.items()))
     assert next(rows) == [{"id": "first"}]
     manager.save_state.assert_not_called()
     assert next(rows) == [{"id": "last"}]
@@ -83,7 +84,8 @@ def test_resume_does_not_restart_completed_pages(
     manager.can_resume.return_value = True
     manager.load_state.return_value = FintocResumeState(paginator={"next_url": url}, complete=complete)
     http_mock.return_value = (200, [], {})
-    assert list(FintocAPI("sk_test_example", "2026-02-01").source("customers", [], inputs, manager).items()) == []
+    items = FintocAPI("sk_test_example", "2026-02-01").source("customers", [], inputs, manager).items()
+    assert list(cast(Iterable[Any], items)) == []
     if complete:
         http_mock.assert_not_called()
     else:
@@ -100,7 +102,8 @@ def test_http_retry_classification(
 ) -> None:
     http_mock.return_value = (status, {"error": {"code": "invalid_api_key"}}, {})
     with pytest.raises(RESTClientRetryableError if retryable else HTTPError):
-        list(FintocAPI("sk_test_example", "2026-02-01").source("links", [], inputs, manager).items())
+        items = FintocAPI("sk_test_example", "2026-02-01").source("links", [], inputs, manager).items()
+        list(cast(Iterable[Any], items))
     assert http_mock.call_count == (5 if retryable else 1)
     manager.save_state.assert_not_called()
 
@@ -114,7 +117,7 @@ def test_movements_fanout_keeps_account_keys_and_tokens_private(
     calls: list[tuple[str, dict[str, list[str]]]] = []
 
     def respond(request: PreparedRequest) -> tuple[int, object, dict[str, str]]:
-        parts = urlsplit(request.url)
+        parts = urlsplit(request.url or "")
         query = parse_qs(parts.query)
         calls.append((parts.path, query))
         token = query["link_token"][0]
@@ -132,7 +135,7 @@ def test_movements_fanout_keeps_account_keys_and_tokens_private(
 
     http_mock.side_effect = respond
     result = FintocAPI("sk_test_example", "2026-02-01").source("movements", tokens, inputs, manager)
-    pages = list(result.items())
+    pages = list(cast(Iterable[Any], result.items()))
     assert len(pages) == 8
     assert {row["account_id"] for page in pages for row in page} == {"account_one", "account_two"}
     assert result.primary_keys == ["account_id", "id"]
@@ -166,7 +169,8 @@ def test_movements_resume_restores_token_and_skips_finished_accounts(
         (200, [{"id": "account_one"}, {"id": "account_two"}], {}),
         (200, [{"id": "movement_last"}], {}),
     ]
-    pages = list(FintocAPI("sk_test_example", "2026-02-01").source("movements", [token], inputs, manager).items())
+    items = FintocAPI("sk_test_example", "2026-02-01").source("movements", [token], inputs, manager).items()
+    pages = list(cast(Iterable[Any], items))
     assert pages == [[{"id": "movement_last", "account_id": "account_two"}]]
     request = http_mock.call_args.args[0]
     assert urlsplit(request.url).path == "/v1/accounts/account_two/movements"
@@ -178,12 +182,13 @@ def test_pagination_cannot_send_credentials_off_origin(
 ) -> None:
     http_mock.return_value = (200, [{"id": "first"}], {"Link": '<https://example.com/steal>; rel="next"'})
     with pytest.raises(ValueError, match="disallowed host"):
-        list(FintocAPI("sk_test_example", "2026-02-01").source("links", [], inputs, manager).items())
+        items = FintocAPI("sk_test_example", "2026-02-01").source("links", [], inputs, manager).items()
+        list(cast(Iterable[Any], items))
     assert http_mock.call_count == 1
 
 
 def test_webhook_batch_keeps_latest_object_and_ignores_invoice_preview() -> None:
-    events = [
+    events: list[dict[str, Any]] = [
         {"created_at": "2026-01-02T00:00:00Z", "data": {"id": "invoice_one", "status": "paid"}},
         {"created_at": "2026-01-01T00:00:00Z", "data": {"id": "invoice_one", "status": "draft"}},
         {"created_at": "2026-01-03T00:00:00Z", "data": {"id": None, "status": "draft"}},
