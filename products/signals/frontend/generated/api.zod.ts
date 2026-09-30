@@ -1369,7 +1369,7 @@ export const SignalsScoutConfigTrialComparisonCreateBody = /* @__PURE__ */ zod.o
                     .describe('Replacement scout instructions. Omit to use the saved source instructions.'),
             })
         )
-        .describe('Variants containing at most 20 total scout runs.'),
+        .describe('Up to 20 variants, each with up to 20 scout runs.'),
     note: zod
         .string()
         .max(signalsScoutConfigTrialComparisonCreateBodyNoteMax)
@@ -1416,7 +1416,7 @@ export const SignalsScoutConfigTrialEvaluationCreateBody = /* @__PURE__ */ zod.o
                     .describe("Trial launches forming this variant's repeats."),
             })
         )
-        .describe('Explicit variant groups containing at most 20 total trial runs.'),
+        .describe('Up to 20 variant groups, each with up to 20 trial runs.'),
     rubric_source: zod
         .enum(['mock'])
         .describe('\* `mock` - Mock')

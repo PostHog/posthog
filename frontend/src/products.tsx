@@ -1017,7 +1017,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'code_review',
         docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
-    ScoutTrials: { name: 'Scout comparisons', projectBased: true },
+    ScoutTrials: { name: 'Scout trials', projectBased: true },
     Inbox: {
         name: 'Self-driving inbox',
         projectBased: true,

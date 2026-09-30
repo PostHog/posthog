@@ -762,31 +762,41 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert self.client.post(f"{base}trial_evaluation/", invalid, format="json").status_code == 400
             dispatch.assert_not_called()
 
-    def test_comparison_freezes_the_plan_before_dispatch_and_restores_without_browser_state(self) -> None:
+    @parameterized.expand([2, 20])
+    def test_comparison_freezes_the_plan_before_dispatch_and_restores_without_browser_state(
+        self, variant_count: int
+    ) -> None:
         base = self._internal_scout_base()
         variant_id = str(uuid4())
         comparison_id = str(uuid4())
-        payload = {
-            "comparison_id": comparison_id,
-            "baseline_variant_id": variant_id,
-            "variants": [
-                {
-                    "id": variant_id,
-                    "label": "Baseline",
-                    "launch_ids": [str(uuid4()), str(uuid4())],
-                    "model": "gpt-5.5",
-                    "reasoning_effort": "medium",
-                },
-                {
-                    "id": str(uuid4()),
-                    "label": "Candidate",
-                    "launch_ids": [str(uuid4()), str(uuid4())],
-                    "model": "gpt-5.5",
-                    "reasoning_effort": "high",
-                    "skill_body": "Inspect the synthetic funnel.",
-                },
-            ],
-        }
+        variants: list[dict[str, object]] = [
+            {
+                "id": variant_id,
+                "label": "Baseline",
+                "launch_ids": [str(uuid4()), str(uuid4())],
+                "model": "gpt-5.5",
+                "reasoning_effort": "medium",
+            },
+            {
+                "id": str(uuid4()),
+                "label": "Candidate",
+                "launch_ids": [str(uuid4()), str(uuid4())],
+                "model": "gpt-5.5",
+                "reasoning_effort": "high",
+                "skill_body": "Inspect the synthetic funnel.",
+            },
+        ]
+        variants.extend(
+            {
+                "id": str(uuid4()),
+                "label": f"Version {index + 1}",
+                "launch_ids": [str(uuid4()), str(uuid4())],
+                "model": "gpt-5.5",
+                "reasoning_effort": "high",
+            }
+            for index in range(2, variant_count)
+        )
+        payload = {"comparison_id": comparison_id, "baseline_variant_id": variant_id, "variants": variants}
         reference = _reference_context(
             skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
         )
@@ -830,7 +840,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert "Inspect the synthetic funnel." not in str(saved.json())
         plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
         frozen = self.documents[plan_key]
-        assert len([key for key in self.documents if "/launches/" in key]) == 4
+        assert len([key for key in self.documents if "/launches/" in key]) == variant_count * 2
         assert (
             len({json.loads(value)["context_id"] for key, value in self.documents.items() if "/launches/" in key}) == 1
         )

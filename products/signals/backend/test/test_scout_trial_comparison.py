@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from pydantic import ValidationError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -16,8 +17,13 @@ from posthog.storage import object_storage
 
 from products.signals.backend.scout_harness.trial_comparison import list_comparison_history_keys
 from products.signals.backend.scout_harness.trial_comparison_serializers import ScoutTrialComparisonRequestSerializer
-from products.signals.backend.scout_harness.trial_comparison_types import TrialEvaluationReservation
+from products.signals.backend.scout_harness.trial_comparison_types import (
+    TrialComparisonRequest,
+    TrialEvaluationReservation,
+)
 from products.signals.backend.scout_harness.trial_evaluation import TrialEvaluationError, reserve_trial_evaluation
+from products.signals.backend.scout_harness.trial_evaluation_serializers import ScoutTrialEvaluationRequestSerializer
+from products.signals.backend.scout_harness.trial_evaluation_types import TrialEvaluationRequest
 from products.signals.backend.temporal.agentic.scout_trial_comparison import (
     RunScoutTrialComparisonWorkflow,
     TrialComparisonInput,
@@ -79,8 +85,10 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
                 assert await RunScoutTrialComparisonWorkflow().run(inputs) == inputs.comparison_id
                 assert prepared and finished and not failed
 
-    @parameterized.expand([False, True])
-    async def test_judging_wait_preserves_old_histories_and_bounds_new_workflows(self, grouped: bool) -> None:
+    @parameterized.expand([(False, False, 45), (False, True, 85), (True, True, 1355)])
+    async def test_judging_wait_preserves_old_histories_and_bounds_new_workflows(
+        self, expanded_capacity: bool, grouped: bool, expected_minutes: int
+    ) -> None:
         inputs = TrialComparisonInput(team_id=2, comparison_id=str(uuid4()))
         now = datetime(2026, 1, 1, tzinfo=UTC)
         started = now
@@ -109,13 +117,18 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             patch(f"{MODULE}.workflow.execute_activity", side_effect=execute),
             patch(f"{MODULE}.workflow.sleep", side_effect=sleep),
             patch(f"{MODULE}.workflow.now", side_effect=lambda: now),
-            patch(f"{MODULE}.workflow.patched", return_value=grouped),
+            patch(
+                f"{MODULE}.workflow.patched",
+                side_effect=lambda patch_id: (
+                    expanded_capacity if patch_id == "scout-trial-expanded-capacity-v1" else grouped
+                ),
+            ),
         ):
             with self.assertRaisesMessage(ApplicationError, "Judging did not finish in time"):
                 await RunScoutTrialComparisonWorkflow().run(inputs)
         assert failed
-        assert waited == (85 if grouped else 45)
-        assert now - started == timedelta(minutes=85 if grouped else 45)
+        assert waited == expected_minutes
+        assert now - started == timedelta(minutes=expected_minutes)
 
     def test_comparison_dispatch_reuses_existing_workflow_and_keeps_payload_small(self) -> None:
         comparison_id = uuid4()
@@ -126,7 +139,7 @@ class TestScoutTrialComparisonWorkflow(SimpleTestCase):
             assert start_trial_comparison(2, comparison_id) == first
         for call in client.start_workflow.await_args_list:
             assert call.kwargs["id"] == first
-            assert call.kwargs["execution_timeout"] == timedelta(minutes=150)
+            assert call.kwargs["execution_timeout"] == timedelta(minutes=1420)
             assert call.kwargs["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
             assert call.kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
             assert call.args[1] == TrialComparisonInput(team_id=2, comparison_id=str(comparison_id))
@@ -156,9 +169,47 @@ class TestScoutTrialComparisonSerializer(SimpleTestCase):
         elif invalid == "empty_runs":
             variant["launch_ids"] = []
         else:
-            payload["variants"] = [variant] * 11
+            payload["variants"] = [variant] * 21
         serializer = ScoutTrialComparisonRequestSerializer(data=payload)
         assert not serializer.is_valid()
+
+    @parameterized.expand(
+        [
+            (kind, variants, repeats, valid)
+            for kind in ("comparison", "evaluation")
+            for variants, repeats, valid in ((20, 2, True), (20, 20, True), (21, 2, False), (20, 21, False))
+        ]
+    )
+    def test_capacity_limits_versions_and_repeats_separately(
+        self, kind: str, variants: int, repeats: int, valid: bool
+    ) -> None:
+        groups = [
+            {
+                "id": str(uuid4()),
+                "label": f"Version {index + 1}",
+                "launch_ids": [str(uuid4()) for _ in range(repeats)],
+                **({"model": "gpt-5.5", "reasoning_effort": "medium"} if kind == "comparison" else {}),
+            }
+            for index in range(variants)
+        ]
+        payload = {
+            f"{kind}_id": str(uuid4()),
+            "baseline_variant_id": groups[0]["id"],
+            "variants": groups,
+            **({"rubric_source": "saved"} if kind == "evaluation" else {}),
+        }
+        serializer_type = (
+            ScoutTrialComparisonRequestSerializer if kind == "comparison" else ScoutTrialEvaluationRequestSerializer
+        )
+        request_type = TrialComparisonRequest if kind == "comparison" else TrialEvaluationRequest
+        serializer = serializer_type(data=payload)
+        assert serializer.is_valid() is valid, serializer.errors
+        if valid:
+            request = request_type.model_validate(serializer.validated_data)
+            assert sum(len(variant.launch_ids) for variant in request.variants) == variants * repeats
+        else:
+            with self.assertRaises(ValidationError):
+                request_type.model_validate(payload)
 
 
 class TestScoutTrialComparisonStorage(SimpleTestCase):

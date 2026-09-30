@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS
 from products.signals.backend.scout_harness.trial_evaluation_serializers import ScoutTrialEvaluationSerializer
 
 
@@ -10,7 +10,7 @@ class ScoutTrialComparisonVariantRequestSerializer(serializers.Serializer):
     launch_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        max_length=20,
+        max_length=MAX_TRIAL_REPEATS,
         help_text="Stable run IDs for this variant's repeats.",
     )
     model = serializers.CharField(max_length=200, help_text="Scout model to run.")
@@ -29,8 +29,8 @@ class ScoutTrialComparisonRequestSerializer(serializers.Serializer):
     variants: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=ScoutTrialComparisonVariantRequestSerializer(),
         min_length=1,
-        max_length=10,
-        help_text="Variants containing at most 20 total scout runs.",
+        max_length=MAX_TRIAL_VARIANTS,
+        help_text=f"Up to {MAX_TRIAL_VARIANTS} variants, each with up to {MAX_TRIAL_REPEATS} scout runs.",
     )
     note = serializers.CharField(
         required=False, allow_blank=True, max_length=MAX_RUN_NOTE_CHARS, help_text="Shared investigation note."

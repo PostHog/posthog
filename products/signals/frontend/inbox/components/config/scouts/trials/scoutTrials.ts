@@ -6,7 +6,8 @@ import type {
     ScoutTrialSetupApi,
 } from 'products/signals/frontend/generated/api.schemas'
 
-export const MAX_TRIAL_RUNS = 20
+export const MAX_TRIAL_VARIANTS = 20
+export const MAX_TRIAL_REPEATS = 20
 
 export interface ScoutTrialVariant {
     id: string
@@ -86,11 +87,11 @@ export function trialFormError(
     if (!setup?.ready) {
         return setup?.blocked_reason || 'Choose an available scout.'
     }
-    if (!Number.isInteger(repeats) || repeats < 1 || variants.length * repeats > MAX_TRIAL_RUNS) {
-        return `Choose between 1 and ${MAX_TRIAL_RUNS} total runs.`
+    if (!Number.isInteger(repeats) || repeats < 1 || repeats > MAX_TRIAL_REPEATS) {
+        return `Choose between 1 and ${MAX_TRIAL_REPEATS} runs per version.`
     }
-    if (variants.length < 2 || variants.length > 10) {
-        return 'Use between 2 and 10 versions per trial.'
+    if (variants.length < 2 || variants.length > MAX_TRIAL_VARIANTS) {
+        return `Use between 2 and ${MAX_TRIAL_VARIANTS} versions per trial.`
     }
     if (variants.some((variant) => !variant.label.trim())) {
         return 'Give every version a name.'

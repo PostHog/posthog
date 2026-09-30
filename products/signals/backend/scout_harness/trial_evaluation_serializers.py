@@ -5,6 +5,7 @@ from django.db import models
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from products.signals.backend.scout_harness.limits import MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS
 from products.signals.backend.scout_harness.trial_evaluation_types import TrialComparisonReport
 
 
@@ -29,7 +30,7 @@ class ScoutTrialEvaluationVariantSerializer(serializers.Serializer):
     launch_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
-        max_length=20,
+        max_length=MAX_TRIAL_REPEATS,
         help_text="Trial launches forming this variant's repeats.",
     )
 
@@ -42,8 +43,8 @@ class ScoutTrialEvaluationRequestSerializer(serializers.Serializer):
     variants: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=ScoutTrialEvaluationVariantSerializer(),
         min_length=1,
-        max_length=10,
-        help_text="Explicit variant groups containing at most 20 total trial runs.",
+        max_length=MAX_TRIAL_VARIANTS,
+        help_text=f"Up to {MAX_TRIAL_VARIANTS} variant groups, each with up to {MAX_TRIAL_REPEATS} trial runs.",
     )
     rubric_source = serializers.ChoiceField(
         choices=TrialRubricSource.choices, help_text="Explicit rubric input source."

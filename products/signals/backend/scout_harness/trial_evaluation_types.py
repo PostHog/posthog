@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
+from products.signals.backend.scout_harness.limits import MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS
 
 
 class EvaluationDocument(BaseModel):
@@ -16,13 +17,13 @@ class EvaluationDocument(BaseModel):
 class TrialEvaluationVariant(EvaluationDocument):
     id: UUID
     label: str = Field(min_length=1, max_length=100)
-    launch_ids: list[UUID] = Field(min_length=1, max_length=20)
+    launch_ids: list[UUID] = Field(min_length=1, max_length=MAX_TRIAL_REPEATS)
 
 
 class TrialEvaluationRequest(EvaluationDocument):
     evaluation_id: UUID
     baseline_variant_id: UUID
-    variants: list[TrialEvaluationVariant] = Field(min_length=1, max_length=10)
+    variants: list[TrialEvaluationVariant] = Field(min_length=1, max_length=MAX_TRIAL_VARIANTS)
     rubric_source: Literal["mock", "saved"]
 
 

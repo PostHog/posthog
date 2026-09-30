@@ -7,7 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { ScoutRubricDocumentApi, ScoutTrialSetupApi } from 'products/signals/frontend/generated/api.schemas'
 
 import type { ScoutTrialsViewProps } from './ScoutTrialsView'
-import { MAX_TRIAL_RUNS } from './scoutTrialUtils'
+import { MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS } from './scoutTrialUtils'
 import { ScoutTrialVariantEditor } from './ScoutTrialVariantEditor'
 
 export type ScoutTrialSetupProps = Pick<
@@ -40,7 +40,6 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
     const { setup, variants, repeats, totalRuns, note, rubric, rubricLoading, rubricError, submitting, batch } = props
     const locked = submitting || !!batch
     const lockedReason = locked ? 'Start a new trial to change these settings.' : undefined
-    const maxRepeats = Math.floor(MAX_TRIAL_RUNS / Math.max(variants.length, 1))
     const savedRubric = rubric && rubric.revision > 0
     const enabledChecks = rubric?.criteria.filter((criterion) => criterion.enabled).length ?? 0
     const reference = rubric?.reference_context
@@ -136,7 +135,10 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
                         icon={<IconPlus />}
                         onClick={props.addVariant}
                         disabledReason={
-                            lockedReason || (variants.length >= 10 ? 'Use up to 10 versions per trial.' : undefined)
+                            lockedReason ||
+                            (variants.length >= MAX_TRIAL_VARIANTS
+                                ? `Use up to ${MAX_TRIAL_VARIANTS} versions per trial.`
+                                : undefined)
                         }
                         data-attr="scout-trial-add-version"
                     >
@@ -167,7 +169,7 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
             <LemonField.Pure
                 label="Runs per version"
                 htmlFor="scout-trial-repeats"
-                help={`More runs make the result more reliable. Up to ${MAX_TRIAL_RUNS} runs per trial.`}
+                help={`More runs make the result more reliable. Up to ${MAX_TRIAL_REPEATS} runs per version.`}
             >
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1">
@@ -187,7 +189,7 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
                             type="number"
                             value={repeats}
                             min={1}
-                            max={maxRepeats}
+                            max={MAX_TRIAL_REPEATS}
                             step={1}
                             onChange={(value) => props.setRepeats(value ?? 1)}
                             disabledReason={lockedReason}
@@ -200,8 +202,8 @@ export function ScoutTrialSetup(props: ScoutTrialSetupProps): JSX.Element {
                             onClick={() => props.setRepeats(repeats + 1)}
                             disabledReason={
                                 lockedReason ||
-                                (variants.length * (repeats + 1) > MAX_TRIAL_RUNS
-                                    ? `Use up to ${MAX_TRIAL_RUNS} runs per trial.`
+                                (repeats >= MAX_TRIAL_REPEATS
+                                    ? `Use up to ${MAX_TRIAL_REPEATS} runs per version.`
                                     : undefined)
                             }
                             data-attr="scout-trial-more-runs"

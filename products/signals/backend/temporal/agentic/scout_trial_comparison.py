@@ -20,6 +20,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.signals.backend.scout_harness.limits import TRIAL_EVALUATION_TIMEOUT_MINUTES
+
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus
 
@@ -137,7 +139,10 @@ class RunScoutTrialComparisonWorkflow:
             if workflow.now() >= deadline:
                 raise ApplicationError("The scout runs did not finish in time. Resume to check their saved results.")
             await workflow.sleep(10)
-        judge_wait = timedelta(minutes=85 if workflow.patched("scout-trial-grouped-judge-wait-v10") else 45)
+        if workflow.patched("scout-trial-expanded-capacity-v1"):
+            judge_wait = timedelta(minutes=TRIAL_EVALUATION_TIMEOUT_MINUTES + 5)
+        else:
+            judge_wait = timedelta(minutes=85 if workflow.patched("scout-trial-grouped-judge-wait-v10") else 45)
         deadline = workflow.now() + judge_wait
         while not await workflow.execute_activity(
             finish_scout_trial_comparison_activity,
@@ -166,7 +171,7 @@ async def start_trial_comparison(team_id: int, comparison_id: UUID) -> str:
                 TrialComparisonInput(team_id=team_id, comparison_id=str(comparison_id)),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=timedelta(minutes=150),
+                execution_timeout=timedelta(minutes=TRIAL_EVALUATION_TIMEOUT_MINUTES + 70),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             )

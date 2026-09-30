@@ -86,7 +86,7 @@ Existing mock snapshots and reports remain readable, and exact-ID retries reuse 
 Starting a comparison includes scout execution and automatic judging, both of which incur model charges.
 The server waits until all selected runs reach a known terminal state before judging their saved evidence.
 The separate scoring endpoint remains available for existing runs and deliberate new scoring attempts.
-The request names a baseline and variant groups, with at most 20 distinct launches from the same scout, operator and saved starting context.
+The request names a baseline and up to 20 versions, each with up to 20 runs, from the same scout, operator and saved starting context. Repeats do not reduce the version limit: 20 versions with two repeats is 40 runs, and 20 repeats is 400. There is no overall concurrency cap across trials. Larger trials take longer to judge; each trial judges three runs at a time. The two limits live in `MAX_TRIAL_VARIANTS` and `MAX_TRIAL_REPEATS` in the scout harness's `limits.py`.
 Runs within a variant must use the same instructions, note, model, runtime, reasoning effort and service tier.
 The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
 Evidence includes instructions, starting history, captured reports, memory changes, summaries and available tool calls and results.
@@ -151,7 +151,7 @@ Every read remains restricted to the operator's current project and skill access
 ### Internal comparison UI
 
 Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
-The page submits one comparison containing at most 20 runs and shows deployment or scout compatibility blockers before launch.
+The page submits one trial with up to 20 versions and 20 runs per version, and shows deployment or scout compatibility blockers before launch.
 The server saves the variants, reviewed rubric and shared starting history before dispatch. Each run keeps its own private writable state.
 Once the comparison is accepted, execution and judging continue after the page closes.
 Progress distinguishes starting, running scouts, judging and completed results. Reloading reads saved state without starting another paid attempt.

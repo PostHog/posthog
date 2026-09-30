@@ -135,7 +135,7 @@ describe('scoutTrialsLogic', () => {
         }
     )
 
-    it('keeps the baseline and two versions while lowering repeats when another version would exceed the run limit', async () => {
+    it('keeps the baseline and at least two versions without changing repeats when adding a version', async () => {
         const baselineId = logic.values.variants[0].id
         const candidateId = logic.values.variants[1].id
         logic.actions.removeVariant(candidateId)
@@ -144,8 +144,8 @@ describe('scoutTrialsLogic', () => {
         logic.actions.setRepeats(10)
         await expectLogic(logic, () => logic.actions.addVariant()).toFinishAllListeners()
         expect(logic.values.variants).toHaveLength(3)
-        expect(logic.values.repeats).toBe(6)
-        expect(logic.values.totalRuns).toBe(18)
+        expect(logic.values.repeats).toBe(10)
+        expect(logic.values.totalRuns).toBe(30)
         expect(logic.values.formError).toBeNull()
 
         logic.actions.removeVariant(baselineId)
@@ -153,6 +153,36 @@ describe('scoutTrialsLogic', () => {
         logic.actions.removeVariant(candidateId)
         expect(logic.values.variants).toHaveLength(2)
         expect(logic.values.variants[0].id).toBe(baselineId)
+    })
+
+    it.each([2, 20])('submits all 20 versions with %s runs each and retains their result tracking', async (repeats) => {
+        logic.actions.setRepeats(repeats)
+        await expectLogic(logic, () => {
+            for (let index = 2; index < 20; index++) {
+                logic.actions.addVariant()
+            }
+            logic.actions.addVariant()
+        }).toFinishAllListeners()
+        expect(logic.values.variants).toHaveLength(20)
+        expect(logic.values.repeats).toBe(repeats)
+        expect(logic.values.totalRuns).toBe(20 * repeats)
+        expect(logic.values.formError).toBeNull()
+
+        await expectLogic(logic, () => logic.actions.submitComparison()).toFinishAllListeners()
+        const request = jest.mocked(signalsScoutConfigTrialComparisonCreate).mock.calls[0][2]
+        expect(request.variants).toHaveLength(20)
+        const launchIds = request.variants.flatMap((variant) => variant.launch_ids)
+        expect(launchIds).toHaveLength(20 * repeats)
+        expect(logic.values.tracked.map((entry) => entry.launchId).sort()).toEqual([...launchIds].sort())
+
+        logic.actions.trackLaunches(
+            Array.from({ length: 100 }, (_, index) => ({
+                configId: trialFixtureConfig.id,
+                launchId: `other-trial-${index}`,
+            }))
+        )
+        expect(logic.values.comparisonRows).toHaveLength(20 * repeats)
+        expect(logic.values.tracked.filter((entry) => launchIds.includes(entry.launchId))).toHaveLength(20 * repeats)
     })
 
     it('submits the complete variant plan once so running and judging do not depend on the browser staying open', async () => {

@@ -28,7 +28,7 @@ export const manifest: ProductManifest = {
     },
     scenes: {
         ScoutTrials: {
-            name: 'Scout comparisons',
+            name: 'Scout trials',
             import: () => import('./frontend/inbox/ScoutTrialsScene'),
             projectBased: true,
         },

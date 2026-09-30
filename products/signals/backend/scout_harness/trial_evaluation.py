@@ -20,6 +20,7 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
 from products.signals.backend.scout_harness.trial_comparison_types import (
     TrialComparisonHistoryEntry,
     TrialComparisonPlan,
@@ -53,8 +54,7 @@ from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubri
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 from products.tasks.backend.facade.api import get_task_run_log_size, get_task_run_log_urls, read_task_run_log_content
 
-MAX_EVALUATION_RUNS = 20
-MAX_EVALUATION_BYTES = 8 * 1024 * 1024
+MAX_EVALUATION_BYTES = MAX_TRIAL_RUNS * 512 * 1024
 MAX_TRACE_BYTES = 2 * 1024 * 1024
 MAX_EVIDENCE_CHARS = 80_000
 MAX_SOURCE_CHARS = 12_000
@@ -229,8 +229,8 @@ def _validate_groups(request: TrialEvaluationRequest) -> None:
         raise TrialEvaluationError("Each variant must have a unique ID.")
     if request.baseline_variant_id not in variants:
         raise TrialEvaluationError("The baseline must be one of the selected variants.")
-    if len(launches) > MAX_EVALUATION_RUNS or len(set(launches)) != len(launches):
-        raise TrialEvaluationError("Choose at most 20 unique trial runs, each in exactly one variant.")
+    if len(set(launches)) != len(launches):
+        raise TrialEvaluationError("Choose unique trial runs, each in exactly one variant.")
 
 
 def _settings(launch: TrialLaunch) -> _VariantSettings:

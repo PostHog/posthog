@@ -167,7 +167,8 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
         metrics.increment_scout_run("quota_limited")
         # No run row exists for a skipped run, so this notification is the only user-visible
         # trace that scheduled scouts stopped; idempotent per limiting episode.
-        await database_sync_to_async(notify_scout_quota_paused, thread_sensitive=False)(team)
+        if input.trial_launch_id is None:
+            await database_sync_to_async(notify_scout_quota_paused, thread_sensitive=False)(team)
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,

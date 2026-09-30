@@ -201,7 +201,7 @@ Choose a model and effort from the returned `models` list. If the source effort 
 6. Return to **All trials**, reopen the saved trial, reload the page and export the report. Confirm these actions retain the same IDs without another model call. Also close the tab during a trial and verify server-side judging still completes.
 7. Confirm both versions share starting history but keep separate writable memory and reports. The live scout's instructions, shared memory and normal inbox must stay unchanged.
 
-The setup requires 2–10 versions and at most 20 total runs. The baseline cannot be deleted; other versions can be deleted only while more than two remain. Adding a version lowers the repeat count when needed to stay within the run limit. Start stays disabled while the saved rubric is unavailable, has no enabled checks, or lacks a complete captured reference.
+The setup allows 2–20 versions and 1–20 runs per version, up to 400 runs per trial. Repeats do not reduce the version limit, and there is no overall concurrency cap across trials. Larger trials take longer to judge; each trial judges three runs at a time. The baseline cannot be deleted; other versions can be deleted only while more than two remain. Start stays disabled while the saved rubric is unavailable, has no enabled checks, or lacks a complete captured reference.
 
 The report ranks versions by total checks passed; cost and duration do not affect the ranking. Equal top totals produce a tie. Missing runs or unknown checks produce **No clear winner**. The check grid can show only differences, and run details keep each check's explanation collapsed until opened. Missing cost appears as **Unavailable**, never zero.
 
@@ -280,7 +280,7 @@ Create and save an explicit scoring request before sending it:
 
 Submit that body through authenticated `POST .../trial_evaluation/`, then poll `GET .../trial_evaluation_result/?evaluation_id=<evaluation_uuid>`. Use the same config base path as above. The response contains `request`, `evaluation_id`, `context_id`, `status`, `error` and `report`. GET never starts a judge.
 
-Group launches from the known variant specification and repeat count, not by parsing display labels. The CLI manifest is variant-major, then repeat order. Limits are 10 variants and 20 distinct launches total. All runs must share scout, operator and starting context; settings must match within each variant.
+Group launches from the known variant specification and repeat count, not by parsing display labels. The CLI manifest is variant-major, then repeat order. Limits are 20 versions and 20 distinct launches per version. All runs must share scout, operator and starting context; settings must match within each variant.
 
 Retrying the same evaluation ID requires the exact saved request. It reuses saved work and does not automatically repeat an attempted paid call. **New scoring attempt** uses a new evaluation ID and may charge for every included run again. It preserves the previous report.
 

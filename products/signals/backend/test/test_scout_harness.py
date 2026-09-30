@@ -3243,7 +3243,7 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         capture_daily.assert_not_called()
     # The user-facing pause notification only fires when the quota actually blocks: a
     # dark-launch pause still runs, and the daily limit surfaces in the usage widget.
-    if expected_skip_reason == "quota_limited":
+    if expected_skip_reason == "quota_limited" and not is_trial:
         notify_quota.assert_called_once_with(ateam)
     else:
         notify_quota.assert_not_called()

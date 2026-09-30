@@ -17,6 +17,7 @@ export const trialFixtureConfig: SignalScoutConfigApi = {
     description: 'Find recurring checkout issues in product feedback.',
     scout_origin: 'custom',
     scout_role: 'specialist',
+    managed_by: 'team',
     owners: [],
     enabled: true,
     status: 'active',

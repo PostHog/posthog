@@ -20,6 +20,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.signals.backend.scout_harness.limits import (
+    TRIAL_EVALUATION_TIMEOUT_MINUTES,
+    TRIAL_JUDGE_CONCURRENCY,
+    TRIAL_JUDGE_TIMEOUT_MINUTES,
+)
+
 if TYPE_CHECKING:
     from products.signals.backend.scout_harness.trial_result import TrialWorkflowStatus
 
@@ -101,8 +107,10 @@ class RunScoutTrialEvaluationWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        judge_timeout = timedelta(minutes=10 if workflow.patched("scout-trial-grouped-judge-deadline-v10") else 5)
-        semaphore = asyncio.Semaphore(3)
+        judge_timeout = timedelta(
+            minutes=TRIAL_JUDGE_TIMEOUT_MINUTES if workflow.patched("scout-trial-grouped-judge-deadline-v10") else 5
+        )
+        semaphore = asyncio.Semaphore(TRIAL_JUDGE_CONCURRENCY)
 
         async def score(launch_id: str) -> None:
             async with semaphore:
@@ -145,7 +153,7 @@ async def start_trial_evaluation(team_id: int, evaluation_id: UUID) -> str:
                 TrialEvaluationInput(team_id=team_id, evaluation_id=str(evaluation_id)),
                 id=workflow_id,
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-                execution_timeout=timedelta(minutes=80),
+                execution_timeout=timedelta(minutes=TRIAL_EVALUATION_TIMEOUT_MINUTES),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             )

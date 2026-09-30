@@ -75,7 +75,7 @@ export const Narrow: Story = {
 }
 
 export const RunLimit: Story = {
-    args: { variants: variants.slice(0, 2), repeats: 10, totalRuns: 20 },
+    args: { variants: variants.slice(0, 2), repeats: 20, totalRuns: 40 },
 }
 
 export const UnsavedRubric: Story = {

@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import Field, JsonValue
 
-from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
+from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS, MAX_TRIAL_REPEATS, MAX_TRIAL_VARIANTS
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     EvaluationDocument,
     TrialComparisonReport,
@@ -18,7 +18,7 @@ from products.signals.backend.scout_harness.trial_evaluation_types import (
 class TrialComparisonVariant(EvaluationDocument):
     id: UUID
     label: str = Field(min_length=1, max_length=100)
-    launch_ids: list[UUID] = Field(min_length=1, max_length=20)
+    launch_ids: list[UUID] = Field(min_length=1, max_length=MAX_TRIAL_REPEATS)
     model: str = Field(min_length=1, max_length=200)
     reasoning_effort: str = Field(min_length=1, max_length=20)
     skill_body: str | None = Field(default=None, min_length=1, max_length=100_000)
@@ -27,7 +27,7 @@ class TrialComparisonVariant(EvaluationDocument):
 class TrialComparisonRequest(EvaluationDocument):
     comparison_id: UUID
     baseline_variant_id: UUID
-    variants: list[TrialComparisonVariant] = Field(min_length=1, max_length=10)
+    variants: list[TrialComparisonVariant] = Field(min_length=1, max_length=MAX_TRIAL_VARIANTS)
     note: str = Field(default="", max_length=MAX_RUN_NOTE_CHARS)
     expected_skill_version: int | None = Field(default=None, ge=1)
 

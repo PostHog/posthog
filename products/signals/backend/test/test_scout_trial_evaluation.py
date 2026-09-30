@@ -25,6 +25,7 @@ from posthog.storage import object_storage
 
 from products.signals.backend.facade.rubrics import default_criteria
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.scout_harness.limits import MAX_TRIAL_RUNS
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.scout_harness.trial_comparison import (
     ScoutTrialComparisons,
@@ -53,6 +54,8 @@ from products.signals.backend.scout_harness.trial_evaluation import (
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationRequest,
     TrialEvaluationVariant,
+    TrialEvidenceSource,
+    TrialRunEvidence,
     TrialRunJudgment,
 )
 from products.signals.backend.scout_harness.trial_judge import TrialJudgeExecutionError, parse_trial_judgment
@@ -82,7 +85,7 @@ WORKFLOW_MODULE = "products.signals.backend.temporal.agentic.scout_trial_evaluat
 
 @override_settings(SCOUT_LIVE_TRIALS_ENABLED=True, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True)
 class TestScoutTrialEvaluationValidation(SimpleTestCase):
-    @parameterized.expand(["duplicate_variant", "duplicate_launch", "missing_baseline", "too_many_runs"])
+    @parameterized.expand(["duplicate_variant", "duplicate_launch", "missing_baseline"])
     def test_rejects_ambiguous_groups_before_loading_evidence(self, invalid: str) -> None:
         first = TrialEvaluationVariant(id=uuid4(), label="Baseline", launch_ids=[uuid4()])
         second = TrialEvaluationVariant(id=uuid4(), label="Candidate", launch_ids=[uuid4()])
@@ -93,8 +96,6 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
             second = second.model_copy(update={"launch_ids": first.launch_ids})
         elif invalid == "missing_baseline":
             baseline = uuid4()
-        else:
-            first = first.model_copy(update={"launch_ids": [uuid4() for _ in range(20)]})
         request = TrialEvaluationRequest(
             evaluation_id=uuid4(), baseline_variant_id=baseline, variants=[first, second], rubric_source="saved"
         )
@@ -216,6 +217,36 @@ class TestScoutTrialEvaluation(BaseTest):
         if key in self.documents:
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
+
+    def test_saves_and_reads_frozen_evidence_for_more_than_twenty_runs(self) -> None:
+        template = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request).runs[0]
+        variants = [
+            TrialEvaluationVariant(id=uuid4(), label=f"Version {index + 1}", launch_ids=[uuid4() for _ in range(6)])
+            for index in range(20)
+        ]
+        request = TrialEvaluationRequest(
+            evaluation_id=uuid4(), baseline_variant_id=variants[0].id, variants=variants, rubric_source="saved"
+        )
+        sources = [
+            TrialEvidenceSource(id=f"report-{index}", kind="report", text="Synthetic measured value: 1. " * 175)
+            for index in range(7)
+        ] + [
+            TrialEvidenceSource(id=f"trace-{index}", kind="trace", text="Synthetic observed value: 1. " * 140)
+            for index in range(10)
+        ]
+        for variant in variants:
+            for launch_id in variant.launch_ids:
+                self._save("launches", launch_id, self.launch.model_copy(update={"id": launch_id}))
+
+        def evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) -> TrialRunEvidence:
+            return template.model_copy(update={"launch_id": launch.id, "variant_id": variant_id, "sources": sources})
+
+        with patch(f"{MODULE}._run_evidence", side_effect=evidence):
+            snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=request)
+
+        assert len(snapshot.runs) == 120
+        assert len(snapshot.model_dump_json().encode()) > 8 * 1024 * 1024
+        assert read_trial_evaluation(self.team.id, request.evaluation_id) == snapshot
 
     @parameterized.expand([(str(version),) for version in range(1, 16)])
     def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
@@ -943,7 +974,9 @@ class TestScoutTrialEvaluationWorkflow(SimpleTestCase):
         evaluation_id = uuid4()
         with patch(f"{WORKFLOW_MODULE}.async_connect", AsyncMock(return_value=client)):
             start_trial_evaluation(2, evaluation_id)
-        assert client.start_workflow.call_args.kwargs["execution_timeout"] == timedelta(minutes=80)
+        timeout = client.start_workflow.call_args.kwargs["execution_timeout"]
+        assert timeout == timedelta(minutes=1350)
+        assert timeout >= timedelta(minutes=-(-MAX_TRIAL_RUNS // 3) * 10 + 2)
         assert client.start_workflow.call_args.args[1] == TrialEvaluationInput(
             team_id=2, evaluation_id=str(evaluation_id)
         )

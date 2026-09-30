@@ -2,11 +2,13 @@ import { trialFixtureComparison, trialFixtureResult, trialFixtureSetup } from '.
 import { comparisonScoreDisabledReason, initialTrialVariants, trialFormError } from './scoutTrials'
 
 describe('scout trial validation', () => {
-    test.each([0, 1.5, 11, 100])('rejects %s repeats when the trial has two versions', (repeats) => {
-        expect(trialFormError(trialFixtureSetup, initialTrialVariants(trialFixtureSetup), repeats)).not.toBeNull()
+    test.each([0, 1.5, 21, 100])('rejects %s repeats when the trial has two versions', (repeats) => {
+        expect(trialFormError(trialFixtureSetup, initialTrialVariants(trialFixtureSetup), repeats)).toBe(
+            'Choose between 1 and 20 runs per version.'
+        )
     })
 
-    test.each([0, 1, 11])('rejects %s versions before starting a trial', (count) => {
+    test.each([0, 1, 21])('rejects %s versions before starting a trial', (count) => {
         const baseline = initialTrialVariants(trialFixtureSetup)[0]
         const variants = Array.from({ length: count }, (_, index) => ({
             ...baseline,
@@ -14,7 +16,7 @@ describe('scout trial validation', () => {
             label: `Version ${index + 1}`,
         }))
 
-        expect(trialFormError(trialFixtureSetup, variants, 1)).toBe('Use between 2 and 10 versions per trial.')
+        expect(trialFormError(trialFixtureSetup, variants, 1)).toBe('Use between 2 and 20 versions per trial.')
     })
 
     it('rejects efforts unsupported by a model and blank prompt replacements before spending on a run', () => {

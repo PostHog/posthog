@@ -47,7 +47,7 @@ import {
     ScoutTrialRow,
     ScoutTrialVariant,
     TrackedScoutTrial,
-    MAX_TRIAL_RUNS,
+    MAX_TRIAL_VARIANTS,
     createTrialBatch,
     comparisonIdentifiers,
     comparisonIsActive,
@@ -323,6 +323,7 @@ export interface scoutTrialsLogicActions {
         value: true
     }
     trackLaunches: (tracked: TrackedScoutTrial[]) => {
+        selectedLaunchIds: string[]
         tracked: TrackedScoutTrial[]
     }
     untrackLaunches: (launchIds: string[]) => {
@@ -414,7 +415,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
     props({} as ScoutTrialsLogicProps),
     key(({ teamId, userId, configId }) => `${teamId}:${userId}${configId ? `:${configId}` : ''}`),
     path((key) => ['products', 'signals', 'scoutTrialsLogic', key]),
-    actions({
+    actions(({ values }) => ({
         registerServerComparison: (comparison: ScoutTrialComparisonApi) => ({ comparison }),
         updateComparisonState: (comparisonId: string, update: Partial<ScoutTrialComparisonState>) => ({
             comparisonId,
@@ -440,7 +441,10 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         setRepeats: (repeats: number) => ({ repeats }),
         setNote: (note: string) => ({ note }),
         setBatch: (batch: ScoutTrialBatch | null) => ({ batch }),
-        trackLaunches: (tracked: TrackedScoutTrial[]) => ({ tracked }),
+        trackLaunches: (tracked: TrackedScoutTrial[]) => ({
+            tracked,
+            selectedLaunchIds: values.selectedComparison?.groups.flatMap((group) => group.launchIds) ?? [],
+        }),
         untrackLaunches: (launchIds: string[]) => ({ launchIds }),
         setResults: (results: Record<string, ScoutTrialResultApi>, errors: Record<string, string>) => ({
             results,
@@ -460,7 +464,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         cancelRun: (launchId: string) => ({ launchId }),
         cancelRunFailed: (launchId: string) => ({ launchId }),
         setCanceling: (launchId: string, canceling: boolean) => ({ launchId, canceling }),
-    }),
+    })),
     loaders(({ props, values }) => ({
         configs: [
             null as SignalScoutConfigApi[] | null,
@@ -589,8 +593,14 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             [] as TrackedScoutTrial[],
             { persist: true },
             {
-                trackLaunches: (state, { tracked }) =>
-                    [...new Map([...state, ...tracked].map((item) => [item.launchId, item])).values()].slice(-100),
+                trackLaunches: (state, { tracked, selectedLaunchIds }) => {
+                    const entries = [...new Map([...state, ...tracked].map((item) => [item.launchId, item])).values()]
+                    const selected = new Set(selectedLaunchIds)
+                    return [
+                        ...entries.filter((entry) => !selected.has(entry.launchId)).slice(-100),
+                        ...entries.filter((entry) => selected.has(entry.launchId)),
+                    ]
+                },
                 untrackLaunches: (state, { launchIds }) => state.filter((entry) => !launchIds.includes(entry.launchId)),
             },
         ],
@@ -1169,7 +1179,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
         },
         addVariant: () => {
             const baseline = values.variants[0]
-            if (baseline && values.variants.length < 10) {
+            if (baseline && values.variants.length < MAX_TRIAL_VARIANTS) {
                 actions.setVariants([
                     ...values.variants,
                     {
@@ -1180,7 +1190,6 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                         replacePrompt: false,
                     },
                 ])
-                actions.setRepeats(Math.min(values.repeats, Math.floor(MAX_TRIAL_RUNS / values.variants.length)))
             }
         },
         showTrialList: () => {
