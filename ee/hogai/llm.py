@@ -14,6 +14,9 @@ import pytz
 import httpx
 import anthropic
 import structlog
+
+# Preload lazy openai resources so pool threads never race on their first import (_DeadlockError).
+import openai.resources  # noqa: F401
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
