@@ -22,11 +22,7 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface }: TodaySessio
     const { location, searchParams } = useValues(router)
 
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
-        return (
-            <div data-not-quill>
-                <TodaySessionRenameInput sessionId={item.id} title={item.title} />
-            </div>
-        )
+        return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
     }
     return (
         <TodaySpacesRow

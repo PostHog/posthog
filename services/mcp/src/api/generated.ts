@@ -91446,6 +91446,7 @@ export namespace Schemas {
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
      * * `retired` - Retired
+     * * `background_removed` - Background removed
      */
     export type SignalScoutConfigPauseReasonEnum = typeof SignalScoutConfigPauseReasonEnum[keyof typeof SignalScoutConfigPauseReasonEnum];
 
@@ -91455,6 +91456,19 @@ export namespace Schemas {
       Ignored: 'ignored',
       RepeatedFailures: 'repeated_failures',
       Retired: 'retired',
+      BackgroundRemoved: 'background_removed',
+    } as const;
+
+    /**
+     * * `team` - Team
+     * * `background` - Background
+     */
+    export type SignalScoutConfigManagedByEnum = typeof SignalScoutConfigManagedByEnum[keyof typeof SignalScoutConfigManagedByEnum];
+
+
+    export const SignalScoutConfigManagedByEnum = {
+      Team: 'team',
+      Background: 'background',
     } as const;
 
     /**
@@ -91497,13 +91511,19 @@ export namespace Schemas {
        * * `paused_by_system` - Paused by system
        * * `paused_by_user` - Paused by user */
       readonly status: SignalScoutConfigStatusEnum;
-      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+      /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.
        *
        * * `no_output` - No output
        * * `ignored` - Ignored
        * * `repeated_failures` - Repeated failures
-       * * `retired` - Retired */
+       * * `retired` - Retired
+       * * `background_removed` - Background removed */
       readonly pause_reason: SignalScoutConfigPauseReasonEnum | null;
+      /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
+       *
+       * * `team` - Team
+       * * `background` - Background */
+      readonly managed_by: SignalScoutConfigManagedByEnum;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
       readonly emit: boolean;
       /**
