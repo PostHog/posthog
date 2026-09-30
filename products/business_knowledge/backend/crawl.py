@@ -27,7 +27,10 @@ from . import html_parse, url_fetch
 from .constants import MAX_TEXT_SIZE_BYTES, PER_HOST_CONCURRENCY
 from .url_fetch import sha256_of
 
-CRAWL_TOTAL_TIMEOUT_SECONDS = 120
+# Wall clock for one source's page fetches. A full source at PER_HOST_CONCURRENCY
+# has to finish inside the crawl activity, which still discovers URLs and writes
+# documents after this wait returns.
+CRAWL_TOTAL_TIMEOUT_SECONDS = 40 * 60
 
 logger = structlog.get_logger(__name__)
 

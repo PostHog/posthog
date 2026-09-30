@@ -6,6 +6,7 @@ import {
     edgesWithinNodes,
     matchNodesByName,
     nodeIdsForLineageSearch,
+    orderedNodesForLineageSearch,
     parseLineageSearch,
     traverseLineage,
 } from './lineageSearch'
@@ -48,6 +49,26 @@ describe('lineageSearch', () => {
     it('anchors on the exact name over a longer one that contains it', () => {
         const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')
+    })
+
+    describe('orderedNodesForLineageSearch', () => {
+        it('orders the anchor first, then models by distance and name', () => {
+            const nodes = [node('root', 'root'), node('zeta', 'zeta'), node('alpha', 'alpha'), node('leaf', 'leaf')]
+            const edges = [edge('root', 'zeta'), edge('root', 'alpha'), edge('alpha', 'leaf')]
+
+            expect(
+                orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('root+'))?.map(({ name }) => name)
+            ).toEqual(['root', 'alpha', 'zeta', 'leaf'])
+        })
+
+        it('keeps bidirectional walks from reaching siblings', () => {
+            const nodes = ['events', 'orders', 'sessions'].map((name) => node(name, name))
+            const edges = [edge('events', 'orders'), edge('events', 'sessions')]
+
+            expect(
+                orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('+orders+'))?.map(({ name }) => name)
+            ).toEqual(['orders', 'events'])
+        })
     })
 
     describe('nodeIdsForLineageSearch', () => {

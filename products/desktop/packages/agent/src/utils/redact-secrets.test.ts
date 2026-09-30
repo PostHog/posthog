@@ -89,6 +89,14 @@ describe("redactSecrets", () => {
     expect(redactSecrets(`Bearer ${jwt}. ok`)).toBe("Bearer [REDACTED]. ok");
   });
 
+  it("keeps a tool call id that contains the JWT prefix", () => {
+    const update = {
+      sessionUpdate: "tool_call",
+      toolCallId: "toolu_01AbCdEfGheyJ4mQ7xZp2Wv9Ls",
+    };
+    expect(redactSecrets(update)).toEqual(update);
+  });
+
   it.each(headerCases)("redacts a %s", (_shape, server, expected) => {
     expect(
       redactSecrets({
