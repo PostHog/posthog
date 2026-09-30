@@ -67,9 +67,12 @@ export function TodayRecentFilterMenu(): JSX.Element {
                         <DropdownMenuTrigger
                             render={
                                 <Button
-                                    size="icon-sm"
+                                    size="icon-xs"
                                     aria-label={label}
-                                    className={cn('relative', active && 'bg-fill-selected')}
+                                    className={cn(
+                                        'relative text-muted-foreground',
+                                        active && 'bg-fill-selected text-foreground'
+                                    )}
                                     data-attr="today-recent-filter"
                                 />
                             }

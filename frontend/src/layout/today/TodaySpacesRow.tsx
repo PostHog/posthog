@@ -11,9 +11,13 @@ interface TodaySpacesRowProps {
     action?: JSX.Element | null
     /** Stays visible at the end of the row, after the hover action. */
     badge?: JSX.Element | null
+    /** How many stacked badges `badge` holds, so the label truncates before them. */
+    badgeCount?: 1 | 2
     /** How many icon buttons `action` holds, so the label truncates before them. */
     actionCount?: 1 | 2
     unread?: boolean
+    /** Off when the row's icon already marks it unread. */
+    unreadDot?: boolean
 }
 
 export function TodaySpacesRow({
@@ -24,8 +28,10 @@ export function TodaySpacesRow({
     dataAttr,
     action,
     badge,
+    badgeCount = 1,
     actionCount = 1,
     unread = false,
+    unreadDot = true,
 }: TodaySpacesRowProps): JSX.Element {
     return (
         <div className="group/row relative flex min-w-0 items-center">
@@ -36,16 +42,15 @@ export function TodaySpacesRow({
                 aria-current={active ? 'page' : undefined}
                 data-attr={dataAttr}
                 className={cn(
-                    'min-w-0 text-muted-foreground',
-                    (active || unread) && 'text-foreground',
+                    'min-w-0 text-xs font-medium text-foreground',
                     active && 'bg-fill-selected',
                     action && !badge && (actionCount === 2 ? 'pr-12' : 'pr-8'),
-                    badge && 'pr-24'
+                    badge && (badgeCount === 2 ? 'pr-16' : 'pr-12')
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
                 <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
-                {unread && !active && (
+                {unread && unreadDot && !active && (
                     <span
                         role="img"
                         aria-label="Unread"

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconList, IconLock, IconPlus, IconSearch } from '@posthog/icons'
+import { IconChat, IconLock, IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -43,12 +43,13 @@ export function TodaySpacesSidebar(): JSX.Element {
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
 
-    const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
+    const renderItem = (item: TodayWorkItem, dataAttr: string, inPinnedSection = false): JSX.Element =>
         item.kind === 'session' ? (
             <TodaySessionRow
                 key={`${item.kind}-${item.id}`}
                 item={item}
                 pinned={pinnedIds.has(item.id)}
+                showPinBadge={!inPinnedSection}
                 dataAttr={dataAttr}
                 surface="sidebar"
                 unread={unreadSessionIds.has(item.id)}
@@ -132,7 +133,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                             onToggle={() => toggleSection('pinned')}
                             dataAttr="today-section-pinned"
                         >
-                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session'))}
+                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session', true))}
                         </TodayPaneSection>
                     )}
                     <TodayPaneSection
@@ -151,7 +152,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                                             delay={0}
                                             render={
                                                 <Button
-                                                    size="icon-sm"
+                                                    size="icon-xs"
+                                                    className="text-muted-foreground"
                                                     aria-label="Search recent"
                                                     onClick={() => setRecentSearchOpen(true)}
                                                     data-attr="today-recent-search-open"
@@ -223,25 +225,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         delay={0}
                                         render={
                                             <Button
-                                                size="icon-sm"
-                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                                aria-current={browsingSpaces ? 'page' : undefined}
-                                                className={cn(browsingSpaces && 'bg-fill-selected')}
-                                                aria-label="Browse spaces"
-                                                data-attr="today-spaces-browse"
-                                            />
-                                        }
-                                    >
-                                        <IconList />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Browse spaces</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        delay={0}
-                                        render={
-                                            <Button
-                                                size="icon-sm"
+                                                size="icon-xs"
+                                                className="text-muted-foreground"
                                                 aria-label="New space"
                                                 onClick={openNewSpace}
                                                 data-attr="today-new-space-open-sidebar"
@@ -251,6 +236,27 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         <IconPlus />
                                     </TooltipTrigger>
                                     <TooltipContent>New space</TooltipContent>
+                                </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-xs"
+                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                                aria-current={browsingSpaces ? 'page' : undefined}
+                                                className={cn(
+                                                    'text-muted-foreground',
+                                                    browsingSpaces && 'bg-fill-selected text-foreground'
+                                                )}
+                                                aria-label="Browse spaces"
+                                                data-attr="today-spaces-browse"
+                                            />
+                                        }
+                                    >
+                                        <IconTableOfContents />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Browse spaces</TooltipContent>
                                 </Tooltip>
                             </>
                         }
