@@ -1628,6 +1628,56 @@ const inconclusiveObservationDetail = observation({
 
 export const ObservationDetailMonitorInconclusive: StoryObj = observationDetailStory(inconclusiveObservationDetail)
 
+// The Session Replay "Summarize" button mints an inline scanner with the session summary template's prompt, so
+// its observations carry that template's written question.
+const summarizeButtonObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000da',
+    scanner_id: '00000000-0000-0000-0000-00000000001a',
+    scanner_origin: 'inline',
+    recording_subject_email: 'bob@example.com',
+    distinct_id: 'user_2m1x9d',
+    prompt_question: 'What did the user do in this session?',
+    scanner_snapshot: {
+        ...observation().scanner_snapshot!,
+        name: '',
+        scanner_config: {
+            prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+            length: 'medium',
+        },
+    },
+})
+
+export const ObservationDetailSummarizeButton: StoryObj = observationDetailStory(summarizeButtonObservationDetail)
+
+// A one-off scan asked through PostHog AI or MCP: an inline scanner with its own prompt and no written question.
+const inlineScanObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000db',
+    scanner_id: '00000000-0000-0000-0000-00000000001b',
+    scanner_origin: 'inline',
+    prompt_question: null,
+    previous_observation_id: null,
+    next_observation_id: null,
+    scanner_snapshot: {
+        ...monitorObservationDetail.scanner_snapshot!,
+        name: '',
+        scanner_config: { prompt: 'Did the user open the pricing page and leave without upgrading?' },
+    },
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.9,
+            verdict: 'yes',
+            reasoning:
+                'The user opened the pricing page twice, expanded the plan comparison, and left the app from there both times without starting a checkout.',
+        },
+        signals_count: 0,
+        verification: null,
+    },
+})
+
+export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inlineScanObservationDetail)
+
 export const ObservationDetailFeedbackPrompt: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),

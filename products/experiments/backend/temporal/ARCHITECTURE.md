@@ -41,7 +41,8 @@ sequenceDiagram
     Service->>DB: lock experiment, create or fetch active run
     DB-->>Service: row (id, status)
     Service-->>API: payload + is_existing
-    API->>Workflow: start_workflow(recalculation_id)
+    API->>Service: start_metrics_recalculation_workflow(recalculation_id)
+    Service->>Workflow: start_workflow(recalculation_id)
     API-->>FE: 201 (or 200 if reusing active run)
 
     Worker->>Workflow: wrap execute (latency + finished counter)

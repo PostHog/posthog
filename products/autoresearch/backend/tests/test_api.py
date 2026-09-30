@@ -39,6 +39,7 @@ from products.autoresearch.backend.presentation.views.serializers import (
     ValidationWarningSerializer,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.tasks.backend.models import Task  # tach-ignore
 
 MOCK_VALIDATION_OK = ValidationResult(
     can_proceed=True,
@@ -255,6 +256,67 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/training_runs/", {}, format="json")
         assert resp.status_code == status.HTTP_403_FORBIDDEN
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    def _sandbox_task_id(self, origin_product: str, team: Team | None = None) -> uuid.UUID:
+        return Task.objects.create(
+            team=team or self.team,
+            title="t",
+            description="d",
+            origin_product=origin_product,
+            created_by=self.user,
+        ).id
+
+    def _as_sandbox_task(self, task_id: uuid.UUID | None):
+        token = MagicMock(sandbox_task_id=task_id)
+        return (
+            patch(f"{_VIEWS}.is_sandbox_origin_request", return_value=True),
+            patch(f"{_VIEWS}.get_oauth_access_token", return_value=token),
+        )
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "New", "target_event": "$signup"}, status.HTTP_201_CREATED),
+            ("patch", "patch", "{id}/", {"name": "Renamed"}, status.HTTP_200_OK),
+            ("archive", "post", "{id}/archive/", {}, status.HTTP_200_OK),
+        ]
+    )
+    def test_user_driven_sandbox_can_change_a_pipeline(
+        self, _name: str, method: str, suffix: str, body: dict, expected: int
+    ):
+        pipeline = self._make_pipeline()
+        sandbox, token = self._as_sandbox_task(self._sandbox_task_id(Task.OriginProduct.POSTHOG_AI))
+        with sandbox, token:
+            resp = getattr(self.client, method)(f"{self.base_url}/{suffix.format(id=pipeline.id)}", body, format="json")
+        assert resp.status_code == expected, resp.json()
+
+    @parameterized.expand(
+        [
+            ("training_agent", Task.OriginProduct.AUTORESEARCH, False),
+            ("task_in_another_team", Task.OriginProduct.POSTHOG_AI, True),
+            ("no_task_on_token", None, False),
+        ]
+    )
+    def test_training_agent_or_unresolved_sandbox_cannot_create_a_pipeline(
+        self, _name: str, origin_product: str | None, other_team: bool
+    ):
+        task_id = None
+        if origin_product is not None:
+            team = Team.objects.create(organization=self.organization) if other_team else None
+            task_id = self._sandbox_task_id(origin_product, team=team)
+        sandbox, token = self._as_sandbox_task(task_id)
+        with sandbox, token:
+            resp = self.client.post(f"{self.base_url}/", {"name": "New", "target_event": "$signup"}, format="json")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert not AutoresearchPipeline.objects.for_team(self.team.pk).filter(name="New").exists()
+
+    def test_user_driven_sandbox_cannot_start_training(self):
+        pipeline = self._make_pipeline()
+        sandbox, token = self._as_sandbox_task(self._sandbox_task_id(Task.OriginProduct.POSTHOG_AI))
+        with sandbox, token, patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+        assert "Start training from the pipeline's page" in resp.json()["detail"]
+        mock_run_training.assert_not_called()
 
     def test_sandbox_origin_can_still_read_pipelines(self):
         pipeline = self._make_pipeline()
