@@ -5,6 +5,7 @@ import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -81,6 +82,14 @@ export const Menu: Story = {
 
 export const EmptyStateButtons: Story = {
     args: { layout: 'buttons', surface: 'empty_state' },
+}
+
+export const ExperimentForm: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SCOUT_CREATE_FLOW_EXPERIMENT]: 'control' } },
+}
+
+export const ExperimentChat: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SCOUT_CREATE_FLOW_EXPERIMENT]: 'test' } },
 }
 
 export const ChatModalEmpty: Story = {

@@ -53,6 +53,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.dataclasses import frozen
+from posthog.event_usage import report_user_action
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -2679,7 +2680,14 @@ def create_scout_for_source(
         ensure_scout_category(team.id, skill_name=name)
         skill.category = SCOUT_SKILL_CATEGORY
 
-    return ScoutCreationOutcome(skill=skill, config=config, created=skill_created or config_created)
+    created = skill_created or config_created
+    if created:
+        try:
+            report_user_action(user, "scout created", team=team, request=request)
+        except Exception:
+            logger.exception("Failed to capture scout created", team_id=team.id)
+
+    return ScoutCreationOutcome(skill=skill, config=config, created=created)
 
 
 def create_scout_with_generated_slug(
