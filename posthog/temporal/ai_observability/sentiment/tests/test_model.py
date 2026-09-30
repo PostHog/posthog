@@ -1,4 +1,3 @@
-import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -6,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.ai_observability.sentiment import model
 from posthog.temporal.ai_observability.sentiment.model import classify
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -19,6 +19,27 @@ def _make_pipeline_output(label: str, score: float) -> list[dict[str, object]]:
     }
     labels_scores[label] = score
     return [{"label": name, "score": s} for name, s in labels_scores.items()]
+
+
+class _SignallingLock:
+    """Wraps a real lock and signals when a second thread tries to take it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._attempts = 0
+        self._attempts_lock = threading.Lock()
+        self.second_acquire_attempted = threading.Event()
+
+    def __enter__(self) -> "_SignallingLock":
+        with self._attempts_lock:
+            self._attempts += 1
+            if self._attempts == 2:
+                self.second_acquire_attempted.set()
+        assert self._lock.acquire(timeout=5)
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._lock.release()
 
 
 class TestClassifyBatch:
@@ -107,24 +128,32 @@ class TestClassifyBatch:
 
     @patch("posthog.temporal.ai_observability.sentiment.model._load_pipeline")
     def test_concurrent_calls_never_run_pipeline_in_parallel(self, mock_load: MagicMock):
-        active = 0
-        max_active = 0
-        counter_lock = threading.Lock()
+        first_call_entered = threading.Event()
+        release_first_call = threading.Event()
+        signalling_lock = _SignallingLock()
+        pipe_calls = 0
 
         def fake_pipe(texts: list[str], batch_size: int) -> list[list[dict[str, object]]]:
-            nonlocal active, max_active
-            with counter_lock:
-                active += 1
-                max_active = max(max_active, active)
-            time.sleep(0.01)
-            with counter_lock:
-                active -= 1
+            nonlocal pipe_calls
+            pipe_calls += 1
+            if pipe_calls == 1:
+                first_call_entered.set()
+                assert release_first_call.wait(timeout=5)
             return [_make_pipeline_output("positive", 0.9) for _ in texts]
 
         mock_load.return_value = fake_pipe
 
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            results = list(executor.map(lambda i: classify([f"text {i}"]), range(16)))
+        with (
+            patch.object(model, "_inference_lock", signalling_lock),
+            ThreadPoolExecutor(max_workers=2) as executor,
+        ):
+            first = executor.submit(classify, ["first"])
+            assert first_call_entered.wait(timeout=5)
+            second = executor.submit(classify, ["second"])
+            assert signalling_lock.second_acquire_attempted.wait(timeout=5)
+            assert pipe_calls == 1
+            release_first_call.set()
+            results = [first.result(timeout=5), second.result(timeout=5)]
 
-        assert max_active == 1
+        assert pipe_calls == 2
         assert all(r[0].label == "positive" for r in results)
