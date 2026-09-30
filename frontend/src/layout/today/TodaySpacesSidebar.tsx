@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChevronRight, IconList, IconPlus } from '@posthog/icons'
+import { IconList, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -11,9 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSection } from './TodayPaneSection'
-import { TodaySessionMenu } from './TodaySessionMenu'
-import { todaySessionMenuLogic } from './todaySessionMenuLogic'
-import { TodaySessionRenameInput } from './TodaySessionRenameInput'
+import { TodaySessionRow } from './TodaySessionRow'
 import { spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
 
@@ -23,10 +21,6 @@ export function TodaySpacesSidebar(): JSX.Element {
         browsingSpaces,
         spacesLoading,
         spacesUnavailable,
-        expandedSpaceIds,
-        spaceTasks,
-        loadingSpaceIds,
-        failedSpaceIds,
         pinnedItems,
         recentItems,
         recentGroups,
@@ -34,30 +28,27 @@ export function TodaySpacesSidebar(): JSX.Element {
         recentTasksUnavailable,
         collapsedSections,
     } = useValues(todaySpacesLogic)
-    const { toggleSpace, loadSpaces, loadSpaceTasks, loadRecentTasks, toggleSection, setBrowsingSpaces } =
-        useActions(todaySpacesLogic)
-    const { renamingSessionId } = useValues(todaySessionMenuLogic)
+    const { loadSpaces, loadRecentTasks, toggleSection, setBrowsingSpaces } = useActions(todaySpacesLogic)
     const { location, searchParams } = useValues(router)
-    const onAi = location.pathname.endsWith('/ai')
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
     const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
-        item.kind === 'session' && renamingSessionId === item.id ? (
-            <TodaySessionRenameInput key={`${item.kind}-${item.id}`} sessionId={item.id} title={item.title} />
+        item.kind === 'session' ? (
+            <TodaySessionRow
+                key={`${item.kind}-${item.id}`}
+                item={item}
+                pinned={pinnedIds.has(item.id)}
+                dataAttr={dataAttr}
+            />
         ) : (
             <TodayPaneRow
                 key={`${item.kind}-${item.id}`}
-                label={item.title || (item.kind === 'chat' ? 'Untitled chat' : 'Untitled session')}
-                icon={<span className="TodayPane__dot" data-kind={item.kind} data-status={item.status ?? undefined} />}
+                label={item.title || 'Untitled chat'}
+                icon={<span className="TodayPane__dot" data-kind={item.kind} />}
                 meta={shortTimeAgo(item.timestamp)}
-                to={item.kind === 'chat' ? urls.ai(item.id) : urls.aiTask(item.id)}
-                active={onAi && (item.kind === 'chat' ? searchParams.chat : searchParams.task) === item.id}
+                to={urls.ai(item.id)}
+                active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
                 dataAttr={dataAttr}
-                action={
-                    item.kind === 'session' ? (
-                        <TodaySessionMenu sessionId={item.id} pinned={pinnedIds.has(item.id)} spaceId={item.channel} />
-                    ) : null
-                }
             />
         )
 
@@ -177,60 +168,16 @@ export function TodaySpacesSidebar(): JSX.Element {
                             Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.
                         </div>
                     ) : (
-                        visibleSpaces.map((space) => {
-                            const expanded = expandedSpaceIds.includes(space.id)
-                            const tasks = spaceTasks[space.id]
-                            return (
-                                <div key={space.id}>
-                                    <TodayPaneRow
-                                        label={spaceLabel(space)}
-                                        icon={<span className="TodayPane__hash">#</span>}
-                                        dataAttr="today-space-row"
-                                        onClick={() => toggleSpace(space.id)}
-                                        trailing={
-                                            <IconChevronRight
-                                                className={cn('TodayPaneRow__chevron', expanded && 'rotate-90')}
-                                            />
-                                        }
-                                    />
-                                    {expanded &&
-                                        (tasks === undefined ? (
-                                            loadingSpaceIds.includes(space.id) ? (
-                                                <div className="TodayPane__state TodayPane__state--nested">
-                                                    <Spinner />
-                                                </div>
-                                            ) : failedSpaceIds.includes(space.id) ? (
-                                                <div className="TodayPane__state TodayPane__state--nested">
-                                                    <span>Couldn’t load this space’s sessions.</span>
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        type="secondary"
-                                                        onClick={() => loadSpaceTasks(space.id)}
-                                                        data-attr="today-space-tasks-retry"
-                                                    >
-                                                        Try again
-                                                    </LemonButton>
-                                                </div>
-                                            ) : null
-                                        ) : tasks.length === 0 ? (
-                                            <div className="TodayPane__state TodayPane__state--nested">
-                                                No sessions yet.
-                                            </div>
-                                        ) : (
-                                            tasks.map((task) => (
-                                                <TodayPaneRow
-                                                    key={task.id}
-                                                    depth={1}
-                                                    label={task.title || 'Untitled session'}
-                                                    to={urls.aiTask(task.id)}
-                                                    active={onAi && searchParams.task === task.id}
-                                                    dataAttr="today-space-task"
-                                                />
-                                            ))
-                                        ))}
-                                </div>
-                            )
-                        })
+                        visibleSpaces.map((space) => (
+                            <TodayPaneRow
+                                key={space.id}
+                                label={spaceLabel(space)}
+                                icon={<span className="TodayPane__hash">#</span>}
+                                to={urls.taskSpace(space.id)}
+                                active={location.pathname.endsWith(urls.taskSpace(space.id))}
+                                dataAttr="today-space-row"
+                            />
+                        ))
                     )}
                 </TodayPaneSection>
             </div>
