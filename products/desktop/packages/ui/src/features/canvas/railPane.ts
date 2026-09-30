@@ -109,3 +109,9 @@ const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
 export function railPaneHasSidebar(pane: NavRailPane): boolean {
   return PANES_WITH_SIDEBAR.has(pane);
 }
+
+const WORK_FOLDED_PANES = new Set<NavRailPane>(["spaces", "home", "canvases"]);
+
+export function railPaneFoldsIntoWork(pane: NavRailPane): boolean {
+  return WORK_FOLDED_PANES.has(pane);
+}

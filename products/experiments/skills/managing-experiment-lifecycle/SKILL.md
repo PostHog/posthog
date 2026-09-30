@@ -1,6 +1,6 @@
 ---
 name: managing-experiment-lifecycle
-description: "Guides experiment state transitions: launching, pausing, resuming, freezing/unfreezing exposure, ending, shipping variants, archiving, resetting, duplicating, and copying to another project. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project, or to freeze/unfreeze exposure (stop enrolling new users while metrics keep flowing, or reopen enrollment).\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
+description: "Guides experiment state transitions: launching, pausing, resuming, freezing/unfreezing exposure, ending, shipping variants, archiving, resetting, duplicating, copying to another project, and migrating a legacy experiment to the new experiments engine. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project, to freeze/unfreeze exposure (stop enrolling new users while metrics keep flowing, or reopen enrollment), or to migrate, convert, move or upgrade a legacy experiment to the new engine or the new metric format.\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
 ---
 
 # Managing experiment lifecycle
@@ -205,6 +205,29 @@ Copies an experiment into a **different project in the same organization** as a 
 **Confirm the source experiment and target project by name before calling** — this writes into a project the user
 isn't looking at. The returned experiment (and its id) belongs to the target project.
 
+### Migrate to the new engine (`experiment-migrate`)
+
+Moves a legacy experiment (`is_legacy: true`, metrics of kind `ExperimentTrendsQuery` or `ExperimentFunnelsQuery`) onto the new experiments engine.
+
+Never hand-roll this.
+Creating a new experiment and copying the metrics over produces a second feature flag, so the new experiment starts with no exposures and no data.
+`experiment-migrate` reuses the original flag, so the migrated experiment keeps its audience from the first minute.
+
+- **Preconditions**: the experiment must be legacy. A 400 says it is already on the new engine.
+- **What happens**: a new experiment is created with the same configuration and the metrics converted to the new format. The legacy one is left untouched and keeps its results, so the project ends up with two experiments on one feature flag.
+- **Legacy shared metrics**: converted in the same call. Each gets a new shared metric that the migrated experiment links to.
+- **Variants**: unchanged — the flag is shared, so users keep the variant they have.
+- **Analysis**: the migrated experiment reads the same exposures. Results are recomputed by the new engine, so numbers can differ from the legacy view.
+
+**Tell the user there will be two experiments before you call it**, and link both afterwards.
+Calling it again returns the experiment the first call created, so a retry is safe.
+
+No request body.
+
+A legacy experiment also refuses most edits: `experiment-update` returns 400 for anything but name, description and end_date.
+Those three still work on the legacy experiment, so edit it directly and do not migrate for them.
+Migrate only when the user asks for it, or when a requested change touches a field the guard blocks, and then apply the change to the migrated experiment.
+
 ## Decision framework
 
 | Situation                                          | Action                   | Tool                           |
@@ -220,6 +243,7 @@ isn't looking at. The returned experiment (and its id) belongs to the target pro
 | Need to start over with same config                | Reset to draft           | `experiment-reset`             |
 | Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`         |
 | Want the same experiment in a different project    | Copy to another project  | `experiment-copy-to-project`   |
+| Experiment is legacy and needs the new engine      | Migrate                  | `experiment-migrate`           |
 
 ## Resolving experiments
 
@@ -229,19 +253,20 @@ All lifecycle actions require an experiment ID. If you don't have one, load the
 
 ## Error handling
 
-| Error message                                                     | Meaning                              |
-| ----------------------------------------------------------------- | ------------------------------------ |
-| "Experiment has already been launched."                           | Can't launch a non-draft experiment  |
-| "Experiment has not been launched yet."                           | Can't end/pause/ship a draft         |
-| "Experiment has already ended."                                   | Can't end/pause a stopped experiment |
-| "Experiment is already paused."                                   | Use resume instead                   |
-| "Experiment is not paused."                                       | It's already active                  |
-| "Experiment is already in draft state."                           | Nothing to reset                     |
-| "Experiment is already archived."                                 | Already done                         |
-| "Experiment exposure is already frozen."                          | Nothing to freeze                    |
-| "Experiment exposure is not frozen."                              | Nothing to unfreeze                  |
-| "Cannot freeze a paused experiment. Resume it first."             | Resume, then freeze                  |
-| "Group-aggregated experiments cannot have their exposure frozen." | Structural limitation — don't retry  |
+| Error message                                                     | Meaning                                 |
+| ----------------------------------------------------------------- | --------------------------------------- |
+| "Experiment has already been launched."                           | Can't launch a non-draft experiment     |
+| "Experiment has not been launched yet."                           | Can't end/pause/ship a draft            |
+| "Experiment has already ended."                                   | Can't end/pause a stopped experiment    |
+| "Experiment is already paused."                                   | Use resume instead                      |
+| "Experiment is not paused."                                       | It's already active                     |
+| "Experiment is already in draft state."                           | Nothing to reset                        |
+| "Experiment is already archived."                                 | Already done                            |
+| "Experiment exposure is already frozen."                          | Nothing to freeze                       |
+| "Experiment exposure is not frozen."                              | Nothing to unfreeze                     |
+| "Cannot freeze a paused experiment. Resume it first."             | Resume, then freeze                     |
+| "Group-aggregated experiments cannot have their exposure frozen." | Structural limitation — don't retry     |
+| "This experiment uses legacy metric formats..."                   | Migrate it first — `experiment-migrate` |
 
 When you get a 400, explain the situation to the user rather than retrying.
 

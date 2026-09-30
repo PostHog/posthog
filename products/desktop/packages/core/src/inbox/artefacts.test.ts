@@ -5,6 +5,7 @@ import type {
 import { describe, expect, it } from "vitest";
 import {
   buildReviewerOptions,
+  buildSuggestedReviewerItems,
   extractSuggestedReviewers,
   orderSuggestedReviewers,
   reviewerMatchesAvailable,
@@ -71,6 +72,70 @@ describe("artefacts", () => {
         },
       }),
     ).toBe("Ben W.");
+  });
+
+  it("groups reviewers by reason and source, including single reviewers", () => {
+    const sharedReason = "Maintains the request execution parser.";
+    const reviewer = (
+      id: string,
+      sourceLabel: string,
+      sourceSkill: string | null,
+      explanation: string | null = sharedReason,
+    ): SuggestedReviewer =>
+      makeReviewer({
+        github_login: id,
+        github_name: id,
+        relevant_commits:
+          sourceLabel === "Code history"
+            ? [
+                {
+                  sha: "abc123f",
+                  url: "https://example.com/c/abc123f",
+                  reason: explanation ?? "",
+                },
+              ]
+            : [],
+        source_skill: sourceSkill,
+        source_label: sourceLabel,
+        explanation,
+      });
+
+    const items = buildSuggestedReviewerItems([
+      reviewer("avery", "Runtime ownership scout", "runtime-ownership"),
+      reviewer("jordan", "Code history", null),
+      reviewer("morgan", "Infrastructure scout", "infrastructure"),
+      reviewer("taylor", "Code history", null),
+      reviewer(
+        "rowan",
+        "Runtime ownership scout",
+        "runtime-ownership",
+        `${sharedReason} `,
+      ),
+      reviewer("casey", "Agent suggestion", null, null),
+    ]);
+
+    expect(items.map((item) => [item.kind, item.key])).toEqual([
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", sharedReason, "scout", null]),
+      ],
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", sharedReason, "other", "Code history"]),
+      ],
+      [
+        "reason-group",
+        JSON.stringify(["reason-group", `${sharedReason} `, "scout", null]),
+      ],
+      ["person", "casey"],
+    ]);
+    expect(items[0]?.kind === "reason-group" && items[0].reviewers).toEqual([
+      expect.objectContaining({ github_login: "avery" }),
+      expect.objectContaining({ github_login: "morgan" }),
+    ]);
+    expect(items[2]?.kind === "reason-group" && items[2].reviewers).toEqual([
+      expect.objectContaining({ github_login: "rowan" }),
+    ]);
   });
 
   it("moves the current user to the front", () => {

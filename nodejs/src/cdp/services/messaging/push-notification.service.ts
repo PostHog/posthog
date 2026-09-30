@@ -133,7 +133,7 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
 }
 
 export type PushNotificationFetchUtils = {
-    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string }) => Promise<{
+    trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
         fetchResponse: FetchResponse | null
         fetchDuration: number
@@ -313,6 +313,9 @@ export class PushNotificationService {
         pushMetric('push_skipped', skippedCount)
         pushMetric('push_failed', errorCount)
 
+        // Billing reads this rather than the metrics above, which a test send suppresses.
+        result.deliveredToRecipient = successCount > 0
+
         // Captured at the terminal outcome for the same reason the business metrics are: a rescheduled
         // attempt returns earlier, so a retried notification produces one asset rather than one per try.
         // Only a delivered notification is captured, matching email: an asset is a snapshot of what a
@@ -397,6 +400,7 @@ export class PushNotificationService {
             url,
             fetchParams,
             templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({
@@ -507,6 +511,7 @@ export class PushNotificationService {
             url,
             fetchParams,
             templateId,
+            teamId: result.invocation.teamId,
         })
 
         result.invocation.state.timings.push({

@@ -163,7 +163,7 @@ describe("createCanvasHostMessageRouter", () => {
     );
   });
 
-  it.each(["agentRequest", "connectorCall"] as const)(
+  it.each(["agentRequest", "connectorCall", "actionInvoke"] as const)(
     "does not time out %s while waiting for approval",
     async (method) => {
       vi.useFakeTimers();
@@ -191,7 +191,12 @@ describe("createCanvasHostMessageRouter", () => {
           payload:
             method === "agentRequest"
               ? { prompt: "Change it" }
-              : { provider: "mcp:calendar.example.com", tool: "list_events" },
+              : method === "actionInvoke"
+                ? {
+                    verb: "workflows.pause",
+                    payload: { workflow_ids: ["workflow-1"] },
+                  }
+                : { provider: "mcp:calendar.example.com", tool: "list_events" },
         });
 
         // Elapse well past the 30s generic data-request timeout: an approval

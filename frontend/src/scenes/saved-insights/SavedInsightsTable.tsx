@@ -14,17 +14,17 @@ import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './SavedInsights'
 
 interface SavedInsightsTableProps {
-    isSelected?: (insight: QueryBasedInsightModel) => boolean
-    onToggle?: (insight: QueryBasedInsightModel) => void
-    isToggling?: (insight: QueryBasedInsightModel) => boolean
+    isSelected?: (insight: InsightModel) => boolean
+    onToggle?: (insight: InsightModel) => void
+    isToggling?: (insight: InsightModel) => boolean
     /** Optional filter to exclude insights from the table */
-    filterFn?: (insight: QueryBasedInsightModel) => boolean
+    filterFn?: (insight: InsightModel) => boolean
 }
 
 export function SavedInsightsTable({
@@ -47,7 +47,7 @@ export function SavedInsightsTable({
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const columns: LemonTableColumns<QueryBasedInsightModel> = [
+    const columns: LemonTableColumns<InsightModel> = [
         {
             key: 'id',
             width: 32,
@@ -80,14 +80,14 @@ export function SavedInsightsTable({
         },
         {
             title: 'Tags',
-            dataIndex: 'tags' as keyof QueryBasedInsightModel,
+            dataIndex: 'tags' as keyof InsightModel,
             key: 'tags',
             width: 0,
             render: function renderTags(tags: string[]) {
                 return <ObjectTags tags={tags} staticOnly />
             },
         },
-        createdByColumn() as LemonTableColumn<QueryBasedInsightModel, keyof QueryBasedInsightModel | undefined>,
+        createdByColumn() as LemonTableColumn<InsightModel, keyof InsightModel | undefined>,
         {
             title: 'Last modified',
             sorter: true,
@@ -104,7 +104,7 @@ export function SavedInsightsTable({
                   {
                       key: 'status',
                       width: 32,
-                      render: function renderStatus(_: unknown, insight: QueryBasedInsightModel) {
+                      render: function renderStatus(_: unknown, insight: InsightModel) {
                           return isSelected(insight) ? (
                               <div className="group/status relative flex items-center justify-center">
                                   <IconCheck className="text-success text-xl transition-opacity duration-150 group-hover/status:opacity-0" />

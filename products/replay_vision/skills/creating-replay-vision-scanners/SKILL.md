@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query, sampling_rate, or sampling_mode (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session). For a one-off question about sessions you already have, use vision-scanners-inline-scan-create rather than creating a scanner — the skill's first section covers when that applies."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query, sampling_rate, or sampling_mode (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session/-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner — the skill's first section covers when that applies."
 ---
 
 # Creating Replay Vision scanners
@@ -19,7 +19,7 @@ the budget may already be gone.
 ## First: is a scanner even the right thing?
 
 A scanner is a **standing watch over future recordings**. If the user has specific sessions in front of them
-and a question about those sessions, they don't want a scanner at all — they want `vision-scanners-inline-scan-create`,
+and a question about those sessions, they don't want a scanner at all — they want `vision-scanners-inline-scan`,
 which takes `session_ids` plus a `prompt`, saves nothing, and schedules nothing.
 
 Use an inline scan when the sessions are already known: "what went wrong in these five recordings", "did any
@@ -56,6 +56,8 @@ right up front, and get the `scanner_config` shape right (a wrong shape is a cre
 default — unknown keys are rejected too).
 
 If the user's intent makes the type and prompt obvious, just proceed — don't interrogate them.
+When they only have a goal ("find where users get stuck in onboarding"), `vision-scanners-draft` drafts the type, config and query for you to review; it saves nothing.
+For a classifier, `vision-scanners-suggest-tags` proposes labels grounded in the project's data.
 
 ### Step 2: Which sessions?
 
@@ -87,12 +89,12 @@ miss what the scanner is looking for.
 
 Before creating, run both checks and reason about them together:
 
-1. **Estimate spend** — call `vision-scanners-estimate-create` with the proposed `query`, `sampling_rate`,
+1. **Estimate spend** — call `vision-scanners-estimate` with the proposed `query`, `sampling_rate`,
    `sampling_mode` and `model`. It returns `matched_sessions_in_window`, the `window_days` measured,
    `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and
    `other_enabled_scanners_monthly_credits` (what the org's other enabled scanners are already projected to
    spend). When editing an existing scanner, pass its `scanner_id` so its own estimate isn't counted twice.
-2. **Check budget** — call `vision-quota-retrieve` for `remaining` and `exhausted` against the org's
+2. **Check budget** — call `vision-quota-get` for `remaining` and `exhausted` against the org's
    `credit_limit` (credits, 1 credit = $0.01; `null` when uncapped), plus the `period_start`/`period_end`
    of the current period.
 
@@ -161,6 +163,13 @@ observations they have to go read.
   them with `vision-scanners-observations-list` for one scanner over time, or `vision-observations-list`
   (requires `session_id`) for every scanner's findings on a single session. To dig into a recording, hand off
   to the `investigating-replay` skill.
+- **History is opt-in.** A new scanner only sees recordings from now on. To cover the past, run
+  `vision-scanners-backfills-estimate` for the window, give the user `total_sessions` and `total_credits`,
+  and call `vision-scanners-backfills-create` only once they agree, passing that `total_credits` as
+  `max_total_credits`. If the create is rejected because the window now costs more, estimate again and ask
+  again. Watch it with `vision-scanners-backfills-get`.
+- **Notifications and digests.** `vision-alerts-create` (plus a destination) notifies on findings;
+  `vision-scanners-scouts-create` adds a scheduled scout that writes a report about the scanner's findings.
 - **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
   Tell the user that rating results thumbs up or down with `vision-observations-label-create` turns into a
   config recommendation they can review on the scanner's Calibration tab. Most scanners are never rated, so
@@ -177,8 +186,8 @@ Toggling `enabled`, tweaking the prompt, or narrowing the query don't need a re-
 ## Gotchas
 
 - **One observation per (scanner, session).** Re-running a scanner on a session it already observed — even a
-  failed or ineligible one — is a no-op and won't produce a fresh scan. A failed observation can be retried
-  from the UI (which replaces it), but there's no MCP tool for that.
+  failed or ineligible one — is a no-op and won't produce a fresh scan. Use `vision-observations-retry` to
+  replace a failed or ineligible observation.
 - **Ineligible ≠ failed.** Observations can land `ineligible` (e.g. `too_short`, `no_recording`) — a terminal
   non-error outcome. Check `error_reason` when triaging why a scanner produced nothing.
 - **Provider/model are Google/Gemini only** in the current version.

@@ -11,6 +11,8 @@ export interface TurnTrailer {
     turnText: string
     /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
     traceId?: string
+    /** When the turn completed, in milliseconds. Absent for imported or untimed history. */
+    timestamp?: number
 }
 
 /**
@@ -40,6 +42,7 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
                 isLastTurn: false,
                 turnText: textParts.join('\n\n'),
                 traceId: item.traceId,
+                timestamp: item.startedAt,
             })
             lastSeparatorId = item.id
             turnIndex += 1
@@ -53,4 +56,23 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
         }
     }
     return trailers
+}
+
+/** Human messages keep their own footer, and rows of an unfinished turn have no separator yet, so neither gets an entry. */
+export function mapRowsToTurnSeparator(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
+    const membership = new Map<string, string>()
+    let pending: string[] = []
+    for (const item of items) {
+        if (item.type === 'human_message') {
+            pending = []
+        } else if (item.type === 'turn_separator') {
+            for (const id of pending) {
+                membership.set(id, item.id)
+            }
+            pending = []
+        } else {
+            pending.push(item.id)
+        }
+    }
+    return membership
 }

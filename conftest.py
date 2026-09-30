@@ -1,10 +1,16 @@
 import gc
+import os
+import sys
+import atexit
 import warnings
+import contextlib
 from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 import time_machine
 
+from posthog.test.events_schema_prune import EventsSchemaPruner
 from posthog.test.junit import set_junit_report_location
 
 # The default MIXED mode reads naive strings as local time, so a non-UTC machine would
@@ -217,6 +223,14 @@ def pytest_configure(config) -> None:
     _cache_drf_field_info()
     _cache_url_resolution()
     _cache_fixture_parent_nodeids()
+    if record_path := os.environ.get("POSTHOG_EVENTS_SCHEMA_RECORD_PATH"):
+        from posthog.test.events_schema_recorder import (  # noqa: PLC0415 - keeps the Temporal client off other runs
+            EventsSchemaRecorder,
+        )
+
+        config.pluginmanager.register(EventsSchemaRecorder(Path(record_path)), "posthog-events-schema-recorder")
+    if prune_manifest := os.environ.get("POSTHOG_EVENTS_SCHEMA_PRUNE_MANIFEST"):
+        config.pluginmanager.register(EventsSchemaPruner(Path(prune_manifest)), "posthog-events-schema-pruner")
 
 
 def pytest_collection_finish() -> None:
@@ -242,6 +256,29 @@ def pytest_unconfigure() -> None:
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
     # default heap state so shutdown behaves exactly as without the boot window.
     gc.unfreeze()
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_cmdline_main(config: pytest.Config) -> Generator[None, int | pytest.ExitCode, int | pytest.ExitCode]:
+    exit_code = yield
+    # pytest's wrap_session has already run pytest_sessionfinish (JUnit XML, split durations) and
+    # pytest_unconfigure (including the gc.unfreeze above), and pytest-cov has saved its data.
+    # A green session then skips the interpreter teardown, which frees each object of a large
+    # collection one by one. A failing session exits normally, so no red shard's reports depend on
+    # that ordering. An xdist worker sends its results after this hook, so it exits normally too.
+    if (
+        os.environ.get("POSTHOG_PYTEST_HARD_EXIT") == "1"
+        and exit_code == pytest.ExitCode.OK
+        and "PYTEST_XDIST_WORKER" not in os.environ
+    ):
+        # A private CPython API. It runs the atexit flushes of the analytics client and the report
+        # buffer, but not threading's exit callbacks, so thread pools are not joined.
+        atexit._run_exitfuncs()
+        with contextlib.suppress(BrokenPipeError):
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os._exit(0)
+    return exit_code
 
 
 @pytest.fixture(autouse=True)

@@ -1,6 +1,7 @@
 """The bearer-token scheme: a provider that authenticates with a JWT rather than an HMAC."""
 
 from collections.abc import Callable, Mapping
+from typing import Any
 
 import jwt
 import structlog
@@ -17,6 +18,20 @@ _JWKS_FETCH_TIMEOUT_SECONDS = 10
 # The client holds the key cache, so one per URI rather than one per request. The URIs are fixed
 # by the incarnations mounted in the process, which is why nothing evicts here.
 _JWKS_CLIENTS: dict[str, jwt.PyJWKClient] = {}
+
+# The scheme writes this fact after the claims, so a token that carries a claim of the same name
+# cannot put its own value here.
+SIGNING_KEY_FACT = "signing_key"
+
+
+def _signing_key_members(signing_key: jwt.PyJWK) -> Mapping[str, Any]:
+    """The key as the JWKS published it, including the members PyJWT does not model.
+
+    PyJWT keeps the decoded JWK on the key object and offers no accessor for it, so this reads the
+    attribute it holds it in. `test_verify.py` pins that against a real JWKS document.
+    """
+    members = getattr(signing_key, "_jwk_data", None)
+    return members if isinstance(members, Mapping) else {}
 
 
 def _jwks_client(jwks_uri: str) -> jwt.PyJWKClient:
@@ -39,7 +54,9 @@ class BearerJwt:
 
     The verified claims become `facts`, because a signed token proves more than "this is really
     them". It names the sender and the audience, so `deliveries` can hold the body to what the
-    issuer actually signed rather than to a field of the body that claims the same thing.
+    issuer actually signed rather than to a field of the body that claims the same thing. The key
+    that signed it joins them under `SIGNING_KEY_FACT`, because a JWKS can say what one key is
+    allowed to sign and the token cannot.
     """
 
     jwks_uri_getter: Callable[[], str | None]
@@ -54,7 +71,12 @@ class BearerJwt:
         provided = header_value(headers, self.token_header)
         if not provided or not provided.startswith(self.token_prefix):
             return None
-        return provided[len(self.token_prefix) :]
+        # A prefix with nothing behind it is no credential, so it is refused from the header
+        # alone rather than sent to the JWKS fetch to fail there.
+        return provided[len(self.token_prefix) :].strip() or None
+
+    def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        return self._token(headers) is None
 
     def verify(self, *, body: bytes, headers: Mapping[str, str]) -> Verification:
         # The header comes before the getters, unlike the HMAC scheme, because a getter that
@@ -63,13 +85,23 @@ class BearerJwt:
         if token is None:
             return Verification(outcome=VerificationOutcome.INVALID)
 
-        jwks_uri = self.jwks_uri_getter()
         audience = self.audience_getter()
         issuers = self.issuers_getter()
         # An empty issuer allowlist rejects every token that will ever arrive, so it is an
-        # operator problem rather than a caller one, the same as a missing secret.
-        if not jwks_uri or not audience or not issuers:
+        # operator problem rather than a caller one, the same as a missing secret. Both are read
+        # before the URI, so an instance that was never set up buys no discovery request.
+        if not audience or not issuers:
             return Verification(outcome=VerificationOutcome.NOT_CONFIGURED)
+
+        jwks_uri = self.jwks_uri_getter()
+        if not jwks_uri:
+            # The getter discovers this URI remotely, so no URI reads as a discovery that failed
+            # rather than as an instance nobody configured. It is the same answer as a JWKS fetch
+            # that never completed: the check did not run, and a provider that retries a server
+            # error sends the delivery again. A provider whose unconfigured status is a 4xx would
+            # otherwise drop every delivery for the length of the issuer's outage.
+            logger.warning("ingress_jwt_signing_key_uri_unavailable")
+            return Verification(outcome=VerificationOutcome.UNAVAILABLE)
 
         try:
             signing_key = _jwks_client(jwks_uri).get_signing_key_from_jwt(token)
@@ -99,4 +131,7 @@ class BearerJwt:
             logger.warning("ingress_jwt_rejected", error_type=type(error).__name__)
             return Verification(outcome=VerificationOutcome.INVALID)
 
-        return Verification(outcome=VerificationOutcome.VERIFIED, facts=claims)
+        return Verification(
+            outcome=VerificationOutcome.VERIFIED,
+            facts={**claims, SIGNING_KEY_FACT: _signing_key_members(signing_key)},
+        )

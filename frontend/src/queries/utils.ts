@@ -47,6 +47,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MathType,
+    MetricsHistogramQuery,
     MetricsQuery,
     Node,
     NodeKind,
@@ -229,6 +230,10 @@ export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQ
 
 export function isMetricsQuery(node?: Record<string, any> | null): node is MetricsQuery {
     return node?.kind === NodeKind.MetricsQuery
+}
+
+export function isMetricsHistogramQuery(node?: Record<string, any> | null): node is MetricsHistogramQuery {
+    return node?.kind === NodeKind.MetricsHistogramQuery
 }
 
 export function isEndpointsUsageOverviewQuery(node?: Record<string, any> | null): node is EndpointsUsageOverviewQuery {

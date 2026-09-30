@@ -1,0 +1,27 @@
+{
+    "letter": "XB",
+    "id": "XB8",
+    "cluster": null,
+    "is_real": false,
+    "severity": null,
+    "votes": [
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:160-168 explicitly limits which deliveries trigger re-review, not the PR's lifetime eligibility: synchronize/reopen/base-retarget re-review, while ready_for_review alone preserves the draft-time verdict. tests/test_tasks.py:835-854 calls the excluded ready transition ready_for_review_keeps_the_draft_verdict. review_pr.py:587-590 expressly intends approval granted on a draft to take effect after it becomes ready. stamphog/AGENTS.md:100-109 confirms later deliveries re-review and dismiss prior approval. The carve-out continues to require bot author, native head, linked task, enabled config and current reviewer opt-in at tasks.py:169-214 after readiness.",
+            "refutation": "I first tested the claim's required behavior against the trigger contract and caller guards. No code or test says the self-driving permission expires when a draft becomes ready; the explicit goal is for its approval to be useful then. Later new commits or a changed base need a fresh review regardless of draft state. Returning empty solely for draft=False would intentionally stop that re-review and route the PR to the generic bot skip instead. The observed behavior is therefore the documented current design, not an approval bypass caused by a missing draft guard."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:160-165 deliberately permits later synchronize/reopen/base-retarget re-reviews and says that ready_for_review alone does not invalidate the head-pinned draft verdict. The action restriction at :167-168 applies to the delivery type; it does not define a permanent draft-only lifecycle. products/stamphog/AGENTS.md:100-110 likewise specifies later head-changing re-reviews and current reviewer opt-in as the gate. The continued bot/task/native-head/config/reviewer checks at tasks.py:169-207 remain enforced for ready self-driving PRs.",
+            "refutation": "First checked whether the documented contract requires all self-driving reviews to stop once a PR is ready. It does not: tests/test_tasks.py:830-854 explicitly reject the ready_for_review event while allowing synchronize and describe that distinction. The engine comment in tools/pr-approval-agent/review_pr.py:587-590 explicitly intends a draft-time approval to become effective when the PR becomes ready. A later push needs a fresh review of its new head, still positively task-linked and opted in; blocking that review solely because readiness changed would contradict the specified later-delivery behavior. The reported approval is intended, not an unintended carve-out."
+        },
+        {
+            "is_real": false,
+            "severity": null,
+            "evidence": "products/stamphog/backend/tasks/tasks.py:160-165 explicitly permits later synchronize/reopen/base-retarget re-reviews and says only a ready_for_review flip alone preserves the existing verdict. The code at 167-186 implements that event policy with bot/native-head/enabled-config checks; there is no requirement that the identified PR remain draft. products/stamphog/AGENTS.md:100-107 likewise describes those later events as the re-review leg. tools/pr-approval-agent/review_pr.py:587-590 states that a draft approval is intended to become effective when the PR becomes ready.",
+            "refutation": "I checked whether the missing draft check contradicted an actual policy or simply the finding's proposed restriction. The explicit ready-event test is named ready_for_review_keeps_the_draft_verdict (tests/test_tasks.py:835-844), not ready_PRs_are_forbidden. Keeping later ready-PR pushes reviewed is consistent with preserving approval across triage while invalidating it for new commits. The ordinary bot exclusion still applies to unlinked PRs, and the carved-out path rechecks task provenance and opt-in at tasks.py:191-205. The requested new draft-only restriction would remove intended behavior, so the claim is false."
+        }
+    ]
+}

@@ -292,6 +292,11 @@ def get_rows(
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
 
+    # Walked to completion, so drop the checkpoint. Persona lists newest-first, so a cursor left
+    # over from a finished walk points at the oldest object it saw: the next run would resume below
+    # its whole created-at window instead of starting at page one.
+    resumable_source_manager.clear_state()
+
 
 def persona_source(
     api_key: str,

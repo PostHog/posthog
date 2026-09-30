@@ -126,6 +126,7 @@ import {
     loadPriorityMap,
     personPropertiesToPathClean,
     sessionPropertiesToPathClean,
+    withPresetTag,
 } from './common'
 import {
     PROPERTY_HOST,
@@ -161,6 +162,8 @@ export interface webAnalyticsLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
+    appliedPresetFilters: WebAnalyticsFiltersConfig | null // webAnalyticsFilterLogic
+    appliedPresetShortId: string | null // webAnalyticsFilterLogic
     authorizedDomains: string[] // webAnalyticsFilterLogic
     countryFilter: string | null // webAnalyticsFilterLogic
     deviceTypeFilter: DeviceType | null // webAnalyticsFilterLogic
@@ -193,6 +196,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -214,6 +218,7 @@ export interface webAnalyticsLogicValues {
     graphsTab: string
     hasCountryFilter: boolean
     hasIncompatibleFilters: boolean
+    hasNonDefaultFilters: boolean
     hasSavedFocusMode: boolean
     hasSeenFocusModeOnboarding: boolean
     hiddenTiles: TileId[]
@@ -223,7 +228,6 @@ export interface webAnalyticsLogicValues {
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -231,6 +235,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -252,6 +257,7 @@ export interface webAnalyticsLogicValues {
     tileVisualizations: Record<TileId, TileVisualizationOption>
     tiles: WebAnalyticsTile[]
     useWebAnalyticsPrecompute: boolean | null
+    warmablePresetShortId: string | null
     webAnalyticsFilters: WebAnalyticsPropertyFilters
     webVitalsMetricQuery: InsightVizNode<TrendsQuery>
     webVitalsPercentile: WebVitalsPercentile
@@ -393,6 +399,17 @@ export interface webAnalyticsLogicActions {
     removeIncompatibleFilters: () => {
         value: true
     }
+    reportWebAnalyticsDateRangeChanged: (props: {
+        date_from: string | null
+        date_to: string | null
+        interval: string
+    }) => {
+        props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }
+    }
     resetTileVisibility: () => boolean
     resetZoom: () => {
         value: true
@@ -530,13 +547,10 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -561,6 +575,19 @@ export interface webAnalyticsLogicMeta {
             isPathCleaningEnabled: boolean,
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
+        warmablePresetShortId: (
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
+            currentFiltersConfig: WebAnalyticsFiltersConfig
+        ) => string | null
+        hasNonDefaultFilters: (
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
+            conversionGoal: WebAnalyticsConversionGoal | null
+        ) => boolean
         webAnalyticsFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
             isPathCleaningEnabled: boolean,
@@ -634,6 +661,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -679,8 +707,9 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
-            hiddenTiles: TileId[]
+            restrictedUiEnabled: boolean,
+            hiddenTiles: TileId[],
+            warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
         getNewInsightUrl: (
             tiles: WebAnalyticsTile[]
@@ -728,6 +757,8 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 'validatedDomainFilter',
                 'selectedHost',
                 'authorizedDomains',
+                'appliedPresetShortId',
+                'appliedPresetFilters',
             ],
         ],
         actions: [
@@ -762,6 +793,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         ],
     })),
     actions({
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
         removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
@@ -1164,22 +1200,31 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1276,6 +1321,47 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 isPathCleaningEnabled,
                 shouldFilterTestAccounts,
             }),
+        ],
+        // The preset id to tag queries with, or null. An applied preset stays applied while the
+        // user drifts the filters away from it, so tagging off `appliedPresetShortId` alone would
+        // attribute unrelated query shapes to the preset and blow past the warmer's per-preset cap.
+        warmablePresetShortId: [
+            (s) => [s.appliedPresetShortId, s.appliedPresetFilters, s.currentFiltersConfig],
+            (
+                appliedPresetShortId: string | null,
+                appliedPresetFilters: WebAnalyticsFiltersConfig | null,
+                currentFiltersConfig: WebAnalyticsFiltersConfig
+            ): string | null =>
+                appliedPresetShortId && appliedPresetFilters && objectsEqual(appliedPresetFilters, currentFiltersConfig)
+                    ? appliedPresetShortId
+                    : null,
+        ],
+        // Whether the user has filtered beyond the defaults, which is when saving a preset starts to
+        // pay off. Date range and the path-cleaning / test-account toggles are deliberately left out:
+        // almost everyone changes the date range, so counting it would nudge almost everyone.
+        hasNonDefaultFilters: [
+            (s) => [
+                s.rawWebAnalyticsFilters,
+                s.domainFilter,
+                s.deviceTypeFilter,
+                s.countryFilter,
+                s.referrerFilter,
+                s.conversionGoal,
+            ],
+            (
+                properties: WebAnalyticsPropertyFilters,
+                domainFilter: string | null,
+                deviceTypeFilter: DeviceType | null,
+                countryFilter: string | null,
+                referrerFilter: string | null,
+                conversionGoal: WebAnalyticsConversionGoal | null
+            ): boolean =>
+                properties.length > 0 ||
+                !!domainFilter ||
+                !!deviceTypeFilter ||
+                !!countryFilter ||
+                !!referrerFilter ||
+                !!conversionGoal,
         ],
         webAnalyticsFilters: [
             (s) => [
@@ -1598,6 +1684,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
+        ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
             (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
@@ -1631,8 +1724,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
+                s.warmablePresetShortId,
             ],
             (
                 productTab: ProductTab,
@@ -1657,8 +1751,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
-                hiddenTiles: TileId[]
+                restrictedUiEnabled: boolean | undefined,
+                hiddenTiles: TileId[],
+                warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
 
@@ -1900,74 +1995,83 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         math_property: `$web_vitals_${name}_value`,
                     })
 
-                    return [
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsQuery,
-                                properties: webAnalyticsFilters,
-                                // Match the path-breakdown tile below so both tiles' precompute
-                                // reads hash to the same bucket job and share warm buckets. The
-                                // timeseries merges across all paths, so cleaning is result-neutral
-                                // here, but the hash is not — a mismatch builds a second bucket set.
-                                doPathCleaning: isPathCleaningEnabled,
-                                source: {
-                                    kind: NodeKind.TrendsQuery,
-                                    dateRange,
-                                    interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
-                                        createSeries(metric, webVitalsPercentile)
+                    // Tagged like the analytics tab below: web vitals shapes opened under a preset
+                    // must reach the warmer too.
+                    return withPresetTag(
+                        [
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsQuery,
+                                    properties: webAnalyticsFilters,
+                                    // Match the path-breakdown tile below so both tiles' precompute
+                                    // reads hash to the same bucket job and share warm buckets. The
+                                    // timeseries merges across all paths, so cleaning is result-neutral
+                                    // here, but the hash is not — a mismatch builds a second bucket set.
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    source: {
+                                        kind: NodeKind.TrendsQuery,
+                                        dateRange,
+                                        interval,
+                                        series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                            createSeries(metric, webVitalsPercentile)
+                                        ),
+                                        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                        filterTestAccounts,
+                                        properties: webAnalyticsFilters,
+                                    },
+                                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS,
+                                        'web-vitals-overview',
+                                        false
                                     ),
-                                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
+                                showIntervalSelect: true,
+                            },
+                            {
+                                kind: 'query',
+                                tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                layout: {
+                                    colSpanClassName: 'md:col-span-full',
+                                    orderWhenLargeClassName: '2xl:order-0',
+                                },
+                                query: {
+                                    kind: NodeKind.WebVitalsPathBreakdownQuery,
+                                    dateRange,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
+                                    percentile: webVitalsPercentile,
+                                    metric: webVitalsTab,
+                                    doPathCleaning: isPathCleaningEnabled,
+                                    thresholds: [
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].good,
+                                        WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
+                                    ],
+                                    useWebAnalyticsPrecompute,
                                 },
-                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                insightProps: {
+                                    dashboardItemId: getDashboardItemId(
+                                        TileId.WEB_VITALS_PATH_BREAKDOWN,
+                                        'web-vitals-path-breakdown',
+                                        false
+                                    ),
+                                    loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
+                                    dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
+                                },
                             },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(TileId.WEB_VITALS, 'web-vitals-overview', false),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                            showIntervalSelect: true,
-                        },
-                        {
-                            kind: 'query',
-                            tileId: TileId.WEB_VITALS_PATH_BREAKDOWN,
-                            layout: {
-                                colSpanClassName: 'md:col-span-full',
-                                orderWhenLargeClassName: '2xl:order-0',
-                            },
-                            query: {
-                                kind: NodeKind.WebVitalsPathBreakdownQuery,
-                                dateRange,
-                                filterTestAccounts,
-                                properties: webAnalyticsFilters,
-                                percentile: webVitalsPercentile,
-                                metric: webVitalsTab,
-                                doPathCleaning: isPathCleaningEnabled,
-                                thresholds: [
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].good,
-                                    WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
-                                ],
-                                useWebAnalyticsPrecompute,
-                            },
-                            insightProps: {
-                                dashboardItemId: getDashboardItemId(
-                                    TileId.WEB_VITALS_PATH_BREAKDOWN,
-                                    'web-vitals-path-breakdown',
-                                    false
-                                ),
-                                loadPriority: loadPriorityMap[TileId.WEB_VITALS_PATH_BREAKDOWN],
-                                dataNodeCollectionId: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
-                            },
-                        },
-                    ]
+                        ],
+                        warmablePresetShortId
+                    )
                 }
 
                 const useTileHeaderV2 = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_HEADER_V2] === 'test'
@@ -3076,12 +3180,15 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     return []
                 }
 
-                return allTiles
-                    .filter(isNotNil)
-                    .filter((tile) =>
-                        preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
-                    )
-                    .filter((tile) => !hiddenTiles.includes(tile.tileId))
+                return withPresetTag(
+                    allTiles
+                        .filter(isNotNil)
+                        .filter((tile) =>
+                            restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                        )
+                        .filter((tile) => !hiddenTiles.includes(tile.tileId)),
+                    warmablePresetShortId
+                )
             },
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
@@ -3674,7 +3781,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
 
         return {
             setDates: ({ dateFrom, dateTo }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
@@ -3682,12 +3789,15 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            reportWebAnalyticsDateRangeChanged: ({ props }) => {
+                posthog.capture('web analytics date range changed', props)
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3777,12 +3887,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                posthog.capture('web analytics focus mode onboarding started')
                 actions.openFocusModeModal(true)
             },
             dismissFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+                posthog.capture('web analytics focus mode onboarding skipped')
             },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
@@ -3807,7 +3917,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
                 if (wasOnboarding) {
-                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                    posthog.capture('web analytics focus mode onboarding completed', {
                         concern_count: concernCount,
                     })
                 }
@@ -3832,7 +3942,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     } else if (conversionGoal && 'customEventName' in conversionGoal) {
                         goalType = 'custom_event'
                     }
-                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                    posthog.capture('web analytics conversion goal set', { goal_type: goalType })
                 },
                 ({ conversionGoal }) => {
                     if (conversionGoal) {
@@ -3871,7 +3981,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
             if (shouldOpen && !values.focusModeOnboardingModalOpen) {
                 actions.openFocusModeOnboarding()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+                posthog.capture('web analytics focus mode onboarding shown')
             }
         },
     })),

@@ -111,7 +111,15 @@ class PostHogPreviewStack:
     BUILD_SERVICES = ["web", "temporal-django-worker"]
     # PR backend source bind-mounted over the image's /code (backend hot-mount).
     # The frontend stays baked in the image; mounting these swaps backend live.
-    MOUNTS = [("posthog", "/code/posthog"), ("ee", "/code/ee"), ("products", "/code/products")]
+    # The personhog gRPC stubs are installed into the image's site-packages, not copied under
+    # /code. /code comes first on sys.path, so the PR's copy mounted there shadows the image's
+    # and a PR that changes a proto runs against its own stubs.
+    MOUNTS = [
+        ("posthog", "/code/posthog"),
+        ("ee", "/code/ee"),
+        ("products", "/code/products"),
+        ("packages/personhog-proto/personhog", "/code/personhog"),
+    ]
 
     def __init__(
         self,

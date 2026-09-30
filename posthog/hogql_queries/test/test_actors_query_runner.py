@@ -204,9 +204,15 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()
+        capitalized_email = f"capitalized-{self.random_uuid}@example.com"
+        _create_person(team=self.team, distinct_ids=["capitalized"], properties={"Email": capitalized_email})
+        flush_persons_and_events()
+
         runner = self._create_runner(ActorsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
         runner = self._create_runner(ActorsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(ActorsQuery(search=f"capitalized-{self.random_uuid}@example"))
         self.assertEqual(len(runner.calculate().results), 1)
 
     def test_persons_query_search_name(self):

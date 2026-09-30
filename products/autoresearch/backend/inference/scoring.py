@@ -48,13 +48,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import (
+    IDENTIFIED_USERS_ONLY,
     LABELER_QUERY_MODIFIERS,
     PREDICTION_EVENT_NAME,
-    _build_population_conditions,
-    _build_population_kind_conditions,
-    _identified_users_and_clause,
-    _own_events_excluded_clause,
-    _target_condition_for,
+    build_inference_anchors_sql,
     build_inference_features_sql,
     build_training_features_sql,
 )
@@ -473,7 +470,7 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, w
     HogQL caps a bare SELECT at 100 rows without an error, so every query here carries an
     explicit bound, and a result that fills it is treated as truncated: completing would
     advance the cadence past the people beyond the cap. The persons-on-events modifiers
-    are what make ``person.is_identified`` resolve, and the always-calculate mode stops a
+    keep ``person_id`` resolving the way the labeler's queries do, and the always-calculate mode stops a
     cadence reusing a cached population at a stale cutoff.
     """
     bounded_sql = sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
@@ -585,34 +582,21 @@ def _population_query(
     team: Team | None = None,
 ) -> _PopulationQuery | None:
     """
-    A ``SELECT DISTINCT person_id`` for the people in the inference population, restricted
-    to identified users under the v1 scope. None only when nothing restricts the population.
+    A ``SELECT person_id`` for the people in the inference population, one row each, from the
+    scorer's own anchor query, so it is restricted to identified users under the v1 scope. None only when nothing restricts the population.
     A configured filter that cannot be compiled raises, because widening to everyone is
     the failure being prevented.
     """
-    properties = (population or {}).get("properties", [])
-    parts, values = _build_population_conditions(properties)
-    target_cond, target_values = _target_condition_for(
-        population, target_event=target_event, target_definition=target_definition, team=team
-    )
-    compiled_kind = _build_population_kind_conditions(population, target_cond=target_cond)
-    parts.extend(compiled_kind.where_parts)
-    values.update(target_values)
-    values.update(compiled_kind.values)
-    identified_clause = _identified_users_and_clause()
-
-    if not parts and not identified_clause:
+    if not IDENTIFIED_USERS_ONLY and not (population or {}).get("properties") and not (population or {}).get("kind"):
         return None
-
-    values["lookback"] = lookback_days
-    # The upper bound keeps a future-dated or imported event from making someone eligible today.
-    where_clause = (
-        f"timestamp >= now() - toIntervalDay({{lookback}}) AND timestamp < now(){_own_events_excluded_clause()}"
+    anchors_sql, values = build_inference_anchors_sql(
+        lookback_days=lookback_days,
+        inference_population=population,
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
     )
-    if parts:
-        where_clause += " AND " + " AND ".join(parts)
-    where_clause += identified_clause
-    return _PopulationQuery(sql=f"SELECT DISTINCT person_id FROM events WHERE {where_clause}", values=values)
+    return _PopulationQuery(sql=f"SELECT person_id FROM ({anchors_sql.strip()})", values=values)
 
 
 def _count_population(*, team: Team, population: _PopulationQuery, user: User) -> int:
@@ -830,6 +814,21 @@ def _stable_seed(pipeline_id: str) -> int:
     return int(hashlib.sha256(pipeline_id.encode()).hexdigest()[:8], 16)
 
 
+def check_recipe_estimator(recipe: dict[str, Any]) -> None:
+    """Raise ``RecipeValidationError`` when the recipe's class and params cannot build an estimator.
+
+    Promotion calls this before a recipe-only champion is installed: the constructor is the
+    only place an unknown hyperparameter is refused, and a champion that fails there would fail
+    every scoring run instead of this one completion.
+    """
+    try:
+        _estimator_for(recipe, seed=0)
+    except RecipeValidationError:
+        raise
+    except Exception as exc:
+        raise RecipeValidationError(f"model_params cannot construct {recipe.get('model_class')!r}: {exc}") from exc
+
+
 def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     """
     Instantiate the recipe's allowlisted sklearn class. This is the one in-process importlib
@@ -846,8 +845,9 @@ def _estimator_for(recipe: dict[str, Any], *, seed: int) -> Any:
     model_class = getattr(importlib.import_module(module_path), class_name)
     params = dict(recipe.get("model_params") or {})
     accepted = inspect.signature(model_class.__init__).parameters
-    if "random_state" in accepted:
-        params.setdefault("random_state", seed)
+    if "random_state" in accepted and params.get("random_state") is None:
+        # An explicit null would otherwise suppress the seed and make a retry refit differently.
+        params["random_state"] = seed
     if "n_jobs" in accepted:
         # The fit runs in the worker process; an agent's n_jobs=-1 would take every core it has.
         params["n_jobs"] = 1

@@ -2,9 +2,10 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ViewsTab } from 'scenes/data-warehouse/scene/ViewsTab'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { ViewsTab } from './ViewsTab'
 
 const meta: Meta<typeof ViewsTab> = {
     title: 'Products/Data modeling/Views list',
@@ -16,7 +17,7 @@ const meta: Meta<typeof ViewsTab> = {
         msw: {
             mocks: {
                 get: {
-                    '/api/environments/:team_id/warehouse_saved_queries/': {
+                    '/api/projects/:team_id/warehouse_saved_queries/': {
                         count: 1,
                         results: [
                             {

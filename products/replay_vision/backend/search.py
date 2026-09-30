@@ -2,11 +2,14 @@
 
 The write side (`embed_observation`) stamps each embedding row with the scanner id and the structured
 outcome (monitor `verdict`, scorer `score`, classifier `tags`), so filtering and cosine ranking happen in
-a single ClickHouse query here. Callers resolve scanner scope and access control themselves and pass the
-readable scanner ids in.
+ClickHouse here. Callers resolve scanner scope and access control themselves and pass the readable
+scanner ids in.
 """
 
 import hashlib
+from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -16,16 +19,14 @@ from django.core.cache import cache
 from django.db.models import F
 
 import requests
+import structlog
 from asgiref.sync import sync_to_async
 
-from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
-
 from posthog.api.embedding_worker import generate_embedding
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -39,8 +40,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
     hydrate_for_serialization,
 )
+from products.replay_vision.backend.observation_formatting import explanation_text, read_output
 from products.replay_vision.backend.scanner_access import accessible_observations
+from products.replay_vision.backend.search_rerank import RERANK_CANDIDATES, RerankCandidate, rerank
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
+
+logger = structlog.get_logger(__name__)
 
 # Default and hard cap on how many observations a search returns.
 DEFAULT_SEARCH_LIMIT = 20
@@ -67,12 +72,24 @@ _EMBEDDING_TIMEOUT_S = 10.0
 # ranks over. Set well above realistic per-team volume so it only bites a runaway team, keeping latency
 # predictable without an HNSW index (which our mandatory tenant/scanner metadata filters wouldn't engage anyway).
 _MAX_CANDIDATE_ROWS = 50_000
+_QUERY_TIMEOUT_S = 60
+
+_QUERY_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="replay-vision-query-vector")
+# Warming gets its own pool so a burst of page views never queues a live search behind it.
+_WARM_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="replay-vision-query-vector-warm")
+
+_EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
+_SCOPE_PREWHERE = """team_id = %(team_id)s
+              AND product = %(product)s
+              AND document_type = %(document_type)s
+              AND JSONExtractString(metadata, 'scanner_id') IN %(scanner_ids)s"""
+_CANDIDATE_QUERY_TYPE = "replay_vision_search_candidates"
+_RANK_QUERY_TYPE = "replay_vision_search_rank"
 
 # Slugify each stored metadata tag before `hasAny`, so the case/format-insensitive match works against rows
-# whose fixed-vocab tags were stamped verbatim, with no backfill. The caller passes already-slugified values in
-# `{tags}`. Built from hardcoded literals only (no user/LLM input), preserving the `_append_filter` invariant.
+# whose fixed-vocab tags were stamped verbatim, with no backfill. Static literals only, see `_append_filter`.
 _TAGS_FILTER_CLAUSE = (
-    f"hasAny(arrayMap(t -> {clickhouse_slugify_sql('t')}, JSONExtract(metadata, 'tags', 'Array(String)')), {{tags}})"
+    f"hasAny(arrayMap(t -> {clickhouse_slugify_sql('t')}, JSONExtract(metadata, 'tags', 'Array(String)')), %(tags)s)"
 )
 
 
@@ -123,133 +140,176 @@ class ObservationSearchFilters:
             date_to=parse_date_bound(date_to, timezone_info, end_of_range=True) if date_to else None,
         )
 
-    def where_clauses(self, placeholders: dict[str, "ast.Expr"]) -> list[str]:
-        """HogQL predicates over `metadata`, registering their values into `placeholders`. The metadata key is
-        absent for scanner types that don't carry it, so each predicate naturally matches only the right type.
+    def where_clauses(self, params: dict[str, Any]) -> list[str]:
+        """ClickHouse predicates over `metadata`, registering their values into `params` as `%(name)s` query
+        parameters. The metadata key is absent for scanner types that don't carry it, so each predicate
+        naturally matches only the right type.
 
         Every clause MUST be added via `_append_filter`, the only path that pairs a hardcoded-literal
-        clause string with a parameterized placeholder. Never append a clause built from anything other
-        than a static string literal. User/LLM-controlled input belongs in `value`, not in `clause`."""
+        clause string with a query parameter. Never append a clause built from anything other than a
+        static string literal. User/LLM-controlled input belongs in `value`, not in `clause`."""
         clauses: list[str] = []
         if self.verdict:
             self._append_filter(
-                clauses, placeholders, "verdict", self.verdict, "JSONExtractString(metadata, 'verdict') IN {verdict}"
+                clauses, params, "verdict", self.verdict, "JSONExtractString(metadata, 'verdict') IN %(verdict)s"
             )
         if self.tags:
-            self._append_filter(clauses, placeholders, "tags", self.tags, _TAGS_FILTER_CLAUSE)
+            self._append_filter(clauses, params, "tags", self.tags, _TAGS_FILTER_CLAUSE)
         if self.min_score is not None:
             self._append_filter(
                 clauses,
-                placeholders,
+                params,
                 "min_score",
                 self.min_score,
-                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') >= {min_score}",
+                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') >= %(min_score)s",
             )
         if self.max_score is not None:
             self._append_filter(
                 clauses,
-                placeholders,
+                params,
                 "max_score",
                 self.max_score,
-                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') <= {max_score}",
+                "JSONHas(metadata, 'score') AND JSONExtractFloat(metadata, 'score') <= %(max_score)s",
             )
         # `timestamp` is when the observation was embedded, which tracks when it was created.
         if self.date_from is not None:
-            self._append_filter(clauses, placeholders, "date_from", self.date_from, "timestamp >= {date_from}")
+            self._append_filter(clauses, params, "date_from", self.date_from, "timestamp >= %(date_from)s")
         if self.date_to is not None:
-            self._append_filter(clauses, placeholders, "date_to", self.date_to, "timestamp <= {date_to}")
+            self._append_filter(clauses, params, "date_to", self.date_to, "timestamp <= %(date_to)s")
         return clauses
 
     @staticmethod
     def _append_filter(
         clauses: list[str],
-        placeholders: dict[str, "ast.Expr"],
+        params: dict[str, Any],
         key: str,
         value: Any,
         clause: str,
     ) -> None:
-        """Register one filter atomically: the value goes into `placeholders` (parameterized), the clause is
-        the hardcoded literal that references it. The structure/value split lives in one place so callers
-        can't half-do it. Any future filter must come through here, which makes the "clause is a static
-        literal" invariant impossible to break by accident."""
-        placeholders[key] = ast.Constant(value=value)
+        """Register one filter atomically: the value goes into `params` (parameterized), the clause is the
+        hardcoded literal that references it. The structure/value split lives in one place so callers can't
+        half-do it. Any future filter must come through here, which makes the "clause is a static literal"
+        invariant impossible to break by accident."""
+        params[key] = value
         clauses.append(clause)
+
+
+class _CutoffNotComputed:
+    pass
+
+
+# Distinct from None, which means the cutoff query ran and found no rows in scope.
+_CUTOFF_NOT_COMPUTED = _CutoffNotComputed()
+
+
+def candidate_cutoff(team: Team, scanner_ids: list[str], filters: ObservationSearchFilters) -> datetime | None:
+    """Timestamp of the oldest of the most recent `_MAX_CANDIDATE_ROWS` rows in scope, or None when none are.
+    Needs no query vector, so a caller can run it while the search text is embedded."""
+    params = _scope_params(team, scanner_ids)
+    scope = _scope_clause(filters, params)
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_CANDIDATE_QUERY_TYPE):
+        # nosemgrep: clickhouse-fstring-param-audit - static clauses from `_append_filter`, values are params
+        cutoff_rows = sync_execute(
+            f"""
+            SELECT minOrNull(timestamp)
+            FROM (
+                SELECT timestamp
+                FROM {_EMBEDDINGS_TABLE}
+                PREWHERE {scope}
+                ORDER BY timestamp DESC
+                LIMIT %(candidate_cap)s
+            )
+            """,
+            params,
+            team_id=team.id,
+            readonly=True,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+            settings={"max_execution_time": _QUERY_TIMEOUT_S},
+        )
+    return cutoff_rows[0][0] if cutoff_rows else None
+
+
+def _scope_params(team: Team, scanner_ids: list[str]) -> dict[str, Any]:
+    return {
+        "team_id": team.id,
+        "product": EMBEDDING_PRODUCT,
+        "document_type": EMBEDDING_DOCUMENT_TYPE,
+        "scanner_ids": scanner_ids,
+        "candidate_cap": _MAX_CANDIDATE_ROWS,
+    }
+
+
+def _scope_clause(filters: ObservationSearchFilters, params: dict[str, Any]) -> str:
+    return _SCOPE_PREWHERE + "".join(f"\n              AND {clause}" for clause in filters.where_clauses(params))
 
 
 def rank_observations(
     team: Team,
-    user: User,
     scanner_ids: list[str],
     query_vector: list[float],
     limit: int,
     filters: ObservationSearchFilters,
+    cutoff: datetime | None | _CutoffNotComputed = _CUTOFF_NOT_COMPUTED,
 ) -> list[ObservationMatch]:
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
-    outcome filters via the embedding metadata, so filter and rank happen in a single query.
+    outcome filters via the embedding metadata. Reads the physical table directly because the HogQL
+    `document_embeddings` table pushes only the team filter down to the storage read.
+
+    The cosine scan is exact, so it is bounded to the most recent `_MAX_CANDIDATE_ROWS` matching rows: a
+    timestamp-only pass (`candidate_cutoff`, run here when the caller did not pass its result) finds the cutoff,
+    then the ranking pass decodes vectors from that cutoff on. The scope
+    sits in PREWHERE so `embedding` and `content` are decoded only for rows that pass it. A high-volume team
+    is capped to its most recent embeddings at the cost of not ranking its oldest ones.
 
     Rows farther than `MAX_MATCH_DISTANCE` are dropped before aggregation, so an off-topic query returns nothing.
 
     `min(...)` collapses an observation's multiple renderings to its single best-matching distance, so each
     observation appears once. Only rows written before summarizers embedded one document per observation
     have several renderings; once those age past the candidate cap the GROUP BY can go.
+    """
+    if isinstance(cutoff, _CutoffNotComputed):
+        cutoff = candidate_cutoff(team, scanner_ids, filters)
+    if cutoff is None:
+        return []
+    params = _scope_params(team, scanner_ids)
+    scope = _scope_clause(filters, params)
 
-    The distance scan is exact (brute-force), so we bound it: the inner query takes the most recent
-    `_MAX_CANDIDATE_ROWS` matching embedding rows before ranking. Below that volume (all teams at launch
-    scale) it's a no-op. A high-volume team is capped to its most recent embeddings, keeping latency
-    predictable at the cost of not ranking its oldest observations.
-    """
-    placeholders: dict[str, ast.Expr] = {
-        "embedding": ast.Constant(value=query_vector),
-        "model_name": ast.Constant(value=OBSERVATION_EMBEDDING_MODEL.value),
-        "product": ast.Constant(value=EMBEDDING_PRODUCT),
-        "document_type": ast.Constant(value=EMBEDDING_DOCUMENT_TYPE),
-        "team_id": ast.Constant(value=team.id),
-        "scanner_ids": ast.Constant(value=scanner_ids),
-        "candidate_cap": ast.Constant(value=_MAX_CANDIDATE_ROWS),
-        "limit": ast.Constant(value=limit),
-        "snippet_chars": ast.Constant(value=_MATCHED_CONTENT_MAX_CHARS),
-        "max_distance": ast.Constant(value=MAX_MATCH_DISTANCE),
-    }
-    filter_clause = "".join(f"\n                  AND {clause}" for clause in filters.where_clauses(placeholders))
-    # The distance layer wraps the capped candidate subquery so the 3072-dim dot product runs once per
-    # candidate row (min and argMin share the alias) and never on rows the cap already discarded. The ceiling
-    # sits on that layer too, so the aggregate only ever sees rows that are matches.
-    hogql_query = f"""
-        SELECT
-            document_id,
-            min(row_distance) AS distance,
-            argMin(snippet, row_distance) AS matched_content
-        FROM (
-            SELECT document_id, cosineDistance(embedding, {{embedding}}) AS row_distance, snippet
+    with tags_context(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_RANK_QUERY_TYPE):
+        # nosemgrep: clickhouse-fstring-param-audit - static clauses from `_append_filter`, values are params
+        rows = sync_execute(
+            f"""
+            SELECT
+                document_id,
+                min(row_distance) AS distance,
+                argMin(snippet, row_distance) AS matched_content
             FROM (
-                SELECT document_id, embedding, substring(content, 1, {{snippet_chars}}) AS snippet
-                FROM document_embeddings
-                WHERE model_name = {{model_name}}
-                  AND product = {{product}}
-                  AND document_type = {{document_type}}
-                  AND team_id = {{team_id}}
-                  AND JSONExtractString(metadata, 'scanner_id') IN {{scanner_ids}}{filter_clause}
-                ORDER BY timestamp DESC
-                LIMIT {{candidate_cap}}
+                SELECT
+                    document_id,
+                    cosineDistance(embedding, %(embedding)s) AS row_distance,
+                    substring(content, 1, %(snippet_chars)s) AS snippet
+                FROM {_EMBEDDINGS_TABLE}
+                PREWHERE {scope}
+                  AND timestamp >= %(cutoff)s
+                WHERE row_distance <= %(max_distance)s
             )
-            WHERE cosineDistance(embedding, {{embedding}}) <= {{max_distance}}
+            GROUP BY document_id
+            ORDER BY distance ASC
+            LIMIT %(limit)s
+            """,
+            {
+                **params,
+                "cutoff": cutoff,
+                "embedding": query_vector,
+                "snippet_chars": _MATCHED_CONTENT_MAX_CHARS,
+                "max_distance": MAX_MATCH_DISTANCE,
+                "limit": limit,
+            },
+            team_id=team.id,
+            readonly=True,
+            ch_user=ClickHouseUser.REPLAY_VISION,
+            settings={"max_execution_time": _QUERY_TIMEOUT_S},
         )
-        GROUP BY document_id
-        ORDER BY distance ASC
-        LIMIT {{limit}}
-    """
-    tag_queries(product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH)
-    result = execute_hogql_query(
-        query=hogql_query,
-        team=team,
-        user=user,
-        placeholders=placeholders,
-        ch_user=ClickHouseUser.REPLAY_VISION,
-    )
-    return [
-        ObservationMatch(observation_id=row[0], distance=row[1], matched_content=row[2])
-        for row in (result.results or [])
-    ]
+    return [ObservationMatch(observation_id=row[0], distance=row[1], matched_content=row[2]) for row in rows]
 
 
 def fetch_ranked_observations(
@@ -304,23 +364,53 @@ class ObservationSearchResponse:
     # More matches exist past `results`: either hydration returned more readable rows than the limit, or
     # ClickHouse filled its over-fetched limit with rows under the distance ceiling.
     truncated: bool
+    reranked: bool = False
+
+
+def _rerank_text(obs: ReplayObservation) -> str:
+    # The scanner's full reasoning or summary. Older observations were embedded as several short renderings, and
+    # the one that matched the query is often a bare tag, but the row always holds the full text.
+    output = read_output(obs)
+    return explanation_text(output) if output is not None else ""
 
 
 def search_observations(
     team: Team,
-    user: User,
     access: UserAccessControl,
     scanner_ids: list[str],
-    query_vector: list[float],
+    query_vector: Callable[[], list[float]],
     limit: int,
     filters: ObservationSearchFilters,
+    rerank_query: str | None = None,
 ) -> ObservationSearchResponse:
     """Rank, hydrate, and slice: the one path both the HTTP endpoint and the Max tool call once they have
-    resolved their scanner scope and query vector."""
+    resolved their scanner scope. `query_vector` runs on a worker thread while ClickHouse finds the candidate
+    cutoff, and any error it raises reaches the caller. With `rerank_query`, the head of the readable results is
+    reordered by `search_rerank`, after hydration so the model reads only observations the caller can see."""
     rank_limit = limit * RANK_OVERFETCH_FACTOR
-    matches = rank_observations(team, user, scanner_ids, query_vector, rank_limit, filters)
+    # Copying the context keeps the request's log fields and trace on the embedding call.
+    vector_future = _QUERY_VECTOR_EXECUTOR.submit(copy_context().run, query_vector)
+    try:
+        cutoff = candidate_cutoff(team, scanner_ids, filters)
+    except BaseException:
+        # Frees a still-queued embedding so repeated ClickHouse failures cannot fill the pool.
+        vector_future.cancel()
+        raise
+    # Resolved even when the scope is empty, so an embedding failure still reaches the caller.
+    vector = vector_future.result()
+    matches = rank_observations(team, scanner_ids, vector, rank_limit, filters, cutoff=cutoff)
     match_by_id = {match.observation_id: match for match in matches}
     observations = fetch_ranked_observations(team.id, scanner_ids, list(match_by_id), access)
+    reranked = False
+    if rerank_query:
+        head = observations[:RERANK_CANDIDATES]
+        candidates = [
+            RerankCandidate(str(obs.id), _rerank_text(obs) or match_by_id[str(obs.id)].matched_content) for obs in head
+        ]
+        outcome = rerank(rerank_query, candidates, team_id=team.id)
+        by_id = {str(obs.id): obs for obs in head}
+        observations = [by_id[observation_id] for observation_id in outcome.order] + observations[len(head) :]
+        reranked = outcome.reranked
     results = [
         ObservationSearchResult(
             observation=obs,
@@ -330,7 +420,7 @@ def search_observations(
         for obs in observations[:limit]
     ]
     truncated = len(observations) > limit or len(matches) >= rank_limit
-    return ObservationSearchResponse(results=results, truncated=truncated)
+    return ObservationSearchResponse(results=results, truncated=truncated, reranked=reranked)
 
 
 def _query_vector_cache_key(text: str) -> str:
@@ -360,6 +450,32 @@ def query_vector_for(team: Team, text: str) -> list[float]:
     ).embedding
     cache.set(key, vector, timeout=_QUERY_VECTOR_CACHE_TTL_S)
     return vector
+
+
+def _in_current_context(fn: Callable[[Team, str], list[float]], team: Team, text: str) -> Callable[[], list[float]]:
+    context = copy_context()
+    return lambda: context.run(fn, team, text)
+
+
+def warm_query_vectors(team: Team, texts: list[str]) -> list[Future[list[float]]]:
+    """Embed and cache texts a person is about to search for, such as the suggested searches on screen, so the
+    search skips the embedding round trip. Runs in the background and returns at once. A failure only means the
+    search embeds the text itself."""
+    try:
+        cached = cache.get_many([_query_vector_cache_key(text) for text in texts])
+    except Exception:
+        logger.warning("replay_vision.search.query_vector_warm_setup_failed", exc_info=True)
+        return []
+    misses = [text for text in texts if _query_vector_cache_key(text) not in cached]
+    futures = [_WARM_VECTOR_EXECUTOR.submit(_in_current_context(query_vector_for, team, text)) for text in misses]
+    for future in futures:
+        future.add_done_callback(_log_warm_failure)
+    return futures
+
+
+def _log_warm_failure(future: Future[list[float]]) -> None:
+    if not future.cancelled() and future.exception() is not None:
+        logger.warning("replay_vision.search.query_vector_warm_failed", exc_info=future.exception())
 
 
 # The Max tool awaits this so the event loop stays free during the embedding round trip.

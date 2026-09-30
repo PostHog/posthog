@@ -1437,7 +1437,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1552,7 +1551,6 @@ describe('Hogflow Executor', () => {
                         },
                     ],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 }
 
                 // Person does not match conversion filters yet
@@ -1622,7 +1620,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
                     bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
-                    window_minutes: null,
                 } as any
 
                 const invocation = createExampleHogFlowInvocation(
@@ -1646,7 +1643,6 @@ describe('Hogflow Executor', () => {
                 hogFlow.conversion = {
                     filters: [],
                     bytecode: [],
-                    window_minutes: null,
                     events: [{ filters: { bytecode: ['_H', 1, 29] } }],
                 }
 
@@ -1751,6 +1747,35 @@ describe('Hogflow Executor', () => {
                                 expect.stringContaining('Workflow moved to action [Action:middle_action]'),
                             ])
                         )
+                    })
+
+                    // Steps saved before error handling was configurable, and steps the author never
+                    // touched, carry no on_error. They get the documented default: continue.
+                    it('continues to next action when on_error is not set', async () => {
+                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
+                        delete action.on_error
+
+                        const functionHandler = executor['actionHandlers']['function']
+                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
+                            error: new Error('Mocked handler error'),
+                        })
+
+                        const invocation = createExampleHogFlowInvocation(hogFlow, {
+                            event: {
+                                ...createHogExecutionGlobals().event,
+                                properties: { name: 'Test User' },
+                            },
+                        })
+                        invocation.state.currentAction = {
+                            id: 'function_id_1',
+                            startedAtTimestamp: DateTime.now().toMillis(),
+                        }
+
+                        const result = await executor.executeCurrentAction(invocation)
+
+                        expect(result.error).toBe('Mocked handler error')
+                        expect(result.finished).toBe(false)
+                        expect(result.invocation.state.currentAction?.id).toBe('middle_action')
                     })
 
                     it('stores the output variable of a failed step so the next action can branch on it', async () => {

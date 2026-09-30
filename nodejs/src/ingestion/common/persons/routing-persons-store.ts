@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
@@ -14,13 +15,21 @@ import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
+import { promiseRetry } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { EventOps } from './person-update'
 import { PersonhogPersonsStore } from './personhog-persons-store'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
+import {
+    FlushResult,
+    MergePersonsRequest,
+    MergePersonsResult,
+    PersonsBackend,
+    PersonsStore,
+    isFoldRequest,
+} from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonsStoreMode = 'pg' | 'personhog' | 'shadow'
@@ -97,12 +106,6 @@ function stableEqual(left: unknown, right: unknown): boolean {
     )
 }
 
-/** The property names that differ, for a log that must not carry their values. */
-function differingKeys(left: Properties, right: Properties): string[] {
-    const names = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})])
-    return [...names].filter((key) => !stableEqual((left ?? {})[key], (right ?? {})[key])).sort()
-}
-
 /**
  * How long one shadow verb may run before the batch stops waiting on it.
  * Above the personhog merge deadline so a first attempt is never cut
@@ -150,10 +153,11 @@ export class RoutingPersonsStore implements PersonsStore {
      * the consumer's poll budget, so a verb that outruns the ceiling is
      * abandoned and counted as lost fidelity; the bound is per verb.
      */
-    private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
+    private async shadowed(verb: string, run: (abandoned: AbortSignal) => Promise<unknown>): Promise<void> {
         const stopTimer = personhogStoreShadowDurationSeconds.labels({ verb }).startTimer()
         let timer: ReturnType<typeof setTimeout> | undefined
-        const running = run()
+        const abandon = new AbortController()
+        const running = run(abandon.signal)
         // The abandoned leg keeps running against the personhog side; its
         // settlement is swallowed here so a rejection arriving after the
         // ceiling cannot surface as an unhandled one.
@@ -162,18 +166,25 @@ export class RoutingPersonsStore implements PersonsStore {
             await Promise.race([
                 running,
                 new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new ShadowVerbTimeoutError(verb)), SHADOW_VERB_TIMEOUT_MS)
+                    timer = setTimeout(() => {
+                        abandon.abort()
+                        reject(new ShadowVerbTimeoutError(verb))
+                    }, SHADOW_VERB_TIMEOUT_MS)
                 }),
             ])
         } catch (error) {
-            // Labelled by class as well as verb: the failures a rollout
-            // must tell apart read identically under one number.
-            personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
-            logger.warn('personhog shadow verb failed', { verb, error: String(error) })
+            this.recordShadowFailure(verb, error)
         } finally {
             clearTimeout(timer)
             stopTimer()
         }
+    }
+
+    private recordShadowFailure(verb: string, error: unknown): void {
+        // Labelled by class as well as verb: the failures a rollout
+        // must tell apart read identically under one number.
+        personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
+        logger.warn('personhog shadow verb failed', { verb, error: String(error) })
     }
 
     /**
@@ -186,19 +197,19 @@ export class RoutingPersonsStore implements PersonsStore {
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
         opts?: {
-            shadow?: () => Promise<unknown>
+            shadow?: (abandoned: AbortSignal) => Promise<unknown>
             compare?: (authoritative: T, shadow: unknown) => void
-            after?: (authoritative: T, shadow: unknown) => Promise<void>
+            after?: (authoritative: T, shadow: unknown, abandoned: AbortSignal) => Promise<void>
         }
     ): Promise<T> {
         if (this.mode === 'personhog') {
             return personhog()
         }
         const result = await pg()
-        await this.shadowed(verb, async () => {
-            const shadow = await (opts?.shadow ?? personhog)()
+        await this.shadowed(verb, async (abandoned) => {
+            const shadow = await (opts?.shadow ? opts.shadow(abandoned) : personhog())
             this.compared(verb, () => opts?.compare?.(result, shadow))
-            await opts?.after?.(result, shadow)
+            await opts?.after?.(result, shadow, abandoned)
         })
         return result
     }
@@ -232,40 +243,23 @@ export class RoutingPersonsStore implements PersonsStore {
             if (left !== right) {
                 // Which side is empty is the whole question: personhog
                 // missing a person fades; losing one never does.
-                this.recordDivergence(verb, left === null ? 'missing_authoritative' : 'missing_shadow', {
-                    authoritative: left?.uuid ?? null,
-                    shadow: right?.uuid ?? null,
-                })
+                this.recordDivergence(verb, left === null ? 'missing_authoritative' : 'missing_shadow')
             }
             return
         }
         if (left.uuid !== right.uuid) {
-            this.recordDivergence(verb, 'uuid', { authoritative: left.uuid, shadow: right.uuid })
+            this.recordDivergence(verb, 'uuid')
         }
         if (left.is_identified !== right.is_identified) {
-            this.recordDivergence(verb, 'is_identified', {
-                authoritative: left.is_identified,
-                shadow: right.is_identified,
-            })
+            this.recordDivergence(verb, 'is_identified')
         }
         if (!propertiesMatch(left.properties, right.properties)) {
-            this.recordDivergence(verb, 'properties', {
-                uuid: left.uuid,
-                // Key names only. Values are customer data and this log is
-                // not the place for it; the names are enough to find the
-                // event that wrote them.
-                differing: differingKeys(left.properties, right.properties),
-            })
+            this.recordDivergence(verb, 'properties')
         }
     }
 
-    private recordDivergence(verb: string, field: string, details: Record<string, unknown>): void {
+    private recordDivergence(verb: string, field: string): void {
         personhogStoreShadowDivergenceCounter.labels({ verb, field }).inc()
-        logger.warn('personhog shadow answered differently from the authoritative backend', {
-            verb,
-            field,
-            ...details,
-        })
     }
 
     /**
@@ -445,15 +439,54 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
             {
+                shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
                 compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
-                after: (authoritative, shadow) => this.redriveShadowFoldPairs(request, batchId, authoritative, shadow),
+                after: (authoritative, shadow, abandoned) =>
+                    this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
         )
     }
 
+    /** The merge service's retries wrap the routed call, which never throws for the shadow side. */
+    private retriedShadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<MergePersonsResult> {
+        return promiseRetry(
+            // An abandoned verb starts no new write; one already in flight still finishes.
+            () =>
+                abandoned.aborted
+                    ? Promise.reject(new ShadowVerbTimeoutError('mergePersons'))
+                    : this.personhog.mergePersons(request, batchId),
+            'shadow_merge_persons',
+            undefined,
+            undefined,
+            undefined,
+            [ConnectError, ShadowVerbTimeoutError]
+        )
+    }
+
+    /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
+    private async shadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<MergePersonsResult> {
+        if (!isFoldRequest(request)) {
+            return this.retriedShadowMerge(request, batchId, abandoned)
+        }
+        try {
+            return await this.personhog.mergePersons(request, batchId)
+        } catch (error) {
+            this.recordShadowFailure('mergePersons', error)
+            return { survivor: null, results: [], foldAborted: 'error' }
+        }
+    }
+
     /**
-     * A fold only the shadow aborted gets its pairs re-driven, single
-     * shot, as the fallback merges the service cannot issue (it sees only
+     * A fold only the shadow aborted gets its pairs re-driven, as the
+     * fallback merges the service cannot issue (it sees only
      * the executed authoritative result). Per-pair op ids let the pair's
      * own event attach on redelivery; ops stay empty because plan events
      * route theirs through the shadowed update path regardless.
@@ -462,7 +495,8 @@ export class RoutingPersonsStore implements PersonsStore {
         request: MergePersonsRequest,
         batchId: number,
         authoritative: MergePersonsResult,
-        shadow: unknown
+        shadow: unknown,
+        abandoned: AbortSignal
     ): Promise<void> {
         const shadowResult = shadow as MergePersonsResult
         if (authoritative.foldAborted !== undefined || shadowResult?.foldAborted === undefined) {
@@ -470,7 +504,7 @@ export class RoutingPersonsStore implements PersonsStore {
         }
         for (const source of request.sources) {
             try {
-                const result = await this.personhog.mergePersons(
+                const result = await this.retriedShadowMerge(
                     {
                         teamId: request.teamId,
                         targetDistinctId: request.targetDistinctId,
@@ -488,7 +522,8 @@ export class RoutingPersonsStore implements PersonsStore {
                         mergeMode: request.mergeMode,
                         createdAtMs: request.createdAtMs,
                     },
-                    batchId
+                    batchId,
+                    abandoned
                 )
                 const outcome = result.results[0]?.outcome ?? 'error'
                 personhogStoreShadowFoldRedriveCounter.labels({ outcome }).inc()
@@ -529,34 +564,23 @@ export class RoutingPersonsStore implements PersonsStore {
         if (left.foldAborted || right.foldAborted) {
             const onlyOneAborted = (left.foldAborted === undefined) !== (right.foldAborted === undefined)
             if (onlyOneAborted) {
-                this.recordDivergence('mergePersons', 'fold_disposition', {
-                    authoritative: left.foldAborted ?? 'executed',
-                    shadow: right.foldAborted ?? 'executed',
-                })
+                this.recordDivergence('mergePersons', 'fold_disposition')
             }
             return
         }
         if ((left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null)) {
-            this.recordDivergence('mergePersons', 'survivor', {
-                authoritative: left.survivor?.uuid ?? null,
-                shadow: right.survivor?.uuid ?? null,
-            })
+            this.recordDivergence('mergePersons', 'survivor')
         }
         const shadowOutcomes = new Map(right.results.map((source) => [source.sourceDistinctId, source.outcome]))
         for (const source of left.results) {
             const other = shadowOutcomes.get(source.sourceDistinctId)
             if (other !== source.outcome) {
-                this.recordDivergence('mergePersons', 'outcome', {
-                    authoritative: source.outcome,
-                    shadow: other ?? null,
-                })
+                this.recordDivergence('mergePersons', 'outcome')
             }
             shadowOutcomes.delete(source.sourceDistinctId)
         }
         // A verdict for a source Postgres never reported is a divergence too.
-        for (const [, outcome] of shadowOutcomes) {
-            this.recordDivergence('mergePersons', 'outcome', { authoritative: null, shadow: outcome })
-        }
+        shadowOutcomes.forEach(() => this.recordDivergence('mergePersons', 'outcome'))
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {

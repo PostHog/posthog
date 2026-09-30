@@ -13,20 +13,27 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast, type PaginationManual, type Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api-error'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
 
 import {
     accountsList,
+    accountsRetrieve,
     customerTasksArchiveCreate,
     customerTasksCreate,
     customerTasksList,
+    customerTasksRetrieve,
     customerTasksPartialUpdate,
     customerTasksRestoreCreate,
 } from 'products/customer_analytics/frontend/generated/api'
@@ -40,15 +47,23 @@ import type {
     PatchedCustomerTaskUpdateApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { getTileRecord, getTileString, type AccountViewTileLogicProps } from '../Accounts/accountViewTileConfig'
 import {
+    CUSTOMER_TASK_FILTER_URL_KEYS,
+    CUSTOMER_TASK_ORDERINGS,
+    CUSTOMER_TASK_URL_KEYS,
+    customerTaskSearchParams,
+    CustomerTaskEvents,
     customerTasksQuery,
     DEFAULT_CUSTOMER_TASK_ORDERING,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
+    parseCustomerTaskSearchParams,
     type CustomerTaskAccountFilter,
     type CustomerTaskFilters,
     type CustomerTaskOrdering,
     type CustomerTasksContext,
+    type CustomerTaskUrlState,
     customerTaskOrderingToSorting,
     customerTaskSortingToOrdering,
 } from './customerTaskFilters'
@@ -57,7 +72,7 @@ const ACCOUNT_PAGE_SIZE = 20
 const INBOX_PAGE_SIZE = 50
 const ACCOUNT_OPTIONS_LIMIT = 50
 
-export interface CustomerTasksLogicProps {
+export interface CustomerTasksLogicProps extends AccountViewTileLogicProps {
     context: CustomerTasksContext
     accountId?: string
     canViewAll?: boolean
@@ -92,6 +107,7 @@ export interface customerTasksLogicValues {
     user: UserType | null
 }
 export interface customerTasksLogicActions {
+    openTaskFromUrl: (taskId: string) => { taskId: string }
     closeModal: () => void
     createTask: (task: CustomerTaskCreateApi) => { task: CustomerTaskCreateApi }
     loadAccountOptions: (payload: { query: string }) => { query: string }
@@ -106,6 +122,8 @@ export interface customerTasksLogicActions {
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setAccountFilterOpen: (open: boolean) => { open: boolean }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
+    setFiltersFromUrl: (state: CustomerTaskUrlState) => { state: CustomerTaskUrlState }
+    setAccountFilterName: (name: string) => { name: string }
     setTaskOrdering: (ordering: CustomerTaskOrdering) => { ordering: CustomerTaskOrdering }
     setTaskSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
     setPage: (page: number) => { page: number }
@@ -127,6 +145,25 @@ export type customerTasksLogicType = MakeLogicType<
     CustomerTasksLogicProps
 >
 
+function getInitialFilters(props: CustomerTasksLogicProps): CustomerTaskFilters {
+    const defaults = defaultCustomerTaskFilters(props.context)
+    const saved = props.context === 'account' ? getTileRecord(props.initialConfig, 'filters') : null
+    return saved ? ({ ...defaults, ...saved, account: null } as CustomerTaskFilters) : defaults
+}
+
+function getInitialOrdering(props: CustomerTasksLogicProps): CustomerTaskOrdering {
+    const ordering = getTileString(props.initialConfig, 'ordering')
+    return CUSTOMER_TASK_ORDERINGS.find((candidate) => candidate === ordering) ?? DEFAULT_CUSTOMER_TASK_ORDERING
+}
+
+function taskConfig(values: customerTasksLogicValues): Record<string, unknown> {
+    return { filters: { ...values.filters, account: null }, ordering: values.ordering }
+}
+
+function taskUrlState(values: customerTasksLogicValues): CustomerTaskUrlState {
+    return { filters: values.filters, ordering: values.ordering, page: values.page }
+}
+
 // A rejected task write answers with the message a person needs, either as `detail` or against the
 // field at fault, so show that instead of asking for a retry the server will refuse again.
 function taskWriteFailureMessage(error: unknown, fallback: string): string {
@@ -143,13 +180,24 @@ function taskWriteFailureMessage(error: unknown, fallback: string): string {
 
 export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<customerTasksLogicType>([
     props({} as CustomerTasksLogicProps),
-    key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? p.persistPrefix ?? 'all')),
+    key(
+        (p) =>
+            'customer-tasks-' +
+            p.context +
+            '-' +
+            (p.accountId ?? p.persistPrefix ?? 'all') +
+            '-' +
+            (p.instanceId ?? 'default')
+    ),
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerTasks', 'customerTasksLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId', 'timezone'], userLogic, ['user']] })),
     actions({
+        openTaskFromUrl: (taskId: string) => ({ taskId }),
         loadTaskPage: true,
         loadAccountOptions: (payload: { query: string }) => payload,
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
+        setFiltersFromUrl: (state: CustomerTaskUrlState) => ({ state }),
+        setAccountFilterName: (name: string) => ({ name }),
         setTaskOrdering: (ordering: CustomerTaskOrdering) => ({ ordering }),
         setTaskSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearch: (search: string) => ({ search }),
@@ -223,7 +271,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             props.context === 'inbox' && props.persistPrefix ? { persist: true, prefix: props.persistPrefix } : {}
         return {
             filters: [
-                defaultCustomerTaskFilters(props.context),
+                getInitialFilters(props),
                 persist,
                 {
                     setFilters: (s: CustomerTaskFilters, a: { filters: Partial<CustomerTaskFilters> }) => ({
@@ -235,14 +283,25 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                         ...s,
                         account: a.account,
                     }),
+                    setAccountFilterName: (s: CustomerTaskFilters, a: { name: string }) =>
+                        s.account ? { ...s, account: { ...s.account, name: a.name } } : s,
+                    setFiltersFromUrl: (_: CustomerTaskFilters, a: { state: CustomerTaskUrlState }) => a.state.filters,
                     resetFilters: () => defaultCustomerTaskFilters(props.context),
                 },
             ],
-            ordering: [DEFAULT_CUSTOMER_TASK_ORDERING, { setTaskOrdering: (_, { ordering }) => ordering }],
+            ordering: [
+                getInitialOrdering(props),
+                {
+                    setTaskOrdering: (_, { ordering }) => ordering,
+                    setFiltersFromUrl: (_: CustomerTaskOrdering, a: { state: CustomerTaskUrlState }) =>
+                        a.state.ordering,
+                },
+            ],
             page: [
                 1,
                 {
                     setPage: (_: number, a: { page: number }) => a.page,
+                    setFiltersFromUrl: (_: number, a: { state: CustomerTaskUrlState }) => a.state.page,
                     setFilters: () => 1,
                     setSearch: () => 1,
                     setAccountFilter: () => 1,
@@ -360,18 +419,61 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         ],
     })),
     listeners(({ actions, props, values }) => ({
-        setFilters: () => actions.loadTaskPage(),
-        setSearch: () => actions.loadTaskPage(),
+        openTaskFromUrl: async ({ taskId }, breakpoint) => {
+            if (values.currentTeamId === null) {
+                return
+            }
+            try {
+                const task = await customerTasksRetrieve(String(values.currentTeamId), taskId)
+                breakpoint()
+                actions.openEditModal(task)
+            } catch (error) {
+                breakpoint()
+                lemonToast.error(
+                    taskWriteFailureMessage(error, 'Could not open the task. Refresh the page to try again.')
+                )
+            }
+        },
+        setFilters: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
+        setFiltersFromUrl: async () => {
+            actions.loadTaskPage()
+            const account = values.filters.account
+            if (!account || account.name || values.currentTeamId === null) {
+                return
+            }
+            try {
+                const resolved = await accountsRetrieve(String(values.currentTeamId), account.id)
+                if (values.filters.account?.id === account.id) {
+                    actions.setAccountFilterName(resolved.name)
+                }
+            } catch {
+                // The account filter still applies; the control falls back to its generic label.
+            }
+        },
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(300)
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         setAccountFilter: () => actions.loadTaskPage(),
         setPage: () => actions.loadTaskPage(),
-        setTaskOrdering: () => actions.loadTaskPage(),
+        setTaskOrdering: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         setTaskSorting: ({ sorting }) => {
             const ordering = customerTaskSortingToOrdering(sorting)
             if (ordering) {
                 actions.setTaskOrdering(ordering)
             }
         },
-        resetFilters: () => actions.loadTaskPage(),
+        resetFilters: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         openCreateModal: () => {
             if (props.context === 'inbox' && values.filters.assignee === 'me' && values.user) {
                 actions.setDraftAssignedTo({
@@ -502,10 +604,65 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
         },
     })),
+    trackedActionToUrl(({ props, values }) => {
+        if (props.context !== 'inbox') {
+            return {}
+        }
+        const toUrl = (): [string, Record<string, any>, any, { replace: boolean }] => {
+            const searchParams = { ...router.values.searchParams }
+            for (const key of CUSTOMER_TASK_URL_KEYS) {
+                delete searchParams[key]
+            }
+            Object.assign(searchParams, customerTaskSearchParams(taskUrlState(values)))
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        }
+        return {
+            setFilters: toUrl,
+            setSearch: toUrl,
+            setAccountFilter: toUrl,
+            setPage: toUrl,
+            setTaskOrdering: toUrl,
+            resetFilters: toUrl,
+        }
+    }),
+    urlToAction(({ actions, props, values }) => {
+        if (props.context !== 'inbox') {
+            return {}
+        }
+        return {
+            [urls.customerAnalyticsTasks()]: (_, searchParams) => {
+                if (typeof searchParams.task_id === 'string' && searchParams.task_id !== values.modalTask?.id) {
+                    actions.openTaskFromUrl(searchParams.task_id)
+                }
+                const parsed = parseCustomerTaskSearchParams(searchParams)
+                // A link that names a filter decides the whole view, so its filters replace the ones
+                // the person left behind. A link that only sorts or pages leaves them alone.
+                const hasFiltersInUrl = CUSTOMER_TASK_FILTER_URL_KEYS.some((key) => searchParams[key] !== undefined)
+                const next: CustomerTaskUrlState = {
+                    filters: hasFiltersInUrl ? parsed.filters : values.filters,
+                    ordering: parsed.ordering,
+                    page: parsed.page,
+                }
+                const current = customerTaskSearchParams(taskUrlState(values))
+                if (!objectsEqual(current, customerTaskSearchParams(next))) {
+                    actions.setFiltersFromUrl(next)
+                }
+            },
+        }
+    }),
     afterMount(({ actions, props }) => {
         actions.loadTaskPage()
         if (props.context === 'inbox') {
             actions.loadAccountOptions({ query: '' })
+            const { source, ...rest } = router.values.searchParams
+            posthog.capture(CustomerTaskEvents.InboxViewed, {
+                source: typeof source === 'string' ? source : null,
+            })
+            // Drop the source so a second visit in the same session, and any link the person copies,
+            // are not attributed to whatever brought them here first.
+            if (source !== undefined) {
+                router.actions.replace(router.values.location.pathname, rest, router.values.hashParams)
+            }
         }
     }),
 ])

@@ -14,9 +14,9 @@ contract directly as FEATURE_NAMES / `feature_vector` / FEATURE_SCHEMA_VERSION.
 The tabular set is: the report-state columns the dataset dag snapshots from Postgres plus the
 report's age at the scoring moment. No report embedding and no impression-derived columns
 (`source_products`), so the sweep needs nothing beyond the SignalReport row and its latest
-judgment artefacts. The report-embeddings set is the second one, and the sweep does not serve it:
-it is an offline candidate graded on the unseen read, and serving it needs the report vector at
-scoring time (skill issue 14).
+judgment artefacts. The two embedding sets are the report's combined-text vector and its title-only
+vector, one rendering each, and the sweep serves neither: they are offline candidates graded on the
+unseen read, and serving one needs its vector at scoring time (skill issue 14).
 """
 
 import abc
@@ -73,6 +73,11 @@ NO_EXTRAS: Extras = MappingProxyType({})
 # snapshot, indexed by report_id, with the vector in `EMBEDDING_COLUMN` and the moment that vector
 # landed in `EMBEDDING_INSERTED_AT_COLUMN`.
 REPORT_EMBEDDINGS_EXTRA = "report_embeddings"
+# The title-only vector, under its own key, from the dataset dag's own
+# `inbox_report_title_embeddings` snapshot. Two keys rather than one, because the two families
+# exist to be compared: a row that fell back to the combined-text vector would measure nothing, and
+# a summary-only edit re-embeds only the combined rendering, so the two landing times differ.
+TITLE_EMBEDDINGS_EXTRA = "title_embeddings"
 EMBEDDING_COLUMN = "embedding_small"
 EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 # The width of text-embedding-3-small-1536, the model the report documents are embedded with. A
@@ -205,7 +210,13 @@ TABULAR_FEATURE_SET = TabularFeatureSet()
 
 
 class ReportEmbeddingsFeatureSet(FeatureSet):
-    """The report's own embedding vector, and nothing else, at one example per report.
+    """One text rendering's embedding vector, and nothing else, at one example per report.
+
+    Parameterized by the `extras` key it reads, so a rendering is a second instance rather than a
+    second class: the combined-text rendering and the title-only rendering then share this width,
+    this grain and this row budget by construction, and a regularization change lands on both. That
+    is what makes the two families' grades a measurement of the text choice rather than of the
+    recipe. A set reads its own key only, and never falls back to another rendering's vector.
 
     Two modelling calls this set records, both open questions on the issue that asked for it
     (posthog#98243):
@@ -220,8 +231,8 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     `max_examples_per_head` bounds what is left; the lookback stays the tabular set's, so positives
     still accrue over the whole window.
 
-    Vectors arrive through `extras`, from the dt=D `inbox_report_embeddings` snapshot, which holds
-    the latest vector per report. A report is re-embedded whenever its text changes, and the
+    Vectors arrive through `extras`, from the rendering's own dt=D snapshot, which holds the
+    latest vector per report. A report is re-embedded whenever its text changes, and the
     summary workflow and each re-research run rewrite it, so the latest vector can postdate the
     moment being built. `as_of` is therefore load-bearing rather than a nicety: a moment takes the
     vector only when that vector had already landed, so a report whose birth-day snapshot holds
@@ -235,16 +246,18 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     all-missing row would teach the booster nothing but the base rate.
     """
 
-    name = "report_embeddings"
     schema_version = 1
     # Position order, so `emb_i` is the vector's ith component in every matrix this set builds.
     feature_names = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
     state_columns = ()
-    extras_keys = (REPORT_EMBEDDINGS_EXTRA,)
     # 1536 float32 columns, so a head's Parquet slice and its training matrix both scale with this.
     # Sized so every head of this family fits one partition's examples object and the fits stay
     # inside the training job's runtime budget, with the budget spent on positives first.
     max_examples_per_head = 25_000
+
+    def __init__(self, *, name: str, extras_key: str) -> None:
+        self.name = name
+        self.extras_keys = (extras_key,)
 
     def build_matrix(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
@@ -268,7 +281,7 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
         A vector with no landing time is dropped rather than trusted, because the check cannot be
         made for it.
         """
-        vectors = extras.get(REPORT_EMBEDDINGS_EXTRA)
+        vectors = extras.get(self.extras_keys[0])
         if vectors is None or EMBEDDING_COLUMN not in vectors:
             return pd.Series(None, index=rows.index, dtype=object)
         aligned = vectors[EMBEDDING_COLUMN].reindex(rows.index)
@@ -276,8 +289,7 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
             return aligned
         if EMBEDDING_INSERTED_AT_COLUMN not in vectors:
             raise ValueError(
-                f"the {REPORT_EMBEDDINGS_EXTRA} side input needs {EMBEDDING_INSERTED_AT_COLUMN} "
-                "to be read as of a moment"
+                f"the {self.extras_keys[0]} side input needs {EMBEDDING_INSERTED_AT_COLUMN} to be read as of a moment"
             )
         landed = pd.to_datetime(vectors[EMBEDDING_INSERTED_AT_COLUMN].reindex(rows.index), utc=True)
         return aligned.where(landed.notna() & (landed <= as_of))
@@ -291,7 +303,11 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
         ).astype(bool)
 
 
-REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet()
+REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="report_embeddings", extras_key=REPORT_EMBEDDINGS_EXTRA)
+# The title-only rendering of the same reports, so a family can measure the title against the
+# title-plus-summary vectors on identical rows. The inbox title is what a person reads before
+# opening a report; the summary is read after. Everything else matches the set above, deliberately.
+TITLE_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="title_embeddings", extras_key=TITLE_EMBEDDINGS_EXTRA)
 
 # Every set this build can produce, by name. A model that names a set absent from here cannot be
 # scored, the same way a model whose feature names have moved on cannot.
@@ -299,6 +315,7 @@ FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
     {
         TABULAR_FEATURE_SET.name: TABULAR_FEATURE_SET,
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
+        TITLE_EMBEDDINGS_FEATURE_SET.name: TITLE_EMBEDDINGS_FEATURE_SET,
     }
 )
 

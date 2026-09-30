@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA10",
+    "cluster": 31,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:111-138 checks the assignee/toggle before publishing, but stamphog/backend/tasks/tasks.py:1110-1242 never invokes the current reviewer resolver and stamps the queued acting_user_id at 1176-1181. A rate-limited attempt retries at least 60 seconds later (1160-1162), fetches the PR's then-current head (1159,1170), and can create a new run at 1223-1229 after settings are disabled. The settings PATCH only saves the setting at review_hog/backend/api/settings.py:131-137; it neither removes queued jobs nor supersedes runs. In contrast, the webhook uses the current resolver at stamphog tasks.py:201-207, which checks the live toggle in review_hog receivers.py:151-155. A delayed initial job can thus review even a subsequently pushed head after the opt-out made that head's webhook skip.",
+            "refutation": "I first considered whether the queued task intentionally represents an already-accepted, head-pinned review that may finish after opt-out. It does not carry a head and fetches the current PR anew on every attempt, so it can authorize later commits rather than merely finish an existing review. The documented invariant says switching off stops new runs (stamphog/AGENTS.md:106-109), and the sibling ReviewHog workflow rechecks its inbox toggle during execution (review_hog/temporal/workflow.py:428-438). Existing webhook checks cannot cancel the delayed initial path. This is a real delayed/retry opt-out bypass with limited timing scope, hence should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/review_hog/backend/receivers.py:114-138 captures opt-in and acting_user_id when publishing, but /tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1110-1234 never resolves the current reviewer or toggle. In particular, a GitHub rate limit at :1160-1162 delays a retry at least 60 seconds before any ReviewRun exists; the reviewer can disable the toggle through settings.py:131-137 in that interval. The retry then stamps the old acting_user_id at :1176-1181 and creates/starts the run at :1223-1234. activities.py:451 enables self-driving from the persisted provenance, with no later preference check before :745 posts an approval.",
+            "refutation": "First checked whether preference updates cancel queued requests or the worker already calls the registered resolver. /tmp/frozen-75215/products/review_hog/backend/api/settings.py:131-137 only saves the setting. The current-toggle resolver in receivers.py:144-155 exists, and tests/test_inbox_trigger.py:371-387 verifies it stops new runs, but its only relevant use is the webhook carve-out at tasks/tasks.py:201-207. Initial worker execution and retries retain the earlier decision. This is narrower than revoking an approval already in progress: the demonstrated rate-limit retry creates a new ReviewRun after opt-out. The normal webhook safety retractions remain intact, limiting severity to should_fix."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "The receiver snapshots the toggle before publishing at products/review_hog/backend/receivers.py:114,126-137. The production Celery task can run later or retry three times (products/stamphog/backend/tasks/tasks.py:1109,1158-1165), but its only live eligibility query is the repository config at 1140-1146. It never resolves the task or reloads the acting reviewer's setting before stamping inbox_review at 1176-1181 and creating the run at 1223-1229. That marker enables the engine bypass at temporal/activities.py:448-451 and can reach approval posting at 723-745. A queued initial delivery or retry therefore starts a new approval-capable review after the reviewer opts out.",
+            "refutation": "I checked whether opt-out was intentionally only a dispatch-time snapshot and whether a downstream layer rechecks it. The current resolver explicitly says switching the toggle off stops new Stamphog runs (review_hog/backend/receivers.py:144-155), and the parallel ReviewHog inbox workflow rechecks its receiver-side toggle at execution-time resolution (review_hog/backend/temporal/workflow.py:424-435). Stamphog has that live resolver for webhook re-reviews (stamphog/backend/facade/inbox_hooks.py:3-9,20-22) but its initial Celery path never invokes it. Repository enabled checks and final SHA/supersession guards do not enforce this user's toggle. The defect is limited to already-published deliveries/retries, hence should_fix."
+        }
+    ]
+}

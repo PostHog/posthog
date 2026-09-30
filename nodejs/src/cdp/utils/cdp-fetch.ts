@@ -120,8 +120,8 @@ export async function cdpTrackedFetch({
 }> {
     const start = performance.now()
 
-    // Attribution read by the URL-validation check logs in common/utils/request.ts, which
-    // run inside undici's connect flow where no caller context is otherwise available.
+    // Attribution read by the URL-validation check logs and the egress proxy rollout in common/utils/request.ts,
+    // which run inside undici's connect flow where no caller context is otherwise available.
     const doFetch = () =>
         fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
             tryCatch(async () => await fetch(url, fetchParams))

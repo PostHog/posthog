@@ -31,15 +31,21 @@ describe('maxLogic', () => {
     let logic: ReturnType<typeof maxLogic.build>
     let threadLogic: ReturnType<typeof maxThreadLogic.build> | null = null
     let actionsRequestCount: number
+    let conversationRequestCount: number
 
     beforeEach(() => {
         localStorage.clear()
         sessionStorage.clear()
         actionsRequestCount = 0
+        conversationRequestCount = 0
         useMocks({
             ...maxMocks,
             get: {
                 ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': () => {
+                    conversationRequestCount++
+                    return [200, { results: [] }]
+                },
                 '/api/projects/:team/actions/': () => {
                     actionsRequestCount++
                     return [200, { results: [], count: 0 }]
@@ -49,7 +55,10 @@ describe('maxLogic', () => {
         initKeaTests()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        if (logic?.isMounted()) {
+            await expectLogic(logic).toFinishAllListeners()
+        }
         threadLogic?.unmount()
         threadLogic = null
         sidePanelStateLogic.unmount()
@@ -70,13 +79,14 @@ describe('maxLogic', () => {
         })
     })
 
-    it('does not load actions when Max mounts', async () => {
+    it('shares the initial history request and does not load actions when Max mounts', async () => {
         logic = maxLogic({ panelId: 'test' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
 
         expect(actionsRequestCount).toBe(0)
+        expect(conversationRequestCount).toBe(1)
     })
 
     it.each([

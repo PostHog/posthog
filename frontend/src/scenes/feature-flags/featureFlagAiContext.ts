@@ -63,3 +63,81 @@ function targetingValue(featureFlag: FeatureFlagType): string {
         conditions_omitted: 'Too large to attach. Read the saved flag to see the property filters.',
     })
 }
+
+/** Skill the "Review cleanup with AI" action asks PostHog AI to load; bundled into the agent sandbox image. */
+export const FEATURE_FLAG_CLEANUP_SKILL = 'cleaning-up-stale-feature-flags'
+
+export const FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT = 'Assess this feature flag for cleanup.'
+const FEATURE_FLAG_CLEANUP_TARGET_TYPE = 'feature_flag_cleanup_target'
+
+const FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'skill',
+    key: FEATURE_FLAG_CLEANUP_SKILL,
+    label: 'Cleaning up stale feature flags skill',
+}
+
+// Our own static, build-time text only. Never interpolate the flag's key, name, or description into
+// this item, or a project-authored string would ride inside the trusted block the agent is told to
+// follow. The saved identity a reader needs to act on travels separately, as the untrusted
+// `feature_flag_cleanup_target` item below.
+const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    value:
+        `Load the ${FEATURE_FLAG_CLEANUP_SKILL} skill before assessing. The ${FEATURE_FLAG_CLEANUP_TARGET_TYPE} item ` +
+        'names the flag by project, id, and key. Re-fetch its current definition with the feature-flag tools ' +
+        'rather than trusting values elsewhere in this conversation, because it can have changed since the page ' +
+        'that started this request was loaded. Check linked systems (dependent flags, experiments, holdouts, ' +
+        'schedules) and recent activity before concluding. This request is assessment only: return the evidence ' +
+        'you gathered, any blockers, and a recommended next step. Do not edit any files, open a pull request, or ' +
+        'change this flag in PostHog - do not enable, disable, archive, unarchive, or delete it.',
+}
+
+function cleanupTargetValue(featureFlag: Pick<FeatureFlagType, 'id' | 'key'>, projectId: number | null): string {
+    return JSON.stringify({ project_id: projectId, id: featureFlag.id, key: featureFlag.key })
+}
+
+/** The instruction stays trusted text; the flag identity travels separately as untrusted data. */
+export function featureFlagCleanupAssessmentContextItems(
+    featureFlag: Pick<FeatureFlagType, 'id' | 'key'>,
+    projectId: number | null
+): AttachedContextItem[] {
+    return [
+        FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM,
+        FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM,
+        {
+            type: FEATURE_FLAG_CLEANUP_TARGET_TYPE,
+            hidden: true,
+            value: cleanupTargetValue(featureFlag, projectId),
+        },
+    ]
+}
+
+// `create-feature-flag` is left out because it never targets the flag on screen.
+// `delete-feature-flag` and the bulk tools can target it, and are still left out: there is nothing
+// to refresh into after a delete, and the bulk tools pass a list of ids that this matcher does not
+// read.
+export const FEATURE_FLAG_MUTATION_TOOLS = [
+    'update-feature-flag',
+    'feature-flag-enable',
+    'feature-flag-disable',
+    'feature-flag-archive',
+    'feature-flag-unarchive',
+]
+
+// Every mutation tool accepts these spellings for the flag id (`param_overrides.id.aliases` in
+// products/feature_flags/mcp/tools.yaml). The MCP server resolves them to `id`, but this matcher
+// reads the raw arguments the model wrote. Match all five, or an aliased call never refreshes.
+const FLAG_ID_KEYS = ['id', 'flagId', 'flag_id', 'feature_flag_id', 'featureFlagId']
+
+// The bus is global, so an unrelated flag's call arrives here too. The id comes through as a string
+// or a number because the tools cast it, and as null args when they could not be parsed.
+export function mutationTargetsFeatureFlag(innerInput: Record<string, unknown> | null, flagId: number): boolean {
+    return FLAG_ID_KEYS.some((key) => {
+        const id = innerInput?.[key]
+        if (typeof id !== 'string' && typeof id !== 'number') {
+            return false
+        }
+        return String(id) === String(flagId)
+    })
+}

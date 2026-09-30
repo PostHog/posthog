@@ -28,6 +28,9 @@ def is_realtime_cohort_flag_targeting_enabled(request: Any, *, team: Team) -> bo
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
             groups={"organization": organization_id, "project": str(team.uuid)},
+            # Local evaluation cannot read stored person properties, so a condition on email
+            # needs it passed here. Without it, every check outside the rollout calls out.
+            person_properties={"email": user.email},
             group_properties={"organization": {"id": organization_id}, "project": {"id": team.id}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,

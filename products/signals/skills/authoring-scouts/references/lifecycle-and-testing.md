@@ -108,7 +108,7 @@ The loop is **dogfood → run once ready → inspect**:
 3. If it needs work, go back to dogfooding the queries by hand for the iteration, re-edit via `skill-update`, and spend another `-run-now` only once you've batched a meaningful change.
 
 **Extra-careful variant — dry-run first.** For a scout you expect to be chatty, expensive, or high-stakes, set `emit=false` so it runs and logs what it _would_ have written (visible in `-runs-list` / `-runs-retrieve`) without writing to the inbox.
-Trigger it with `-run-now`, inspect, refine, then `config-update` to `emit=true`.
+Trigger it with `-run-now`, inspect, refine, then `scout-config-update` to `emit=true`.
 For most scouts, writing straight away and watching the inbox is the faster calibration.
 
 Repo contributors additionally get `hogli sync:skill` to run the scout against the local harness for a tighter loop before merging.

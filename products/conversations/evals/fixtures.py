@@ -54,6 +54,7 @@ class SupportReplyFixture:
     expected_citation_sources: tuple[str, ...] = ()
     forbidden_claims: tuple[str, ...] = ()
     needs_diagnostics: bool = False
+    docs_source: str | None = None
     mocked_draft: MockedDraft | None = None
     mocked_validate: MockedValidate | None = None
 
@@ -89,6 +90,31 @@ FIXTURES: tuple[SupportReplyFixture, ...] = (
         seed_queries=("install javascript SDK", "acmeCapture.init"),
         expected_citation_sources=(SOURCE_SDK_INSTALL,),
         forbidden_claims=("refund",),
+        mocked_draft=MockedDraft(
+            reply=(
+                "Add the Acme Capture snippet to the <head> of every page on app.example.com, "
+                "with apiHost https://api.example.com and your project token from Project settings. "
+                "A reload should send a $pageview."
+            ),
+            citation_sources=(SOURCE_SDK_INSTALL,),
+            confidence=0.9,
+            excerpts=((SOURCE_SDK_INSTALL, "acmeCapture.init({ apiHost: 'https://api.example.com'"),),
+        ),
+        mocked_validate=_ANSWERABLE_VALIDATE,
+    ),
+    SupportReplyFixture(
+        name="how_to_sdk_install_posthog",
+        prompt=(
+            "Hi, we just signed up for Acme Capture. How do I install the JavaScript SDK "
+            "on app.example.com so pageviews start showing up?"
+        ),
+        ticket_type="how_to",
+        expected_outcome="answerable",
+        blocker="none",
+        seed_queries=("install javascript SDK", "acmeCapture.init"),
+        expected_citation_sources=(SOURCE_SDK_INSTALL,),
+        forbidden_claims=("refund",),
+        docs_source="posthog",
         mocked_draft=MockedDraft(
             reply=(
                 "Add the Acme Capture snippet to the <head> of every page on app.example.com, "

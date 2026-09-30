@@ -36,10 +36,20 @@ class TestGetSchemas:
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
 
-    def test_secrets_off_by_default_others_on(self) -> None:
+    @parameterized.expand(
+        [
+            # Secret metadata is opt-in, and session_messages costs one request per session in the
+            # org's whole history — neither should turn on for a user who just wanted sessions.
+            ("secrets", False),
+            ("session_messages", False),
+            ("sessions", True),
+            ("session_insights", True),
+            ("consumption_daily", True),
+        ]
+    )
+    def test_costly_and_sensitive_tables_are_opt_in(self, endpoint: str, expected_default: bool) -> None:
         schemas = {s.name: s for s in DevinAISource().get_schemas(_config(), team_id=1)}
-        assert schemas["secrets"].should_sync_default is False
-        assert schemas["sessions"].should_sync_default is True
+        assert schemas[endpoint].should_sync_default is expected_default
 
     def test_members_table_is_discovered_full_refresh_with_user_id_key(self) -> None:
         # The set-equality assertions above compare get_schemas against the same dict the schemas come

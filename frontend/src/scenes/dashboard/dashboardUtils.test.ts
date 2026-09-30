@@ -11,11 +11,11 @@ import {
     InsightModel,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
 } from '~/types'
 
 import {
     dashboardSearchParamsFromOverrides,
+    dashboardTemplateForExport,
     dashboardToSaveableTemplate,
     searchParamsWithUrlFilters,
     getDashboardTileDisplayName,
@@ -72,7 +72,7 @@ describe('searchParamsWithUrlFilters', () => {
 
 describe('getDashboardTileDisplayName', () => {
     it('uses widget header title when no custom name is set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
             layouts: {},
@@ -83,7 +83,7 @@ describe('getDashboardTileDisplayName', () => {
     })
 
     it('uses custom widget name when set', () => {
-        const tile: DashboardTile<QueryBasedInsightModel> = {
+        const tile: DashboardTile = {
             id: 1,
             widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
             layouts: {},
@@ -115,7 +115,7 @@ describe('dashboardToSaveableTemplate', () => {
                     color: null,
                 },
             ],
-        } as unknown as DashboardType<InsightModel>
+        } as unknown as DashboardType
 
         const tile = dashboardToSaveableTemplate(dashboard)?.tiles[0]
         expect(tile).toMatchObject({
@@ -133,7 +133,11 @@ describe('dashboardToSaveableTemplate', () => {
             tiles: [
                 {
                     id: 1,
-                    text: { body: 'Text', last_modified_at: '2024-01-01' },
+                    text: {
+                        body: 'Text',
+                        agent_context: 'Use paid plan events for this metric.',
+                        last_modified_at: '2024-01-01',
+                    },
                     layouts: {},
                     color: null,
                     transparent_background: true,
@@ -160,14 +164,23 @@ describe('dashboardToSaveableTemplate', () => {
                     transparent_background: false,
                 },
             ],
-        } as unknown as DashboardType<InsightModel>
+        } as unknown as DashboardType
 
         expect(dashboardToSaveableTemplate(dashboard)?.tiles).toMatchObject([
-            { type: 'TEXT', transparent_background: true },
+            {
+                type: 'TEXT',
+                body: 'Text',
+                agent_context: 'Use paid plan events for this metric.',
+                transparent_background: true,
+            },
             { type: 'INSIGHT', transparent_background: false },
             { type: 'BUTTON', transparent_background: true },
             { type: 'WIDGET', transparent_background: false },
         ])
+        expect(dashboardTemplateForExport(dashboardToSaveableTemplate(dashboard))?.tiles[0]).not.toHaveProperty(
+            'agent_context'
+        )
+        expect(dashboardTemplateForExport(undefined)).toBeNull()
     })
 })
 
@@ -266,7 +279,7 @@ describe('dashboardSearchParamsFromOverrides', () => {
 })
 
 describe('getInsightWithRetry', () => {
-    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as QueryBasedInsightModel
+    const insight = { id: 300, short_id: 'abc123', name: 'Test insight' } as InsightModel
     const MAX_ATTEMPTS = 3
 
     afterEach(() => {

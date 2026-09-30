@@ -5,13 +5,15 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockGetEventDefinitions } from '~/test/mocks'
 
+import { taxonomicMenuPreferenceLogic } from './taxonomicMenuPreferenceLogic'
 import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -20,21 +22,29 @@ jest.mock('lib/components/AutoSizer', () => ({
 }))
 
 describe('TaxonomicPopover', () => {
+    let actionRequestCount: number
+
     beforeEach(() => {
+        actionRequestCount = 0
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                '/api/projects/:team/actions/': () => {
+                    actionRequestCount++
+                    return [200, { results: [], count: 0 }]
+                },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
             },
         })
         initKeaTests()
-        actionsModel.mount()
         groupsModel.mount()
     })
 
     afterEach(() => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
         cleanup()
     })
 
@@ -55,6 +65,54 @@ describe('TaxonomicPopover', () => {
         expect(screen.getByText('pageview')).toBeInTheDocument()
     })
 
+    it('loads actions only after an actions picker opens', async () => {
+        renderPopover({
+            groupType: TaxonomicFilterGroupType.Actions,
+            groupTypes: [TaxonomicFilterGroupType.Actions],
+        })
+
+        expect(actionRequestCount).toBe(0)
+
+        await userEvent.click(screen.getByText('Please select'))
+
+        await waitFor(() => {
+            expect(actionRequestCount).toBe(1)
+        })
+    })
+
+    it('resets the legacy picker search after closing completely', async () => {
+        renderPopover()
+
+        await userEvent.click(screen.getByText('Please select'))
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event1')
+        await userEvent.click(document.body)
+        await waitFor(() => {
+            expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument()
+        })
+        await userEvent.click(screen.getByText('Please select'))
+
+        expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('')
+    })
+
+    it('opens the rebuilt actions picker', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true })
+        taxonomicMenuPreferenceLogic.mount()
+        taxonomicMenuPreferenceLogic.actions.setUseNewMenu(true)
+
+        renderPopover({
+            groupType: TaxonomicFilterGroupType.Actions,
+            groupTypes: [TaxonomicFilterGroupType.Actions],
+        })
+
+        await userEvent.click(screen.getByTestId('taxonomic-popover-menu-trigger'))
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-new'))
+
+        await waitFor(() => {
+            expect(screen.getByTestId('menu-filter-search')).toBeInTheDocument()
+        })
+    })
+
     it('opens dropdown on click and calls onChange with correct args on selection', async () => {
         const { onChange } = renderPopover({ placeholder: 'Select an event' })
         await userEvent.click(screen.getByText('Select an event'))
@@ -72,6 +130,15 @@ describe('TaxonomicPopover', () => {
         expect(value).toBe('event1')
         expect(groupType).toBe(TaxonomicFilterGroupType.Events)
         expect(item.name).toBe('event1')
+    })
+
+    it('calls onOpen when opening the dropdown', async () => {
+        const onOpen = jest.fn()
+        renderPopover({ placeholder: 'Select an event', onOpen })
+
+        await userEvent.click(screen.getByText('Select an event'))
+
+        expect(onOpen).toHaveBeenCalledTimes(1)
     })
 
     it('clear button calls onChange with empty value', async () => {

@@ -6,6 +6,8 @@ input without importing the workflow code (which pulls in the heavy activity dep
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
+
 # How a review run was triggered. Gates are trigger-aware: label → `review_labeled_prs`,
 # inbox → `review_inbox_prs`, manual (CLI/eval) and ui (an explicit human ask from the Code review
 # scene) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
@@ -14,6 +16,7 @@ TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
+TRIGGER_AUTOMATIC = "automatic"
 
 
 @frozen
@@ -66,6 +69,11 @@ class ReviewPRWorkflowInputs:
     # (False), while payloads serialized under the old `bool = False` default decode to an explicit
     # False — in both cases the dispatch never fires for old histories, exactly as they ran.
     resolve_comments: bool | None = None
+    # What this turn runs on (`REVIEW_MODE_FULL` / `REVIEW_MODE_FLASH`). Per turn, never persisted:
+    # a flash turn must not change what the PR's next normal review runs on. Defaulted so in-flight
+    # payloads from before the field still deserialize as full reviews.
+    review_mode: str = REVIEW_MODE_FULL
+    requested_head_sha: str | None = None
 
     @property
     def repository(self) -> str:
@@ -79,7 +87,13 @@ class ReviewPRWorkflowInputs:
             "pr_number": self.pr_number,
             "head_branch": self.head_branch,
             "trigger_source": self.trigger_source,
+            "review_mode": self.review_mode,
         }
+
+
+@frozen
+class ReviewPRQueueInputs:
+    requests: list[ReviewPRWorkflowInputs]
 
 
 @frozen

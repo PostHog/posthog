@@ -4,12 +4,15 @@ from parameterized import parameterized
 
 from products.alerts.backend.facade.lifecycle import (
     LOGS_ALERT_POLICY,
+    PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertPolicy,
     AlertSnapshot,
     AlertState,
     CheckInput,
+    FiringEpisode,
     NotificationAction,
+    decide_firing_episode,
     evaluate_alert_check,
 )
 
@@ -248,6 +251,66 @@ class TestPolicyDecisionTable:
         assert outcome.new_state == expected_state
         assert outcome.notification == expected_notification
 
+    @parameterized.expand(
+        [
+            (
+                "snooze_mutes_a_fire",
+                snapshot(snooze_until=SNOOZING),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "quiet_hours_mutes_a_fire",
+                snapshot(),
+                CheckInput(threshold_breached=True, muted=True),
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.FIRE,
+            ),
+            (
+                "snooze_mutes_a_resolve",
+                snapshot(state=AlertState.FIRING, snooze_until=SNOOZING, cooldown=timedelta(0)),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.RESOLVE,
+            ),
+            (
+                "a_mute_does_not_hold_an_error",
+                snapshot(snooze_until=SNOOZING),
+                ERROR,
+                AlertState.NOT_FIRING,
+                NotificationAction.ERROR,
+                NotificationAction.NONE,
+            ),
+            (
+                "an_unmuted_check_still_announces",
+                snapshot(),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+        ]
+    )
+    def test_a_mute_holds_the_announcement_without_changing_the_transition(
+        self,
+        _name: str,
+        snap: AlertSnapshot,
+        check: CheckInput,
+        expected_state: AlertState,
+        expected_notification: NotificationAction,
+        expected_muted: NotificationAction,
+    ) -> None:
+        outcome = evaluate_alert_check(snap, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        assert outcome.new_state == expected_state
+        assert outcome.notification == expected_notification
+        assert outcome.muted_notification == expected_muted
+        if expected_muted is not NotificationAction.NONE:
+            assert outcome.update_last_notified_at is False
+
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(
             snapshot(state=AlertState.ERRORED, consecutive_failures=3), INCONCLUSIVE, NOW, policy=LOGS_ALERT_POLICY
@@ -285,4 +348,109 @@ class TestPolicyDecisionTable:
             update_last_notified_at=False,
             error_message="query failed",
             disable=expected_disable,
+        )
+
+
+STARTED = NOW - timedelta(hours=2)
+
+
+def outcome(state: AlertState) -> AlertCheckOutcome:
+    return AlertCheckOutcome(
+        new_state=state,
+        notification=NotificationAction.NONE,
+        consecutive_failures=0,
+        update_last_notified_at=False,
+        error_message=None,
+    )
+
+
+def episode(started_at: datetime | None, *, ended: bool = False) -> FiringEpisode:
+    return FiringEpisode(started_at=started_at, ended=ended)
+
+
+class TestFiringEpisode:
+    @parameterized.expand(
+        [
+            ("first_fire", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.FIRING, episode(NOW)),
+            (
+                "same_firing",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            # A resolve keeps the firing it ended, which is what a history row and a thread key name.
+            (
+                "resolved",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.NOT_FIRING,
+                episode(STARTED, ended=True),
+            ),
+            (
+                "errored",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.ERRORED,
+                episode(STARTED, ended=True),
+            ),
+            ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
+            (
+                "firing_without_a_start",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                None,
+                AlertState.FIRING,
+                episode(None),
+            ),
+            # clear_check_ends_snooze parks a breached alert in SNOOZED, so the firing continues
+            # underneath the mute and resumes as the same one.
+            ("parked", SNOOZE_UNTIL_CLEAR, AlertState.FIRING, STARTED, AlertState.SNOOZED, episode(STARTED)),
+            (
+                "resumed",
+                SNOOZE_UNTIL_CLEAR,
+                AlertState.SNOOZED,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+            ("snoozed_at_rest", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.SNOOZED, None),
+            ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
+            # PENDING_RESOLVE is inside the firing: the condition cleared and the resolution is
+            # not announced yet, so neither leaving nor entering it starts a second firing.
+            (
+                "awaiting_resolve",
+                LOGS_ALERT_POLICY,
+                AlertState.FIRING,
+                STARTED,
+                AlertState.PENDING_RESOLVE,
+                episode(STARTED),
+            ),
+            (
+                "refired_while_awaiting",
+                LOGS_ALERT_POLICY,
+                AlertState.PENDING_RESOLVE,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+            ),
+        ]
+    )
+    def test_which_firing_a_check_concerns(
+        self,
+        _name: str,
+        policy: AlertPolicy,
+        state: AlertState,
+        started_at: datetime | None,
+        new_state: AlertState,
+        expected: FiringEpisode | None,
+    ) -> None:
+        assert (
+            decide_firing_episode(
+                snapshot(state=state, firing_started_at=started_at), outcome(new_state), NOW, policy=policy
+            )
+            == expected
         )

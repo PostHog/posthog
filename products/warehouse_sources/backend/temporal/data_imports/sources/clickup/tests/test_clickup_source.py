@@ -44,6 +44,16 @@ class TestClickUpSource:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only tasks expose ClickUp's server-side date_updated_gt filter.
-        assert incremental == {"tasks"}
+        # Only these two carry a server-side timestamp filter: date_updated_gt on tasks and
+        # start_date/end_date on time entries.
+        assert incremental == {"tasks", "time_entries"}
         assert all(schema.supports_append is False for schema in schemas)
+
+    def test_per_parent_fan_outs_are_not_preselected(self) -> None:
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # These two cost a request per task or per list on every sync, so a user opts into them
+        # rather than paying for them by accident.
+        assert schemas["task_time_in_status"].should_sync_default is False
+        assert schemas["list_custom_fields"].should_sync_default is False
+        assert schemas["tasks"].should_sync_default is True
