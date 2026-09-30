@@ -167,7 +167,10 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                     const teamId = values.currentTeamId
                     const { horizon_days, training_lookback_days, training_population, inference_population } =
                         values.newPipeline
-                    if (!teamId || !hasTarget(values.newPipeline)) {
+                    const { horizon_days: horizonError, training_lookback_days: lookbackError } =
+                        values.newPipelineValidationErrors
+                    // A cleared number input holds NaN, which serializes to null and the API rejects.
+                    if (!teamId || !hasTarget(values.newPipeline) || horizonError || lookbackError) {
                         return null
                     }
                     const { target_event, target_definition } = targetRequestFields(values.newPipeline)
