@@ -7,9 +7,9 @@ import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/
 
 import { tagsModel } from '~/models/tagsModel'
 
-import { announcementsLogic } from './announcementsLogic'
+import { shoutoutsLogic } from './shoutoutsLogic'
 
-export function AnnouncementAccountFilters(): JSX.Element {
+export function ShoutoutAccountFilters(): JSX.Element {
     const {
         accountSearch,
         accountTags,
@@ -20,7 +20,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
         filteredChannels,
         filteredAccountChannelIdsLoading,
         selectedChannelIds,
-    } = useValues(announcementsLogic)
+    } = useValues(shoutoutsLogic)
     const {
         setAccountSearch,
         setAccountTags,
@@ -30,7 +30,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
         clearAccountFilters,
         selectAllFilteredChannels,
         toggleChannel,
-    } = useActions(announcementsLogic)
+    } = useActions(shoutoutsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
 
     const tagsButtonLabel =
@@ -49,7 +49,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
                     onChange={setAccountSearch}
                     size="small"
                     className="min-w-64"
-                    data-attr="announcement-accounts-search"
+                    data-attr="shoutout-accounts-search"
                 />
                 <LemonDropdown
                     closeOnClickInside={false}
@@ -62,7 +62,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
                                 options={(tagsAvailable || []).map((tag: string) => ({ key: tag, label: tag }))}
                                 onChange={setAccountTags}
                                 placeholder="Select or type tags…"
-                                data-attr="announcement-accounts-tags-filter"
+                                data-attr="shoutout-accounts-tags-filter"
                             />
                         </div>
                     }
@@ -77,16 +77,16 @@ export function AnnouncementAccountFilters(): JSX.Element {
                     onAssignedToUserIdsChange={setAssignedTo}
                     onStatusChange={setAssignmentStatus}
                     dataAttrs={{
-                        unassigned: 'announcement-accounts-unassigned-filter',
-                        assigned: 'announcement-accounts-assigned-filter',
-                        all: 'announcement-accounts-all-assignment-filter',
+                        unassigned: 'shoutout-accounts-unassigned-filter',
+                        assigned: 'shoutout-accounts-assigned-filter',
+                        all: 'shoutout-accounts-all-assignment-filter',
                     }}
                 />
                 <LemonCheckbox
                     checked={assignedToCurrentUser}
                     onChange={setMyAccounts}
                     label="My accounts"
-                    data-attr="announcement-accounts-my-accounts-filter"
+                    data-attr="shoutout-accounts-my-accounts-filter"
                 />
                 {filtersActive && (
                     <LemonButton
@@ -108,7 +108,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
                             onClick={selectAllFilteredChannels}
                             loading={filteredAccountChannelIdsLoading}
                             disabledReason={filteredChannels.length === 0 ? 'No matching channels' : undefined}
-                            data-attr="announcement-select-filtered-channels"
+                            data-attr="shoutout-select-filtered-channels"
                         >
                             Select all
                         </LemonButton>
@@ -123,7 +123,7 @@ export function AnnouncementAccountFilters(): JSX.Element {
                                         onClick={() => toggleChannel(channel.key)}
                                         className={isSelected ? 'bg-accent-highlight' : undefined}
                                         title={isSelected ? 'Click to remove' : 'Click to add'}
-                                        data-attr="announcement-preview-channel"
+                                        data-attr="shoutout-preview-channel"
                                     >
                                         <span className="flex items-center gap-1">
                                             {isSelected && <IconCheck className="text-accent" />}

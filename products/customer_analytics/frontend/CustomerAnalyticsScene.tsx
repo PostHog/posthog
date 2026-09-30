@@ -30,7 +30,6 @@ import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIn
 
 import { AccountNotesTabContent } from './components/AccountNotes/AccountNotesTabContent'
 import { AccountsTabContent } from './components/Accounts/AccountsTabContent'
-import { AnnouncementsTabContent } from './components/Announcements/AnnouncementsTabContent'
 import { CustomerJourneys } from './components/CustomerJourneys/CustomerJourneys'
 import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJourneySelect'
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
@@ -42,6 +41,7 @@ import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { ShoutoutsTabContent } from './components/Shoutouts/ShoutoutsTabContent'
 import { TaskDigestButton } from './components/TaskDigest/TaskDigestButton'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
@@ -90,11 +90,11 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts, Notes, Announcements and Feed are gated by CUSTOMER_ANALYTICS_CSP; without it the
-    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,announcements,feed}` URLs
+    // Accounts, Notes, Shoutouts and Feed are gated by CUSTOMER_ANALYTICS_CSP; without it the
+    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,shoutouts,feed}` URLs
     // are 404s.
     if (
-        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements' || activeTab === 'feed') &&
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'shoutouts' || activeTab === 'feed') &&
         !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
     ) {
         return <NotFound object="page" />
@@ -167,10 +167,10 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             link: tabLink(urls.customerAnalyticsNotes(), 'notes'),
         })
         tabs.push({
-            key: 'announcements',
-            label: 'Announcements',
-            content: <AnnouncementsTabContent />,
-            link: tabLink(urls.customerAnalyticsAnnouncements(), 'announcements'),
+            key: 'shoutouts',
+            label: 'Shoutouts',
+            content: <ShoutoutsTabContent />,
+            link: tabLink(urls.customerAnalyticsShoutouts(), 'shoutouts'),
         })
     }
 

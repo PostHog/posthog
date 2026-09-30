@@ -10,13 +10,13 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { announcementsLogic } from './announcementsLogic'
+import { shoutoutsLogic } from './shoutoutsLogic'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 const mockPerformQuery = performQuery as jest.Mock
 
-describe('announcementsLogic', () => {
-    let logic: ReturnType<typeof announcementsLogic.build>
+describe('shoutoutsLogic', () => {
+    let logic: ReturnType<typeof shoutoutsLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -51,7 +51,7 @@ describe('announcementsLogic', () => {
     })
 
     it('loads customer-labeled member channels on mount when Slack is connected', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         await expectLogic(logic)
             .toDispatchActions(['loadMemberChannels', 'loadMemberChannelsSuccess'])
@@ -63,7 +63,7 @@ describe('announcementsLogic', () => {
 
     it('loads channels when Slack connects after mount, not only at mount time', async () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_settings: { slack_enabled: false } })
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         await expectLogic(logic).toMatchValues({ slackConnected: false })
         expect(logic.values.memberChannels).toEqual([])
@@ -78,28 +78,28 @@ describe('announcementsLogic', () => {
     })
 
     it('blocks submit with an empty message', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         await expectLogic(logic).toMatchValues({ submitDisabledReason: 'Enter a message' })
     })
 
     it('blocks submit when no channels are selected', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         logic.actions.setMessage('Offsite this week')
         await expectLogic(logic).toMatchValues({ submitDisabledReason: 'Select at least one channel' })
     })
 
     it('submits, clears the draft, and reloads history', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         logic.actions.setMessage('Offsite this week')
         logic.actions.setSelectedChannelIds(['C1'])
 
         await expectLogic(logic, () => {
-            logic.actions.submitAnnouncement()
+            logic.actions.submitShoutout()
         })
-            .toDispatchActions(['submitAnnouncement', 'loadAnnouncements'])
+            .toDispatchActions(['submitShoutout', 'loadShoutouts'])
             .toFinishAllListeners()
 
         expect(logic.values.messageDraft).toBe('')
@@ -125,7 +125,7 @@ describe('announcementsLogic', () => {
                 [['NoChannel', 'ext-n', 'id-n'], ''], // matched account with no channel
             ],
         })
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadMemberChannelsSuccess'])
 
@@ -150,7 +150,7 @@ describe('announcementsLogic', () => {
     })
 
     it('toggles an individual channel on and off', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadMemberChannelsSuccess'])
 
@@ -169,7 +169,7 @@ describe('announcementsLogic', () => {
         ['unassigned', { allRolesUnassigned: true }],
     ] as const)('maps the %s status to the accounts query', async (status, expectedFilter) => {
         mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
 
         await expectLogic(logic, () => {
@@ -181,7 +181,7 @@ describe('announcementsLogic', () => {
 
     it('treats "my accounts" as the current user and keeps assignment state canonical', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         userLogic.actions.loadUserSuccess({ id: 7, email: 'me@example.com' } as UserType)
 
@@ -199,14 +199,14 @@ describe('announcementsLogic', () => {
     })
 
     it('does not submit while a send is already in flight', async () => {
-        logic = announcementsLogic()
+        logic = shoutoutsLogic()
         logic.mount()
         logic.actions.setMessage('Offsite this week')
         logic.actions.setSelectedChannelIds(['C1'])
         logic.actions.setSubmitting(true)
 
         await expectLogic(logic, () => {
-            logic.actions.submitAnnouncement()
+            logic.actions.submitShoutout()
         }).toFinishAllListeners()
 
         expect(logic.values.messageDraft).toBe('Offsite this week')
