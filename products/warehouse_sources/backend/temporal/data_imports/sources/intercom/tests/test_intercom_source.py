@@ -1,6 +1,7 @@
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
@@ -87,6 +88,18 @@ class TestIntercomSource:
         # scroll-expiry case above does.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg,expected",
+        [
+            ("503 Server Error: Service Unavailable for url: https://api.intercom.io/conversations/123", True),
+            ("502 Server Error: Bad Gateway for url: https://api.intercom.io/companies/scroll", True),
+            ("401 Client Error: Unauthorized for url: https://api.intercom.io/conversations/123", False),
+            ("403 Client Error: Forbidden for url: https://api.intercom.io/conversations/123", False),
+        ],
+    )
+    def test_server_errors_are_retryable_but_auth_errors_are_not(self, error_msg, expected):
+        assert error_message_matches(error_msg, self.source.get_retryable_errors()) is expected
 
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

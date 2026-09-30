@@ -72,9 +72,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # budget exhausts it and the raw error propagates — a fresh Temporal attempt opens
         # cleanly once the stale scroll has expired, so this is the same self-recovering
         # case as the 404 above, just surfaced later.
+        #
+        # Intercom sometimes returns a short 5xx on any endpoint, for example a
+        # per-conversation fetch during a `conversation_parts` sync. The transport retry
+        # budget is only a few seconds, and a fresh Temporal attempt recovers. The pattern
+        # does not match 401 or 403, because those raise as "Client Error".
         return {
             "Not Found for url: https://api.intercom.io/companies/scroll",
             "Bad Request for url: https://api.intercom.io/companies/scroll",
+            "Server Error",
         }
 
     @property
