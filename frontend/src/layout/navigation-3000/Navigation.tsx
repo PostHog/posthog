@@ -146,7 +146,7 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout,
+                    'app-layout--mobile': mobileLayout && !todayRail,
                     TodayAppLayout: todayRail,
                 })}
                 style={
@@ -182,6 +182,7 @@ export function Navigation({
                         className={cn(
                             '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
                             {
+                                'rounded border mr-1 mb-1 mt-1': todayRail,
                                 'rounded-r-none': sidePanelOpen,
                             }
                         )}
