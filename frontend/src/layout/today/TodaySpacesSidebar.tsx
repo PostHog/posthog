@@ -11,6 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { TodayPaneRow } from './TodayPaneRow'
 import { TodayPaneSection } from './TodayPaneSection'
+import { TodaySessionMenu } from './TodaySessionMenu'
+import { todaySessionMenuLogic } from './todaySessionMenuLogic'
+import { TodaySessionRenameInput } from './TodaySessionRenameInput'
 import { spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodayWorkItem, shortTimeAgo } from './todayWorkItems'
 
@@ -33,20 +36,30 @@ export function TodaySpacesSidebar(): JSX.Element {
     } = useValues(todaySpacesLogic)
     const { toggleSpace, loadSpaces, loadSpaceTasks, loadRecentTasks, toggleSection, setBrowsingSpaces } =
         useActions(todaySpacesLogic)
+    const { renamingSessionId } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const onAi = location.pathname.endsWith('/ai')
+    const pinnedIds = new Set(pinnedItems.map((item) => item.id))
 
-    const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element => (
-        <TodayPaneRow
-            key={`${item.kind}-${item.id}`}
-            label={item.title || (item.kind === 'chat' ? 'Untitled chat' : 'Untitled session')}
-            icon={<span className="TodayPane__dot" data-kind={item.kind} data-status={item.status ?? undefined} />}
-            meta={shortTimeAgo(item.timestamp)}
-            to={item.kind === 'chat' ? urls.ai(item.id) : urls.aiTask(item.id)}
-            active={onAi && (item.kind === 'chat' ? searchParams.chat : searchParams.task) === item.id}
-            dataAttr={dataAttr}
-        />
-    )
+    const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
+        item.kind === 'session' && renamingSessionId === item.id ? (
+            <TodaySessionRenameInput key={`${item.kind}-${item.id}`} sessionId={item.id} title={item.title} />
+        ) : (
+            <TodayPaneRow
+                key={`${item.kind}-${item.id}`}
+                label={item.title || (item.kind === 'chat' ? 'Untitled chat' : 'Untitled session')}
+                icon={<span className="TodayPane__dot" data-kind={item.kind} data-status={item.status ?? undefined} />}
+                meta={shortTimeAgo(item.timestamp)}
+                to={item.kind === 'chat' ? urls.ai(item.id) : urls.aiTask(item.id)}
+                active={onAi && (item.kind === 'chat' ? searchParams.chat : searchParams.task) === item.id}
+                dataAttr={dataAttr}
+                action={
+                    item.kind === 'session' ? (
+                        <TodaySessionMenu sessionId={item.id} pinned={pinnedIds.has(item.id)} spaceId={item.channel} />
+                    ) : null
+                }
+            />
+        )
 
     const hasPinned = pinnedItems.length > 0
 
@@ -100,19 +113,34 @@ export function TodaySpacesSidebar(): JSX.Element {
                     ) : !recentItems.length ? (
                         <div className="TodayPane__state">Sessions and chats you open show up here.</div>
                     ) : (
-                        recentGroups.map((group, index) => (
-                            <Fragment key={group.key}>
-                                <div className={cn('TodayPane__group', index === 0 && 'TodayPane__group--first')}>
-                                    {group.label}
+                        <>
+                            {recentTasksUnavailable && (
+                                <div className="TodayPane__state">
+                                    <span>Some sessions didn’t load.</span>
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        onClick={() => loadRecentTasks()}
+                                        data-attr="today-recent-retry"
+                                    >
+                                        Try again
+                                    </LemonButton>
                                 </div>
-                                {group.items.map((item) =>
-                                    renderItem(
-                                        item,
-                                        item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
-                                    )
-                                )}
-                            </Fragment>
-                        ))
+                            )}
+                            {recentGroups.map((group, index) => (
+                                <Fragment key={group.key}>
+                                    <div className={cn('TodayPane__group', index === 0 && 'TodayPane__group--first')}>
+                                        {group.label}
+                                    </div>
+                                    {group.items.map((item) =>
+                                        renderItem(
+                                            item,
+                                            item.kind === 'chat' ? 'today-recent-chat' : 'today-recent-session'
+                                        )
+                                    )}
+                                </Fragment>
+                            ))}
+                        </>
                     )}
                 </TodayPaneSection>
                 <TodayPaneSection

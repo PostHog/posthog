@@ -12,6 +12,7 @@ export interface TodayWorkItem {
     title: string
     timestamp: string | null
     status: string | null
+    channel: string | null
 }
 
 export interface TodayWorkGroup {
@@ -27,6 +28,7 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         title: task.title,
         timestamp: task.last_activity_at ?? task.updated_at ?? task.created_at ?? null,
         status: task.latest_run?.status ?? null,
+        channel: task.channel ?? null,
     }
 }
 
@@ -37,6 +39,7 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         title: conversation.title ?? '',
         timestamp: conversation.updated_at ?? conversation.created_at,
         status: null,
+        channel: null,
     }
 }
 
