@@ -49,10 +49,10 @@ use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     database::{get_connection_with_metrics, PostgresRouter},
     flags::{
-        cache_builder::compute_flag_dependencies,
+        cache_builder::compute_flag_dependencies_or_single_stage,
         feature_flag_list::PreparedFlags,
         flag_matching::FeatureFlagMatcher,
-        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagList},
+        flag_models::{FeatureFlag, FeatureFlagList},
     },
     handler::authentication::is_internal_request_inner,
     metrics::consts::{
@@ -524,15 +524,8 @@ async fn handle_batch_flag_evaluation(
         .map(|f| f.id)
         .collect();
 
-    // Real dependency stages (like the hypercache path) rather than the PG fallback's
-    // single stage, so flag-dependency conditions on the target flag evaluate correctly.
-    let evaluation_metadata = compute_flag_dependencies(&flags_vec).unwrap_or_else(|e| {
-        warn!(
-            team_id = request.team_id,
-            "Batch eval falling back to single-stage flag metadata: {e}"
-        );
-        EvaluationMetadata::single_stage(&flags_vec)
-    });
+    let evaluation_metadata =
+        compute_flag_dependencies_or_single_stage(request.team_id, &flags_vec);
 
     let flag_list = FeatureFlagList {
         flags: PreparedFlags::seal(flags_vec),

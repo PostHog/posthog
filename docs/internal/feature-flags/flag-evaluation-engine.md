@@ -437,13 +437,15 @@ Rust deserializes `EvaluationMetadata` and maps pre-grouped stages directly to `
 
 #### Fallback path (PostgreSQL)
 
-When `evaluation_metadata` is absent (PG fallback, old cache entries), the service builds a DAG using `petgraph`:
+On a hypercache miss, the service loads flags from Postgres and computes the same metadata with `compute_flag_dependencies_or_single_stage()` in `cache_builder.rs`, which builds a DAG using `petgraph`:
 
 1. Extract dependencies from all flag property filters
 2. Build a directed graph (edges from dependent -> dependency)
 3. Detect and remove cycles (cycle-starting nodes and all their dependents are removed)
 4. Track missing dependencies (flags depending on non-existent flags)
 5. Compute topological evaluation stages using Kahn's algorithm
+
+If `compute_flag_dependencies()` returns an error, every flag goes in one stage.
 
 #### Backwards compatibility
 
