@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -13,7 +14,9 @@ from products.alerts.backend.models import PlatformAlert, PlatformAlertConfigura
 
 
 class TestPlatformAlertAPI(APIBaseTest):
-    def _create_configuration(self, team: Team, name: str) -> PlatformAlertConfiguration:
+    def _create_configuration(
+        self, team: Team, name: str, legacy_configuration_id: UUID | None = None
+    ) -> PlatformAlertConfiguration:
         with team_scope(team.id):
             return PlatformAlertConfiguration.objects.create(
                 team=team,
@@ -24,6 +27,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 threshold_operator="above",
                 window_minutes=5,
                 check_interval_minutes=10,
+                legacy_configuration_id=legacy_configuration_id,
             )
 
     def _set_flag(self, enabled: bool) -> None:
@@ -44,7 +48,8 @@ class TestPlatformAlertAPI(APIBaseTest):
 
     def test_list_returns_own_configurations_with_nested_alerts(self) -> None:
         self._set_flag(True)
-        configuration = self._create_configuration(self.team, "API errors")
+        legacy_configuration_id = uuid4()
+        configuration = self._create_configuration(self.team, "API errors", legacy_configuration_id)
         firing_started_at = datetime(2026, 9, 16, 10, tzinfo=UTC)
         with team_scope(self.team.id):
             PlatformAlert.objects.create(
@@ -66,6 +71,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert list_response.status_code == status.HTTP_200_OK, list_response.json()
         results = list_response.json()["results"]
         assert [r["id"] for r in results] == [str(configuration.id)]
+        assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
         assert results[0]["alerts"] == [
             {
                 "id": results[0]["alerts"][0]["id"],

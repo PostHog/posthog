@@ -66412,6 +66412,11 @@ export namespace Schemas {
       readonly next_check_at: string | null;
       /** Number of checks in a row that failed to evaluate. */
       readonly consecutive_failures: number;
+      /**
+         * ID of the legacy source configuration this row was backfilled from. Null for alerts created on the platform.
+         * @nullable
+         */
+      readonly legacy_configuration_id: string | null;
       /** When the configuration was created. */
       readonly created_at: string;
       /** When the configuration was last changed. */

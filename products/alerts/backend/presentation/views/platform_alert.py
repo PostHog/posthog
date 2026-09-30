@@ -64,6 +64,7 @@ class PlatformAlertConfigurationSerializer(serializers.ModelSerializer):
             "schedule_restriction",
             "next_check_at",
             "consecutive_failures",
+            "legacy_configuration_id",
             "created_at",
             "updated_at",
             "alerts",
@@ -85,6 +86,10 @@ class PlatformAlertConfigurationSerializer(serializers.ModelSerializer):
             "cooldown_minutes": {"help_text": "Minimum minutes between notifications for the same alert."},
             "next_check_at": {"help_text": "When the next check is due. Null when no check is scheduled."},
             "consecutive_failures": {"help_text": "Number of checks in a row that failed to evaluate."},
+            "legacy_configuration_id": {
+                "help_text": "ID of the legacy source configuration this row was backfilled from. "
+                "Null for alerts created on the platform."
+            },
             "created_at": {"help_text": "When the configuration was created."},
             "updated_at": {"help_text": "When the configuration was last changed."},
         }
