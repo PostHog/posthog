@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -61,9 +62,10 @@ class MetricSeries:
     app_source_id: str
 
 
-# Every hog flow metric is mirrored under this app source with the version appended to the flow id,
-# which is what makes a per-version read possible. Written by the CDP worker's monitoring service.
-HOG_FLOW_VERSION_APP_SOURCE = "hog_flow_version"
+# Query parameters that pick a narrower series than the object's whole history. An endpoint whose
+# serializer does not declare one refuses it, because dropping it silently answers from the whole
+# history under the name of the narrower number.
+SERIES_NARROWING_PARAMS = frozenset({"version"})
 
 
 class AppMetricsRequestSerializer(serializers.Serializer):
@@ -99,21 +101,6 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         required=False,
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
-    )
-
-
-class HogFlowMetricsRequestSerializer(AppMetricsRequestSerializer):
-    """The workflow metrics request: the shared parameters plus `version`, which only workflows can
-    answer. Kept off the shared serializer so the hog function tools never advertise a parameter
-    their endpoint refuses."""
-
-    version = serializers.IntegerField(
-        required=False,
-        help_text=(
-            "Read one workflow version's series: every run of that version, keyed on the workflow. "
-            "The unversioned read keys batch and broadcast runs on the run instead, so it is not the "
-            "sum of the versions; compare versions with each other, not with it."
-        ),
     )
 
 
@@ -533,7 +520,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), team.timezone_info)
         before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), team.timezone_info)
 
-        series = self._metric_series_for(obj, params.get("version"))
+        series = self._metric_series_for(obj, params)
         data = fetch_app_metrics_trends(
             team_id=self.team_id,  # type: ignore
             app_source=series.app_source,
@@ -553,25 +540,17 @@ class AppMetricsMixin(viewsets.GenericViewSet):
 
     def _metrics_params(self, request: Request) -> AppMetricsRequestSerializer:
         serializer = self.metrics_request_serializer_class(data=request.query_params)
-        # A serializer ignores a parameter it does not declare, so `version` on an object without versions
-        # would read the whole history.
-        if "version" in request.query_params and "version" not in serializer.fields:
-            raise serializers.ValidationError({"version": "Only workflow metrics are recorded per version."})
+        # A serializer ignores a parameter it does not declare, so a narrowing parameter this endpoint
+        # cannot honour is refused rather than dropped.
+        for param in SERIES_NARROWING_PARAMS & request.query_params.keys():
+            if param not in serializer.fields:
+                raise serializers.ValidationError({param: f"This endpoint does not record metrics per {param}."})
         return serializer
 
-    def _metric_series_for(self, obj, version: int | None) -> "MetricSeries":
-        """Which app-metric series to read: the object's whole history, or one workflow version.
-
-        Every hog flow metric is mirrored under `hog_flow_version` with the version appended to the
-        id, which is what makes "before and after this change" answerable at all. Nothing mirrors
-        hog function metrics that way, so a version there is refused rather than answered from an
-        empty series that would read as "no failures".
-        """
-        if version is None:
-            return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
-        if self.app_source != "hog_flow":
-            raise serializers.ValidationError({"version": "Only workflow metrics are recorded per version."})
-        return MetricSeries(app_source=HOG_FLOW_VERSION_APP_SOURCE, app_source_id=f"{obj.id}/{version}")
+    def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
+        """The series this request reads. A viewset that also records a narrower series overrides
+        this and keys it on the narrowing parameters its own serializer declares."""
+        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
 
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
@@ -600,7 +579,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
 
-        series = self._metric_series_for(obj, params.get("version"))
+        series = self._metric_series_for(obj, params)
         data = fetch_app_metric_totals(
             team_id=self.team_id,  # type: ignore
             app_source=series.app_source,
