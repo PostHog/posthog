@@ -25,6 +25,7 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from '../../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { DiscoveredValuesQuickFilterSelect } from './DiscoveredValuesQuickFilterSelect'
 
 const ANY_OPTION = '__any__'
 
@@ -41,7 +42,7 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
             logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY,
         })
     )
-    const selectedOptionId = selectedQuickFilters[filter.id]?.optionId ?? ANY_OPTION
+    const selectedOptionId = selectedQuickFilters[filter.id]?.optionId ?? null
     const items = useMemo(
         () => [
             { value: ANY_OPTION, label: `Any ${filter.name.toLowerCase()}` },
@@ -50,10 +51,22 @@ const QuickFilterSelect = ({ filter }: { filter: QuickFilter }): JSX.Element => 
         [filter.name, filter.options]
     )
 
+    if (filter.type === 'auto-discovery') {
+        return (
+            <DiscoveredValuesQuickFilterSelect
+                filter={filter}
+                selectedOptionId={selectedOptionId}
+                onChange={(option) =>
+                    option ? setQuickFilterValue(filter.id, filter.property_name, option) : clearQuickFilter(filter.id)
+                }
+            />
+        )
+    }
+
     return (
         <Select
             items={items}
-            value={selectedOptionId}
+            value={selectedOptionId ?? ANY_OPTION}
             onValueChange={(selectedId) => {
                 if (selectedId === ANY_OPTION) {
                     clearQuickFilter(filter.id)

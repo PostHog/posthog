@@ -52,7 +52,25 @@ const mockQuickFilters: QuickFilter[] = [
         created_at: '2024-01-01',
         updated_at: '2024-01-01',
     },
+    {
+        id: 'filter-4',
+        name: 'Release',
+        property_name: '$release',
+        type: 'auto-discovery',
+        options: [],
+        contexts: [QuickFilterContext.ErrorTrackingIssueFilters],
+        created_at: '2024-01-01',
+        updated_at: '2024-01-01',
+    },
 ]
+
+const autoDiscoveredSelection = (value: string): Record<string, unknown> => ({
+    filterId: 'filter-4',
+    propertyName: '$release',
+    optionId: value,
+    value,
+    operator: PropertyOperator.Exact,
+})
 
 describe('quickFiltersSectionLogic', () => {
     let logic: ReturnType<typeof quickFiltersSectionLogic.build>
@@ -173,7 +191,12 @@ describe('quickFiltersSectionLogic', () => {
                         operator: PropertyOperator.Exact,
                     },
                 },
-                expectedParam: 'filter-1:opt:with:colons',
+                expectedParam: 'filter-1:opt%3Awith%3Acolons',
+            },
+            {
+                description: 'auto-discovered values containing separators are encoded',
+                selections: { 'filter-4': autoDiscoveredSelection('v1,2:beta') },
+                expectedParam: 'filter-4:v1%2C2%3Abeta',
             },
         ])('$description', async ({ selections, expectedParam }) => {
             await expectLogic(logic, () => {
@@ -265,6 +288,14 @@ describe('quickFiltersSectionLogic', () => {
             })
         })
 
+        it('restores auto-discovered values that no option lists', async () => {
+            await mountWithUrl(`filter-4:${encodeURIComponent('v1,2:beta')}`)
+
+            expectLogic(logic).toMatchValues({
+                selectedQuickFilters: { 'filter-4': autoDiscoveredSelection('v1,2:beta') },
+            })
+        })
+
         it('ignores unknown filter IDs in URL', async () => {
             await mountWithUrl('nonexistent:opt-1')
 
@@ -325,6 +356,43 @@ describe('quickFiltersSectionLogic', () => {
                     },
                 })
         })
+
+        it.each([
+            {
+                description: 'keeps an auto-discovered selection when the filter is renamed',
+                selectedFilter: mockQuickFilters[3],
+                selectedOption: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                updatedFilter: { ...mockQuickFilters[3], name: 'Version' },
+                expectedAction: 'setQuickFilterValue',
+                expectedSelection: { 'filter-4': autoDiscoveredSelection('v1') },
+            },
+            {
+                description: 'clears an auto-discovered selection when the property changes',
+                selectedFilter: mockQuickFilters[3],
+                selectedOption: { id: 'v1', value: 'v1', label: 'v1', operator: PropertyOperator.Exact },
+                updatedFilter: { ...mockQuickFilters[3], property_name: '$app_version' },
+                expectedAction: 'clearQuickFilter',
+                expectedSelection: {},
+            },
+            {
+                description: 'clears a manual selection when the filter switches to auto-discovery',
+                selectedFilter: mockQuickFilters[0],
+                selectedOption: mockOption1,
+                updatedFilter: { ...mockQuickFilters[0], type: 'auto-discovery' as const, options: [] },
+                expectedAction: 'clearQuickFilter',
+                expectedSelection: {},
+            },
+        ])(
+            '$description',
+            async ({ selectedFilter, selectedOption, updatedFilter, expectedAction, expectedSelection }) => {
+                await expectLogic(logic, () => {
+                    logic.actions.setQuickFilterValue(selectedFilter.id, selectedFilter.property_name, selectedOption)
+                    logic.actions.filterUpdated(updatedFilter)
+                })
+                    .toDispatchActions(['setQuickFilterValue', 'filterUpdated', expectedAction])
+                    .toMatchValues({ selectedQuickFilters: expectedSelection })
+            }
+        )
 
         it('clears selection when selected option is removed', async () => {
             const updatedFilter: QuickFilter = {
