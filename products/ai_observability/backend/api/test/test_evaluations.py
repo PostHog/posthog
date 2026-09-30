@@ -240,8 +240,9 @@ class TestEvaluationConfigsApi(APIBaseTest):
         ]
     )
     @patch("products.ai_observability.backend.api.evaluations.posthog_feature_flag_enabled", return_value=True)
+    @patch("products.ai_observability.backend.api.evaluations.report_user_action")
     def test_passing_rule_controls_report_creation_and_scheduling(
-        self, output_type: str, enabled: bool, frequency: str, _mock_numeric_flag: Mock
+        self, output_type: str, enabled: bool, frequency: str, mock_report: Mock, _mock_numeric_flag: Mock
     ) -> None:
         output_config = (
             {"min": 0, "max": 10}
@@ -261,11 +262,17 @@ class TestEvaluationConfigsApi(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201, response.json())
+        created_properties = mock_report.call_args.args[2]
+        self.assertEqual(created_properties["output_type"], output_type)
+        self.assertEqual(created_properties["evaluation_type"], "hog")
+        self.assertEqual(created_properties["target"], "generation")
+        self.assertFalse(created_properties["has_passing_rule"])
         evaluation = Evaluation.objects.get(id=response.json()["id"])
         self.assertFalse(EvaluationReport.objects.filter(evaluation=evaluation).exists())
         url = f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/"
         response = self.client.patch(url, {"output_config": {"passing_rule": rule}})
         self.assertEqual(response.status_code, 200, response.json())
+        self.assertTrue(mock_report.call_args.args[2]["has_passing_rule"])
         self.assertTrue(output_config.items() <= response.json()["output_config"].items())
         report = EvaluationReport.objects.get(evaluation=evaluation)
         self.assertEqual(EvaluationReport.objects.deliverable().filter(id=report.id).exists(), enabled)
@@ -1542,6 +1549,8 @@ class TestTestHogEndpoint(APIBaseTest):
         self.assertIsNone(result["result"])
         self.assertIsNone(result["error"])
         counts = mock_report.call_args.args[2]
+        self.assertEqual(counts["output_type"], "numeric")
+        self.assertEqual(counts["trigger"], "preview")
         self.assertEqual(counts["pass_count"], passed)
         self.assertEqual(counts["fail_count"], failed)
         self.assertEqual(counts["na_count"], 0)

@@ -1,6 +1,7 @@
 import json
 import uuid
 import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -27,6 +28,10 @@ from posthog.temporal.ai_observability.metrics import increment_emit_event_outco
 from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.ai_observability.backend.evaluation_usage import (
+    capture_evaluation_usage,
+    evaluation_output_usage_properties,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -89,6 +94,7 @@ def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
             "evaluation_config": evaluation.evaluation_config,
             "output_type": evaluation.output_type,
             "output_config": evaluation.output_config,
+            "target": evaluation.target,
             "team_id": evaluation.team_id,
             "model_configuration": model_configuration,
             "enabled": evaluation.enabled,
@@ -146,7 +152,19 @@ async def disable_evaluation_activity(
 
             was_enabled = evaluation.enabled
             evaluation.set_status("error", reason, status_reason_detail)
-            return was_enabled
+        if was_enabled:
+            capture_evaluation_usage(
+                team_id,
+                "llma evaluation automatically disabled",
+                {
+                    "evaluation_id": str(evaluation.id),
+                    "evaluation_type": evaluation.evaluation_type,
+                    "target": evaluation.target,
+                    "status_reason": reason,
+                    **evaluation_output_usage_properties(evaluation.output_type, evaluation.output_config),
+                },
+            )
+        return was_enabled
 
     return await database_sync_to_async(_disable)()
 
@@ -353,6 +371,38 @@ def _evaluation_event_uuid() -> str | None:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
 
 
+def capture_evaluation_run_usage(
+    evaluation: Mapping[str, object],
+    result: EvaluationActivityResult,
+    *,
+    team_id: int,
+    target: str,
+    start_time: datetime,
+    backfill_id: str | None = None,
+) -> None:
+    output_config = evaluation.get("output_config")
+    run_id = _evaluation_event_uuid()
+    capture_evaluation_usage(
+        team_id,
+        "llma evaluation run recorded",
+        {
+            "evaluation_id": str(evaluation["id"]),
+            "evaluation_type": evaluation.get("evaluation_type", "llm_judge"),
+            "target": target,
+            **evaluation_output_usage_properties(
+                result["result_type"], output_config if isinstance(output_config, dict) else None
+            ),
+            "status": "skipped" if result.get("skipped") else "completed",
+            "applicable": not result.get("skipped", False) and result.get("applicable", True),
+            "skip_reason": result.get("skip_reason"),
+            "trigger": "backfill" if backfill_id else "live",
+            "run_id": run_id,
+        },
+        timestamp=start_time,
+        event_uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://evaluation-usage/{run_id}") if run_id else None,
+    )
+
+
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
     """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
     pipeline for cost calculation. A billing-limited capture drops the event without failing
@@ -409,6 +459,14 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             ),
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
+        )
+        capture_evaluation_run_usage(
+            evaluation,
+            result,
+            team_id=event_data["team_id"],
+            target="generation",
+            start_time=start_time,
+            backfill_id=inputs.backfill_id,
         )
 
     try:

@@ -42,6 +42,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_observability.backend.evaluation_usage import evaluation_output_usage_properties
 
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
@@ -1136,6 +1137,9 @@ def _test_hog_over_sessions(
         request.user,
         "llma evaluation hog code tested",
         {
+            **evaluation_output_usage_properties(output_type, output_config),
+            "evaluation_type": "hog",
+            "trigger": "preview",
             "sample_count": sample_count,
             "results_count": len(results),
             **_hog_test_result_counts(results, output_type, output_config),
@@ -1214,6 +1218,9 @@ def _test_hog_over_traces(
         request.user,
         "llma evaluation hog code tested",
         {
+            **evaluation_output_usage_properties(output_type, output_config),
+            "evaluation_type": "hog",
+            "trigger": "preview",
             "sample_count": sample_count,
             "allows_na": allows_na,
             "condition_count": len(conditions),
@@ -1312,7 +1319,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "evaluation_id": str(instance.id),
                 "evaluation_name": instance.name,
                 "evaluation_type": instance.evaluation_type,
-                "output_type": instance.output_type,
+                "target": instance.target,
+                **evaluation_output_usage_properties(instance.output_type, instance.output_config),
                 "has_description": bool(instance.description),
                 "enabled": instance.enabled,
                 "condition_count": condition_count,
@@ -1406,6 +1414,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         elif changed_fields:
             event_properties: dict[str, Any] = {
                 "evaluation_id": str(instance.id),
+                "evaluation_type": instance.evaluation_type,
+                "target": instance.target,
+                **evaluation_output_usage_properties(instance.output_type, instance.output_config),
                 "changed_fields": changed_fields,
             }
 
@@ -1571,6 +1582,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 request.user,
                 "llma evaluation hog code tested",
                 {
+                    **evaluation_output_usage_properties(output_type, output_config),
+                    "evaluation_type": "hog",
+                    "trigger": "preview",
                     "sample_count": sample_count,
                     "allows_na": allows_na,
                     "condition_count": len(conditions),
@@ -1638,6 +1652,9 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             request.user,
             "llma evaluation hog code tested",
             {
+                **evaluation_output_usage_properties(output_type, output_config),
+                "evaluation_type": "hog",
+                "trigger": "preview",
                 "sample_count": sample_count,
                 "allows_na": allows_na,
                 "condition_count": len(conditions),

@@ -54,6 +54,7 @@ from posthog.temporal.ai_observability.eval_reports.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.ai_observability.backend.evaluation_usage import capture_evaluation_usage
 from products.ai_observability.backend.models.evaluation_configs import evaluation_supports_reports
 
 if TYPE_CHECKING:
@@ -857,6 +858,19 @@ async def store_report_run_activity(
             team=team,
             distinct_id=f"eval_report_{inputs.team_id}",
             properties=properties,
+        )
+        capture_evaluation_usage(
+            inputs.team_id,
+            "llma evaluation report generated",
+            {
+                "evaluation_id": inputs.evaluation_id,
+                "report_id": str(run.report_id),
+                "report_run_id": str(run.id),
+                "output_type": parsed_metrics.output_type if parsed_metrics is not None else None,
+                "target": evaluation_target,
+                "generation_status": generation_status.value,
+            },
+            event_uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://evaluation-report-usage/{run.id}"),
         )
 
         return str(run.id)

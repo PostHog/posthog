@@ -91,6 +91,111 @@ from .run_evaluation import (
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
 )
+from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_evaluation_event_activity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["generation", "trace", "session"])
+@pytest.mark.parametrize(
+    "evaluation_type,result,backfill_id,status,applicable",
+    [
+        ("hog", {"result_type": "numeric", "score": 987654.321, "reasoning": "private"}, None, "completed", True),
+        (
+            "llm_judge",
+            {"result_type": "categorical", "categories": [], "reasoning": "private"},
+            "backfill",
+            "completed",
+            True,
+        ),
+        (
+            "hog",
+            {"result_type": "categorical", "skipped": True, "skip_reason": "hog_input_error", "reasoning": "private"},
+            None,
+            "skipped",
+            False,
+        ),
+        (
+            "llm_judge",
+            {"result_type": "numeric", "applicable": False, "allows_na": True, "reasoning": "private"},
+            None,
+            "completed",
+            False,
+        ),
+    ],
+)
+async def test_run_usage_covers_targets_without_customer_results(
+    target: str,
+    evaluation_type: str,
+    result: EvaluationActivityResult,
+    backfill_id: str | None,
+    status: str,
+    applicable: bool,
+) -> None:
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Private name",
+        "evaluation_type": evaluation_type,
+        "output_config": {
+            "options": [{"key": "private_key", "label": "Private label"}],
+            "passing_rule": {"categories": []},
+        },
+    }
+    started_at = datetime(2026, 9, 1, tzinfo=UTC)
+    groups = {"organization": "test-org", "project": "test-project", "instance": "https://example.com"}
+    module = "products.ai_observability.backend.evaluation_usage"
+    env = ActivityEnvironment()
+    with (
+        patch(f"{module}._usage_groups", return_value=groups),
+        patch(f"{module}.ph_background_capture") as capture,
+        patch("posthog.temporal.ai_observability.evaluation_workflow_activities.capture_ai_internal_for_team"),
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team"),
+    ):
+        if target == "generation":
+            inputs = EmitEvaluationEventInputs(
+                evaluation=evaluation,
+                event_data=create_mock_event_data(1),
+                result=result,
+                start_time=started_at,
+                backfill_id=backfill_id,
+            )
+            await env.run(emit_evaluation_event_activity, inputs)
+            await env.run(emit_evaluation_event_activity, inputs)
+        else:
+            trace_inputs = EmitTraceEvaluationEventInputs(
+                evaluation=evaluation,
+                team_id=1,
+                trace_id="private-trace",
+                distinct_id="private-user",
+                session_id=None,
+                result=result,
+                start_time=started_at,
+                target=target,
+                ai_session_id="private-session",
+                backfill_id=backfill_id,
+            )
+            await env.run(emit_trace_evaluation_event_activity, trace_inputs)
+            await env.run(emit_trace_evaluation_event_activity, trace_inputs)
+
+    calls = capture.return_value.call_args_list
+    assert len(calls) == 2
+    first = calls[0].kwargs
+    assert first == calls[1].kwargs
+    assert first["uuid"] is not None
+    assert first["timestamp"] == started_at
+    assert first["distinct_id"] == "org-test-org"
+    assert first["groups"] == groups
+    assert first["event"] == "llma evaluation run recorded"
+    properties = first["properties"]
+    assert properties["target"] == target
+    assert properties["evaluation_type"] == evaluation_type
+    assert properties["output_type"] == result["result_type"]
+    assert properties["status"] == status
+    assert properties["applicable"] is applicable
+    assert properties["trigger"] == ("backfill" if backfill_id else "live")
+    assert properties["has_passing_rule"] is True
+    assert properties["run_id"]
+    assert "private" not in json.dumps(properties).lower()
+    assert not {"score", "categories", "reasoning", "verdict", "evaluation_name"} & properties.keys()
 
 
 def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
@@ -1922,9 +2027,17 @@ class TestRunEvaluationWorkflow:
 
         assert evaluation.enabled is expected_disabled
 
-        disabled = await disable_evaluation_activity(
-            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
-        )
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_evaluation_usage"
+        ) as usage:
+            disabled = await disable_evaluation_activity(
+                str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+            )
+        assert usage.call_count == int(expected_disabled)
+        if expected_disabled:
+            assert usage.call_args.args[1] == "llma evaluation automatically disabled"
+            assert usage.call_args.args[2]["status_reason"] == "hog_error"
+            assert "status_reason_detail" not in usage.call_args.args[2]
 
         await sync_to_async(evaluation.refresh_from_db)()
         assert disabled is expected_disabled
@@ -1946,9 +2059,13 @@ class TestRunEvaluationWorkflow:
         assert fields["status_reason_detail"]["after"] == "Must return boolean, got int: 42"
         assert logs[0].is_system is True
 
-        disabled_again = await disable_evaluation_activity(
-            str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
-        )
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_evaluation_usage"
+        ) as usage:
+            disabled_again = await disable_evaluation_activity(
+                str(evaluation.id), team.id, "hog_error", "Must return boolean, got int: 42"
+            )
+        usage.assert_not_called()
 
         logs_after_retry = await sync_to_async(
             lambda: ActivityLog.objects.filter(

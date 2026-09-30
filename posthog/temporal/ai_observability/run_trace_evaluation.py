@@ -59,6 +59,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     RunEvaluationInputs,
     backfill_verdict_timestamp,
     build_evaluation_event_properties,
+    capture_evaluation_run_usage,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
@@ -817,6 +818,14 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             distinct_id=inputs.distinct_id,
             timestamp=timestamp,
             properties=properties,
+        )
+        capture_evaluation_run_usage(
+            inputs.evaluation,
+            inputs.result,
+            team_id=inputs.team_id,
+            target=inputs.target,
+            start_time=inputs.start_time,
+            backfill_id=inputs.backfill_id,
         )
 
     try:
