@@ -1340,6 +1340,7 @@ class BatchConsumer:
                 run_uuid=batch.run_uuid,
                 attempt=attempt,
             )
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})", conn=lock_conn)
             return False
 
@@ -1471,6 +1472,7 @@ class BatchConsumer:
                     attempt=attempt,
                 )
                 capture_exception(err)
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"
@@ -1481,6 +1483,7 @@ class BatchConsumer:
                 attempt=attempt,
             )
             capture_exception(err)
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:
             logger.warning(
@@ -1489,6 +1492,7 @@ class BatchConsumer:
                 attempt=attempt,
                 error=str(err),
             )
+            await self._verify_ownership(lock_conn, batch)
             await self._adapter.update_status(
                 status_conn,
                 batch_id=batch.id,
@@ -1825,5 +1829,6 @@ ProcessBatchesFn = Callable[[list[PendingBatch]], Coroutine[Any, Any, None]]
 def _group_by_key(batches: list[PendingBatch]) -> dict[tuple[int, str], list[PendingBatch]]:
     groups: dict[tuple[int, str], list[PendingBatch]] = defaultdict(list)
     for batch in batches:
-        groups[(batch.team_id, batch.schema_id)].append(batch)
+        key = getattr(batch, "consumer_group_key", (batch.team_id, batch.schema_id))
+        groups[key].append(batch)
     return groups
