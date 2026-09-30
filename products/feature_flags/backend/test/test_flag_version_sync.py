@@ -44,8 +44,8 @@ def _flag_dependency_filters(dependency_flag_id: int | str) -> dict:
     }
 
 
-def _other_format_filters(referenced: dict) -> dict:
-    # A v2 document whose predicate matches the receivers' jsonb prefilters, so it reaches the v1 reads.
+def _rules_filters(referenced: dict) -> dict:
+    # Cohort and flag targeting is written past the validator, which does not admit it yet.
     return {
         "version": 2,
         "return_type": "boolean",
@@ -147,25 +147,37 @@ class TestFlagVersionSync(BaseTest):
             assert entry.user is None
             assert entry.is_system is True
 
-    def test_a_flag_in_another_config_format_is_skipped_by_the_cohort_walk(self):
+    def test_cohort_walk_reads_rule_targeting_and_skips_unreadable_formats(self):
         edited = self._create_cohort("edited", _person_filters("a@a.com"))
+        parent = self._create_cohort("parent", _cohort_filters(edited.pk))
         flag_direct = self._create_flag("direct", edited.pk)
-        other_format = FeatureFlag.objects.create(
+        rules_direct = FeatureFlag.objects.create(
             team=self.team,
-            key="other-format",
+            key="rules-direct",
             created_by=self.user,
-            filters=_other_format_filters({"key": "id", "type": "cohort", "value": edited.pk}),
+            filters=_rules_filters({"key": "id", "type": "cohort", "value": edited.pk}),
+        )
+        rules_nested = FeatureFlag.objects.create(
+            team=self.team,
+            key="rules-nested",
+            created_by=self.user,
+            filters=_rules_filters({"key": "id", "type": "cohort", "value": parent.pk}),
+        )
+        unreadable = FeatureFlag.objects.create(
+            team=self.team,
+            key="unreadable",
+            created_by=self.user,
+            filters={"version": 3, "groups": [{"properties": [{"key": "id", "type": "cohort", "value": edited.pk}]}]},
         )
 
         with capture_logs() as logs:
             edited.filters = _person_filters("z@z.com")
             edited.save()
 
-        flag_direct.refresh_from_db()
-        other_format.refresh_from_db()
-        assert flag_direct.version == 2
-        assert other_format.version == 1
-        assert _updated_entries(other_format) == []
+        for flag, version in ((flag_direct, 2), (rules_direct, 2), (rules_nested, 2), (unreadable, 1)):
+            flag.refresh_from_db()
+            assert flag.version == version, flag.key
+        assert _updated_entries(unreadable) == []
         assert [log for log in logs if log["event"] == "flag_version_sync_cohort_expansion_failed"] == []
 
     def test_flag_history_entry_attributes_the_cohort_editor(self):
@@ -316,25 +328,25 @@ class TestFlagDependencyVersionSync(BaseTest):
         transitive = self._create_flag("transitive", _flag_dependency_filters(dependent.pk))
         return base, dependent, transitive
 
-    def test_a_flag_in_another_config_format_is_skipped_by_the_dependency_walk(self):
+    def test_dependency_walk_reads_rule_targeting_and_skips_unreadable_formats(self):
         base, dependent, _transitive = self._create_chain()
-        other_format = self._create_flag(
-            "other-format",
-            _other_format_filters(
-                {"key": str(base.pk), "type": "flag", "operator": "flag_evaluates_to", "value": True}
-            ),
+        dependency = {"key": str(base.pk), "type": "flag", "operator": "flag_evaluates_to", "value": True}
+        rules_dependent = self._create_flag("rules-dependent", _rules_filters(dependency))
+        rules_transitive = self._create_flag(
+            "rules-transitive", _rules_filters(dependency | {"key": str(rules_dependent.pk)})
         )
+        unreadable = self._create_flag("unreadable", {"version": 3, "groups": [{"properties": [dependency]}]})
 
-        with capture_logs() as logs:
-            base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
-            base.save()
+        base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
+        base.save()
 
-        dependent.refresh_from_db()
-        other_format.refresh_from_db()
-        assert dependent.version == 2
-        assert other_format.version == 1
-        assert _updated_entries(other_format) == []
-        assert [log for log in logs if log["event"] == "flag_version_sync_dependency_parse_failed"] == []
+        for flag, version in ((dependent, 2), (rules_dependent, 2), (rules_transitive, 2), (unreadable, 1)):
+            flag.refresh_from_db()
+            assert flag.version == version, flag.key
+        (entry,) = _updated_entries(rules_transitive)
+        assert entry.detail is not None
+        assert entry.detail["trigger"]["payload"] == {"flag_id": base.pk, "flag_key": "base"}
+        assert _updated_entries(unreadable) == []
 
     def test_flag_definition_change_bumps_versions_of_flags_depending_on_it(self):
         base, dependent, transitive = self._create_chain()

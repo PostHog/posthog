@@ -5,8 +5,13 @@ import pytest
 
 from parameterized import parameterized
 
-from products.feature_flags.backend.facade.config import ConfigFormatError
-from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
+from products.feature_flags.backend.facade.config import ConfigFormatError, decode_config
+from products.feature_flags.backend.facade.references import (
+    FlagReferences,
+    flag_dependency_properties,
+    referenced_cohort_ids,
+    references,
+)
 
 COHORT_PROPERTY: dict[str, Any] = {"key": "id", "type": "cohort", "value": 42}
 FLAG_PROPERTY: dict[str, Any] = {"key": "7", "type": "flag", "value": ["true"], "operator": "exact"}
@@ -127,3 +132,135 @@ class TestUnsupportedFormatRejection:
         assert kind != "v1"
         # The message names the kind only, so a log line never carries the stored discriminator.
         assert str(exc_info.value) == f"config format {kind!r} is not handled here"
+
+
+def _v2_document(*rules: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    return {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": False,
+        **extra,
+        "rules": [
+            {
+                "id": f"00000000-0000-4000-8000-00000000000{index}",
+                "rule_type": "targeted_release",
+                "targeting": {"properties": properties},
+                "value": True,
+            }
+            for index, properties in enumerate(rules)
+        ],
+    }
+
+
+def _cohort(value: object) -> dict[str, Any]:
+    return {"key": "id", "type": "cohort", "value": value}
+
+
+def _flag(key: object) -> dict[str, Any]:
+    return {"key": key, "type": "flag", "operator": "flag_evaluates_to", "value": True}
+
+
+class TestReferences:
+    @parameterized.expand(
+        [
+            ("none_document", None, FlagReferences()),
+            ("null_groups", {"groups": None}, FlagReferences()),
+            ("null_properties", {"groups": [{"properties": None}]}, FlagReferences()),
+            ("fixture_groups", {"groups": V1_GROUPS}, FlagReferences(cohort_ids=(42,), flag_ids=(7,))),
+            (
+                "first_seen_order_without_duplicates",
+                {
+                    "groups": [
+                        {"properties": [_cohort(5), _flag("9"), _cohort("3")]},
+                        {"properties": [_cohort(5), _flag(9), _flag("2")]},
+                    ]
+                },
+                FlagReferences(cohort_ids=(5, 3), flag_ids=(9, 2)),
+            ),
+            (
+                "flag_and_condition_group_types",
+                {
+                    "aggregation_group_type_index": 1,
+                    "groups": [
+                        {"properties": [], "aggregation_group_type_index": 0},
+                        {"properties": [], "aggregation_group_type_index": None},
+                        {"properties": [], "aggregation_group_type_index": 1},
+                    ],
+                },
+                FlagReferences(aggregation_group_type_indexes=(1, 0)),
+            ),
+            ("non_integer_group_type_left_out", {"aggregation_group_type_index": "0", "groups": []}, FlagReferences()),
+            (
+                "v2_rule_targeting",
+                _v2_document([_cohort(5), {"key": "email", "type": "person", "value": "a"}], [_flag("9"), _cohort(3)]),
+                FlagReferences(cohort_ids=(5, 3), flag_ids=(9,)),
+            ),
+            (
+                "v2_group_assignment",
+                _v2_document([], aggregation_group_type_index=2),
+                FlagReferences(aggregation_group_type_indexes=(2,)),
+            ),
+        ]
+    )
+    def test_reads_identities_from_either_format(self, _name: str, document: Any, expected: FlagReferences) -> None:
+        assert references(decode_config(document)) == expected
+
+    @parameterized.expand(
+        [
+            ("v1", {"groups": [{"properties": [_cohort(5), _flag("9")]}]}),
+            ("v2", _v2_document([_cohort(5), _flag("9")])),
+        ]
+    )
+    def test_returns_identities_not_the_stored_dicts(self, _name: str, document: dict[str, Any]) -> None:
+        result = references(decode_config(document))
+
+        properties = (
+            document["groups"][0]["properties"]
+            if "groups" in document
+            else document["rules"][0]["targeting"]["properties"]
+        )
+        properties[0]["value"] = 6
+        properties[1]["key"] = "10"
+
+        assert result == FlagReferences(cohort_ids=(5,), flag_ids=(9,))
+
+    @parameterized.expand(
+        [
+            (f"{version}_{name}", document)
+            for name, invalid in (("string", "not-an-id"), ("null", None), ("object", {"id": 1}))
+            for version, document in (
+                ("v1", {"groups": [{"properties": [_cohort(invalid), _flag(invalid), _cohort(5), _flag("9")]}]}),
+                ("v2", _v2_document([_cohort(invalid), _flag(invalid), _cohort(5), _flag("9")])),
+            )
+        ]
+    )
+    def test_invalid_ids_are_skipped_or_raised_per_reference_kind(self, _name: str, document: dict[str, Any]) -> None:
+        config = decode_config(document)
+
+        assert references(config) == FlagReferences(cohort_ids=(5,), flag_ids=(9,))
+        with pytest.raises((TypeError, ValueError)):
+            references(config, invalid_cohort_ids="raise")
+        with pytest.raises((TypeError, ValueError)):
+            references(config, invalid_flag_ids="raise")
+
+    def test_strict_cohort_ids_ignore_invalid_flag_ids(self) -> None:
+        config = decode_config({"groups": [{"properties": [_cohort(5), _flag("a-flag-key")]}]})
+
+        assert references(config, invalid_cohort_ids="raise") == FlagReferences(cohort_ids=(5,))
+
+    @parameterized.expand(
+        [
+            ("group_not_an_object", {"groups": ["junk"]}, AttributeError),
+            ("property_not_an_object", {"groups": [{"properties": ["junk"]}]}, AttributeError),
+            ("groups_not_a_list", {"groups": 5}, TypeError),
+        ]
+    )
+    def test_malformed_v1_structure_raises(self, _name: str, document: dict[str, Any], error: type[Exception]) -> None:
+        with pytest.raises(error):
+            references(decode_config(document))
+
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_rejects_documents_in_no_readable_format(self, _name: str, document: dict[str, Any]) -> None:
+        with pytest.raises(ConfigFormatError) as exc_info:
+            references(decode_config(document))
+        assert exc_info.value.config_format.kind == "unsupported"

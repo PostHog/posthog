@@ -708,6 +708,34 @@ class TestOmitUnsupportedFlags(BaseTest):
         with override_settings(MAX_FEATURE_FLAG_FILTER_SIZE_BYTES=32):
             assert _get_feature_flags_for_service(self.team)["flags"] == []
 
+    def test_rule_targeting_references_reach_the_builders(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="targeted",
+            filters={"properties": {"type": "OR", "values": [{"key": "email", "value": "a", "type": "person"}]}},
+        )
+        unsupported = FeatureFlag.objects.create(
+            team=self.team, key="unsupported", created_by=self.user, filters={"version": 3}
+        )
+        rows = {
+            "rules-cohort": _rules_filters({"key": "id", "type": "cohort", "value": cohort.id}),
+            "rules-dependent": _rules_filters(
+                {"key": str(unsupported.id), "type": "flag", "operator": "flag_evaluates_to", "value": True}
+            ),
+        }
+        for key, filters in rows.items():
+            flag = FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, filters={})
+            FeatureFlag.objects.filter(id=flag.id).update(filters=filters)
+
+        # Admitted here because the validator does not admit cohort or flag targeting yet.
+        with patch("products.feature_flags.backend.flags_cache._validates_v2", return_value=True):
+            single = _get_feature_flags_for_service(self.team)
+            batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
+
+        for payload in (single, batch):
+            assert [f["key"] for f in payload["flags"]] == ["rules-cohort"]
+            assert [c["id"] for c in payload["cohorts"]] == [cohort.id]
+
     def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
         other_team = Team.objects.create(organization=self.organization, name="other")
         FeatureFlag.objects.create(
@@ -3759,6 +3787,23 @@ def _make_flag(id: int, key: str, deps: list[int] | None = None, active: bool = 
     }
 
 
+def _rules_filters(*properties: dict) -> dict:
+    # Cohort and flag targeting is written past the validator, which does not admit it yet.
+    return {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": False,
+        "rules": [
+            {
+                "id": "11111111-1111-4111-8111-111111111111",
+                "rule_type": "targeted_release",
+                "targeting": {"properties": list(properties)},
+                "value": True,
+            }
+        ],
+    }
+
+
 class TestExtractDirectDependencyIds:
     @parameterized.expand(
         [
@@ -3771,6 +3816,17 @@ class TestExtractDirectDependencyIds:
                 "inactive_unsupported_format_returns_empty",
                 {**_make_flag(1, "flag_a", active=False), "filters": {"version": 2, **_dependency_filters(2)}},
                 set(),
+            ),
+            (
+                "rule_targeting",
+                {
+                    **_make_flag(1, "flag_a"),
+                    "filters": _rules_filters(
+                        {"type": "cohort", "key": "id", "value": 9},
+                        {"type": "flag", "key": "2", "value": True, "operator": "flag_evaluates_to"},
+                    ),
+                },
+                {2},
             ),
             (
                 "non_flag_properties_ignored",
@@ -4271,6 +4327,18 @@ class TestExtractCohortIdsFromFlagFilters(BaseTest):
             }
         ]
         assert _extract_cohort_ids_from_flag_filters(flags_data) == set()
+
+    def test_extracts_cohort_ids_from_rule_targeting(self):
+        flags_data = [
+            {
+                "active": True,
+                "filters": _rules_filters(
+                    {"type": "cohort", "key": "id", "value": 42},
+                    {"type": "flag", "key": "7", "value": True, "operator": "flag_evaluates_to"},
+                ),
+            }
+        ]
+        assert _extract_cohort_ids_from_flag_filters(flags_data) == {42}
 
     def test_handles_string_cohort_value(self):
         flags_data = [

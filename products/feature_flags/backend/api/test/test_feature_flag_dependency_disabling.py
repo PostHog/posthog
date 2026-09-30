@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -458,3 +459,35 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
         error_detail = response.json()["detail"]
         self.assertIn(f"Cannot create dependency on disabled flag '{disabled_flag.key}'", error_detail)
         self.assertIn(f"ID: {disabled_flag.id}", error_detail)
+
+    def test_disabled_dependencies_are_read_from_rule_targeting(self):
+        base_flag = self.create_flag("base_flag", active=False)
+        rules_flag = FeatureFlag.objects.create(team=self.team, key="rules_flag", active=False, filters={})
+        # Written past the validator, which does not admit flag targeting yet.
+        FeatureFlag.objects.filter(pk=rules_flag.pk).update(
+            filters={
+                "version": 2,
+                "return_type": "boolean",
+                "default_value": False,
+                "rules": [
+                    {
+                        "id": "11111111-1111-4111-8111-111111111111",
+                        "rule_type": "targeted_release",
+                        "targeting": {
+                            "properties": [
+                                {
+                                    "key": str(base_flag.id),
+                                    "type": "flag",
+                                    "value": True,
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ]
+                        },
+                        "value": True,
+                    }
+                ],
+            }
+        )
+        rules_flag.refresh_from_db()
+
+        self.assertEqual(FeatureFlagSerializer()._find_disabled_dependencies(rules_flag), [base_flag])

@@ -22,7 +22,8 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
-from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
+from products.feature_flags.backend.facade.config import ConfigFormatError, decode_config, require_v1_config
+from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
@@ -434,39 +435,37 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        for condition in self.conditions:
-            props = condition.get("properties", [])
-            for prop in props:
-                if prop.get("type") == "cohort":
-                    cohort_id = int(prop.get("value"))
-                    try:
-                        if cohort_id in seen_cohorts_cache:
-                            cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
-                            if not cohort:
-                                continue
-                        else:
-                            cohort = Cohort.objects.db_manager(using_database).get(
-                                pk=cohort_id,
-                                team__project_id=self.team.project_id,
-                                deleted=False,
-                            )
-                            seen_cohorts_cache[cohort_id] = cohort
-
-                        cohort_ids.add(cohort.pk)
-                        cohort_ids.update(
-                            [
-                                dependency_cohort.pk
-                                for dependency_cohort in get_all_cohort_dependencies(
-                                    cohort,
-                                    using_database=using_database,
-                                    seen_cohorts_cache=seen_cohorts_cache,
-                                    stop_traversal_at_static=stop_traversal_at_static,
-                                )
-                            ]
-                        )
-                    except Cohort.DoesNotExist:
-                        seen_cohorts_cache[cohort_id] = ""
+        # A document in no readable format raises ConfigFormatError; a non-integer cohort id raises too.
+        direct_ids = references(decode_config(self.get_filters()), invalid_cohort_ids="raise").cohort_ids
+        for cohort_id in direct_ids:
+            try:
+                if cohort_id in seen_cohorts_cache:
+                    cohort: CohortOrEmpty = seen_cohorts_cache[cohort_id]
+                    if not cohort:
                         continue
+                else:
+                    cohort = Cohort.objects.db_manager(using_database).get(
+                        pk=cohort_id,
+                        team__project_id=self.team.project_id,
+                        deleted=False,
+                    )
+                    seen_cohorts_cache[cohort_id] = cohort
+
+                cohort_ids.add(cohort.pk)
+                cohort_ids.update(
+                    [
+                        dependency_cohort.pk
+                        for dependency_cohort in get_all_cohort_dependencies(
+                            cohort,
+                            using_database=using_database,
+                            seen_cohorts_cache=seen_cohorts_cache,
+                            stop_traversal_at_static=stop_traversal_at_static,
+                        )
+                    ]
+                )
+            except Cohort.DoesNotExist:
+                seen_cohorts_cache[cohort_id] = ""
+                continue
         if sort_by_topological_order:
             return sort_cohorts_topologically(cohort_ids, seen_cohorts_cache)
 
