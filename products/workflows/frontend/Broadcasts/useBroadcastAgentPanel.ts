@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
@@ -7,6 +7,7 @@ import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 
 import { HogFunctionTemplateType } from '~/types'
 
+import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import type { HogFlow } from '../Workflows/hogflows/types'
@@ -26,6 +27,14 @@ const BROADCAST_TEMPLATES: Record<string, HogFunctionTemplateType> = {
         inputs_schema: [{ key: 'email', type: 'email' }],
     } as unknown as HogFunctionTemplateType,
 }
+
+const BROADCAST_EDIT_TOOLS = [
+    'workflows-patch-action-email',
+    'workflows-patch-graph',
+    'workflows-update',
+    'workflows-restore-revision',
+    'workflows-discard-draft',
+]
 
 // Static text, so it is safe as a trusted instruction. The wizard reads an edit made elsewhere back into its
 // recipients and email, but it rewrites the rest of the graph on save, and launching belongs to its Review step.
@@ -52,6 +61,7 @@ const BROADCAST_CONTEXT_ITEM: AttachedContextItem = {
 export function useBroadcastAgentPanel(): void {
     const { broadcastAsWorkflow, broadcastId, currentStep } = useValues(broadcastWizardLogic)
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
+    const { loadExternalEdit } = useActions(broadcastWizardLogic)
     // Debounced so each keystroke does not re-serialize the email into the agent context.
     const debouncedWorkflow = useDebouncedValue(broadcastAsWorkflow, 500)
     const agentContextItems = useMemo(
@@ -77,5 +87,16 @@ export function useBroadcastAgentPanel(): void {
         headlines: EMAIL_EDITOR_AGENT_HEADLINES,
         active: !!broadcastId,
         autoOpen: currentStep === 'content',
+    })
+    // The edited-elsewhere stream can miss the agent's write, so reload after each edit it makes here.
+    useMcpToolApplyBack({
+        tools: BROADCAST_EDIT_TOOLS,
+        targetKey: `broadcast:${broadcastId ?? 'unloaded'}`,
+        active: !!broadcastId,
+        onApply: (_event, { innerInput }) => {
+            if (innerInput?.id === broadcastId) {
+                loadExternalEdit()
+            }
+        },
     })
 }

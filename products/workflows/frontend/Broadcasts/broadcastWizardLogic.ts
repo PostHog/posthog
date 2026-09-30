@@ -299,6 +299,9 @@ export interface broadcastWizardLogicActions {
     nextStep: () => {
         value: true
     }
+    loadExternalEdit: () => {
+        value: true
+    }
     prevStep: () => {
         value: true
     }
@@ -496,6 +499,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         draftAutosaved: (broadcast: HogFlowApi) => ({ broadcast }),
         applyExternalEdit: (broadcast: HogFlowApi, base: HogFlowApi | null) => ({ broadcast, base }),
         replayDeferredEdit: true,
+        loadExternalEdit: true,
         expandRun: (runId: string) => ({ runId }),
         collapseRun: (runId: string) => ({ runId }),
         setExpandedRunOverride: (runIds: string[]) => ({ runIds }),
@@ -1209,7 +1213,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.resourceEdited(deferred)
             }
         },
-        resourceEdited: async ({ event }, breakpoint) => {
+        resourceEdited: ({ event }) => {
             const broadcast = values.broadcast
             if (
                 !broadcast ||
@@ -1219,6 +1223,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             ) {
                 return
             }
+            actions.loadExternalEdit()
+        },
+        loadExternalEdit: async (_, breakpoint) => {
+            const broadcast = values.broadcast
+            if (!broadcast || broadcast.status !== 'draft' || !values.currentProjectId) {
+                return
+            }
+            await getSaveQueue(cache, values).whenIdle()
             await breakpoint(200)
             const fresh = await hogFlowsRetrieve(String(values.currentProjectId), broadcast.id).catch(() => null)
             breakpoint()
