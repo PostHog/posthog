@@ -5198,6 +5198,30 @@ class TestHogFlowAPI(APIBaseTest):
         assert not HogFlow.objects.filter(id=flow_id).exists()
         mock_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[flow_id])
 
+    @parameterized.expand(
+        [
+            ("single_delete",),
+            ("bulk_delete",),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_delete_removes_flow_batch_jobs(self, delete_mode, _mock_dispatch):
+        flow_id = self._create_flow(name="Broadcast with batch runs")
+        self._archive_flow(flow_id)
+        HogFlowBatchJob.objects.create(team=self.team, hog_flow_id=flow_id, status="completed")
+
+        if delete_mode == "single_delete":
+            response = self.client.delete(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+            assert response.status_code == 204, response.content
+        else:
+            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/bulk_delete", {"ids": [flow_id]})
+            assert response.status_code == 200, response.json()
+
+        assert not HogFlow.objects.filter(id=flow_id).exists()
+        assert not HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).exists()
+
     def _base_hog_flow_with_variables(self, variables):
         trigger_action = {
             "id": "trigger_node",
