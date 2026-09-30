@@ -284,7 +284,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn("event.ports[0]", runtime)
         self.assertIn("port.postMessage", runtime)
         self.assertIn("port?.postMessage", runtime)
-        self.assertIn('agent:{request:(prompt)=>call("agentRequest",{prompt})}', runtime)
+        self.assertIn("agent: { request: (prompt) => call('agentRequest', { prompt }) }", runtime)
         self.assertIn('event.data?.type==="set-comment-highlights"', runtime)
         self.assertIn('CSS.highlights.set("posthog-canvas-comment"', runtime)
         self.assertNotIn("ph-canvas-comment-outline", runtime)
@@ -431,9 +431,9 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
-        self.assertIn('url.protocol!=="https:"', runtime)
-        self.assertIn('url.hostname.endsWith(".posthog.com")', runtime)
-        self.assertIn("serialized.length>16384", runtime)
+        self.assertIn("url.protocol !== 'https:'", runtime)
+        self.assertIn("url.hostname.endsWith('.posthog.com')", runtime)
+        self.assertIn("serialized.length > 16384", runtime)
 
     def _run_runtime_harness(self, runtime: str, harness: str) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -690,7 +690,7 @@ bridge.port1.close();
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
 
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
-        self.assertIn('addEventListener("securitypolicyviolation"', runtime)
+        self.assertIn("addEventListener('securitypolicyviolation'", runtime)
         self.assertIn("SecurityPolicyViolationError", runtime)
         self.assertIn("effectiveDirective", runtime)
         self.assertNotIn("blockedURI", runtime)

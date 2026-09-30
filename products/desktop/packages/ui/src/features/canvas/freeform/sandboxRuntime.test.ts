@@ -3,7 +3,7 @@ import {
   CANVAS_SDK_SPECIFIER,
 } from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
-import builderSource from "../../../../../../../canvas/packages/canvas_builder/build.mjs?raw";
+import publishedRuntime from "../../../../../../../canvas/packages/canvas_builder/canvas-runtime.js?raw";
 import {
   buildSandboxDocument,
   decodeJsxUnicodeEscapes,
@@ -105,8 +105,6 @@ describe("decodeJsxUnicodeEscapes", () => {
 
 describe("buildSandboxDocument", () => {
   it("publishes navigation and the same GitHub URL restriction as the host", () => {
-    const source = builderSource.match(/const runtime = `([^`]*)`/)?.[1];
-    if (!source) throw new Error("Published runtime not found");
     const listeners = new Map<string, (event: unknown) => void>();
     const postMessage = vi.fn();
     const frame = {
@@ -126,7 +124,7 @@ describe("buildSandboxDocument", () => {
       "parent",
       "navigator",
       "addEventListener",
-      source,
+      publishedRuntime,
     )(
       frame,
       document,
