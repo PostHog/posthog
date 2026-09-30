@@ -563,14 +563,17 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
         patch.object(
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
-        patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+        patch.object(workflow, "patched", return_value=True),
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as start_child,
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
+    cutoff = (tick_time if scheduled else actual_start).isoformat()
     assert discover.await_args is not None
-    assert discover.await_args.args[1] == DemandDiscoveryInputs(
-        cutoff=(tick_time if scheduled else actual_start).isoformat()
-    )
-    dispatch.assert_not_awaited()
+    assert discover.await_args.args[1] == DemandDiscoveryInputs(cutoff=cutoff)
+    # No demand means no dispatcher, so the only child is the inventory, named by the same cutoff.
+    start_child.assert_awaited_once()
+    assert start_child.await_args is not None
+    assert start_child.await_args.kwargs["id"] == f"alerts-platform-record-inventory-{cutoff}"
     assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)
 
 

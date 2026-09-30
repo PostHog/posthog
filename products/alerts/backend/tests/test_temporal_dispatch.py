@@ -372,6 +372,9 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
             )
             for event in started
         }
+        # One inventory per tick, not per page.
+        inventory = {child_id for child_id in children if child_id.startswith("alerts-platform-record-inventory-")}
+        assert [children.pop(child_id) for child_id in inventory] == ["alerts-platform-record-inventory"]
         assert children == {
             f"{tick_id}-insight-p0": "alerts-platform-source-dispatch",
             f"{tick_id}-logs-p0": "alerts-platform-source-dispatch",

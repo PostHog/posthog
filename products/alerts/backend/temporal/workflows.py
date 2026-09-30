@@ -135,6 +135,25 @@ class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
         )
 
 
+async def _start_inventory(cutoff: str) -> None:
+    """Dashboard telemetry, so the tick never waits on it and a failed start never fails the tick."""
+    try:
+        await workflow.start_child_workflow(
+            AlertsPlatformRecordInventoryWorkflow.run,
+            AlertsPlatformInputs(),
+            # Keyed by cutoff, so a second start for the same tick is rejected while the first runs.
+            id=f"alerts-platform-record-inventory-{cutoff}",
+            task_queue=settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
+            parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            execution_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    except Exception as error:
+        workflow.logger.warning("Inventory start failed; the next tick tries again: %s", error)
+
+
 @workflow.defn(name="alerts-platform-deliver-preview")
 class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
     inputs_cls = AlertDeliveryPreview
@@ -308,6 +327,8 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             )
             demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
+            if workflow.patched("alerts-platform-record-inventory"):
+                await _start_inventory(cutoff_iso)
         else:
             demand = inputs.demand
 

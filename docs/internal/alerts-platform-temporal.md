@@ -40,10 +40,6 @@ There is no routing flag: the flow is tick → orchestration → evaluation → 
 It uses SKIP overlap, a one-minute catchup window, a 50-second workflow execution timeout,
 and one workflow attempt. Creation does not trigger an immediate run; the next minute starts it.
 Delivery has no schedule: evaluation starts its delivery child.
-The same command registers `alerts-platform-record-inventory-schedule`, with the same policy and a 30-second execution timeout.
-It starts `alerts-platform-record-inventory` on the orchestration queue every minute, apart from the tick.
-That workflow counts configurations and alerts for the health dashboard gauges, with a 1-second statement timeout per query and one activity attempt.
-A failed count is logged and the next minute tries again, so the inventory never delays or fails a tick.
 New schedules start unpaused. Registration updates existing schedules to this policy while retaining their state from Temporal, including manual pauses.
 To stop future ticks, pause the schedule in Temporal; resume it there when ready. Pausing does not stop workflows already running.
 Reverting the code that registers a schedule does not remove one already registered.
@@ -159,6 +155,9 @@ Registration never deletes a schedule, so the rollout above deletes the old ID b
 One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+After discovery, the tick starts one `alerts-platform-record-inventory` child with ID `alerts-platform-record-inventory-{cutoff}` and the `ABANDON` close policy, and does not await it.
+That child counts configurations and alerts for the health dashboard gauges, with a 1-second statement timeout per query and one activity attempt.
+A failed start or count is logged and the next tick tries again, so the inventory never delays or fails a tick.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
