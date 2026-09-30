@@ -68,6 +68,11 @@ function optionalTime(value: string | null, fallback: string): string {
     return value ? formatDate(value, true) : fallback
 }
 
+// Platform alerts keep their state while snoozed; only the notification is held.
+function snoozedUntil(group: PlatformAlertGroupData): string | null {
+    return group.snooze_until && new Date(group.snooze_until) > new Date() ? group.snooze_until : null
+}
+
 const GROUP_COLUMNS: DataTableColumn<PlatformAlertGroupData>[] = [
     {
         key: 'grouping_key',
@@ -84,7 +89,17 @@ const GROUP_COLUMNS: DataTableColumn<PlatformAlertGroupData>[] = [
         key: 'state',
         header: 'State',
         sortable: true,
-        render: (row): ReactNode => <PlatformAlertStateBadge state={row.state} />,
+        render: (row): ReactNode => {
+            const snoozed = snoozedUntil(row)
+            return (
+                <div className="flex items-center gap-2 flex-wrap">
+                    <PlatformAlertStateBadge state={row.state} />
+                    {snoozed && (
+                        <span className="text-muted-foreground text-xs">Snoozed until {formatDate(snoozed, true)}</span>
+                    )}
+                </div>
+            )
+        },
     },
     {
         key: 'firing_started_at',
