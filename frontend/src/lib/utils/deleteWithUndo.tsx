@@ -13,6 +13,8 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     endpoint: string
     object: T
     idField?: keyof T
+    /** Names the object type in the toast, for example "Saved filter". */
+    objectNoun?: string
     callback?: (undo: boolean, object: T) => void
 }): Promise<void> {
     try {
@@ -24,6 +26,7 @@ export async function deleteWithUndo<T extends Record<string, any>>({
         props.callback?.(undo, props.object)
         lemonToast[undo ? 'success' : 'info'](
             <>
+                {props.objectNoun ? `${props.objectNoun} ` : null}
                 <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
                 {undo ? 'restored' : 'deleted'}
             </>,

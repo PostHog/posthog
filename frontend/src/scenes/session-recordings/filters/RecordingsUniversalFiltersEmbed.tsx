@@ -77,6 +77,7 @@ import { TimestampFormat, playerSettingsLogic } from '../player/playerSettingsLo
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
+    asUniversalFilters,
     defaultRecordingDurationFilter,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
@@ -796,8 +797,9 @@ export const ReplayFiltersTab = ({
             return
         }
 
-        if (pendingFilterApplication.filters) {
-            setFilters(stripSessionIds(pendingFilterApplication.filters as Partial<RecordingUniversalFilters>))
+        const universalFilters = asUniversalFilters(pendingFilterApplication.filters)
+        if (universalFilters) {
+            setFilters(stripSessionIds(universalFilters))
             setAppliedSavedFilter(pendingFilterApplication)
             setActiveFilterTab('filters')
         }
@@ -824,7 +826,11 @@ export const ReplayFiltersTab = ({
         setAppliedSavedFilter(null)
     }
 
-    const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
+    const savedFilterBaseline = useMemo(
+        () => (appliedSavedFilter ? stripSessionIds(asUniversalFilters(appliedSavedFilter.filters)) : undefined),
+        [appliedSavedFilter]
+    )
+    const hasFilterChanges = savedFilterBaseline ? !equal(savedFilterBaseline, stripSessionIds(filters)) : false
 
     const resetButton = (
         <LemonButton
@@ -866,13 +872,7 @@ export const ReplayFiltersTab = ({
                                 type="secondary"
                                 size="small"
                                 icon={<IconTrash />}
-                                onClick={() =>
-                                    setFilters(
-                                        stripSessionIds(
-                                            appliedSavedFilter.filters as Partial<RecordingUniversalFilters>
-                                        )
-                                    )
-                                }
+                                onClick={() => savedFilterBaseline && setFilters(savedFilterBaseline)}
                             >
                                 Discard changes
                             </LemonButton>

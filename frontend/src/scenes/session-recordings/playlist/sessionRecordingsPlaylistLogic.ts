@@ -1341,7 +1341,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getResetFilters(props)
+                            // Drop the invalid update and keep what the viewer has. A reset here throws their filters away.
+                            return state
                         }
 
                         return applyFilterUpdate(state, filters, props.pinnedFilters)
