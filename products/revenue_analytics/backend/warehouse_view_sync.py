@@ -26,8 +26,8 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 logger = structlog.get_logger(__name__)
 
-# The revenue views read only these schemas, so a load of any other schema cannot change them.
-# Each sync takes a per-team advisory lock, so skip every other schema to avoid lock waits.
+# Active source loads skip schemas that cannot change revenue views, which avoids per-team advisory lock waits.
+# Deleted sources reconcile after every completed schema so view cleanup can finish.
 _RELEVANT_SCHEMAS: dict[str, frozenset[str]] = {
     ExternalDataSourceType.STRIPE: frozenset(
         {
@@ -49,16 +49,20 @@ def sync_revenue_analytics_views(sync_input: RevenueViewSyncInput) -> None:
         if sync_input.source_type not in SUPPORTED_SOURCES:
             return
 
-        if sync_input.schema_name not in _RELEVANT_SCHEMAS.get(sync_input.source_type, frozenset()):
-            return
-
         sources = list_revenue_source_settings(
             sync_input.team_id,
             include_deleted=True,
             source_types=[sync_input.source_type],
             source_ids=[sync_input.source_id],
         )
-        if not sources or (not sources[0].deleted and not sources[0].enabled):
+        if not sources:
+            return
+
+        source = sources[0]
+        if not source.deleted and (
+            not source.enabled
+            or sync_input.schema_name not in _RELEVANT_SCHEMAS.get(sync_input.source_type, frozenset())
+        ):
             return
 
         managed_viewset = DataWarehouseManagedViewSet.objects.filter(

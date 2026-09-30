@@ -62,7 +62,7 @@ class TestWarehouseViewSync:
         )
         managed_viewset = mock_viewset.objects.filter.return_value.first.return_value
 
-        sync_revenue_analytics_views(_make_sync_input())
+        sync_revenue_analytics_views(_make_sync_input("Refund"))
 
         managed_viewset.sync_views.assert_called_once_with()
 
