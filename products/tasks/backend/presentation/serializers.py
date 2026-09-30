@@ -47,6 +47,7 @@ from products.tasks.backend.facade.contracts import (
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
+    TaskRunResponseDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
@@ -664,7 +665,27 @@ class TaskCreateResponseSerializer(TaskSerializer):
 
 @extend_schema_serializer(component_name="TaskRunResponse")
 class TaskRunResponseSerializer(TaskCreateResponseSerializer):
+    """The task ``run`` action's response: the refreshed task detail plus the run this call made.
+
+    ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+    from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+    """
+
     run_error = serializers.CharField(required=False, help_text="Error returned when the run could not start.")
+    run = TaskRunDetailSerializer(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "The run this call created or activated. Read run-scoped ids from here — `run.id` is "
+            "the id the run's stream and command endpoints take, while the top-level `id` is the "
+            "task's. Set on every 200; when `run_error` is also set, the run exists but its "
+            "workflow did not start."
+        ),
+    )
+
+    class Meta(TaskCreateResponseSerializer.Meta):
+        dataclass = TaskRunResponseDTO
+        fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
 TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
@@ -1225,13 +1246,10 @@ class TaskRunSetSummaryRequestSerializer(serializers.Serializer):
     )
 
 
-DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
-
-
 class DesktopAccessResponseSerializer(serializers.Serializer):
     allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
     reason = serializers.ChoiceField(
-        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        choices=DesktopAccessReason.choices,
         allow_null=True,
         help_text="Why Desktop access is blocked, or null when access is allowed.",
     )
@@ -1252,7 +1270,7 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
         help_text="After confirmed warm startup nondelivery, echo this token in X-PostHog-Warm-Retry to retry the same run and message within 60 seconds.",
     )
     reason = serializers.ChoiceField(
-        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        choices=DesktopAccessReason.choices,
         required=False,
         help_text="Why PostHog Desktop access was denied, when applicable.",
     )

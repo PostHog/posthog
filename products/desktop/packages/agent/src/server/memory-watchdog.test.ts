@@ -14,6 +14,7 @@ import { Logger } from "../utils/logger";
 import {
   CliProcessRegistry,
   JsonlTail,
+  MemoryWatchdogKillReader,
   MemoryWatchdogWatcher,
   toProcessKilledParams,
 } from "./memory-watchdog";
@@ -160,6 +161,19 @@ describe("memory watchdog", () => {
         [{ ...KILL_PARAMS, pid: 7 }],
         [{ ...KILL_PARAMS, pid: 8 }],
       ]);
+    });
+
+    it("reports a kill to only one of two overlapping reads", async () => {
+      await writeFile(path, `${JSON.stringify(KILL_RECORD)}\n`);
+      const reader = new MemoryWatchdogKillReader(path);
+
+      const reads = await Promise.all([
+        reader.readNewKills(),
+        reader.readNewKills(),
+      ]);
+
+      expect(reads.flat()).toEqual([KILL_PARAMS]);
+      expect(await reader.readNewKills()).toEqual([]);
     });
 
     it.each([

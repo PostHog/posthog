@@ -428,7 +428,7 @@ def _collect_planned_runs(
         # load_skill_for_run on every tick.
         for config in SignalScoutConfig.all_teams.filter(
             team_id=team.id, enabled=True, skill_name__in=live_skills
-        ).exclude(enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND):
+        ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND):
             overdue_s = _overdue_seconds(config, now, team.timezone_info)
             if overdue_s is None:
                 continue
@@ -618,7 +618,7 @@ def _participating_teams(enrollment: Enrollment, reconcile_team_ids: set[int] | 
                     pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
                 )
             )
-            .exclude(enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+            .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
             .values_list("team_id", flat=True)
             .distinct()
         )
@@ -646,7 +646,7 @@ def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
     paused = SignalScoutConfig.all_teams.filter(
         status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
         pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-    ).exclude(enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+    ).exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
     for config in paused:
         paused_by_team.setdefault(config.team_id, []).append(config)
     return paused_by_team
@@ -738,7 +738,7 @@ def _pause_departed_background_configs(listed_team_ids: set[int]) -> None:
     only ever pauses what the background coordinator may still change.
     """
     departed = SignalScoutConfig.all_teams.filter(
-        enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
         status__in=SignalScoutConfig.RUNNABLE_STATUSES,
     ).exclude(team_id__in=listed_team_ids)
     for config in departed:
@@ -763,7 +763,7 @@ def _resume_background_configs(
     paused = SignalScoutConfig.all_teams.filter(
         team_id__in=[team.id for team in eligible_teams],
         skill_name=background.skill_name,
-        enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
         status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
         pause_reason=SignalScoutConfig.PauseReason.BACKGROUND_REMOVED,
     )
@@ -798,7 +798,7 @@ def _create_background_configs(
     if not pending:
         return
     interval = background.interval_minutes
-    defaults: dict = {"enrollment_origin": SignalScoutConfig.EnrollmentOrigin.BACKGROUND}
+    defaults: dict = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
     if interval is not None and MIN_RUN_INTERVAL_MINUTES <= interval <= MAX_RUN_INTERVAL_MINUTES:
         defaults["run_interval_minutes"] = interval
     if tags := canonical_config_tags_for(background.skill_name):
@@ -862,7 +862,7 @@ def _collect_background_runs(
         ),
         team_id__in=listed_team_ids,
         skill_name=background.skill_name,
-        enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+        managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
     ).select_related("team__organization")
     live_team_ids = set(
         LLMSkill.objects.filter(

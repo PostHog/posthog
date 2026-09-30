@@ -21,8 +21,8 @@ from pydantic import BaseModel, Field
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, prompt_fingerprint
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 
 logger = structlog.get_logger(__name__)
 

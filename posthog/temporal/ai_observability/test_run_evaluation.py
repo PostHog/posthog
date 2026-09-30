@@ -1,5 +1,6 @@
 import json
 import uuid
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 from typing import Any, cast
@@ -17,7 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 from temporalio import activity
 from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError, CancelledError
-from temporalio.testing import WorkflowEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
@@ -25,6 +26,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
+from posthog.temporal.common.errors import NonReportableError
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
@@ -51,6 +53,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
+from .evaluation_event_io import hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -143,7 +146,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         },
         "usage": usage,
     }
-    response = httpx.Response(200, json=response_body)
+    response = httpx.Response(200, stream=httpx.ByteStream(json.dumps(response_body).encode()))
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
@@ -156,7 +159,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("httpx.HTTPTransport.handle_request", return_value=response) as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
@@ -183,6 +186,79 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     assert properties["$ai_evaluation_key_type"] == "byok"
 
 
+@pytest.mark.parametrize(
+    "selection_mode,probabilities,allows_na,applicable,expected",
+    [
+        ("single", [0.8, 0.2], False, True, ["resolved"]),
+        ("single", [0.8, 0.2], True, False, None),
+        ("multiple", [0.5, 0.9], False, True, ["resolved", "applicable"]),
+        ("multiple", [0.49, 0.9], True, True, ["applicable"]),
+        ("multiple", [0.1, 0.2], True, True, []),
+        ("multiple", [0.9, 0.9], True, False, None),
+    ],
+)
+def test_system_one_categorical_results_use_category_keys_without_boolean_probability(
+    selection_mode: str,
+    probabilities: list[float],
+    allows_na: bool,
+    applicable: bool,
+    expected: list[str] | None,
+) -> None:
+    options = [{"key": "resolved", "label": "Resolved issue"}, {"key": "applicable", "label": "Relevant reply"}]
+    evaluation = {
+        "id": "test-evaluation",
+        "name": "Response categories",
+        "team_id": 1,
+        "evaluation_type": "llm_judge",
+        "evaluation_config": {"prompt": "Classify the response."},
+        "output_type": "categorical",
+        "output_config": {"options": options, "selection_mode": selection_mode, "allows_na": allows_na},
+    }
+    answers: dict[str, dict[str, str | float | dict[str, float]]] = (
+        {"category": {"choice": "resolved", "confidence": 0.8, "probabilities": {"resolved": 0.8, "applicable": 0.2}}}
+        if selection_mode == "single"
+        else {f"category_{index}": {"noul": probability} for index, probability in enumerate(probabilities)}
+    )
+    if allows_na:
+        answers["applicable"] = {"noul": 0.9 if applicable else 0.1}
+    key = MagicMock(
+        provider="system_one",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
+        ),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="system_one", model="custom-model", provider_key=key, is_byok=True
+        )
+        request.return_value = httpx.Response(
+            200, stream=httpx.ByteStream(json.dumps({"model": "custom-model", "answers": answers}).encode())
+        )
+        result = call_llm_judge(evaluation=evaluation, system_prompt="", user_prompt="Hello!", allows_na=allows_na)
+
+    sent = json.loads(request.call_args.args[0].content)
+    assert sent["state"] == "Hello!"
+    if selection_mode == "single":
+        assert sent["questions"]["category"]["criteria"] == {option["key"]: option["label"] for option in options}
+    else:
+        assert sent["questions"]["category_0"]["criteria"]["true"] == "Matches category: Resolved issue"
+    assert result["result_type"] == "categorical"
+    assert result.get("categories") == expected
+    assert "probability" not in result
+    assert "verdict" not in result
+    assert result["input_tokens"] is None
+    assert result["reasoning"] == ""
+    properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
+    assert properties.get("$ai_evaluation_categorical_result") == expected
+    assert properties["$ai_evaluation_applicable"] is applicable
+    assert "$ai_evaluation_probability" not in properties
+
+
 def test_system_one_numeric_mapping_is_not_enabled() -> None:
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
@@ -190,7 +266,7 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="system_one")
         result = call_llm_judge(
@@ -213,7 +289,7 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
         patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
-        patch("httpx.HTTPTransport.handle_request") as request,
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = MagicMock(
@@ -245,14 +321,14 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
-    response = httpx.Response(status, text="Invalid request")
+    response = httpx.Response(status, stream=httpx.ByteStream(b"Invalid request"))
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
@@ -287,8 +363,8 @@ def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> Non
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
         patch(
-            "httpx.HTTPTransport.handle_request",
-            return_value=httpx.Response(429, headers={"Retry-After": "15"}),
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
         ),
         pytest.raises(ApplicationError) as error,
     ):
@@ -1213,6 +1289,25 @@ class TestRunEvaluationWorkflow:
                 )
 
         assert mock_fetch.call_count == 1
+
+    @pytest.mark.parametrize(
+        "attempt,retryable",
+        [
+            pytest.param(1, True, id="first attempt"),
+            pytest.param(2, True, id="second attempt"),
+            pytest.param(3, False, id="last attempt"),
+        ],
+    )
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(self, attempt: int, retryable: bool):
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, attempt=attempt)
+        with patch(HYDRATE_FETCH, return_value=None):
+            with pytest.raises(ApplicationError) as raised:
+                env.run(hydrate_event_reference, dict(THIN_REFERENCE))
+
+        assert raised.value.type == "generation_not_found"
+        assert raised.value.non_retryable is not retryable
+        assert isinstance(raised.value, NonReportableError) is retryable
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

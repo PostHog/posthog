@@ -6,9 +6,9 @@ from parameterized import parameterized
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
 
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 
 
 class TestOrganizationFeatureFlagsConfig(BaseTest):

@@ -317,7 +317,7 @@ class TestPlanSuggestionRuns(BaseTest):
             team=background_only,
             skill_name="signals-scout-general",
             enabled=True,
-            enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND,
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
         )
 
         SignalScoutSuggestionSet.all_teams.create(team=engaged_fresh, last_requested_at=self.now - timedelta(days=1))

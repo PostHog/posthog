@@ -44,7 +44,6 @@ export interface todaySpacesLogicValues {
     conversationHistoryLoading: boolean // maxGlobalLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
-    browsingSpaces: boolean
     collapsedSections: TodayWorkSectionId[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
@@ -55,6 +54,7 @@ export interface todaySpacesLogicValues {
     recentTasks: TaskListItemApi[]
     recentTasksLoading: boolean
     recentTasksUnavailable: boolean
+    sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
@@ -109,8 +109,15 @@ export interface todaySpacesLogicActions {
         spaces: ChannelDTOApi[]
         payload?: any
     }
-    setBrowsingSpaces: (browsingSpaces: boolean) => {
-        browsingSpaces: boolean
+    resetSectionPair: (
+        upper: TodayWorkSectionId,
+        lower: TodayWorkSectionId
+    ) => {
+        lower: TodayWorkSectionId
+        upper: TodayWorkSectionId
+    }
+    setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
+        heights: Partial<Record<TodayWorkSectionId, number>>
     }
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
@@ -121,7 +128,7 @@ export interface todaySpacesLogicActions {
 export interface todaySpacesLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sortedSpaces: (spaces: ChannelDTOApi[]) => ChannelDTOApi[]
-        visibleSpaces: (browsingSpaces: boolean, sortedSpaces: ChannelDTOApi[]) => ChannelDTOApi[]
+        visibleSpaces: (sortedSpaces: ChannelDTOApi[]) => ChannelDTOApi[]
         pinnedItems: (pinnedTasks: TaskListItemApi[]) => TodayWorkItem[]
         recentItems: (
             recentTasks: TaskListItemApi[],
@@ -154,7 +161,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     })),
     actions({
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
-        setBrowsingSpaces: (browsingSpaces: boolean) => ({ browsingSpaces }),
+        setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
+        resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
     }),
     loaders(({ values }) => ({
         spaces: [
@@ -213,11 +221,15 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                     state.includes(sectionId) ? state.filter((id) => id !== sectionId) : [...state, sectionId],
             },
         ],
-        browsingSpaces: [
-            false,
+        sectionHeights: [
+            {} as Partial<Record<TodayWorkSectionId, number>>,
             { persist: true },
             {
-                setBrowsingSpaces: (_, { browsingSpaces }) => browsingSpaces,
+                setSectionHeights: (_, { heights }) => heights,
+                resetSectionPair: (state, { upper, lower }) => {
+                    const { [upper]: _upper, [lower]: _lower, ...rest } = state
+                    return rest
+                },
             },
         ],
         spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
@@ -226,9 +238,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
     selectors({
         sortedSpaces: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): ChannelDTOApi[] => sortSpaces(spaces)],
         visibleSpaces: [
-            (s) => [s.browsingSpaces, s.sortedSpaces],
-            (browsingSpaces: boolean, sortedSpaces: ChannelDTOApi[]): ChannelDTOApi[] =>
-                browsingSpaces ? sortedSpaces : starredSpaces(sortedSpaces),
+            (s) => [s.sortedSpaces],
+            (sortedSpaces: ChannelDTOApi[]): ChannelDTOApi[] => starredSpaces(sortedSpaces),
         ],
         pinnedItems: [
             (s) => [s.pinnedTasks],

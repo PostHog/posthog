@@ -22,6 +22,7 @@ from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError, Serve
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -158,44 +159,60 @@ def _process_nested_value(value: Any) -> Any:
         return value
 
 
-def get_indexes(collection: Collection) -> list[str]:
-    """Get all indexes for a MongoDB collection."""
-    try:
-        index_cursor = collection.list_indexes()
-        return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception:
-        return []
+@frozen
+class CollectionIndexKeys:
+    """A collection's index keys, split by whether the key leads its index.
+
+    `WHERE field >= last_max` queries are only accelerated by an index whose leading key is
+    `field`; a non-leading position in a compound index doesn't support that access pattern.
+    """
+
+    covered: frozenset[str]
+    leading: frozenset[str]
 
 
-def get_leading_index_keys(collection: Collection) -> set[str] | None:
-    """Return the set of fields that are the first key of any index.
+def get_index_keys(collection: Collection) -> CollectionIndexKeys | None:
+    """Read a collection's index keys in one round trip.
 
-    `WHERE field >= last_max` queries are only accelerated by indexes whose
-    leading key is `field`; non-leading positions in compound indexes don't
-    support this access pattern. Returns None when index discovery fails so
-    the caller can default to no warning.
+    Returns None when index discovery fails, so the caller can tell "this collection has no
+    matching index" apart from "we don't know what this collection is indexed on".
     """
     try:
-        index_cursor = collection.list_indexes()
-        result: set[str] = set()
-        for index in index_cursor:
+        covered: set[str] = set()
+        leading: set[str] = set()
+        for index in collection.list_indexes():
             keys = index.get("key")
             if not keys:
                 continue
-            leading = next(iter(keys.keys()), None)
-            if leading is not None:
-                result.add(leading)
-        return result
+            covered.update(keys.keys())
+            first_key = next(iter(keys.keys()), None)
+            if first_key is not None:
+                leading.add(first_key)
+        return CollectionIndexKeys(covered=frozenset(covered), leading=frozenset(leading))
     except Exception as e:
-        structlog.get_logger().warning("Failed to detect leading index keys for MongoDB collection", exc_info=e)
+        structlog.get_logger().warning("Failed to read index keys for MongoDB collection", exc_info=e)
         return None
 
 
+def get_index_keys_by_collection(db: Database, collection_names: list[str]) -> dict[str, CollectionIndexKeys | None]:
+    """Read index keys for several collections at once.
+
+    Schema discovery answers a blocking HTTP request, so one round trip per collection in series
+    runs a database with many collections past that request's gateway deadline. Bounded the same
+    way as the schema-inference pool above.
+    """
+    if not collection_names:
+        return {}
+
+    with ThreadPoolExecutor(max_workers=min(len(collection_names), 4)) as executor:
+        results = executor.map(get_index_keys, [db[name] for name in collection_names])
+        return dict(zip(collection_names, results))
+
+
 def filter_mongo_incremental_fields(
-    columns: list[tuple[str, str]], collection: Collection
+    columns: list[tuple[str, str]], indexed_fields: frozenset[str]
 ) -> list[tuple[str, IncrementalFieldType]]:
     results: list[tuple[str, IncrementalFieldType]] = []
-    indexed_fields = get_indexes(collection)
 
     for column_name, type in columns:
         # Only include fields that have indexes

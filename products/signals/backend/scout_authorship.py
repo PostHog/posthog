@@ -102,7 +102,7 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
     return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
 
 
-BACKGROUND_RUN_METADATA = {"enrollment_origin": SignalScoutConfig.EnrollmentOrigin.BACKGROUND}
+BACKGROUND_RUN_METADATA = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
 
 
 def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> dict[str, SignalScoutRun]:

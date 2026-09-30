@@ -1341,7 +1341,7 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
         ("background", "background", False),
         ("background", "taken_over", False),
         ("background", "deleted", False),
-        ("user", "user", True),
+        ("team", "team", True),
     ],
 )
 async def test_background_scout_reports_never_reach_autostart(run_origin, config_after, expect_autostart):
@@ -1376,7 +1376,7 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         TaskRun = apps.get_model("tasks", "TaskRun")
         scout_task = Task.objects.create(team=team, title="scout", description="d")
         with team_scope(team.id):
-            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, enrollment_origin=run_origin)
+            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, managed_by=run_origin)
             SignalScoutRun.objects.create(
                 team=team,
                 task_run=TaskRun.objects.create(team=team, task=scout_task),
@@ -1384,10 +1384,10 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
                 skill_name=SCOUT_SKILL,
                 skill_version=1,
                 emitted_report_ids=[str(report.id)],
-                metadata={"enrollment_origin": run_origin} if run_origin == "background" else {},
+                metadata={"managed_by": run_origin} if run_origin == "background" else {},
             )
             if config_after == "taken_over":
-                config.enrollment_origin = SignalScoutConfig.EnrollmentOrigin.USER
+                config.managed_by = SignalScoutConfig.ManagedBy.TEAM
                 config.enabled = False
                 config.save()
             elif config_after == "deleted":

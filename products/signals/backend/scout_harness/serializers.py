@@ -41,7 +41,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import report_link_kind_choices
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -1500,7 +1500,7 @@ class ReportLinkWriteSerializer(serializers.Serializer):
     """One typed, directed link to write on the report being emitted or edited."""
 
     kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
+        choices=ReportLinkKind.choices,
         help_text=(
             "How this report relates to `report_id`. `depends_on` for work that cannot land "
             "until the other report's fix does, `part_of` for one piece of a larger report, "
@@ -3333,17 +3333,17 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
             "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
             "note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` "
-            "(PostHog retired the scout), or `background_removed` (PostHog ended a background "
-            "enrollment). Null unless `status` is `pending_pause` or `paused_by_system`."
+            "(PostHog retired the scout), or `background_removed` (the background lane stopped "
+            "managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`."
         ),
     )
-    enrollment_origin = serializers.ChoiceField(
-        choices=SignalScoutConfig.EnrollmentOrigin.choices,
+    managed_by = serializers.ChoiceField(
+        choices=SignalScoutConfig.ManagedBy.choices,
         read_only=True,
         help_text=(
-            "Who put this scout on the project. `user`: a person set it up or changed it. "
-            "`background`: PostHog enrolled it and has not seen a person edit it yet. Any edit "
-            "through this API changes `background` to `user`."
+            "Who controls this scout now. `team`: a person set it up or has changed it. "
+            "`background`: PostHog runs it in the background and no person has edited it yet. Any "
+            "edit through this API changes `background` to `team`."
         ),
     )
     emit = serializers.BooleanField(
@@ -3527,7 +3527,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "pause_reason",
-            "enrollment_origin",
+            "managed_by",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -3765,16 +3765,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
         if validated_data and instance.consecutive_failure_count:
             validated_data["consecutive_failure_count"] = 0
-        # A person who edits a background enrollment takes it over, so the background coordinator
+        # A person who edits a background-managed scout takes it over, so the background coordinator
         # must not change or remove it after this. An empty write is not an edit.
-        if validated_data and instance.enrollment_origin == SignalScoutConfig.EnrollmentOrigin.BACKGROUND:
+        if validated_data and instance.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
             if validated_data.get("enabled") is False and instance.enabled:
                 request = self.context.get("request")
                 user = getattr(request, "user", None)
                 capture_background_scout_opted_out(
                     config=instance, user=user if isinstance(user, User) else None, action=OPT_OUT_DISABLED
                 )
-            validated_data["enrollment_origin"] = SignalScoutConfig.EnrollmentOrigin.USER
+            validated_data["managed_by"] = SignalScoutConfig.ManagedBy.TEAM
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE

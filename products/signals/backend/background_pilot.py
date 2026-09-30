@@ -1,9 +1,9 @@
 """Pilot telemetry for scouts that the background coordinator enrolls.
 
-A background config (`enrollment_origin=background`) runs for a project that did not set the scout
+A background config (`managed_by=background`) runs for a project that did not set the scout
 up, so each reaction to its output is pilot evidence. These events fire only for background
 configs and their reports. The run events (`signals_scout_run_started` / `_finished`) carry
-`enrollment_origin` for run failure, and `$ai_generation` joins to them on `task_run_id` for cost.
+`managed_by` for run failure, and `$ai_generation` joins to them on `task_run_id` for cost.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ def capture_background_report_events(
 
 def capture_background_scout_opted_out(*, config: SignalScoutConfig, user: User | None, action: str) -> None:
     """Capture that a person switched off or deleted a background config. Call it before the write."""
-    if config.enrollment_origin != SignalScoutConfig.EnrollmentOrigin.BACKGROUND:
+    if config.managed_by != SignalScoutConfig.ManagedBy.BACKGROUND:
         return
     _capture(
         event=BACKGROUND_SCOUT_OPTED_OUT_EVENT,

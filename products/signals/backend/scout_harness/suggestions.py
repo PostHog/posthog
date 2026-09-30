@@ -344,11 +344,11 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
     )
     # Source configs are environment-scoped, so a project whose Signals setup lives in a child
     # environment counts through that child's parent; scout configs already canonicalize.
-    # A background enrollment is not setup: nobody on the project turned it on.
+    # A background-managed scout is not set up: nobody on the project turned it on.
     source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
     user_scout_teams = (
         SignalScoutConfig.all_teams.filter(enabled=True)
-        .exclude(enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+        .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
         .values("team_id")
     )
     set_up = (

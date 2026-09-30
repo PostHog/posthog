@@ -524,12 +524,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     }),
 
     selectors({
-        // A background enrollment is not setup: nobody on the project turned it on.
+        // A background-managed scout is not set up: nobody on the project turned it on.
         isSelfDrivingSetUp: [
             (s) => [s.enabledSourcesCount, s.scoutConfigs],
             (enabledSourcesCount: number, scoutConfigs: SignalScoutConfig[] | null): boolean =>
                 enabledSourcesCount > 0 ||
-                !!scoutConfigs?.some((config) => config.enabled && config.enrollment_origin !== 'background'),
+                !!scoutConfigs?.some((config) => config.enabled && config.managed_by !== 'background'),
         ],
         // Every watcher loader has settled, so the set-up verdict is trustworthy.
         isSetupLoaded: [

@@ -687,8 +687,8 @@ class TestBackgroundEnrollment:
         _collect_planned_runs(_NO_ENROLLMENT, background=_background({approved.id, unapproved.id}))
 
         configs = list(SignalScoutConfig.all_teams.filter(team__in=[approved, unapproved]))
-        assert [(c.team_id, c.skill_name, c.enrollment_origin, c.run_interval_minutes) for c in configs] == [
-            (approved.id, _GENERAL, SignalScoutConfig.EnrollmentOrigin.BACKGROUND, 720)
+        assert [(c.team_id, c.skill_name, c.managed_by, c.run_interval_minutes) for c in configs] == [
+            (approved.id, _GENERAL, SignalScoutConfig.ManagedBy.BACKGROUND, 720)
         ]
 
     def test_max_new_teams_per_tick_spreads_setup_over_ticks(self):
@@ -714,7 +714,7 @@ class TestBackgroundEnrollment:
         team = self._team(approved=approved)
         with team_scope(team.id, canonical=True):
             _create_skill(team, _GENERAL)
-            _create_config(team, _GENERAL, enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND)
+            _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
         background = None if block == "absent" else _background({team.id}, enabled=block == "enabled")
         enrollment = Enrollment(wildcard=False, explicit={team.id}, skip=set())
 
@@ -728,9 +728,7 @@ class TestBackgroundEnrollment:
     def test_departed_team_is_paused_and_resumes_when_listed_again(self):
         team = self._team()
         with team_scope(team.id, canonical=True):
-            background_config = _create_config(
-                team, _GENERAL, enrollment_origin=SignalScoutConfig.EnrollmentOrigin.BACKGROUND
-            )
+            background_config = _create_config(team, _GENERAL, managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
             user_config = _create_config(team, "signals-scout-errors")
 
         _collect_planned_runs(_NO_ENROLLMENT, background=_background(set(), enabled=False))

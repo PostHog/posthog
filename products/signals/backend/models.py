@@ -2352,19 +2352,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         # no longer exists, and the roster has a state to render instead of a row that looks
         # healthy and never runs.
         RETIRED = "retired", "Retired"
-        # A background enrollment ended and PostHog took the scout off the team. Owned by the
-        # background coordinator alone, so no other system writer resumes a scout nobody set up.
+        # The background lane stopped managing this scout and paused it. Owned by the background
+        # coordinator alone, so no other system writer resumes a scout nobody set up.
         BACKGROUND_REMOVED = "background_removed", "Background removed"
 
-    class EnrollmentOrigin(models.TextChoices):
-        """Who put this scout on the team.
+    class ManagedBy(models.TextChoices):
+        """Who controls this scout now.
 
-        `background` marks a row PostHog enrolled without a person asking, so the background
-        coordinator may still change or remove it. Any human edit through the config API moves the
-        row to `user`, and from then on the row belongs to the team.
+        `background` marks a row the background lane created without a person asking, so the
+        background coordinator may still change or pause it. Any human edit through the config API
+        moves the row to `team`, and from then on only the team changes it.
         """
 
-        USER = "user", "User"
+        TEAM = "team", "Team"
         BACKGROUND = "background", "Background"
 
     class NetworkAccess(models.TextChoices):
@@ -2460,11 +2460,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     )
     # `db_default` alongside `default` keeps the AddField non-blocking and the column populated for
     # writers that don't know about it yet.
-    enrollment_origin = models.CharField(
+    managed_by = models.CharField(
         max_length=20,
-        choices=EnrollmentOrigin.choices,
-        default=EnrollmentOrigin.USER,
-        db_default=EnrollmentOrigin.USER,
+        choices=ManagedBy.choices,
+        default=ManagedBy.TEAM,
+        db_default=ManagedBy.TEAM,
     )
     # Set only alongside `pending_pause` / `paused_by_system`; see `PauseReason`.
     pause_reason = models.CharField(
