@@ -1001,7 +1001,9 @@ class TestSlotInvalidationRecovery:
             )
             capture.adapter.is_slot_invalidation_error.return_value = True
             capture.adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
-            yield capture
+            with patch(f"{_ACTIVITIES}.clear_slot_loss_markers") as clear_markers:
+                capture.clear_markers = clear_markers
+                yield capture
 
     def test_invalidated_slot_is_recreated_and_schemas_reset_to_snapshot(self):
         source = _make_source()
@@ -1016,6 +1018,7 @@ class TestSlotInvalidationRecovery:
                 # failed after that point would never repeat and the schema would stream across the gap.
                 assert schema.sync_type_config["cdc_mode"] == "snapshot"
                 capture.purge.assert_called_once_with(schema.team_id, str(schema.id), ANY, strict=True)
+                capture.clear_markers.assert_called_once_with(source)
                 return {"cdc_consistent_point": "0/AA"}
 
             capture.adapter.recreate_slot.side_effect = _recreate_slot
