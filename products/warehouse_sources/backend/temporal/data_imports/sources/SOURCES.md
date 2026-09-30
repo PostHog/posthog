@@ -29,6 +29,7 @@ vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
 | **gRPC**                  | The vendor SDK uses gRPC over HTTP/2 (binary, not REST). Routed through the [tracked gRPC transport](common/grpc/) via client interceptors (see `common/grpc/`). |
 | **DB protocol**           | Native database wire protocol via a driver (e.g. PostgreSQL, MySQL, Snowflake). Not HTTP.                                                                        |
 | **SSH (SFTP)**            | SFTP over an SSH transport via `paramiko`. Not HTTP, so neither the HTTP nor the gRPC tracked transport applies.                                                 |
+| **Kafka protocol**        | Kafka wire protocol via `confluent-kafka` (librdkafka). Not HTTP, so neither the HTTP nor the gRPC tracked transport applies.                                    |
 | **Webhook (S3-buffered)** | Vendor pushes events to a webhook endpoint; payloads are buffered to S3 by the `WebhookSourceManager` and consumed by the pipeline.                              |
 
 When a source uses more than one transport (e.g. BigQuery REST + Storage gRPC, or Stripe pull-API + webhooks),
@@ -146,6 +147,7 @@ the row lists both.
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
 | bunny                            | HTTP                        | requests                                                        | ✅                          |
 | buttondown                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| buy_me_a_coffee                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | buzzsprout                       | HTTP                        | requests                                                        | ✅                          |
 | cal_com                          | HTTP                        | requests                                                        | ✅                          |
 | calendly                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
@@ -410,6 +412,7 @@ the row lists both.
 | justcall                         | HTTP                        | requests                                                        | ✅                          |
 | justsift                         | HTTP                        | requests                                                        | ✅                          |
 | k6_cloud                         | HTTP                        | requests                                                        | ✅                          |
+| kafka                            | Kafka protocol              | confluent-kafka (librdkafka)                                    | ➖                          |
 | kalshi                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kandji                           | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
 | kapa_ai                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -437,6 +440,7 @@ the row lists both.
 | lemlist                          | HTTP                        | requests                                                        | ✅                          |
 | lemon_squeezy                    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | less_annoying_crm                | HTTP                        | requests                                                        | ✅                          |
+| lexware_office                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightdash                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightfield                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | lightspeed_retail                | HTTP                        | requests                                                        | ✅                          |
@@ -551,6 +555,7 @@ the row lists both.
 | partnerize                       | HTTP                        | requests                                                        | ✅                          |
 | partnerstack                     | HTTP                        | requests                                                        | ✅                          |
 | payfit                           | HTTP                        | requests                                                        | ✅                          |
+| paymongo                         | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
 | paystack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                            | HTTP                        | requests                                                        | ✅                          |
 | perigon                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -560,6 +565,7 @@ the row lists both.
 | pexels                           | HTTP                        | requests                                                        | ✅                          |
 | phyllo                           | HTTP                        | requests                                                        | ✅                          |
 | picqer                           | HTTP                        | requests                                                        | ✅                          |
+| pinecone                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pingdom                          | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads                    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -611,6 +617,7 @@ the row lists both.
 | replicate                        | HTTP                        | requests                                                        | ✅                          |
 | reply_io                         | HTTP                        | requests                                                        | ✅                          |
 | resend                           | HTTP                        | requests                                                        | ✅                          |
+| retell_ai                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | retently                         | HTTP                        | requests                                                        | ✅                          |
 | revenuecat                       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | reverb                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -890,6 +897,7 @@ doesn't conflict with concurrent PRs.
 - astronomer
 - athenahealth
 - atlan
+- audiogo
 - auth0
 - autodesk_construction_cloud
 - automox
@@ -954,7 +962,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - buffer
 - buildium
-- buy_me_a_coffee
 - cal_com
 - calendarific
 - calibre
@@ -1034,6 +1041,7 @@ doesn't conflict with concurrent PRs.
 - encharge
 - entsoe
 - eurostat
+- exact_online
 - expensify
 - facebook_pages
 - faros_ai
@@ -1156,7 +1164,6 @@ doesn't conflict with concurrent PRs.
 - jobtread
 - judgeme_reviews
 - justsift
-- kafka
 - kajabi
 - kameleoon
 - kaufland_marketplace
@@ -1177,8 +1184,8 @@ doesn't conflict with concurrent PRs.
 - lawmatics
 - learnworlds
 - lemon_squeezy
+- lettrlabs
 - lever
-- lexware_office
 - liana
 - lingo_dev
 - linkedin_pages
@@ -1277,7 +1284,6 @@ doesn't conflict with concurrent PRs.
 - paychex
 - paylocity
 - paymob
-- paymongo
 - paypal
 - peec_ai
 - pendo
@@ -1287,7 +1293,6 @@ doesn't conflict with concurrent PRs.
 - phonepe
 - phyllo
 - pike13
-- pinecone
 - pingone
 - pinterest_organic
 - pipeliner
@@ -1332,7 +1337,6 @@ doesn't conflict with concurrent PRs.
 - repairshopr
 - reply_io
 - retail_express
-- retell_ai
 - retently
 - ringcentral
 - rocket_chat
