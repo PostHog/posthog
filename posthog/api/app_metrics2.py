@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -14,7 +13,6 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -51,15 +49,6 @@ class AppMetricsTotalsResponse:
 class AppMetricsTotalsResponseSerializer(DataclassSerializer):
     class Meta:
         dataclass = AppMetricsTotalsResponse
-
-
-@frozen
-class MetricSeries:
-    """Which app-metric rows a read covers. Both fields are strings, so naming them keeps a caller
-    from passing the id where the source goes."""
-
-    app_source: str
-    app_source_id: str
 
 
 class AppMetricsRequestSerializer(serializers.Serializer):
@@ -465,8 +454,6 @@ def fetch_app_metric_daily_totals_by_team(
 
 
 class AppMetricsMixin(viewsets.GenericViewSet):
-    metrics_request_serializer_class: type[AppMetricsRequestSerializer] = AppMetricsRequestSerializer
-
     app_source: str  # Should be set by the inheriting class
 
     def get_app_metrics_instance_id(self) -> Optional[str]:
@@ -480,7 +467,7 @@ class AppMetricsMixin(viewsets.GenericViewSet):
     @action(detail=True, methods=["GET"])
     def metrics(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = self.metrics_request_serializer_class(data=request.query_params)
+        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -503,11 +490,10 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         after_date, _, _ = relative_date_parse_with_delta_mapping(params.get("after", "-7d"), team.timezone_info)
         before_date, _, _ = relative_date_parse_with_delta_mapping(params.get("before", "-0d"), team.timezone_info)
 
-        series = self._metric_series_for(obj, params)
         data = fetch_app_metrics_trends(
             team_id=self.team_id,  # type: ignore
-            app_source=series.app_source,
-            app_source_id=series.app_source_id,
+            app_source=self.app_source,
+            app_source_id=str(obj.id),
             # From request params
             instance_id=instance_id,
             interval=params.get("interval", "day"),
@@ -521,16 +507,11 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         serializer = AppMetricResponseSerializer(instance=data)
         return Response(serializer.data)
 
-    def _metric_series_for(self, obj, params: Mapping[str, Any]) -> MetricSeries:
-        """The series this request reads. A viewset that also records a narrower series overrides
-        this and keys it on the narrowing parameters its own serializer declares."""
-        return MetricSeries(app_source=self.app_source, app_source_id=str(obj.id))
-
     @extend_schema(parameters=[AppMetricsRequestSerializer], responses=AppMetricsTotalsResponseSerializer)
     @action(detail=True, methods=["GET"], url_path="metrics/totals")
     def metrics_totals(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        param_serializer = self.metrics_request_serializer_class(data=request.query_params)
+        param_serializer = AppMetricsRequestSerializer(data=request.query_params)
 
         if not self.app_source:
             raise ValidationError("app_source not set on the viewset")
@@ -553,11 +534,10 @@ class AppMetricsMixin(viewsets.GenericViewSet):
         if params.get("before"):
             before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], team.timezone_info)
 
-        series = self._metric_series_for(obj, params)
         data = fetch_app_metric_totals(
             team_id=self.team_id,  # type: ignore
-            app_source=series.app_source,
-            app_source_id=series.app_source_id,
+            app_source=self.app_source,
+            app_source_id=str(obj.id),
             # From request params
             after=after_date,
             before=before_date,
