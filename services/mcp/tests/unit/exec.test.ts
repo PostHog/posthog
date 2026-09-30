@@ -712,6 +712,11 @@ describe('exec tool', () => {
                 expected: /parameter "id" must be of type number/,
             },
             {
+                case: 'a parameter of the wrong type, echoing the field description',
+                input: '{"id":1,"buckets":"day"}',
+                expected: /parameter "buckets" must be of type number \(Bucket count, not a time unit\.\)/,
+            },
+            {
                 // Plain z.object strips unknown keys at parse time (Zod v4), so the
                 // actionable signal is the absent required `id`, not the stray key.
                 case: 'an unexpected property displacing the required field',
@@ -728,7 +733,11 @@ describe('exec tool', () => {
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
-                schema: z.object({ id: z.number(), description: z.string().max(400).optional() }),
+                schema: z.object({
+                    id: z.number(),
+                    description: z.string().max(400).optional(),
+                    buckets: z.number().optional().describe('Bucket count, not a time unit.'),
+                }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
