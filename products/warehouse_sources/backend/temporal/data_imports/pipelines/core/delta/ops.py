@@ -11,8 +11,10 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
     is_invalid_version_race,
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 
 T = TypeVar("T")
@@ -122,6 +124,13 @@ async def execute_with_conflict_retry(
                 # tells which layer translated the refusal, without repeating the key.
                 await logger.awarning(f"{operation_name}: the object store denied the operation ({type(e).__name__})")
                 raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(e):
+                # Same blip get_delta_table already classifies (see table.py's
+                # _capture_unless_transient) - a bare re-raise here would still mint a fresh
+                # error-tracking issue at the activity boundary, and burn the conflict-retry budget
+                # on a call that isn't a commit conflict.
+                await logger.awarning(f"{operation_name}: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(str(e)) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
