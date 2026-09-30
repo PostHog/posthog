@@ -28,8 +28,6 @@ export const WORKFLOWS_CROSS_SELL_TEMPLATE_IDS: ReadonlySet<string> = new Set([
 // pinned: the `source` URL param value and analytics property that tie a composer run back to this dialog
 export const WORKFLOWS_CROSS_SELL_SOURCE = 'cdp_destination_cross_sell'
 
-export const WORKFLOWS_CROSS_SELL_DISMISSAL_TTL_MS = 30 * 24 * 60 * 60 * 1000
-
 /**
  * Only a real destination qualifies. Alert sub-templates reuse a destination's id under another `type`, and
  * hidden templates are Workflows' own building blocks.

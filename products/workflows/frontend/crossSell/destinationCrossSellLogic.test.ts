@@ -14,7 +14,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { HogFunctionTemplateWithSubTemplateType } from '~/types'
 
-import { WORKFLOWS_CROSS_SELL_DISMISSAL_TTL_MS, suggestionsForTemplate } from './competingDestinationTemplates'
+import { suggestionsForTemplate } from './competingDestinationTemplates'
 import { destinationCrossSellLogic } from './destinationCrossSellLogic'
 
 const CATALOG_PATH = '/pipeline/new/destination'
@@ -44,7 +44,7 @@ describe('destinationCrossSellLogic', () => {
     }
 
     beforeEach(() => {
-        // `dismissedAt` is persisted to localStorage, which jsdom keeps between tests.
+        // `isDismissed` is persisted to localStorage, which jsdom keeps between tests.
         localStorage.clear()
         useMocks(maxMocks)
         initKeaTests()
@@ -99,9 +99,8 @@ describe('destinationCrossSellLogic', () => {
         expect(logic.values.shouldIntercept(template(overrides))).toBe(expected)
     })
 
-    it('stays quiet for 30 days after a dismissal, and the dismissal survives a reload', async () => {
+    it('stays dismissed after a close, also after a reload in another project', async () => {
         setFlags([FEATURE_FLAGS.CDP_WORKFLOWS_CROSS_SELL])
-        const now = jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
 
         await expectLogic(logic, () => {
             logic.actions.openModal(template(), DESTINATION_URL)
@@ -117,15 +116,15 @@ describe('destinationCrossSellLogic', () => {
             step: 'intro',
         })
 
-        now.mockReturnValue(1_700_000_000_000 + WORKFLOWS_CROSS_SELL_DISMISSAL_TTL_MS + 1)
-        expect(logic.values.shouldIntercept(template())).toBe(true)
-
+        // The "no" is a choice of the person, not of the project, so a rebuild under another project reads it back.
         logic.unmount()
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
         logic = destinationCrossSellLogic()
         logic.mount()
-        expect(logic.values.dismissedAt).toBe(1_700_000_000_000)
+        setFlags([FEATURE_FLAGS.CDP_WORKFLOWS_CROSS_SELL])
 
-        now.mockRestore()
+        expect(logic.values.isDismissed).toBe(true)
+        expect(logic.values.shouldIntercept(template())).toBe(false)
     })
 
     it('continueWithDestination sends the person where the click was going', async () => {
@@ -135,7 +134,7 @@ describe('destinationCrossSellLogic', () => {
         }).toFinishAllListeners()
 
         expect(logic.values.isOpen).toBe(false)
-        expect(logic.values.dismissedAt).not.toBeNull()
+        expect(logic.values.isDismissed).toBe(true)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(DESTINATION_URL)
         expect(capture).toHaveBeenCalledWith(
             'workflows cross-sell modal dismissed',
@@ -174,7 +173,7 @@ describe('destinationCrossSellLogic', () => {
             template_name: 'Customer.io',
             ai_composer_available: expectDescribe,
         })
-        expect(logic.values.dismissedAt).not.toBeNull()
+        expect(logic.values.isDismissed).toBe(true)
         if (expectDescribe) {
             expect(logic.values.isOpen).toBe(true)
             expect(logic.values.step).toBe('describe')

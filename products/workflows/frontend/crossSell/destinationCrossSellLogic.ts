@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import type { ProductCrossSellProperties } from 'lib/utils/product-intents'
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -16,7 +15,6 @@ import type { HogFunctionTemplateWithSubTemplateType } from '~/types'
 
 import { urlForNewWorkflowComposerWithPrompt } from '../Workflows/newWorkflowComposerPrompt'
 import {
-    WORKFLOWS_CROSS_SELL_DISMISSAL_TTL_MS,
     WORKFLOWS_CROSS_SELL_SOURCE,
     isWorkflowsCrossSellTemplate,
     suggestionsForTemplate,
@@ -35,7 +33,7 @@ export interface destinationCrossSellLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     sceneIntegrationEnabled: boolean // sceneAgentPanelLogic
     crossSellEnabled: boolean
-    dismissedAt: number | null
+    isDismissed: boolean
     isOpen: boolean
     prompt: string
     shouldIntercept: (template: HogFunctionTemplateWithSubTemplateType) => boolean
@@ -54,6 +52,9 @@ export interface destinationCrossSellLogicActions {
     continueWithDestination: () => {
         value: true
     }
+    markDismissed: () => {
+        value: true
+    }
     openModal: (
         template: HogFunctionTemplateWithSubTemplateType,
         destinationUrl: string
@@ -70,9 +71,6 @@ export interface destinationCrossSellLogicActions {
     ) => {
         index: number
         suggestion: AiFirstSuggestion
-    }
-    setDismissedAt: (dismissedAt: number) => {
-        dismissedAt: number
     }
     setPrompt: (prompt: string) => {
         prompt: string
@@ -96,7 +94,7 @@ export interface destinationCrossSellLogicMeta {
         suggestions: (target: DestinationCrossSellTarget | null) => AiFirstSuggestion[]
         shouldIntercept: (
             crossSellEnabled: boolean,
-            dismissedAt: number | null
+            isDismissed: boolean
         ) => (template: HogFunctionTemplateWithSubTemplateType) => boolean
     }
 }
@@ -135,7 +133,7 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
         setPrompt: (prompt: string) => ({ prompt }),
         selectSuggestion: (suggestion: AiFirstSuggestion, index: number) => ({ suggestion, index }),
         submitPrompt: true,
-        setDismissedAt: (dismissedAt: number) => ({ dismissedAt }),
+        markDismissed: true,
     }),
     reducers({
         target: [
@@ -168,12 +166,13 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
                 selectSuggestion: () => true,
             },
         ],
-        dismissedAt: [
-            null as number | null,
-            // pinned: localStorage key. Persisted per project so one choice quiets the dialog on later visits.
-            { persist: true, prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__` },
+        isDismissed: [
+            false,
+            // pinned: localStorage key. One "no" is the opt-out, so the flag has no expiry and no project prefix:
+            // it follows the person into every project in this browser, the same as banner and nav ad dismissals.
+            { persist: true },
             {
-                setDismissedAt: (_, { dismissedAt }) => dismissedAt,
+                markDismissed: () => true,
             },
         ],
     }),
@@ -188,14 +187,11 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
             (target: DestinationCrossSellTarget | null): AiFirstSuggestion[] =>
                 target ? suggestionsForTemplate(target.template.id) : [],
         ],
-        // Returned as a function so the clock is read at the click, not when the catalog rendered.
         shouldIntercept: [
-            (s) => [s.crossSellEnabled, s.dismissedAt],
-            (crossSellEnabled: boolean, dismissedAt: number | null) =>
+            (s) => [s.crossSellEnabled, s.isDismissed],
+            (crossSellEnabled: boolean, isDismissed: boolean) =>
                 (template: HogFunctionTemplateWithSubTemplateType): boolean =>
-                    crossSellEnabled &&
-                    isWorkflowsCrossSellTemplate(template) &&
-                    (dismissedAt === null || Date.now() - dismissedAt > WORKFLOWS_CROSS_SELL_DISMISSAL_TTL_MS),
+                    crossSellEnabled && !isDismissed && isWorkflowsCrossSellTemplate(template),
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -213,7 +209,7 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
                 reason: 'closed',
                 step: values.step,
             })
-            actions.setDismissedAt(Date.now())
+            actions.markDismissed()
             actions.resetModal()
         },
         continueWithDestination: () => {
@@ -226,7 +222,7 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
                 reason: 'continue_with_destination',
                 step: values.step,
             })
-            actions.setDismissedAt(Date.now())
+            actions.markDismissed()
             actions.resetModal()
             router.actions.push(target.destinationUrl)
         },
@@ -248,7 +244,7 @@ export const destinationCrossSellLogic = kea<destinationCrossSellLogicType>([
                 metadata: { template_id: target.template.id },
             })
             // An accepted offer quiets the dialog too: the person knows about workflows now.
-            actions.setDismissedAt(Date.now())
+            actions.markDismissed()
             if (aiComposerAvailable) {
                 actions.setStep('describe')
             } else {
