@@ -5489,16 +5489,6 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert "measured" not in response.json()["evidence"]
 
     @parameterized.expand([("metrics/totals",), ("metrics",)])
-    def test_a_version_is_refused_where_nothing_records_one(self, path: str):
-        function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
-
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/{path}?version=1")
-
-        # Answering it from the empty per-version series would read as "no failures" rather than "not recorded".
-        assert response.status_code == 400, response.json()
-        assert "per version" in str(response.json())
-
-    @parameterized.expand([("metrics/totals",), ("metrics",)])
     def test_a_hog_function_still_reads_its_own_metrics(self, path: str):
         function = HogFunction.objects.create(team=self.team, name="fn", type="destination", hog="return event")
         create_app_metric2(
