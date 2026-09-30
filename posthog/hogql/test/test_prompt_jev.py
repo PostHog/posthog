@@ -80,6 +80,10 @@ class TestPromptJev(SimpleTestCase):
             ("jev('a', 'q', noul := ['yes', 'no'])", "exactly"),
             ("jev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
             ("jev('a', 'q', score := ['a','b'])", "supports"),
+            ("jev('a', 'q', model := 'jevk5')", "supports"),
+            ("decide('a', 'q', model := 'gpt')", "model must be one of"),
+            ("decide('a', 'q', model := name)", "model must be one of"),
+            ("decide('a', '')", "decide instructions must be a non-empty"),
         ]
     )
     def test_invalid_arguments(self, query: str, message: str) -> None:
@@ -101,6 +105,24 @@ class TestPromptJev(SimpleTestCase):
         self.assertEqual(len(request["json"]["questions"]), 2)
         properties = json.loads(request["headers"]["X-PostHog-Properties"])
         self.assertEqual(properties["team_id"], "123")
+
+    def test_each_model_gets_its_own_gateway_calls_and_cache(self) -> None:
+        runner = PromptJevRunner(team_id=123, distinct_id="test-user")
+        specs = []
+        for query in ["jev(body, 'Refund?')", "decide(body, 'Refund?', model := 'jevk5')"]:
+            node = parse_expr(query)
+            assert isinstance(node, ast.Call)
+            specs.append(PromptJevCall.parse(node))
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
+            for spec in specs:
+                self.assertEqual(runner.evaluate(spec, ["refund"]), [0.9])
+        self.assertEqual(
+            [
+                (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"])
+                for call in post.call_args_list
+            ],
+            [("posthog/hogference/jeeves-0.1", "hogql_decide"), ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide")],
+        )
 
     @parameterized.expand([(42, "must be text"), ("x" * 8193, "8 KiB")])
     def test_rejects_invalid_input_before_network(self, value: object, message: str) -> None:
@@ -288,6 +310,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 [(0.9,)],
             ),
             ("SELECT jev(NULL, 'Refund?') AS p", [(None,)]),
+            ("SELECT decide('refund', 'Refund?', model := 'jevk5') AS p", [(0.9,)]),
             ("SELECT jev('hello', 'Refund?') AS p LIMIT 0", []),
             (
                 "SELECT " + ", ".join(f"jev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
