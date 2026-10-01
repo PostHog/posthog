@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import JSONParser
@@ -75,7 +75,13 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
         responses={
             202: AccountAuditStartResponseSerializer,
             204: None,
-            400: None,
+            400: OpenApiResponse(
+                description=(
+                    "The request was rejected. A body that is not JSON or is too large, or a missing or ineligible "
+                    "team, returns no body. Invalid fields return a validation error body. A missing, inaccessible, "
+                    "or unsupported skill returns a detail message."
+                )
+            ),
             401: None,
             403: None,
             409: AccountAuditConflictSerializer,
