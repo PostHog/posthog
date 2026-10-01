@@ -16,6 +16,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
 )
+from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 if TYPE_CHECKING:
@@ -32,8 +33,9 @@ class MeanQueryBuilder:
     and the shared exposure, metric-value, and CUPED helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(self, builder: "ExperimentQueryBuilder", maturity: MaturityGate | None = None):
         self._b = builder
+        self._maturity = maturity
 
     def get_session_property_ctes(self) -> str:
         """
@@ -206,7 +208,7 @@ class MeanQueryBuilder:
 
         source_info = MetricSourceInfo.from_source(self._b.metric.source, entity_key=self._b.entity_key)
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._b._get_exposure_query(self._maturity)
         if source_info.kind == "datawarehouse":
             assert isinstance(self._b.metric.source, ExperimentDataWarehouseNode)
             events_join_key_parts = cast(list[str | int], self._b.metric.source.events_join_key.split("."))
@@ -272,7 +274,7 @@ class MeanQueryBuilder:
         """Placeholders for the CTEs from get_session_property_ctes()."""
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._b._get_exposure_query(self._maturity)
 
         return {
             "exposure_select_query": exposure_query,
