@@ -1,10 +1,9 @@
 """Django models for today. Keep models thin; logic lives in logic/."""
 
-import uuid
-
 from django.db import models
 
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.models.utils import uuid7
 
 from .facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
 
@@ -12,14 +11,14 @@ from .facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, Brie
 class DailyBriefing(ProductTeamModel):
     """One generation of a person's Today briefing. The page shows the current edition of the day."""
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     user_id = models.BigIntegerField()
     local_day = models.DateField()
     edition = models.CharField(max_length=16, choices=[(e.value, e.value) for e in BriefingEdition])
     timezone = models.CharField(max_length=64)
     trigger = models.CharField(max_length=16, choices=[(t.value, t.value) for t in BriefingTrigger])
     status = models.CharField(
-        max_length=16, choices=[(s.value, s.value) for s in BriefingStatus], default=BriefingStatus.COLLECTING
+        max_length=16, choices=[(s.value, s.value) for s in BriefingStatus], default=BriefingStatus.COLLECTING.value
     )
     # The items the briefing names, with the facts its text rests on (`FactSheet`).
     facts = models.JSONField(default=dict)
