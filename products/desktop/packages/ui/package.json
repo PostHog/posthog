@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "generate-routes": "node scripts/generate-routes.mjs",
+    "generate-web-sandbox": "vitest run src/features/canvas/freeform/webSandboxDocument.test.ts --update",
     "clean": "node ../../scripts/rimraf.mjs dist .turbo"
   },
   "dependencies": {
