@@ -1278,8 +1278,10 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        with upgrade_insight(attrs["insight"]):
+            query = attrs["insight"].query
         try:
-            validate_evaluation_delay(attrs["insight"].query, attrs.get("config"), attrs["evaluation_delay_intervals"])
+            validate_evaluation_delay(query, attrs.get("config"), attrs["evaluation_delay_intervals"])
         except ValueError as err:
             raise ValidationError({"evaluation_delay_intervals": [str(err)]}) from err
         return attrs

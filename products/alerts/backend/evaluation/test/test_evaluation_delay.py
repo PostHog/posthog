@@ -164,6 +164,11 @@ class TestEvaluationDelay(SimpleTestCase):
             self.assertFalse(serializer.is_valid())
             self.assertIn("evaluation_delay_intervals", serializer.errors)
 
+    def test_simulate_validation_upgrades_stored_series_without_kind(self) -> None:
+        self.insight.query = {**self.query, "series": [{"event": "order completed"}]}
+        attrs = {"insight": self.insight, "config": None, "evaluation_delay_intervals": 2}
+        self.assertEqual(AlertSimulateSerializer().validate(attrs), attrs)
+
     @parameterized.expand(
         [
             ({"kind": "HogQLQuery", "query": "SELECT 1"}, {}, "time-series Trends"),
