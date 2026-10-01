@@ -1,7 +1,7 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
-import { getToolInputProperties } from '@posthog/mcp-analytics'
+import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
@@ -1513,17 +1513,37 @@ export function describeValidationError(error: z.ZodError, schema: z.ZodType): {
     return { fields }
 }
 
+const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+const DIGIT_RUN_PATTERN = /\d{5}/
+const CREDENTIAL_SEGMENT_MIN_LENGTH = 16
+
+function hasCredentialSegment(key: string): boolean {
+    return key.split('_').some((segment) => segment.length >= CREDENTIAL_SEGMENT_MIN_LENGTH && /\d/.test(segment))
+}
+
+/**
+ * Records an undeclared argument name only when it reads as a parameter spelling, because the
+ * caller chooses the name and it can carry credentials or personal data. Anything else becomes
+ * the SDK's `[redacted]` marker. The identifier shape rejects emails, URLs, UUIDs, dotted
+ * hostnames, and argument values pasted into the key. A run of five or more digits is a phone
+ * number, a date, or an entity ID. A long `_`-separated segment that contains a digit is a
+ * random token such as a PostHog `phx_` key or a GitHub `ghp_` token, and a name built from
+ * words has no such segment.
+ */
+const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
+    declared || (PARAMETER_NAME_PATTERN.test(key) && !DIGIT_RUN_PATTERN.test(key) && !hasCredentialSegment(key))
+
 /**
  * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
  * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
  * alias names count as declared and each alias the normaliser relied on is recorded as
  * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
  * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
- * schema declares them. Undeclared names become one `[redacted]` marker because caller-controlled
- * names can contain credentials or personal data.
+ * schema declares them. `shouldRecordInputKey` decides which undeclared names are recorded.
  */
 export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
     return getToolInputProperties(input, schema, {
+        shouldRecordInputKey,
         inputAliases: schema ? readParamAliases(schema) : undefined,
     })
 }

@@ -2147,6 +2147,24 @@ describe('exec tool', () => {
             ])
         })
 
+        it.each([
+            ['a guessed spelling', 'requiredField', 'requiredField'],
+            [
+                'a long settings field',
+                'session_recording_minimum_duration_milliseconds',
+                'session_recording_minimum_duration_milliseconds',
+            ],
+            ['an email', 'jane@example.com', '[redacted]'],
+            ['a hostname', 'example.com', '[redacted]'],
+            ['a phone number', 'tel_15555550100', '[redacted]'],
+            ['a token', `ghp_${'aB3'.repeat(12)}`, '[redacted]'],
+        ])('records an undeclared key that is %s', (_shape, key, recorded) => {
+            const shape = describeInputShape({ [key]: 'secret-value', id: 1 }, z.object({ id: z.number() }))
+
+            expect(shape.$mcp_input_keys).toEqual(['id', recorded])
+            expect(JSON.stringify(shape)).not.toContain('secret-value')
+        })
+
         it('records declared names before misspelled ones when the limit is reached', () => {
             const declared = Object.fromEntries(
                 Array.from({ length: 20 }, (_, i) => [`d${String(i).padStart(2, '0')}`, i])
@@ -2183,7 +2201,7 @@ describe('exec tool', () => {
                     $mcp_input_aliases_used: ['experimentId:id'],
                 })
                 expect(describeInputShape({ experimentId: 1 }, z.object({ id: z.number() }))).toEqual({
-                    $mcp_input_keys: ['[redacted]'],
+                    $mcp_input_keys: ['experimentId'],
                 })
             })
 
