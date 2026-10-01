@@ -566,6 +566,15 @@ export interface ApproveRunRequestInputApi {
     snapshots: ApproveSnapshotInputApi[]
 }
 
+export interface CompleteRunInputApi {
+    /**
+     * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+     * @maxLength 32
+     * @pattern ^\d+$
+     */
+    check_run_id?: string
+}
+
 export interface FinalizeRunRequestInputApi {
     /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean

@@ -22952,6 +22952,15 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface CompleteRunInput {
+      /**
+         * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+         * @maxLength 32
+         * @pattern ^\d+$
+         */
+      check_run_id?: string;
+    }
+
     /**
      * Global feature importance / directionality bundle for the champion model card.
      */
