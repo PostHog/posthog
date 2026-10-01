@@ -5,7 +5,7 @@ answer and the turn's attachments all flow as chunks into one streamed message.
 Best-effort: a Slack outage must never escalate to a task failure.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any, Optional
 
 from temporalio import activity
@@ -18,7 +18,7 @@ from posthog.temporal.common.utils import close_db_connections
 logger = get_logger(__name__)
 
 
-@dataclass
+@frozen
 class TaskUpdateChunk:
     """One plan-block step. Flat so Temporal can serialize it."""
 
@@ -28,7 +28,7 @@ class TaskUpdateChunk:
     details: Optional[str] = None
 
 
-@dataclass
+@frozen
 class StartSlackAgentDesignStreamInput:
     slack_thread_context: dict[str, Any]
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
@@ -36,14 +36,14 @@ class StartSlackAgentDesignStreamInput:
     plan_title: Optional[str] = None
 
 
-@dataclass
+@frozen
 class SlackAgentDesignStream:
     ts: str
     # Whether the message has a plan block, so closing it can set the plan title.
     has_plan: bool
 
 
-@dataclass
+@frozen
 class AppendSlackAgentDesignStepsInput:
     slack_thread_context: dict[str, Any]
     ts: str

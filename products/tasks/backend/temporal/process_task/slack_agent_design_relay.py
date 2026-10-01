@@ -11,13 +11,14 @@ parent sends through ``setup_step``. Slack ends a stream that gets no update for
 so a quiet relay re-sends its open line.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
@@ -60,7 +61,7 @@ _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 _SANDBOX_SETUP_STEP = "sandbox"
 
 
-@dataclass
+@frozen
 class SlackAgentDesignRelayInput:
     slack_thread_context: dict[str, Any]
     run_id: Optional[str] = None

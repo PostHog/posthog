@@ -13,8 +13,6 @@ from posthog.dataclasses import frozen
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
 from posthog.slack.channels import clip_text
 
-from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX, parse_exec_command
-
 
 @frozen
 class ProgressPhase:
@@ -252,11 +250,17 @@ def _posthog_tool(name: str, command: str | None) -> str | None:
         tool = name.removeprefix(prefix)
         if tool != _POSTHOG_EXEC_TOOL:
             return tool
-        parsed = parse_exec_command(command or "")
-        if parsed is None or parsed[0].startswith(INFO_SYNTHETIC_PREFIX):
-            return None
-        return parsed[0].lower()
+        return _exec_call_tool(command)
     return None
+
+
+def _exec_call_tool(command: str | None) -> str | None:
+    """The tool an ``exec`` command such as ``call --json execute-sql {...}`` runs. Other verbs only look up tools."""
+    words = (command or "").split()
+    if not words or words[0].lower() != "call":
+        return None
+    tool = next((word for word in words[1:] if not word.startswith("--")), None)
+    return tool.lower() if tool else None
 
 
 def agent_plan_steps(update: dict[str, Any]) -> list[dict[str, str]] | None:
