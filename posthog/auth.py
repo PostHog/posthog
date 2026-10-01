@@ -63,6 +63,7 @@ from posthog.models.utils import (
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.scopes import read_covered_scope_objects
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_trusted_client_ip
@@ -468,7 +469,7 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         self.project_secret_api_key = project_secret_api_key
 
     def readable_system_table_access_scopes(self) -> set[str]:
-        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        return read_covered_scope_objects(self.project_secret_api_key.scopes or [])
 
 
 class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):

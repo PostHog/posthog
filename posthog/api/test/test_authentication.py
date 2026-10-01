@@ -2570,6 +2570,23 @@ class TestSyntheticUser(SimpleTestCase):
         self.assertIs(user.project_secret_api_key, fake_psak)
         self.assertIsNone(user.id)
 
+    def test_project_secret_api_key_user_reads_system_tables_only_where_scopes_cover_read(self):
+        team = self._team(team_id=7)
+        fake_psak = type(
+            "FakePSAK",
+            (),
+            {
+                "team": team,
+                "team_id": team.id,
+                "id": 1,
+                "scopes": ["endpoint:read", "account:write", "messaging_preference:write"],
+            },
+        )()
+
+        readable = ProjectSecretAPIKeyUser(fake_psak).readable_system_table_access_scopes()
+
+        self.assertEqual(readable, {"endpoint", "account"})
+
     def test_isinstance_check_recognises_both_subclasses(self):
         from posthog.synthetic_user import SyntheticUser
 

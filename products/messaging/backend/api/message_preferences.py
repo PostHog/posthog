@@ -69,6 +69,8 @@ MESSAGING_PREFERENCE_SCOPE_BY_ACTION: dict[str, str] = {
     "remove_opt_out": "messaging_preference:write",
 }
 
+PREFERENCE_READ_SCOPES = ("messaging_preference:read", "hog_flow:read")
+
 
 class OptOutsPagination(PageNumberPagination):
     page_size = 20
@@ -270,6 +272,21 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             return [narrow_scope]
         return None
 
+    def _write_response(
+        self, preference: MessageRecipientPreference, created: bool, written: dict[str, str]
+    ) -> Response:
+        data = MessagePreferencesSerializer(preference).data
+        if self._caller_can_read_preferences():
+            return Response(data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        # A write-only caller must not learn the recipient's other preferences or whether they existed.
+        return Response({**data, "preferences": written}, status=status.HTTP_200_OK)
+
+    def _caller_can_read_preferences(self) -> bool:
+        held_scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        if held_scopes is None or "*" in held_scopes:
+            return True
+        return any(not scopes_not_covered(held_scopes, [scope]) for scope in PREFERENCE_READ_SCOPES)
+
     def _requesting_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
 
@@ -324,7 +341,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=AddOptOutRequestSerializer,
-        responses={201: MessagePreferencesSerializer},
+        responses={200: MessagePreferencesSerializer, 201: MessagePreferencesSerializer},
         summary="Manually add a recipient to the opt-out list",
     )
     @action(detail=False, methods=["post"])
@@ -357,12 +374,11 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # once the preference write has committed.
         transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
 
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(preference).data, status=response_status)
+        return self._write_response(preference, created, {category_id: PreferenceStatus.OPTED_OUT.value})
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
-        responses={201: MessagePreferencesSerializer},
+        responses={200: MessagePreferencesSerializer, 201: MessagePreferencesSerializer},
         summary="Remove a recipient from the opt-out list",
     )
     @action(detail=False, methods=["post"])
@@ -389,19 +405,17 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
         preferences = dict(preference.preferences or {})
 
-        if category is None:
-            preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = PreferenceStatus.OPTED_IN.value
-        else:
+        category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+        if category is not None:
             self._lift_global_opt_out(preferences, category)
-            preferences[str(category.id)] = PreferenceStatus.OPTED_IN.value
+        preferences[category_id] = PreferenceStatus.OPTED_IN.value
 
         preference.preferences = preferences
         preference.save(update_fields=["preferences", "updated_at"])
 
         transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
 
-        response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
-        return Response(MessagePreferencesSerializer(preference).data, status=response_status)
+        return self._write_response(preference, created, {category_id: PreferenceStatus.OPTED_IN.value})
 
     def _lift_global_opt_out(self, preferences: dict[str, Any], category: MessageCategory) -> None:
         """Clear a `$all` opt-out that would otherwise swallow a per-category resubscribe.

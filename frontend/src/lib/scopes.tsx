@@ -161,12 +161,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
-    {
-        key: 'messaging_preference',
-        objectName: 'Messaging preference',
-        objectPlural: 'messaging preferences',
-        info: "Recipients' opt-outs for workflow messages. Write changes preferences but does not include read, so it can't list or export opt-outs.",
-    },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -277,6 +271,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
+    messaging_preference: 'OAuth-hidden: offered on project secret API keys, where write does not include read.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
@@ -500,7 +495,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'batch_import',
             'hog_function',
             'hog_flow',
-            'messaging_preference',
             'endpoint',
             'streamlit_app',
             'webhook',
@@ -569,7 +563,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Internal tools',
-        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
+        objects: ['batch_import_support', 'messaging_preference', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 

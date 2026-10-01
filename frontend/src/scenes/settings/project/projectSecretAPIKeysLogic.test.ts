@@ -55,4 +55,16 @@ describe('projectSecretAPIKeysLogic', () => {
         expect(gatewayScope?.label).toBe('AI gateway')
         expect(gatewayScope?.disabledActions).toContain('write')
     })
+
+    it.each([
+        ['read_write', ['messaging_preference:read', 'messaging_preference:write']],
+        ['write', ['messaging_preference:write']],
+        ['none', []],
+    ])('stores messaging preference access "%s" as its own scopes', (choice, expectedScopes) => {
+        logic.actions.setScopeRadioValue('messaging_preference', 'read_write')
+        logic.actions.setScopeRadioValue('messaging_preference', choice)
+
+        expect(logic.values.editingKey.scopes).toEqual(expectedScopes)
+        expect(logic.values.formScopeRadioValues['messaging_preference'] ?? 'none').toBe(choice)
+    })
 })

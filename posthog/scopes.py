@@ -242,6 +242,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Built for project secret keys. The OAuth consent screen treats write as covering read,
+        # which this object's write does not, so OAuth clients must not request it.
+        "messaging_preference",
     }
 )
 
@@ -463,6 +466,12 @@ def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
             if scope.endswith(":write") and not _write_excludes_read(scope)
         }
     )
+
+
+def read_covered_scope_objects(held_scopes: Iterable[str]) -> set[str]:
+    """The scope objects whose `:read` the held scopes cover, following the same rule as
+    `scopes_not_covered`."""
+    return {scope.split(":", 1)[0] for scope in _with_read_halves(frozenset(held_scopes)) if scope.endswith(":read")}
 
 
 def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
