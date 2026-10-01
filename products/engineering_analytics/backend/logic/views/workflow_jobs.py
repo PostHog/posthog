@@ -70,14 +70,20 @@ def branch(jobs_alias: str, runs_alias: str) -> str:
     return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
 
 
-def build_query(table_name: str, *, created_floor: bool = False) -> str:
+def build_query(table_name: str, *, created_floor: bool = False, duplicates_table: str | None = None) -> str:
+    """``duplicates_table`` is the source of the duplicate scan, and ``table_name`` when omitted. It may hold
+    runs that ``table_name`` leaves out, because the join only gives a job row the first attempt of its own
+    run. A source that pays to leave runs out, like the hand-off shell filter, then pays once per read."""
+
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
-    # so a WHERE there would compare the parsed DateTime against the floor string. Both the jobs scan
-    # and the duplicate scan read this source, so the one floor bounds both.
-    table_source = (
-        f"(SELECT * FROM {table_name} WHERE created_at >= {{job_created_floor}})" if created_floor else table_name
-    )
+    # so a WHERE there would compare the parsed DateTime against the floor string. The jobs scan and
+    # the duplicate scan each read a floored source, so the one floor bounds both.
+    def floored(table: str) -> str:
+        return f"(SELECT * FROM {table} WHERE created_at >= {{job_created_floor}})" if created_floor else table
+
+    table_source = floored(table_name)
+    duplicates_source = floored(duplicates_table or table_name)
     return f"""
         SELECT
             job.id AS id,
@@ -152,7 +158,7 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
                 parseDateTimeBestEffort(started_at) AS started_key,
                 parseDateTimeBestEffort(completed_at) AS completed_key,
                 min(run_attempt) AS first_attempt
-            FROM {table_source}
+            FROM {duplicates_source}
             GROUP BY ci_engine, run_id, name, started_key, completed_key
             HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL
         ) AS dupes

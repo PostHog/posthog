@@ -316,15 +316,18 @@ def with_depot_runs(
     return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str | None) -> str:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Hand-off shells are left out, as in ``with_depot_runs``. Depot job rows carry no branch: the jobs builder
-    scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A reader that
-    joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back to the run's.
+    Hand-off shells are left out, as in ``with_depot_runs``. Without ``runs_table`` the shells of both engines
+    stay. Depot job rows carry no branch: the jobs builder scans its source twice, so a PR snapshot lookup here
+    would cost two PR scans per jobs read. A reader that joins a job to its run reads the branch through
+    ``workflow_jobs.branch``, which falls back to the run's.
     """
     if depot is None:
         return f"({_github_jobs(jobs_table)})"
+    if runs_table is None:
+        return f"({_github_jobs(jobs_table)} UNION ALL {_jobs(_attempts(depot, pull_requests_table=None))})"
     handoffs = _handoff_workflows(depot)
     where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})"
     depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))

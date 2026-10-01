@@ -20,14 +20,18 @@ def _runs_source() -> str:
 
 
 def _jobs_source() -> str:
-    return workflow_jobs.build_query(depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, _RUNS), created_floor=True)
+    return workflow_jobs.build_query(
+        depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, _RUNS),
+        created_floor=True,
+        duplicates_table=depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, runs_table=None),
+    )
 
 
 class TestSourceScanBudget(SimpleTestCase):
     @parameterized.expand(
         [
             ("runs_source", _runs_source, {_RUNS: 2, _JOBS: 3, _PULL_REQUESTS: 2, _DEPOT: 7}),
-            ("jobs_source", _jobs_source, {_RUNS: 2, _JOBS: 8, _PULL_REQUESTS: 0, _DEPOT: 22}),
+            ("jobs_source", _jobs_source, {_RUNS: 1, _JOBS: 5, _PULL_REQUESTS: 0, _DEPOT: 14}),
         ]
     )
     def test_source_reads_each_warehouse_table_within_its_budget(

@@ -231,6 +231,11 @@ class JobSourceTables:
         """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
         return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
+    @property
+    def duplicate_jobs_source(self) -> str:
+        """The source of the jobs builder's duplicate scan: ``jobs_source`` without the hand-off shell filter."""
+        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, runs_table=None)
+
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     """Job-level tables for every synced repo with BOTH the jobs and runs endpoints.

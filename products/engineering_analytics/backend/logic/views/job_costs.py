@@ -152,6 +152,7 @@ def build_query(
     runs_table: str,
     include_run_columns: bool = False,
     created_floor: bool = False,
+    duplicate_jobs_table: str | None = None,
 ) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
@@ -179,7 +180,7 @@ def build_query(
     ``created_at`` bound with a coarse ``created_at_raw`` floor, which is the predicate the scan can
     prune on and the reason the view exposes that column.
     """
-    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
+    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor, duplicates_table=duplicate_jobs_table)
     runs = workflow_runs.build_query(runs_table)
 
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
@@ -318,5 +319,12 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=source.jobs_source, runs_table=source.runs_source) for source in sources]
+    selects = [
+        build_query(
+            jobs_table=source.jobs_source,
+            runs_table=source.runs_source,
+            duplicate_jobs_table=source.duplicate_jobs_source,
+        )
+        for source in sources
+    ]
     return "\nUNION ALL\n".join(selects)

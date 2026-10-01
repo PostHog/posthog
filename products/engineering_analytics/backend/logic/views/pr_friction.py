@@ -112,6 +112,7 @@ def build_query(
     workflow_jobs_table: str,
     issue_events_table: str | None,
     reviews_table: str | None,
+    duplicate_jobs_table: str | None = None,
 ) -> str:
     if not _SOURCE_ID.fullmatch(source_id):
         raise ValueError(f"not a source id: {source_id!r}")
@@ -126,9 +127,9 @@ def build_query(
     runs = workflow_runs.build_query(
         workflow_runs_table, pull_requests_table=pull_requests_table, started_floor=True
     ).replace("{run_started_floor}", _raw_floor(run_days))
-    jobs = workflow_jobs.build_query(workflow_jobs_table, created_floor=True).replace(
-        "{job_created_floor}", _raw_floor(job_floor_days)
-    )
+    jobs = workflow_jobs.build_query(
+        workflow_jobs_table, created_floor=True, duplicates_table=duplicate_jobs_table
+    ).replace("{job_created_floor}", _raw_floor(job_floor_days))
     run_from = f"now() - INTERVAL {run_days} DAY"
 
     if issue_events_table:
@@ -433,7 +434,7 @@ def build_team_view(team: "Team") -> str | None:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
+        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews, duplicate_jobs_table=source.duplicate_jobs_source)})"
         for source in sources
         if source.pull_requests
     )

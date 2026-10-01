@@ -258,9 +258,12 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        return (
-            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        query = workflow_jobs.build_query(
+            self._jobs_table(self._tables.workflow_jobs),
+            created_floor=created_floor,
+            duplicates_table=self._duplicate_jobs_table(self._tables.workflow_jobs),
         )
+        return f"({query})"
 
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
@@ -282,6 +285,9 @@ class CuratedGitHubSource:
 
     def _jobs_table(self, workflow_jobs_table: str) -> str:
         return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
+
+    def _duplicate_jobs_table(self, workflow_jobs_table: str) -> str:
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), runs_table=None)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -438,6 +444,7 @@ class CuratedGitHubSource:
             runs_table=self._runs_table(),
             include_run_columns=True,
             created_floor=created_floor,
+            duplicate_jobs_table=self._duplicate_jobs_table(self._tables.workflow_jobs),
         )
         return f"({query})"
 

@@ -490,6 +490,11 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (223978965517241,),
             (244340689655172,),
         ]
+        job_rows = "SELECT ci_engine, id, run_id, run_attempt, is_rerun_copy FROM ({}) AS j ORDER BY ci_engine, id, run_attempt"
+        unfiltered_jobs = depot_ci.with_depot_jobs(jobs_table, depot, runs_table=None)
+        assert self._select(
+            job_rows.format(workflow_jobs.build_query(jobs, duplicates_table=unfiltered_jobs))
+        ) == self._select(job_rows.format(workflow_jobs.build_query(jobs)))
         assert self._select(
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
             f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
