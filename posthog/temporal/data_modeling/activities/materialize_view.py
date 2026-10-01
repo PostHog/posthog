@@ -68,7 +68,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -331,7 +331,7 @@ class _CDPRowSink:
             # A missing write grant on the cdp_producer/ prefix is the same anticipated
             # provisioning gap `_list_files_to_produce` already tolerates quietly for reads (see its
             # `except PermissionError` branch) — not a bug worth paging on.
-            if not _is_s3_permission_denied(e):
+            if not _is_s3_permission_denied(e) and not isinstance(e, NonReportableError):
                 capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
             self.enabled = False
@@ -417,6 +417,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -900,7 +901,8 @@ async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: Fi
         await sink.clear()
     except Exception as e:
         await logger.awarning(f"Could not clear stale person-property staging: {e}")
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 async def _stage_person_property_batch(
@@ -927,7 +929,8 @@ async def _stage_person_property_batch(
         await sink.logger.awarning(f"Failed to stage person-property batch {batch_index}: {e}")
         if fatal:
             raise
-        capture_exception(e)
+        if not isinstance(e, NonReportableError):
+            capture_exception(e)
 
 
 FAILED_UPDATE_REASON_PREFIX = "incremental update failed: "

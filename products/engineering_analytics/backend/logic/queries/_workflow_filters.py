@@ -197,9 +197,8 @@ def window_pair_predicates(column: str, *, date_to: datetime | None) -> WindowPr
 
 
 def default_branch_predicate(branch_column: str = "r.head_branch") -> str:
-    """True when the branch expression names the repo's default branch. The source does not record
-    which branch that is, so the common default names stand in. ``repo_overview.query_default_branch``
-    resolves it per repo, but that costs an extra query."""
+    """Treats ``master`` and ``main`` as the default branch, because the runs source does not record it.
+    ``default_branches.query_default_branches`` reads GitHub's value from the PR snapshot."""
     return f"{branch_column} IN ('master', 'main')"
 
 
@@ -210,14 +209,9 @@ def run_scope_filter_clause(
     attributed_predicate: str = "r.pr_number > 0",
     merge_queue_predicate: str = "r.is_merge_queue",
 ) -> str:
-    """The WHERE fragment that narrows a run population to one ``WorkflowHealthRunScope`` (see that
-    enum for what each group covers), or '' for ``all``.
-
-    ``pull_request`` needs all three predicates. A default-branch run can still carry a PR
-    association (its SHA matches an open PR), so attribution alone (pr_number > 0 — see the
-    workflow_runs builder docstring) does not keep trunk runs out, and gate runs belong to
-    ``merge_queue`` instead.
-    """
+    """The WHERE fragment for one ``WorkflowHealthRunScope``, or '' for ``all``. ``pull_request`` needs
+    all three predicates: a default-branch run can still carry a PR association, and gate runs belong to
+    ``merge_queue``."""
     if run_scope == WorkflowHealthRunScope.DEFAULT_BRANCH:
         return f"AND {default_branch_predicate(branch_column)}"
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:

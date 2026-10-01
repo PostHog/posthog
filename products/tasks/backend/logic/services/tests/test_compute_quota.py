@@ -96,6 +96,12 @@ class TestComputeQuota:
     def test_non_billable_origins_are_ineligible(self, origin, provenance):
         assert not is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
 
+    @pytest.mark.parametrize("origin", [Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP])
+    def test_desktop_started_origins_are_billable(self, origin):
+        assert is_task_billable_compute(
+            self.task(origin_product=origin, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        )
+
     def test_unknown_origin_is_ineligible(self):
         assert not is_billable_compute(
             origin_product=None,

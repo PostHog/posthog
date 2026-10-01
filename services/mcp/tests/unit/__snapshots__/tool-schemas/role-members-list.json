@@ -10,6 +10,7 @@
             "type": "number"
         },
         "role_id": {
+            "description": "Required. The role id from roles-list.",
             "type": "string"
         }
     },

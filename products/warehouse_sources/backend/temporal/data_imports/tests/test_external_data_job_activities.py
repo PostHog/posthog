@@ -7,7 +7,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CANCELLED_RUN_MESSAGE,
+    SYNC_RUN_STALLED_MESSAGE,
+    SYNC_RUN_TOO_LONG_MESSAGE,
     TRANSIENT_EGRESS_MESSAGE,
     TRANSIENT_POOLER_MESSAGE,
     TRANSIENT_SOURCE_CONNECTION_MESSAGE,
@@ -64,6 +66,25 @@ class TestCustomerFacingError(SimpleTestCase):
 
     def test_missing_cause_does_not_show_the_customer_none(self) -> None:
         assert _customer_facing_error(None) == UNEXPECTED_ERROR_MESSAGE
+
+    @parameterized.expand(
+        [
+            ("start_to_close", TimeoutType.START_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
+            ("schedule_to_close", TimeoutType.SCHEDULE_TO_CLOSE, SYNC_RUN_TOO_LONG_MESSAGE),
+            ("heartbeat", TimeoutType.HEARTBEAT, SYNC_RUN_STALLED_MESSAGE),
+            ("schedule_to_start", TimeoutType.SCHEDULE_TO_START, SYNC_RUN_STALLED_MESSAGE),
+            ("unknown", None, SYNC_RUN_STALLED_MESSAGE),
+        ]
+    )
+    def test_timed_out_activity_does_not_surface_temporals_own_wording(
+        self, _name: str, timeout_type: TimeoutType | None, expected: str
+    ) -> None:
+        # Temporal's message for a timed-out activity is "activity <Budget> timeout", which names our
+        # orchestration and gives the customer nothing to act on.
+        cause = TimeoutError("activity StartToClose timeout", type=timeout_type, last_heartbeat_details=[])
+        result = _customer_facing_error(cause)
+        assert result == expected
+        assert "timeout" not in result
 
 
 class TestIsAppDbFailure(SimpleTestCase):
@@ -167,6 +188,53 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
         mock_capture_exception.assert_not_called()
         mock_finish_row_tracking.assert_called_once_with(self.team.id, inputs.schema_id)
         mock_update_job_status.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("handed_a_token", "run-token", ["update", "release"]),
+            ("no_token", None, ["update"]),
+        ]
+    )
+    def test_releases_the_v3_lock_only_when_handed_a_token_and_after_the_status_write(
+        self, _name: str, release_lock_token: str | None, expected_calls: list[str]
+    ) -> None:
+        env = ActivityEnvironment()
+        inputs = UpdateExternalDataJobStatusInputs(
+            team_id=self.team.id,
+            job_id="019fde98-0727-0000-3f05-9991b4c84155",
+            schema_id="019fde98-0727-0000-3f05-9991b4c84156",
+            source_id="019fde98-0727-0000-3f05-9991b4c84157",
+            status=ExternalDataJob.Status.FAILED,
+            internal_error=None,
+            latest_error=None,
+            release_lock_token=release_lock_token,
+        )
+        calls = mock.Mock()
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+                return_value=0,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status",
+                calls.update,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.external_data_job.release_v3_pipeline_lock",
+                calls.release,
+            ),
+        ):
+            asyncio.run(env.run(update_external_data_job_model, inputs))
+
+        # The release must follow the status write: releasing first would let the next run start
+        # while this one's terminal status is still unwritten.
+        assert [call[0] for call in calls.mock_calls] == expected_calls
+        if release_lock_token is not None:
+            calls.release.assert_called_once_with(self.team.id, inputs.schema_id, release_lock_token)
 
 
 # transaction=True commits the fixture rows: the activity resolves the schema through

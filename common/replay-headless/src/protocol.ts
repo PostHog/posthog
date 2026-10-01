@@ -12,6 +12,11 @@
  * so both sides are compile-time checked against the same contract.
  */
 
+// --- Constants ---
+
+/** Height of the metadata footer. The rasterizer adds it to the capture viewport, so the recording keeps its full size. */
+export const METADATA_FOOTER_HEIGHT_PX = 80
+
 // --- Types ---
 
 export interface ViewportEvent {

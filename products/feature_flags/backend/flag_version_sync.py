@@ -44,6 +44,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, LogActi
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -263,6 +264,9 @@ def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
     dependency_ids: set[int] = set()
     try:
         conditions = flag.conditions
+    except ConfigFormatError:
+        # Only a v1 document carries release groups, so a row in another format has no v1 edges.
+        return dependency_ids
     except Exception:
         # A sibling flag with malformed filters must neither break the save nor suppress
         # the bump for healthy flags.
@@ -381,6 +385,8 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
         try:
             if cohort.pk in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache, stop_traversal_at_static=True):
                 flags.append(flag)
+        except ConfigFormatError:
+            continue
         except Exception:
             # A sibling flag with malformed filters (e.g. a non-numeric cohort value,
             # which get_cohort_ids doesn't tolerate) must neither break the cohort save

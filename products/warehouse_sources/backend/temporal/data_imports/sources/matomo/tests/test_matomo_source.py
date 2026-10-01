@@ -34,6 +34,15 @@ class TestMatomoSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_instance_url_not_found_is_non_retryable_with_actionable_message(self):
+        # Left unclassified, this is retried on every schedule and stored with the customer's host in it.
+        error = "404 Client Error: Not Found for url: https://myorg.matomo.cloud/index.php"
+        messages = [message for key, message in self.source.get_non_retryable_errors().items() if key in error]
+        assert messages, "A missing Matomo instance should stop the sync with a message"
+        assert messages[0] is not None
+        assert "instance URL" in messages[0]
+        assert "matomo.cloud" not in messages[0]
+
     def test_non_retryable_errors_does_not_match_server_errors(self):
         non_retryable_errors = self.source.get_non_retryable_errors()
         error = "500 Server Error for url: https://myorg.matomo.cloud/index.php"

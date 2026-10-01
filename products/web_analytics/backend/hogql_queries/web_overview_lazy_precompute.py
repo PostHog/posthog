@@ -25,21 +25,18 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationTable,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
-    CHANNEL_MAX_PRECOMPUTE_DAYS,
-    LAZY_TTL_SECONDS,
-    MAX_PRECOMPUTE_DAYS,
     SESSION_FORWARD_PAD_MINUTES,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK,
     WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS,
     can_use_lazy_precompute as _can_use_lazy_precompute_shared,
     ceil_utc_day,
     channel_rules_shape_key,
-    channel_ttl_schedule,
     check_common_eligible,
     events_session_id_expr,
     floor_utc_day,
     has_channel_type_filter,
     is_constant_true,
+    lazy_ttl_schedule,
     test_account_filter_expr,
     user_filter_expr,
     with_insert_session_id_set_filter,
@@ -71,7 +68,6 @@ def can_use_lazy_precompute(runner: "WebOverviewQueryRunner") -> bool:
         allow_channel_type_filter=has_channel_type_filter(runner),
         # Overview-only: its channel template carries the UUID-safe session-id handling.
         allow_uuid_session_join=has_channel_type_filter(runner),
-        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
     )
 
 
@@ -80,7 +76,6 @@ def _check_lazy_precompute_eligible(runner: "WebOverviewQueryRunner") -> None:
         runner,
         allow_channel_type_filter=has_channel_type_filter(runner),
         allow_uuid_session_join=has_channel_type_filter(runner),
-        max_days=CHANNEL_MAX_PRECOMPUTE_DAYS if has_channel_type_filter(runner) else MAX_PRECOMPUTE_DAYS,
     )
 
 
@@ -252,7 +247,7 @@ def ensure_web_overview_precomputed(
         insert_query=insert_query,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=channel_ttl_schedule(runner.team) if has_channel_type_filter(runner) else LAZY_TTL_SECONDS,
+        ttl_seconds=lazy_ttl_schedule(runner.team),
         table=LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_overview_lazy_insert",

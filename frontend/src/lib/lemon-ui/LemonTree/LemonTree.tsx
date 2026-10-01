@@ -144,6 +144,8 @@ type LemonTreeBaseProps = Omit<
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
+    /** A docs link shown under the item's tooltip. It makes the tooltip interactive so the link can be clicked. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
@@ -266,6 +268,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             handleClick,
             renderItem,
             renderItemTooltip,
+            renderItemTooltipDocLink,
             renderItemIcon,
             expandedItemIds,
             defaultNodeIcon,
@@ -360,9 +363,10 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                             'hover:bg-transparent opacity-50 cursor-default':
                                 (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                             'opacity-50 cursor-not-allowed': !!item.disabledReason,
+                            'h-auto min-h-[var(--lemon-tree-button-height)] items-center py-0': isEmptyFolder,
                             'rounded-l-[var(--radius)] justify-center [&_svg]:size-4': size === 'narrow',
                             'group-hover/lemon-tree-button-group:pr-[30px] group-has-data-[state=open]/lemon-tree-button-group:pr-[30px] group-has-focus-within/lemon-tree-button-group:pr-[30px]':
-                                size !== 'narrow',
+                                size !== 'narrow' && !isEmptyFolder,
                         }
                     ),
                 }}
@@ -376,6 +380,9 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 aria-roledescription="tree item"
                 aria-label={ariaLabel}
                 tooltip={isDragging || isEmptyFolder ? undefined : (item.disabledReason ?? renderItemTooltip?.(item))}
+                tooltipDocLink={
+                    isDragging || isEmptyFolder || item.disabledReason ? undefined : renderItemTooltipDocLink?.(item)
+                }
                 tooltipPlacement="right"
             >
                 {size === 'default' && (
@@ -400,7 +407,12 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 )}
 
                 {size === 'default' && (
-                    <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
+                    <span
+                        className={cn(
+                            'relative text-left w-full text-secondary group-hover/lemon-tree-button:text-primary',
+                            isEmptyFolder ? 'whitespace-normal' : 'truncate'
+                        )}
+                    >
                         {renderItem ? (
                             renderItem(
                                 item,
@@ -505,11 +517,15 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 disabled={!!item.disabledReason}
                 className="flex flex-col w-full gap-y-px"
             >
-                <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
+                <AccordionPrimitive.Trigger
+                    className={cn('flex items-center gap-2 w-full', isEmptyFolder ? 'h-auto' : 'h-8')}
+                    asChild
+                >
                     <ButtonGroupPrimitive
                         fullWidth
                         className={cn(
-                            'group/lemon-tree-button-group relative h-[var(--lemon-tree-button-height)] bg-transparent',
+                            'group/lemon-tree-button-group relative bg-transparent',
+                            isEmptyFolder ? 'h-auto' : 'h-[var(--lemon-tree-button-height)]',
                             className
                         )}
                     >

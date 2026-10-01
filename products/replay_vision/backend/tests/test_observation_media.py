@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.conf import settings
@@ -8,6 +9,7 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.utils import uuid7
 
@@ -22,6 +24,8 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.activities.observation_media import (
+    _footer_crop_px,
+    _pick_video_time_s,
     finalize_observation_thumbnail_activity,
     prepare_observation_thumbnail_activity,
 )
@@ -65,7 +69,7 @@ class TestObservationMedia(BaseTest):
             is_system=True,
         )
 
-    def _prepare(self, **overrides: Any) -> Any:
+    def _inputs(self, **overrides: Any) -> ObservationMediaInputs:
         fields: dict[str, Any] = {
             "team_id": self.team.id,
             "observation_id": self.observation.id,
@@ -73,7 +77,10 @@ class TestObservationMedia(BaseTest):
             "analysis_asset_id": self.analysis_asset.id,
         }
         fields.update(overrides)
-        return async_to_sync(prepare_observation_thumbnail_activity)(ObservationMediaInputs(**fields))
+        return ObservationMediaInputs(**fields)
+
+    def _prepare(self, **overrides: Any) -> Any:
+        return async_to_sync(prepare_observation_thumbnail_activity)(self._inputs(**overrides))
 
     def test_media_object_is_written_outside_the_exports_prefix(self) -> None:
         prepared = self._prepare()
@@ -115,6 +122,15 @@ class TestObservationMedia(BaseTest):
 
         assert prepared.activity_input.video_time_s == expected_s
         assert prepared.video_start_ms == int(expected_s * 1000)
+
+    def test_a_missing_analysis_asset_fails_without_retrying(self) -> None:
+        analysis_asset_id = self.analysis_asset.id
+        self.analysis_asset.delete()
+
+        with pytest.raises(ApplicationError) as caught:
+            self._prepare(analysis_asset_id=analysis_asset_id)
+
+        assert caught.value.non_retryable is True
 
     def test_finalize_links_the_rendered_object_to_the_observation(self) -> None:
         prepared = self._prepare()
@@ -269,3 +285,33 @@ class TestObservationMediaSerialization(BaseTest):
         assert [entry["id"] for entry in media] == [ready.id]
         assert media[0]["asset_id"] == ready.asset_id
         assert media[0]["video_start_ms"] == 1000
+
+
+@pytest.mark.parametrize(
+    "thumbnail_video_s,model_output,duration_s,expected_s",
+    [
+        (0, None, 100.0, 3.0),
+        (500, None, 100.0, 97.0),
+        (None, {"summary_segments": [{"kind": "chip", "timestamp_ms": 0}]}, 100.0, 3.0),
+        (1, None, 4.0, 2.0),
+    ],
+)
+def test_the_thumbnail_moment_stays_off_the_unstyled_edges_of_the_video(
+    thumbnail_video_s: int | None, model_output: dict[str, Any] | None, duration_s: float, expected_s: float
+) -> None:
+    inputs = ObservationMediaInputs(
+        team_id=1, observation_id=uuid7(), session_id="s", analysis_asset_id=1, thumbnail_video_s=thumbnail_video_s
+    )
+    assert _pick_video_time_s(inputs, model_output, None, duration_s) == expected_s
+
+
+@pytest.mark.parametrize(
+    "context,expected_px",
+    [
+        ({"show_metadata_footer": True, "footer_height_px": 48}, 48),
+        ({"show_metadata_footer": True}, 32),
+        ({"show_metadata_footer": False, "footer_height_px": 48}, 0),
+    ],
+)
+def test_the_thumbnail_crops_the_footer_its_video_was_rendered_with(context: dict[str, Any], expected_px: int) -> None:
+    assert _footer_crop_px(context) == expected_px

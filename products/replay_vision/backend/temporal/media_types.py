@@ -1,16 +1,30 @@
-"""Types for the observation media workflow: one thumbnail per succeeded observation today, clips later."""
+"""Types for the observation media workflow: one thumbnail per succeeded observation."""
 
+import datetime as dt
 from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-# Matches `footerHeight` in common/replay-headless/src/standalone-player.ts.
-ANALYSIS_FOOTER_HEIGHT_PX = 32
+# The footer height of analysis videos rendered before the rasterizer reported it as `footer_height_px`.
+LEGACY_ANALYSIS_FOOTER_HEIGHT_PX = 32
 
 THUMBNAIL_WIDTH_PX = 1280
 
 # Far enough in to clear the loading screen a session opens on.
 FALLBACK_THUMBNAIL_FRACTION = 0.25
+
+
+MEDIA_WORKFLOW_NAME = "replay-vision-media"
+
+# Bounds the thumbnail's retry chain, queue wait included.
+THUMBNAIL_SCHEDULE_TO_CLOSE = dt.timedelta(hours=6)
+# Past the retry chain, so a stuck render fails its own activity rather than the whole child.
+MEDIA_WORKFLOW_EXECUTION_TIMEOUT = THUMBNAIL_SCHEDULE_TO_CLOSE + dt.timedelta(minutes=30)
+
+
+def build_media_workflow_id(observation_id: UUID) -> str:
+    """One id per observation, so a retried scan cannot start a second render beside one still running."""
+    return f"{MEDIA_WORKFLOW_NAME}-{observation_id}"
 
 
 class ObservationMediaInputs(BaseModel, frozen=True):
@@ -30,7 +44,7 @@ class ExtractThumbnailActivityInput(BaseModel, frozen=True):
 
     source_s3_uri: str
     video_time_s: float
-    footer_crop_px: int = ANALYSIS_FOOTER_HEIGHT_PX
+    footer_crop_px: int = LEGACY_ANALYSIS_FOOTER_HEIGHT_PX
     width: int = THUMBNAIL_WIDTH_PX
     s3_bucket: str
     s3_key_prefix: str

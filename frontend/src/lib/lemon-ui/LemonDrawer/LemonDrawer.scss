@@ -48,7 +48,6 @@
         opacity var(--modal-transition-time) ease-out,
         transform var(--modal-transition-time) ease-out;
     transform: translateX(100%);
-    will-change: transform;
 
     &.ReactModal__Content--after-open {
         opacity: 1;

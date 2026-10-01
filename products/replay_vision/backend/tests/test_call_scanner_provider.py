@@ -19,7 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
-    _clamp_thumbnail,
+    _key_moment_session_ms,
     _maybe_create_video_cache,
     _MissionOutcome,
     _remaining_verify_budget_seconds,
@@ -34,14 +34,13 @@ from products.replay_vision.backend.temporal.events_tool import events_tool
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_VERIFICATION_OUTCOMES
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_MAX_OUTPUT_TOKENS,
-    MediaResponse,
     MissionStep,
     SignalFinding,
     SignalsResponse,
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
-from products.replay_vision.backend.temporal.video_clock import VideoClock
+from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
@@ -87,8 +86,7 @@ class _Resp:
 
 class _FakeModels:
     def __init__(self, responses: list[_Resp]) -> None:
-        # Every full mission ends with the best-effort media turn, which no test is about.
-        self._it = iter([*responses, _Resp(text=MediaResponse(thumbnail_t=1).model_dump_json())])
+        self._it = iter(responses)
         self.calls: list[dict[str, Any]] = []
 
     async def generate_content(self, **kwargs: Any) -> _Resp:
@@ -401,13 +399,16 @@ async def test_signal_timestamps_use_recording_duration(
     )
     signal = SignalFinding(
         problem_type="bug",
+        headline="Blank dialog blocks the editor",
         start_time=0,
         end_time=0,
         url="https://example.com/editor",
         description="A blank dialog covers the editor and prevents input.",
         confidence=0.9,
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    core = MonitorLlmResponse(
+        verdict="yes", reasoning="The dialog blocked input.", confidence=0.9, thumbnail_t=7, key_moment_t=5
+    )
     client = _FakeClient(
         [_Resp(text=core.model_dump_json())]
         + [
@@ -438,7 +439,36 @@ async def test_signal_timestamps_use_recording_duration(
         )
     assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
-    assert len(client.models.calls) == 2 + len(end_times)
+    # The pick rides the core answer, so no turn of its own is spent on it.
+    assert outcome.thumbnail_video_s == 7
+    assert outcome.key_moment_video_s == 5
+    assert len(client.models.calls) == 1 + len(end_times)
+
+
+# The render cut 10s-40s of the session, so video second 15 shows session second 45.
+_CUT_CLOCK = VideoClock(
+    spans=(
+        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
+        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "video_s, duration_ms, clock, expected",
+    [
+        pytest.param(None, 20_000, _IDENTITY_CLOCK, None, id="skipped pick stays unset"),
+        pytest.param(12, 20_000, _IDENTITY_CLOCK, 12_000, id="uncut render keeps the same second"),
+        pytest.param(20, 20_000, _IDENTITY_CLOCK, 20_000, id="the final second is still a moment"),
+        pytest.param(21, 20_000, _IDENTITY_CLOCK, None, id="a time past the recording is dropped"),
+        pytest.param(15, 60_000, _CUT_CLOCK, 45_000, id="a cut render maps onto the session clock"),
+        pytest.param(31, 60_000, _CUT_CLOCK, None, id="a time past the video is dropped, not clamped"),
+    ],
+)
+def test_key_moment_moves_onto_the_session_clock(
+    video_s: int | None, duration_ms: int, clock: VideoClock, expected: int | None
+) -> None:
+    assert _key_moment_session_ms(video_s, duration_ms, clock) == expected
 
 
 @pytest.mark.asyncio
@@ -854,7 +884,7 @@ class TestVerifyPositives:
     async def test_verify_draws_are_blind_core_only_turns_over_the_live_cache(self) -> None:
         run = await self._scan(mode="enforce", answers=["yes", "no"], emits_signals=True)
         assert run.calls == [
-            {"steps": ["core", "signals", "media"], "cache_name": "caches/abc"},
+            {"steps": ["core", "signals"], "cache_name": "caches/abc"},
             {"steps": ["core_verify_2"], "cache_name": "caches/abc"},
             "delete_cache",
         ]
@@ -912,17 +942,3 @@ async def test_video_cache_creation_is_best_effort() -> None:
         cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
     )
     assert result is None
-
-
-@pytest.mark.parametrize(
-    "picked,expected",
-    [
-        (None, None),
-        (5, 5),
-        (40, 30),
-        (-3, 0),
-    ],
-)
-def test_the_thumbnail_pick_is_held_inside_the_rendered_video(picked: int | None, expected: int | None) -> None:
-    # A seek past the end makes ffmpeg exit 0 with no frame, which would leave the observation without a poster.
-    assert _clamp_thumbnail(picked, _IDENTITY_CLOCK, duration_ms=30_000) == expected

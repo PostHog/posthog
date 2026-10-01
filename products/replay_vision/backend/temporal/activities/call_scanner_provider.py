@@ -36,10 +36,10 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.conversation import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     function_calls,
@@ -75,7 +75,7 @@ from products.replay_vision.backend.temporal.network_tool import (
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
-    STEP_MEDIA,
+    STEP_MAX_OUTPUT_TOKENS,
     STEP_SIGNALS,
     TIMESTAMP_CITATION_RE,
     BaseScanner,
@@ -144,6 +144,7 @@ class _MissionOutcome:
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
     thumbnail_video_s: int | None = None
+    key_moment_video_s: int | None = None
 
 
 @activity.defn
@@ -322,23 +323,18 @@ async def run_scan(
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    finalized = finalized.model_copy(
+        update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
+    )
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
     return ScannerCallOutput(
         model_output=finalized,
         signals=signals,
         verification=outcome.verification,
-        thumbnail_video_s=_clamp_thumbnail(outcome.thumbnail_video_s, video_clock, duration_ms),
+        thumbnail_video_s=outcome.thumbnail_video_s,
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
-
-
-def _clamp_thumbnail(thumbnail_video_s: int | None, video_clock: VideoClock, duration_ms: int) -> int | None:
-    """Hold the model's pick inside the rendered video, which is shorter than the session wherever the render cut."""
-    if thumbnail_video_s is None:
-        return None
-    ceiling = video_clock.video_duration_s if video_clock.video_duration_s is not None else duration_ms / 1000
-    return max(0, min(thumbnail_video_s, int(ceiling)))
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
@@ -369,6 +365,17 @@ def _resolve_citations(
     if field_updates:
         finalized = finalized.model_copy(update=field_updates)
     return finalized
+
+
+def _key_moment_session_ms(video_s: int | None, duration_ms: int, clock: VideoClock) -> int | None:
+    """Move the model's key moment onto the session clock, or None when it skipped the pick or named a time past
+    the video. Same bound as a citation, because the clock would clamp an invented time onto the recording's end."""
+    if video_s is None:
+        return None
+    longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+    if longest_citable_s is not None and video_s > longest_citable_s:
+        return None
+    return min(clock.video_s_to_session_ms(video_s), duration_ms)
 
 
 def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
@@ -646,9 +653,12 @@ async def _run_mission(
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
-    thumbnail_video_s = getattr(step_outputs.get(STEP_MEDIA), "thumbnail_t", None)
     return _MissionOutcome(
-        finalized=finalized, signals=signals, verification=verification, thumbnail_video_s=thumbnail_video_s
+        finalized=finalized,
+        signals=signals,
+        verification=verification,
+        thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
+        key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
     )
 
 
@@ -1045,7 +1055,7 @@ def _step_config(
         # Return thought summaries so the model's reasoning is visible in LLM analytics. Answer parsing is
         # unaffected (`response.text` skips thought parts); models with thinking off just return none.
         "thinking_config": types.ThinkingConfig(include_thoughts=True),
-        "max_output_tokens": step.max_output_tokens,
+        "max_output_tokens": STEP_MAX_OUTPUT_TOKENS,
     }
     if not allow_tools:
         return types.GenerateContentConfig(**kwargs)  # inline, no tool to call — the model must answer now

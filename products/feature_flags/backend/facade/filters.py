@@ -6,6 +6,10 @@ conditions) so consumers don't have to. The marker keys and notes are opaque val
 passed in by the caller — e.g. experiments' enrollment freeze — so the flag product
 learns no consumer concepts.
 
+Every transform and predicate reads config version 1 keys, so each one raises
+``ConfigFormatError`` for a document in any other format before it reads or copies
+anything: a v2 document must never silently gain v1 keys here.
+
 Deliberately free of Django/DRF imports: consumer model modules import these predicates
 at module level, and routing them through ``facade.api`` (which imports the flag
 serializer, whose module imports back into consumers) would create an import cycle.
@@ -14,7 +18,16 @@ serializer, whose module imports back into consumers) would create an import cyc
 from copy import deepcopy
 from typing import Literal
 
+from products.feature_flags.backend.facade.config import require_v1_config
+
 CohortRestrictionBlocker = Literal["group_aggregation", "holdout", "super_groups", "no_groups"]
+
+# Flag-level settings the flags service evaluates before, or instead of, the release conditions.
+# A holdout returns `holdout-<id>` to its share, legacy super groups short-circuit the same way,
+# and `early_exit` returns false on a failed rollout instead of falling through to a later set.
+EVALUATED_BEFORE_RELEASE_CONDITIONS: frozenset[str] = frozenset(
+    {"holdout", "holdout_groups", "super_groups", "early_exit"}
+)
 
 
 def restrict_groups_to_cohort(
@@ -35,6 +48,7 @@ def restrict_groups_to_cohort(
     to the (preserved) ``description`` as a human-readable note. Everything else
     (``multivariate``, ``payloads``, aggregation index) is left byte-for-byte.
     """
+    require_v1_config(current_filters)
     cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
 
     new_groups = []
@@ -67,6 +81,7 @@ def strip_group_cohort_restriction(
     then: deleting earlier would yank the cohort from under a still-restricted flag if the
     save fails.
     """
+    require_v1_config(current_filters)
     new_groups = []
     cohort_ids: list[int] = []
     for group in current_filters.get("groups", []):
@@ -109,6 +124,7 @@ def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -
     restriction being lifted; an empty ``groups`` list is not restricted (there is nothing
     holding anyone back).
     """
+    require_v1_config(current_filters)
     groups = current_filters.get("groups", [])
     return bool(groups) and all(group.get(marker_key) is True for group in groups)
 
@@ -122,20 +138,8 @@ def replace_variant_distribution(current_filters: dict, variants: list[dict]) ->
     configuration it doesn't know about. ``variants`` are deepcopied so the returned
     filters never alias the caller's dicts.
     """
+    require_v1_config(current_filters)
     return {**current_filters, "multivariate": {"variants": deepcopy(variants)}}
-
-
-def set_first_release_condition_rollout(current_filters: dict, rollout_percentage: int) -> dict:
-    """Set ``groups[0].rollout_percentage``, preserving everything else byte-for-byte.
-
-    Assumes at least one release group exists and raises (KeyError/IndexError) otherwise —
-    callers such as survey adaptive sampling only maintain flags they created with a
-    release condition in place, so a missing group is a broken invariant, not a case
-    to paper over.
-    """
-    new_filters = deepcopy(current_filters)
-    new_filters["groups"][0]["rollout_percentage"] = rollout_percentage
-    return new_filters
 
 
 def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dict:
@@ -144,6 +148,7 @@ def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dic
     Every other key (``multivariate``, ``payloads``, aggregation, holdout/super groups)
     is preserved — only who the flag releases to changes, not what it serves.
     """
+    require_v1_config(current_filters)
     return {**current_filters, "groups": deepcopy(groups)}
 
 
@@ -155,6 +160,7 @@ def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_perc
     ``holdout`` key is written as None (not removed), so a previously attached holdout
     is detached by the same write.
     """
+    require_v1_config(current_filters)
     if not holdout_id or exclusion_percentage is None:
         return {**current_filters, "holdout": None}
     return {**current_filters, "holdout": {"id": holdout_id, "exclusion_percentage": exclusion_percentage}}
@@ -170,6 +176,7 @@ def set_feature_enrollment(current_filters: dict, enrolled: bool | None, *, grou
     early access uses it to roll a generally-available feature out to everyone.
     Everything else is spread through untouched.
     """
+    require_v1_config(current_filters)
     new_filters = {**current_filters, "feature_enrollment": enrolled}
     new_filters.pop("super_groups", None)
     if groups is not None:
@@ -193,6 +200,7 @@ def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestriction
 
     Checked in that order; the first blocker wins.
     """
+    require_v1_config(current_filters)
     if current_filters.get("aggregation_group_type_index") is not None:
         return "group_aggregation"
     if current_filters.get("holdout") or current_filters.get("holdout_groups"):
@@ -202,3 +210,87 @@ def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestriction
     if not current_filters.get("groups"):
         return "no_groups"
     return None
+
+
+def set_release_condition_rollout(current_filters: dict, condition_index: int, rollout_percentage: int | float) -> dict:
+    """Set ``groups[condition_index].rollout_percentage``, preserving everything else byte-for-byte.
+
+    Raises IndexError when the flag has no condition at that index, including for a negative
+    index, which Python would otherwise resolve to a condition counted from the end. An index
+    is only meaningful for the definition the caller read, so resolving it to some other
+    condition would change a rule the caller never saw.
+    """
+    require_v1_config(current_filters)
+    groups = current_filters.get("groups") or []
+    if not 0 <= condition_index < len(groups):
+        raise IndexError(f"No release condition at index {condition_index}; the flag has {len(groups)}.")
+    new_filters = deepcopy(current_filters)
+    new_filters["groups"][condition_index]["rollout_percentage"] = rollout_percentage
+    return new_filters
+
+
+def _leads_with_unconditional_rollout(current_filters: dict) -> bool:
+    """Whether the first release condition already serves every user, whatever the flag returns.
+
+    Only the first condition is read. Release conditions are evaluated top-down and the first
+    match wins, so a property-free 100% condition at the head makes every condition below it
+    unreachable.
+
+    A condition carrying a ``variant`` override does not count, even at 100%: it pins one
+    variant for everyone it matches and so overrides the variant distribution rather than
+    deferring to it.
+
+    An absent or null ``rollout_percentage`` counts as 100, because that is what the matcher
+    reads it as, and nothing on the write path fills the default in.
+
+    A condition that aggregates by a different group type than the flag does not count. The
+    matcher resolves aggregation per condition and skips one whose group type the evaluation
+    does not supply, so such a condition does not serve everyone the flag otherwise would.
+    """
+    require_v1_config(current_filters)
+    groups = current_filters.get("groups") or []
+    if not groups:
+        return False
+    first = groups[0]
+    if first.get("properties") or first.get("variant"):
+        return False
+    rollout_percentage = first.get("rollout_percentage")
+    if rollout_percentage is not None and rollout_percentage != 100:
+        return False
+    flag_aggregation = current_filters.get("aggregation_group_type_index")
+    return first.get("aggregation_group_type_index", flag_aggregation) == flag_aggregation
+
+
+def roll_out_to_everyone(current_filters: dict, *, variant_key: str | None = None) -> dict:
+    """Serve the flag to 100% of users, preserving every other filters field.
+
+    Prepends a property-free 100% release condition and keeps the existing conditions below
+    it, so removing the new condition restores the previous targeting. While it leads, those
+    conditions no longer apply, and neither do the per-user variant overrides they carry.
+
+    ``variant_key`` gives that variant 100% of the variant distribution and every other variant
+    0%. A multivariate flag needs it, because a release condition decides who the flag serves
+    and not which variant they get. Raises ValueError when the flag defines no such variant.
+
+    A flag that already leads with a property-free 100% condition gains no second one, so a
+    caller that repeats the call writes nothing.
+    """
+    require_v1_config(current_filters)
+    new_filters = deepcopy(current_filters)
+
+    if variant_key is not None:
+        multivariate = new_filters.get("multivariate") or {}
+        variants = multivariate.get("variants") or []
+        if not any(variant.get("key") == variant_key for variant in variants):
+            raise ValueError(f"Variant '{variant_key}' is not defined on this feature flag.")
+        new_filters["multivariate"] = {
+            **multivariate,
+            "variants": [
+                {**variant, "rollout_percentage": 100 if variant.get("key") == variant_key else 0}
+                for variant in variants
+            ],
+        }
+
+    if not _leads_with_unconditional_rollout(new_filters):
+        new_filters["groups"] = [{"properties": [], "rollout_percentage": 100}, *(new_filters.get("groups") or [])]
+    return new_filters

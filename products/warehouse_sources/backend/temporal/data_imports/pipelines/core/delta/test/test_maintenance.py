@@ -1,6 +1,12 @@
+import os
+import tempfile
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
+import pyarrow as pa
 import deltalake
 from parameterized import parameterized
 
@@ -8,12 +14,24 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     COMPACT_OFFSET_OVERFLOW_RETRIES,
     DeltaMaintenance,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
+_MB = 1024 * 1024
+# Small enough that a local table can hold files above the compaction target.
+_SMALL_TARGET = 100_000
 
 
-def _make_maintenance(delta_table: MagicMock | None) -> DeltaMaintenance:
+def _append_file(path: str, row_id: int, payload_bytes: int) -> None:
+    # Random hex keeps each file about as large as its payload, because parquet cannot compress it much.
+    blob = os.urandom(payload_bytes).hex()[:payload_bytes]
+    deltalake.write_deltalake(path, pa.table({"id": [row_id], "blob": [blob]}), mode="append")
+
+
+def _make_maintenance(delta_table: deltalake.DeltaTable | MagicMock | None) -> DeltaMaintenance:
     table_ref = MagicMock()
     table_ref.logger = make_logger()
     table_ref.get_delta_table = AsyncMock(return_value=delta_table)
@@ -126,35 +144,103 @@ class TestCompactIfFragmented:
             mock_compact.assert_not_called()
             mock_vacuum.assert_not_called()
 
+    # (case_name, layout as [(partitions, file sizes in each)], compact_small_files, table_wide_small_files,
+    # expected_ran)
+    _SMALL_FILE_CASES: list[tuple[str, list[tuple[int, list[int]]], bool, bool, bool]] = [
+        # An incremental datetime table: every sync lands in the newest partition, and 600 cold
+        # partitions hold the average near one file per partition, so the averages never fire.
+        ("hot_partition_fires", [(600, [60 * _MB]), (1, [_MB] * 9)], True, False, True),
+        # The pre-write pass and CDC tables keep the average-only thresholds.
+        ("hot_partition_ignored_without_small_file_triggers", [(600, [60 * _MB]), (1, [_MB] * 9)], False, False, False),
+        ("hot_partition_below_threshold_skips", [(600, [60 * _MB]), (1, [_MB] * 8)], True, False, False),
+        # Compaction writes files between half and the whole target, and delta-rs cannot pair two of
+        # them into one bin. Counting them would start a compaction that does nothing on every sync.
+        ("compaction_output_never_counts", [(600, [60 * _MB]), (1, [60 * _MB] * 20)], True, True, False),
+        # A cold tail of partitions with a few small files each, which no single partition reveals.
+        ("cold_tail_fires", [(100, [_MB] * 2)], True, True, True),
+        ("cold_tail_below_threshold_skips", [(99, [_MB] * 2)], True, True, False),
+        # md5 hashes new rows into every bucket, so each sync adds a small file to each one. Checked on
+        # every sync, the table-wide count would compact the whole table every time.
+        ("every_partition_grows_waits_for_table_wide_check", [(150, [20 * _MB, _MB])], True, False, False),
+        # Repartition detection measures right after this pass, so a partition that its small files
+        # push over the budget must compact even below the removable thresholds, or it gets split.
+        ("over_budget_partition_fires", [(1, [90 * _MB] * 6 + [_MB] * 10)], True, False, True),
+        ("same_files_under_budget_skip", [(1, [90 * _MB] * 4 + [_MB] * 10)], True, False, False),
+    ]
 
-class TestCompactTable:
+    @parameterized.expand(_SMALL_FILE_CASES)
     @pytest.mark.asyncio
-    async def test_does_not_refetch_table_for_the_vacuum_step(self):
-        # Regression: compact_table used to finish its own compact, then call vacuum_table(),
-        # which called get_delta_table() again instead of reusing the table already in hand.
-        # get_delta_table() is cached only opportunistically (a concurrent sync of a different
-        # table can evict this table's cache entry), so that second call could come back None
-        # and raise "Deltatable not found" right after a successful compact. Asserting a single
-        # get_delta_table() call locks in that the vacuum step reuses the resolved table instead
-        # of re-deriving it.
+    async def test_small_file_threshold(
+        self,
+        _name: str,
+        layout: list[tuple[int, list[int]]],
+        compact_small_files: bool,
+        table_wide_small_files: bool,
+        expected_ran: bool,
+    ):
+        file_sizes = {
+            f"_ph_partition_key={group}-{partition}/f{i}.parquet": size
+            for group, (partitions, sizes) in enumerate(layout)
+            for partition in range(partitions)
+            for i, size in enumerate(sizes)
+        }
         mock_delta = MagicMock()
-        mock_delta.optimize.compact = MagicMock(return_value={})
-        mock_delta.vacuum = MagicMock(return_value=[])
+        mock_delta.file_uris = MagicMock(return_value=[f"s3://bucket/table/{path}" for path in file_sizes])
+        mock_delta._table.get_add_file_sizes = MagicMock(return_value=file_sizes)
         maintenance = _make_maintenance(mock_delta)
+        with (
+            override_settings(DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500 * _MB),
+            patch.object(maintenance, "_compact", AsyncMock()) as mock_compact,
+            patch.object(maintenance, "_vacuum", AsyncMock()),
+        ):
+            ran = await maintenance.compact_if_fragmented(
+                partition_count=None,
+                compact_small_files=compact_small_files,
+                table_wide_small_files=table_wide_small_files,
+            )
 
-        await maintenance.compact_table()
+        assert ran is expected_ran
+        assert mock_compact.await_count == (1 if expected_ran else 0)
 
-        maintenance._table.get_delta_table.assert_called_once()
-        mock_delta.optimize.compact.assert_called_once()
-        mock_delta.vacuum.assert_called_once()
+    @parameterized.expand(
+        [
+            ("adjacent_small_files_compact", False, True),
+            # delta-rs merges only neighbouring files, and a file over the target splits them. A trigger
+            # that counted these small files would start a compaction that removes nothing on every sync.
+            ("small_files_between_oversized_files_skip", True, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_small_file_trigger_on_a_real_table(self, _name: str, interleave_oversized: bool, expected_ran: bool):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            patch(f"{_MAINTENANCE_MODULE}.DEFAULT_COMPACT_TARGET_SIZE_BYTES", _SMALL_TARGET),
+        ):
+            for i in range(12):
+                _append_file(path, i, payload_bytes=500)
+                if interleave_oversized:
+                    _append_file(path, 100 + i, payload_bytes=2 * _SMALL_TARGET)
+            table = deltalake.DeltaTable(path)
+            files_before = len(table.file_uris())
+            rows_before = table.to_pyarrow_table().num_rows
 
+            ran = await _make_maintenance(table).compact_if_fragmented(partition_count=None, compact_small_files=True)
+
+            assert ran is expected_ran
+            files_after = len(table.file_uris())
+            assert (files_after < files_before) is expected_ran
+            assert table.to_pyarrow_table().num_rows == rows_before
+
+
+class TestCompactConflictRetry:
     @pytest.mark.asyncio
     async def test_retries_compact_on_commit_conflict_then_succeeds(self):
-        # compact_table's optimize.compact() commits a REMOVE+ADD when rewriting fragmented files —
-        # the same commit-conflict shape as a merge (see test_ops.TestExecuteWithConflictRetry).
-        # Regression coverage for a CommitFailedError propagating straight out of compact_table on
-        # the first conflict instead of retrying with a refreshed table, like the write merges do.
+        # optimize.compact() commits a REMOVE+ADD when rewriting fragmented files — the same
+        # commit-conflict shape as a merge (see test_ops.TestExecuteWithConflictRetry). Regression
+        # coverage for a CommitFailedError propagating straight out on the first conflict instead of
+        # retrying with a refreshed table, like the write merges do.
         mock_delta = MagicMock()
+        mock_delta.file_uris = MagicMock(return_value=[f"s3://t/{i}.parquet" for i in range(3)])
         mock_delta.optimize.compact = MagicMock(
             side_effect=[
                 deltalake.exceptions.CommitFailedError(
@@ -165,8 +251,9 @@ class TestCompactTable:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        await _make_maintenance(mock_delta).compact_table()
+        compacted = await _make_maintenance(mock_delta).compact_if_fragmented(partition_count=1, threshold=1)
 
+        assert compacted is True
         assert mock_delta.optimize.compact.call_count == 2
         mock_delta.update_incremental.assert_called_once()
 
@@ -189,7 +276,7 @@ class TestCompactOffsetOverflow:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        await _make_maintenance(mock_delta).compact_table()
+        await _make_maintenance(mock_delta)._compact(mock_delta)
 
         assert mock_delta.optimize.compact.call_count == 2
         first_target_size = mock_delta.optimize.compact.call_args_list[0].kwargs["target_size"]
@@ -226,9 +313,9 @@ class TestVacuum:
     @pytest.mark.asyncio
     async def test_retries_on_commit_conflict_then_succeeds(self):
         # vacuum() commits a REMOVE of tombstoned files — the same commit-conflict shape as
-        # optimize.compact() (see TestCompactTable.test_retries_compact_on_commit_conflict_then_succeeds).
+        # optimize.compact() (see TestCompactConflictRetry.test_retries_compact_on_commit_conflict_then_succeeds).
         # Regression coverage for a CommitFailedError propagating straight out of _vacuum on the first
-        # conflict instead of retrying with a refreshed table, like compact_table already does.
+        # conflict instead of retrying with a refreshed table, like _compact already does.
         mock_delta = MagicMock()
         mock_delta.vacuum = MagicMock(
             side_effect=[
@@ -316,10 +403,41 @@ class TestRunMaintenance:
         assert result == 150
         vacuum_if_stale.assert_awaited_once_with(40, 100)
 
+    @parameterized.expand(
+        [
+            # (name, compact_small_files, last_vacuum_version, expected_table_wide) at version 200 with a
+            # 100-commit cadence. 150 commits since the last vacuum is due, 50 is not, and a watermark that
+            # was never seeded is never due.
+            ("vacuum_due", True, 50, True),
+            ("vacuum_not_due", True, 150, False),
+            ("watermark_not_seeded", True, None, False),
+            ("small_file_triggers_off", False, 50, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_table_wide_small_file_trigger_follows_the_vacuum_cadence(
+        self, _name: str, compact_small_files: bool, last_vacuum_version: int | None, expected_table_wide: bool
+    ):
+        maintenance = _make_maintenance(MagicMock(version=MagicMock(return_value=200)))
+        with (
+            patch.object(maintenance, "compact_if_fragmented", new=AsyncMock(return_value=False)) as compact,
+            patch.object(maintenance, "vacuum_if_stale", new=AsyncMock(return_value=None)),
+        ):
+            await maintenance.run_maintenance(
+                partition_count=10,
+                last_vacuum_version=last_vacuum_version,
+                commit_threshold=100,
+                compact_small_files=compact_small_files,
+            )
+
+        assert compact.await_args is not None
+        assert compact.await_args.kwargs["compact_small_files"] is compact_small_files
+        assert compact.await_args.kwargs["table_wide_small_files"] is expected_table_wide
+
 
 class TestRunScheduled:
     """run_scheduled owns the vacuum-watermark lifecycle for both call sites (pre-write defensive
-    pass and CDC post-load), so watermark-key selection, persistence gating, and the never-raise
+    pass and post-load), so watermark-key selection, persistence gating, and the never-raise
     contract all live here."""
 
     def _schema(self) -> MagicMock:
@@ -337,6 +455,7 @@ class TestRunScheduled:
         run_maintenance_result: int | None | Exception = None,
         is_cdc_companion: bool = False,
         partition_count_fallback: int | None = None,
+        compact_small_files: bool = False,
     ) -> tuple[AsyncMock, MagicMock, MagicMock]:
         run_maintenance = (
             AsyncMock(side_effect=run_maintenance_result)
@@ -350,9 +469,24 @@ class TestRunScheduled:
             patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
         ):
             await maintenance.run_scheduled(
-                schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=partition_count_fallback
+                schema,
+                is_cdc_companion=is_cdc_companion,
+                partition_count_fallback=partition_count_fallback,
+                compact_small_files=compact_small_files,
             )
         return run_maintenance, update_config, capture
+
+    @parameterized.expand([("on", True), ("off", False)])
+    @pytest.mark.asyncio
+    async def test_forwards_small_file_triggers(self, _name: str, compact_small_files: bool):
+        # Only the non-CDC post-load pass turns these triggers on, so a dropped pass-through here turns
+        # them off for every table while every caller-side test stays green.
+        run_maintenance, _, _ = await self._run(
+            _make_maintenance(MagicMock()), self._schema(), compact_small_files=compact_small_files
+        )
+
+        assert run_maintenance.await_args is not None
+        assert run_maintenance.await_args.kwargs["compact_small_files"] is compact_small_files
 
     @parameterized.expand(
         [
@@ -436,6 +570,12 @@ class TestRunScheduled:
                 ),
                 False,
             ),
+            # A refused read/write/delete on our own bucket is a policy condition rather than a
+            # maintenance defect, and no code change fixes it, so reporting it once per sync says
+            # the same thing repeatedly. The watermark assertion below is what keeps the cadence
+            # re-attempting the vacuum instead of waiting another commit_threshold commits for a
+            # cleanup that never ran.
+            ("object_store_refusal_warned_only", ObjectStorePermissionDeniedError("denied"), False),
         ]
     )
     @pytest.mark.asyncio

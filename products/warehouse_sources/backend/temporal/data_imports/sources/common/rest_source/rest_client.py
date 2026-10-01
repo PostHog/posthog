@@ -21,6 +21,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
+    reach_framework_safe_point,
+)
 
 from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
@@ -475,6 +478,10 @@ class RESTClient:
 
             if resume_hook is not None:
                 resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
+
+            # Direct Resource traversal has consumed the page before execution resumes here, so this
+            # is safe even when a dependent resource routes its resume hook only to the child.
+            reach_framework_safe_point()
 
             if paginator is None or not paginator.has_next_page:
                 break

@@ -375,7 +375,7 @@ _BG_PHROCS_START=$(date +%s)
 # checkout, and the venv symlink in Step 2b resolves each worktree's own pin.
 # A failed install must not break activation: the CLI is only needed at PR-open
 # time, and the reviewing-with-coderabbit skill opens the PR without it.
-_CODERABBIT_VERSION="0.7.6"
+_CODERABBIT_VERSION="0.8.0"
 _CODERABBIT_STORE="$HOME/.config/posthog/tools/coderabbit/$_CODERABBIT_VERSION"
 _CODERABBIT_BIN="$_CODERABBIT_STORE/coderabbit"
 
@@ -387,16 +387,16 @@ if command -v unzip >/dev/null 2>&1; then
   case "$(uname -s)-$(uname -m)" in
     Darwin-arm64)
       _CODERABBIT_PLATFORM="darwin-arm64"
-      _CODERABBIT_SHA256="f970e608e383114e1edf214eea71a99d6604ea1dd09c01e754ee6b8d4b852cb1" ;;
+      _CODERABBIT_SHA256="748271195b85cc245613f2affabacd4189c721f3839fb14d3efceccffdb382f5" ;;
     Darwin-x86_64)
       _CODERABBIT_PLATFORM="darwin-x64"
-      _CODERABBIT_SHA256="1c6242dec8a0983ff70842bc1d0e8c888d1a92b1ad80afb969c00c94c482a704" ;;
+      _CODERABBIT_SHA256="ccebc6335fd7fe0bbe2ad595aa57f684890551ff03114c8cc2403952d9c7ac52" ;;
     Linux-aarch64 | Linux-arm64)
       _CODERABBIT_PLATFORM="linux-arm64"
-      _CODERABBIT_SHA256="2270641a6314bef0da32e5903ddc6de6265354962f7cf651fc581a4a91f22447" ;;
+      _CODERABBIT_SHA256="570fd0569239371de6b7cb1004c760052c507d1fbb3189b692988d7f3804ee6d" ;;
     Linux-x86_64 | Linux-amd64)
       _CODERABBIT_PLATFORM="linux-x64"
-      _CODERABBIT_SHA256="853a1727609ab0ff1f56863fa6de7acf3de593a6dc1bd7f91a32f11c5724ffc9" ;;
+      _CODERABBIT_SHA256="e60aa408266c3e2350aae890b239ab8d1c12b3f607f4475e1c2ddd4529af1d71" ;;
   esac
 fi
 

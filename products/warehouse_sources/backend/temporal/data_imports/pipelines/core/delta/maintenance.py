@@ -1,6 +1,8 @@
 import json
 import asyncio
 import datetime as dt
+from collections import defaultdict
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -9,6 +11,7 @@ import deltalake
 import posthoganalytics
 import deltalake.exceptions
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
@@ -19,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
 )
 
@@ -48,6 +52,14 @@ if TYPE_CHECKING:
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
+# Post-load triggers on the files a compaction would remove (see `removable_file_count`). The
+# averages above cannot see an incremental table's newest partition, because its older partitions
+# keep the average near one file each. The table-wide trigger covers partitions that each keep a few,
+# and only runs when the vacuum is due: an md5 table gets a small file in every bucket on each sync,
+# so a table-wide count checked on every sync would compact the whole table every time.
+DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD = 8
+DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD = 100
+
 # delta-rs's own default target size for a compaction rewrite bin when none is given (see
 # `delta.targetFileSize`, or 100MB absent that table property). Starting the retry ladder here
 # instead of passing None keeps every attempt's size explicit and halvable.
@@ -63,14 +75,49 @@ COMPACT_OFFSET_OVERFLOW_RETRIES = 3
 VACUUM_RETENTION = dt.timedelta(hours=24)
 
 
+def removable_file_count(file_sizes: Iterable[int]) -> int:
+    """The fewest files a compaction is sure to remove from one partition, given the sizes of its files.
+
+    delta-rs keeps a partition's files in their original order and packs neighbours into bins up to the
+    target size. A file at or above the target splits the run around it, and a bin with one file is
+    skipped. The log's file sizes do not show that order, so this assumes the worst case: every file of
+    at least half the target separates the small files around it. A compaction usually writes files of
+    that size, so they must not count as small. Inside a run, every bin but the last is more than half
+    full, because the next small file did not fit. A count above zero therefore always means a
+    compaction that removes files, and a layout that compaction cannot improve never starts one.
+    """
+    sizes = list(file_sizes)
+    small = [size for size in sizes if size < DEFAULT_COMPACT_TARGET_SIZE_BYTES // 2]
+    runs = len(sizes) - len(small) + 1
+    output_files = runs + 2 * sum(small) // DEFAULT_COMPACT_TARGET_SIZE_BYTES
+    return max(0, len(small) - output_files)
+
+
+@frozen
+class _PartitionFileStats:
+    size_bytes: int
+    removable_files: int
+
+
+def _partition_file_stats(table: deltalake.DeltaTable) -> list[_PartitionFileStats]:
+    """Stats for each partition, read from the Delta log with no S3 request."""
+    # Each partition value is one directory, and an unpartitioned table keeps its files at the root.
+    sizes: defaultdict[str, list[int]] = defaultdict(list)
+    for path, size in table._table.get_add_file_sizes().items():
+        sizes[path.rpartition("/")[0]].append(size or 0)
+    return [
+        _PartitionFileStats(size_bytes=sum(partition_sizes), removable_files=removable_file_count(partition_sizes))
+        for partition_sizes in sizes.values()
+    ]
+
+
 class DeltaMaintenance:
     """Compaction, vacuuming, and the vacuum-watermark cadence for one schema's Delta table.
 
     Stateless over a `DeltaTableRef`, which holds the cached table handle — construct one at the
     call site whenever maintenance is needed. `run_scheduled` is the policy entry point shared by
     the pre-write defensive pass (both pipelines, so a sync that arrived at a fragmented table
-    cleans up before adding to the pile) and the CDC post-load pass; `compact_table` is the
-    unconditional post-load compaction for non-CDC syncs.
+    cleans up before adding to the pile) and the post-load pass.
     """
 
     def __init__(self, table: "DeltaTableRef") -> None:
@@ -106,7 +153,7 @@ class DeltaMaintenance:
                 compact_stats = await execute_with_conflict_retry(
                     table,
                     _compact_op,
-                    "compact_table",
+                    "compact",
                     self._logger,
                 )
                 break
@@ -116,29 +163,24 @@ class DeltaMaintenance:
                 attempt += 1
                 target_size //= 2
                 await self._logger.awarning(
-                    f"compact_table: byte array offset overflow, retrying with smaller "
+                    f"compact: byte array offset overflow, retrying with smaller "
                     f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
                 )
         await self._logger.adebug(json.dumps(compact_stats))
 
-    async def compact_table(self) -> None:
+    async def _vacuum_due(self, last_vacuum_version: int | None, commit_threshold: int) -> bool:
+        # The same cadence `vacuum_if_stale` applies. An unseeded watermark is never due.
         table = await self._table.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
-        await self._compact(table)
-        # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
-        # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
-        # different table evicting this table's cache entry and spuriously report it missing.
-        await self._vacuum(table)
-        await self._logger.adebug("Compacting and vacuuming complete")
+        if table is None or last_vacuum_version is None:
+            return False
+        return await asyncio.to_thread(table.version) - last_vacuum_version >= commit_threshold
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
         """Vacuum tombstoned files once enough commits have accrued since the last vacuum.
 
         Decoupled from merge success (called pre-write) so a table that OOMs its merge every run still
         gets cleaned — the post-load compaction never runs for it, which is how tables reach ~99% dead
-        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_table`'s
+        files. Vacuum only deletes dead files (an S3 LIST + delete), so unlike `compact_if_fragmented`'s
         `optimize.compact` (which rewrites partitions) it is memory-safe even on an oversized table.
 
         Uses the delta version (commit count) as a cheap proxy for tombstone accumulation — no S3 LIST to
@@ -194,6 +236,8 @@ class DeltaMaintenance:
         partition_count: int | None,
         threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
         total_threshold: int = DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD,
+        compact_small_files: bool = False,
+        table_wide_small_files: bool = False,
     ) -> bool:
         """Run compact + vacuum if the table is fragmented past either threshold.
 
@@ -203,15 +247,23 @@ class DeltaMaintenance:
         time tracks total files — a high partition_count must not let a table accumulate
         tens of thousands of files while staying under the per-partition bar.
 
+        `compact_small_files` adds the removable-file triggers (see
+        `DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD`), plus a trigger for any
+        partition over the repartition budget that compaction can shrink. Only the non-CDC
+        post-load pass sets it. The pre-write pass is a backstop for a table that arrived
+        fragmented, and a CDC final lands every tick, so these triggers would compact a CDC table
+        every few ticks. `table_wide_small_files` also enables the table-wide removable-file
+        trigger, which `run_maintenance` sets only when the vacuum is due.
+
         When `partition_count` is None it is derived from the table's actual layout (the
         distinct file directories in the delta log, no extra I/O) — only md5 partitioning
         persists a count on the schema, so datetime/numerical-partitioned tables always
         arrive here with None.
 
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `table.file_uris`. Intended for pre-write defensive cleanup
-        so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
-        before reaching post-load compaction) cleans up before adding to the pile.
+        healthy: one S3 LIST via `table.file_uris`. Runs pre-write, so a sync that arrived at a
+        fragmented state (e.g. an earlier attempt that failed before reaching post-load) cleans up
+        before adding to the pile, and again post-load once the sync's own files have landed.
         """
         table = await self._table.get_delta_table()
         if table is None:
@@ -234,6 +286,26 @@ class DeltaMaintenance:
             f"files_per_partition={files_per_partition:.1f}, threshold={threshold}, "
             f"total_threshold={total_threshold}"
         )
+        if compact_small_files and not fragmented:
+            partitions = await asyncio.to_thread(_partition_file_stats, table)
+            max_removable = max((partition.removable_files for partition in partitions), default=0)
+            total_removable = sum(partition.removable_files for partition in partitions)
+            # Repartition detection runs after this pass and compares partition bytes to its budget.
+            # Small files take more bytes at rest than the same rows after compaction, so an
+            # over-budget partition that compaction can shrink must be compacted before it is measured.
+            budget = settings.DATA_WAREHOUSE_TARGET_PARTITION_BYTES
+            compactable_over_budget = any(
+                partition.size_bytes > budget and partition.removable_files > 0 for partition in partitions
+            )
+            fragmented = (
+                max_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_PER_PARTITION_THRESHOLD
+                or (table_wide_small_files and total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD)
+                or compactable_over_budget
+            )
+            stats += (
+                f", max_removable_files_per_partition={max_removable}, removable_files={total_removable}, "
+                f"compactable_over_budget={compactable_over_budget}"
+            )
         if not fragmented:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
@@ -248,6 +320,7 @@ class DeltaMaintenance:
         partition_count: int | None,
         last_vacuum_version: int | None,
         commit_threshold: int,
+        compact_small_files: bool = False,
     ) -> int | None:
         """Single threshold-maintenance step: compact if fragmented, else vacuum on commit cadence.
 
@@ -258,7 +331,12 @@ class DeltaMaintenance:
         fall through to `vacuum_if_stale`. Returns the single delta version to persist as the new
         `last_vacuum_version` watermark, or None when nothing changed — `run_scheduled` persists it.
         """
-        compacted = await self.compact_if_fragmented(partition_count=partition_count)
+        compacted = await self.compact_if_fragmented(
+            partition_count=partition_count,
+            compact_small_files=compact_small_files,
+            table_wide_small_files=compact_small_files
+            and await self._vacuum_due(last_vacuum_version, commit_threshold),
+        )
         if compacted:
             table = await self._table.get_delta_table()
             if table is None:
@@ -274,12 +352,13 @@ class DeltaMaintenance:
         *,
         is_cdc_companion: bool = False,
         partition_count_fallback: int | None = None,
+        compact_small_files: bool = False,
     ) -> None:
         """Best-effort threshold maintenance owning the vacuum-watermark lifecycle for `schema`.
 
         Reads the right watermark, runs `run_maintenance`, and persists the returned watermark via
         `update_sync_type_config_keys` (row-locked merge) — both call sites (the pre-write defensive
-        pass and the CDC post-load pass) share this, so the watermark can't drift between them.
+        pass and the post-load pass) share this, so the watermark can't drift between them.
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
         unrelated numbers, so each table's vacuum cadence gets its own watermark key — sharing one
@@ -291,6 +370,14 @@ class DeltaMaintenance:
         retries the same idempotent cleanup. A transient infra error (see
         `is_transient_maintenance_error`) — an object-store hiccup, a racy concurrent-maintenance
         DeltaError, or an app-DB connection blip — is logged at warning instead of captured.
+
+        An object-store refusal (see is_object_store_permission_denied) is logged at warning too.
+        Compaction and vacuuming only rewrite and reclaim files that the load has already committed,
+        so a refused pass leaves every live row queryable and costs the table nothing but a delayed
+        cleanup. It is a policy condition on our own bucket rather than a maintenance defect, so a
+        report per sync would say the same thing repeatedly about something no code change fixes.
+        The watermark is not persisted either, so the cadence re-attempts the vacuum on the next pass
+        instead of waiting another `commit_threshold` commits for a cleanup that never ran.
         """
         try:
             if is_cdc_companion:
@@ -306,11 +393,15 @@ class DeltaMaintenance:
                 partition_count=partition_count,
                 last_vacuum_version=last_vacuum_version,
                 commit_threshold=settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD,
+                compact_small_files=compact_small_files,
             )
             if new_version is not None and new_version != last_vacuum_version:
                 await database_sync_to_async_pool(update_sync_type_config_keys)(
                     schema.id, schema.team_id, updates={watermark_key: new_version}
                 )
+        except ObjectStorePermissionDeniedError:
+            await self._logger.awarning("Delta maintenance skipped: the object store denied the operation")
+            return
         except Exception as e:
             if is_transient_maintenance_error(e):
                 await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}")

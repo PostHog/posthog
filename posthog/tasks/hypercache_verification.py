@@ -28,8 +28,12 @@ from posthog.celery_task_names import (
 from posthog.exceptions_capture import capture_exception
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import (
+    HYPERCACHE_VERIFY_ERROR_COUNTER,
     HYPERCACHE_VERIFY_FIX_COUNTER,
+    HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER,
+    FixFailureReason,
     TeamBatchFetchError,
+    VerifyFailureReason,
     VerifyTeamFn,
     _run_verification_for_cache,
 )
@@ -97,6 +101,16 @@ for _cache_type, _writers in _FIX_WRITERS_BY_CACHE_TYPE.items():
     for _issue_type in _FIX_ISSUE_TYPES:
         for _writer in _writers:
             HYPERCACHE_VERIFY_FIX_COUNTER.labels(cache_type=_cache_type, issue_type=_issue_type, writer=_writer)
+
+# Same pre-creation rationale; these two stay at zero on a healthy cache.
+for _cache_type in _FIX_WRITERS_BY_CACHE_TYPE:
+    for _verify_reason in get_args(VerifyFailureReason):
+        HYPERCACHE_VERIFY_ERROR_COUNTER.labels(cache_type=_cache_type, reason=_verify_reason)
+    for _issue_type in _FIX_ISSUE_TYPES:
+        for _fix_reason in get_args(FixFailureReason):
+            HYPERCACHE_VERIFY_FIX_FAILURE_COUNTER.labels(
+                cache_type=_cache_type, issue_type=_issue_type, reason=_fix_reason
+            )
 
 
 def _record_incomplete_run(cache_type: str, reason: IncompleteRunReason) -> None:

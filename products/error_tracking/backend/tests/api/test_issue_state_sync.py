@@ -1,7 +1,29 @@
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.db.utils import IntegrityError
+
+from parameterized import parameterized
+
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.role import Role
+from products.error_tracking.backend.logic.severity_inference import apply_inferred_severity
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+
+
+class TestInferredSeverityWrite(APIBaseTest):
+    def test_activity_log_failure_rolls_back_severity(self) -> None:
+        issue = ErrorTrackingIssue.objects.create(team=self.team, severity="medium")
+
+        with self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True):
+            with patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")):
+                with pytest.raises(IntegrityError):
+                    apply_inferred_severity(self.team.id, issue.id, expected="medium", inferred="critical")
+
+        issue.refresh_from_db()
+        assert issue.severity == "medium"
 
 
 class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
@@ -94,6 +116,27 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
         assert rows[0][6] == "high"
+
+    @parameterized.expand(
+        [
+            ("ingestion_severity_unchanged", "medium", "medium", "critical", ["critical"]),
+            ("severity_changed_while_inferring", "medium", "low", "low", []),
+            ("no_ingestion_severity", None, None, "critical", ["critical"]),
+            ("retry_after_failed_clickhouse_sync", "medium", "critical", "critical", ["critical"]),
+        ]
+    )
+    def test_inferred_severity_only_replaces_the_ingestion_severity(
+        self, _name, expected, current, stored_severity, synced_severities
+    ):
+        issue = self._create_issue(fingerprints=["fp_1"], severity=current)
+
+        write = apply_inferred_severity(self.team.id, issue.id, expected=expected, inferred="critical")
+
+        assert write.stored_severity == stored_severity
+
+        issue.refresh_from_db()
+        assert issue.severity == stored_severity
+        assert [row[6] for row in self._get_issue_state_rows()] == synced_severities
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])

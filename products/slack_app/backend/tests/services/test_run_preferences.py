@@ -172,9 +172,9 @@ class TestDescribeRunModel:
     @pytest.mark.parametrize(
         "model,reasoning_effort,expected",
         [
-            ("claude-fable-5", "high", "*Claude Fable 5* · Reasoning: *High*"),
+            ("claude-fable-5", "high", "*Claude Fable 5* [High]"),
             ("claude-fable-5", None, "*Claude Fable 5*"),
-            ("claude-opus-5", "ultracode", "*Claude Opus 5* · Reasoning: *Ultracode*"),
+            ("claude-opus-5", "ultracode", "*Claude Opus 5* [Ultracode]"),
         ],
     )
     def test_renders_the_shared_phrasing(self, model, reasoning_effort, expected):
@@ -217,7 +217,7 @@ class TestAvailableModelChoices:
             choices = available_model_choices()
 
         models = {c.model for c in choices}
-        assert {"claude-sonnet-5", "gpt-5.6-sol", "zai-org/glm-5.3"} <= models
+        assert {"claude-sonnet-5", "gpt-5.6-sol", "gpt-6.1-sol", "zai-org/glm-5.3"} <= models
         assert all(c.label and c.runtime_adapter for c in choices)
 
 

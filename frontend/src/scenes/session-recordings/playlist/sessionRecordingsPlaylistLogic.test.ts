@@ -179,6 +179,27 @@ describe('sessionRecordingsPlaylistLogic', () => {
         localStorage.clear()
     })
 
+    describe('watch next', () => {
+        it('selects the first unwatched recording when the URL asks for it', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => [
+                        200,
+                        { has_next: false, results: [{ ...aRecording, viewed: true }, bRecording] },
+                    ],
+                },
+            })
+            router.actions.push('/replay', { watchNext: true })
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'watch-next', updateSearchParams: true })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordingsSuccess', 'setSelectedRecordingId'])
+                .toMatchValues({ selectedRecordingId: bRecording.id, watchNextRequested: false })
+            expect(router.values.searchParams).not.toHaveProperty('watchNext')
+        })
+    })
+
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
@@ -1283,6 +1304,45 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             expect(logic.values.matchingEventsMatchType.matchType).toBe('none')
         })
+
+        it.each(['events', 'actions'] as const)(
+            'uses the effective scope for %s matching when flags change',
+            (type) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: `match-scope-${type}`,
+                    filters: {
+                        ...DEFAULT_RECORDING_FILTERS,
+                        event_match_scope: 'recording',
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: FilterLogicalOperator.And,
+                                    values: [{ id: type === 'events' ? '$pageview' : 1, name: '$pageview', type }],
+                                },
+                            ],
+                        },
+                    },
+                })
+                logic.mount()
+
+                const sessionMatch =
+                    type === 'events'
+                        ? { matchType: 'name', eventNames: ['$pageview'] }
+                        : { matchType: 'backend', filters: expect.objectContaining({ event_match_scope: undefined }) }
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: true })
+                expect(logic.values.matchingEventsMatchType).toEqual({
+                    matchType: 'backend',
+                    filters: expect.objectContaining({ event_match_scope: 'recording' }),
+                })
+
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: false })
+                expect(logic.values.matchingEventsMatchType).toEqual(sessionMatch)
+            }
+        )
     })
 
     describe('resetting filters', () => {
@@ -2670,6 +2730,34 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
                 })
             ).toEqual({ ...recommendedFilters, recommended_only: false })
+        })
+
+        it.each([
+            [true, 'recording'],
+            [false, undefined],
+        ])('with the event match scope flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
+            const scopedFilters: RecordingUniversalFilters = { ...recommendedFilters, event_match_scope: 'recording' }
+            expect(
+                getEffectiveRecordingFilters(scopedFilters, {
+                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
+                    [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
+                }).event_match_scope
+            ).toBe(expected)
+        })
+
+        it.each([true, false])('reloads a saved recording scope when the flag becomes %s', async (enabled) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: !enabled })
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: `delayed-recording-scope-${enabled}`,
+                filters: { ...DEFAULT_RECORDING_FILTERS, event_match_scope: 'recording' },
+            })
+            await expectLogic(logic, () => {
+                logic.mount()
+            }).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: enabled })
+            }).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
         })
 
         it('clears a persisted recommended filter for the control variant', async () => {

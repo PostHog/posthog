@@ -137,6 +137,15 @@ def _clean_existing_external_context(integration: Integration, external_context:
             )
         cleaned["title"] = title.strip()
 
+    if integration.kind == Integration.IntegrationKind.GITHUB:
+        resource_type = external_context.get("resource_type")
+        if resource_type is not None:
+            if resource_type not in {"issue", "pull_request"}:
+                raise ErrorTrackingExternalReferenceValidationError(
+                    "GitHub references must identify either an issue or a pull request."
+                )
+            cleaned["resource_type"] = resource_type
+
     return cleaned
 
 
@@ -198,9 +207,12 @@ def create_external_reference(
             issue=issue, integration=integration, external_context__contains=identifier_context
         ).first()
         if existing is not None:
-            title = stored_context.get("title")
-            if title and (existing.external_context or {}).get("title") != title:
-                existing.external_context = {**(existing.external_context or {}), "title": title}
+            updated_context = {
+                **(existing.external_context or {}),
+                **{key: stored_context[key] for key in ("title", "resource_type") if key in stored_context},
+            }
+            if updated_context != existing.external_context:
+                existing.external_context = updated_context
                 existing.save(update_fields=["external_context"])
             return existing, False
         if integration.kind == Integration.IntegrationKind.LINEAR:

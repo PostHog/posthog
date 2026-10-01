@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -174,5 +177,19 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         )
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenCalledTimes(2)
         expect(logic.values.isArchivingDefinition(mockScoreDefinition.id)).toBe(false)
+    })
+    it('restores scorer filters and keeps filter changes on the canonical management route', async () => {
+        router.actions.push(urls.aiObservabilityScorers(), { search: 'quality', archived: 'all' })
+        const logic = aiObservabilityScoreDefinitionsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters).toMatchObject({ search: 'quality', archived: '' })
+
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ kind: 'boolean' }, true, false)
+        ).toFinishAllListeners()
+        expect(router.values.location.pathname).toContain(urls.aiObservabilityScorers())
+        expect(router.values.searchParams).toMatchObject({ search: 'quality', archived: 'all', kind: 'boolean' })
+        expect(router.values.searchParams.human_reviews_tab).toBeUndefined()
     })
 })

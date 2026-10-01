@@ -366,12 +366,10 @@ LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "Exper
 
 def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:
     """Check if experiment uses legacy metric formats."""
-    # Check inline metrics
     all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
     if any(m.get("kind") in LEGACY_METRIC_KINDS for m in all_metrics):
         return True
 
-    # Check saved metrics
     if experiment.experimenttosavedmetric_set.filter(saved_metric__query__kind__in=LEGACY_METRIC_KINDS).exists():
         return True
 
@@ -546,6 +544,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
+        # Written by the daily timeseries workflow, not by a user: a completed run assembled from the
+        # timeseries points of one daily run, so the latest read serves fresh data without a recompute.
+        TIMESERIES_SYNC = "timeseries_sync", "Timeseries Sync"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)

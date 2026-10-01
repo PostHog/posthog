@@ -552,27 +552,6 @@ export const BarValue50Breakdowns: Story = {
     render: () => renderTrendInsight(BAR_VALUE_50_BREAKDOWNS_INSIGHT),
 }
 
-const SHORT_BREAKDOWN_LABELS = [
-    ...Array.from({ length: 25 }, (_, index) => String(500 + index * 37)),
-    'Other (all remaining values)',
-]
-
-const BAR_VALUE_EMBEDDED_NARROW_INSIGHT = {
-    ...BAR_VALUE_50_BREAKDOWNS_INSIGHT,
-    id: 205,
-    short_id: 'barValueEmbeddedNarrow',
-    name: 'Users by screen height',
-    result: BAR_VALUE_50_BREAKDOWNS.slice(0, SHORT_BREAKDOWN_LABELS.length).map((result, index) => ({
-        ...result,
-        label: SHORT_BREAKDOWN_LABELS[index],
-        breakdown_value: SHORT_BREAKDOWN_LABELS[index],
-    })),
-}
-
-export const BarValueEmbeddedNarrow: Story = {
-    render: () => renderTrendsBarChart(BAR_VALUE_EMBEDDED_NARROW_INSIGHT, { embedded: true, width: 600 }),
-}
-
 // A single breakdown row should still fill the standard chart height — the lone bar must not
 // shrink. Guards the min-height floor on TrendsInsight--ActionsBarValue: drop it back to `auto`
 // and this snapshot collapses to a thin one-row bar instead of filling the container.

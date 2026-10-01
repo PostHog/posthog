@@ -155,10 +155,12 @@ class RepartitionBudgetExceededError(Exception):
     run writes hundreds of millions of rows each time and still ends where it began.
 
     `resumed_from == 0` alone can't tell a genuine first attempt from a treadmill restart, though — both
-    inherit nothing. `had_prior_checkpoint` splits them: True means a checkpoint existed at the start of
-    this attempt (so re-covering ground from row 0 is a restart, not progress), False means there was
-    none to inherit. `checkpoint_saved` records whether this attempt persisted a checkpoint the next run
-    can resume from. A fresh first attempt that saved one is forward progress; the caller sets both.
+    inherit nothing. `had_prior_checkpoint` splits them: True means this attempt found a checkpoint it
+    could build on (so re-covering ground from row 0 is a restart, not progress), False means there was
+    none to inherit or the resume path rejected the one there was, because nobody has spent a budget
+    on the rows a restart past a rejected checkpoint covers. `checkpoint_saved` records whether this attempt
+    persisted a checkpoint the next run can resume from. A fresh first attempt that saved one is forward
+    progress; the caller sets both.
     """
 
     def __init__(
@@ -237,24 +239,42 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
+# Delta's fixed marker for a Hive-style partition directory whose column value is null.
+_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+
+def _partition_key_from_add_path(path: str) -> str | None:
+    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
+
+    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
+    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
+    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
+    `partition.<key>` column would give.
+    """
+    prefix = f"{PARTITION_KEY}="
+    for segment in path.split("/"):
+        if segment.startswith(prefix):
+            value = segment[len(prefix) :]
+            return None if value == _HIVE_NULL_PARTITION else value
+    return None
+
+
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
     Unpartitioned tables collapse to a single `None` bucket. Keyed by the `_ph_partition_key` value.
-    """
-    actions = delta_table.get_add_actions(flatten=True)
-    columns = actions.schema.names
-    sizes = actions.column("size_bytes").to_pylist()
 
-    partition_column = f"partition.{PARTITION_KEY}"
-    keys: list[str | None]
-    if partition_column in columns:
-        keys = list(actions.column(partition_column).to_pylist())
-    else:
-        keys = [None] * len(sizes)
+    Reads `get_add_file_sizes` (file path -> size only), not `get_add_actions`: the latter also
+    materializes every column's min/max/null-count stats into Arrow arrays, and a table with enough
+    files can push a single stats column past Arrow's 2^31-byte offset limit for a default
+    (32-bit-offset) string array, raising `Offset overflow error` and aborting detection for an
+    otherwise healthy table.
+    """
+    partitioned = PARTITION_KEY in (delta_table.metadata().partition_columns or [])
 
     totals: dict[str | None, int] = defaultdict(int)
-    for key, size in zip(keys, sizes):
+    for path, size in delta_table._table.get_add_file_sizes().items():
+        key = _partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -1328,7 +1348,7 @@ async def repartition_table_in_place(
             # interrupted write instead of re-streaming the whole table for a scheme it already has.
             await ensure_claim()
             await _persist_resolved_scheme(schema, staged_target, claim_token, logger)
-            table_ref.get_delta_table.cache_clear()
+            table_ref.invalidate_cached_table()
             await logger.ainfo(
                 f"repartition: recovered an unrecorded swap, saved scheme={_format_scheme(staged_target)} "
                 f"schema_id={schema.id}",
@@ -1439,10 +1459,12 @@ async def repartition_table_in_place(
                 skip_rows=skip_rows,
             )
         except RepartitionBudgetExceededError as e:
-            # A checkpoint present at the start of this attempt means a resumed_from==0 restart
-            # re-covered ground rather than progressing; its absence means this is a genuine first
-            # attempt. The classifier needs the distinction (see `_handle_budget_exceeded`).
-            e.had_prior_checkpoint = rewrite_checkpoint is not None
+            # Only a checkpoint this attempt could build on marks a restart. One the resume path
+            # rejected was left by an attempt killed at an arbitrary point, so the ground re-covered
+            # past it measures nothing. A checkpoint a full budget did produce never reaches the
+            # rewrite, because `_restart_would_run_out_of_budget` gives up terminally ahead of it.
+            # The classifier needs the distinction (see `_handle_budget_exceeded`).
+            e.had_prior_checkpoint = resuming_rewrite
             # Checkpoint the half-built temp so the next attempt resumes instead of re-streaming from
             # row 0. Fenced on the claim inside the row lock, like the progress checkpoint above: a
             # superseded zombie writing here would restore its own claim along with the whole config.
@@ -1539,7 +1561,7 @@ async def repartition_table_in_place(
     await _persist_resolved_scheme(schema, resolved, claim_token, logger)
 
     # The cached delta-table object points at the pre-swap files; drop it so callers re-read live.
-    table_ref.get_delta_table.cache_clear()
+    table_ref.invalidate_cached_table()
 
     await logger.ainfo(
         f"repartition: completed schema_id={schema.id} rows={rows_written} "
@@ -1615,7 +1637,7 @@ async def _resume_swap_with_missing_live(
     )
 
     await _persist_resolved_scheme(schema, target, claim_token, logger)
-    table_ref.get_delta_table.cache_clear()
+    table_ref.invalidate_cached_table()
 
     await logger.ainfo(
         f"repartition: recovered from interrupted swap schema_id={schema.id} rows={expected_rows}",
