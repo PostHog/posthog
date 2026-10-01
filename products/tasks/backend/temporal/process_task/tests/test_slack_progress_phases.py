@@ -99,6 +99,13 @@ class TestPhaseForToolCall:
                 _claude("Bash", {"command": "pytest", "description": "Run the relay tests."}, kind="execute"),
                 "Run the relay tests",
             ),
+            (
+                "posthog_exec",
+                _claude(
+                    "mcp__posthog__exec", {"command": "call execute-sql {}", "description": "Count weekly signups"}
+                ),
+                "Count weekly signups",
+            ),
             # Another tool's description argument is content, such as a new dashboard's text.
             (
                 "posthog_tool",
@@ -107,7 +114,7 @@ class TestPhaseForToolCall:
             ),
         ]
     )
-    def test_only_the_shell_description_reaches_the_plan(
+    def test_only_descriptions_written_for_people_reach_the_plan(
         self, _name: str, update: dict[str, Any], expected: str | None
     ) -> None:
         tool_call = tool_call_from_acp_update(update)

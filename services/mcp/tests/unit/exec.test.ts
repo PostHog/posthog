@@ -859,6 +859,17 @@ describe('exec tool', () => {
         })
     })
 
+    it.each([
+        ['slack', true],
+        ['posthog-code', false],
+        [undefined, false],
+    ])('asks the %s consumer to describe each call: %s', (consumer, expected) => {
+        // Every other client would pay the argument's tokens for a progress line it never shows.
+        const exec = createExec([makeMockTool()], consumer)
+
+        expect('description' in exec.schema.shape).toBe(expected)
+    })
+
     describe('skill lookup misses', () => {
         function makeSkillTool(name: string, body: string): Tool<ZodObjectAny> {
             return makeMockTool({

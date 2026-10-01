@@ -10,8 +10,8 @@ internal names.
 
 When the agent keeps a todo list, the relay shows that list instead (see ``agent_plan_steps``).
 
-While a line is open it can also say what runs now: the description Claude writes for a
-shell command, else the last sentence the agent wrote before the call.
+While a line is open it can also say what runs now: the description the agent gives a shell
+command or a PostHog call, else the last sentence the agent wrote before the call.
 """
 
 import re
@@ -61,9 +61,6 @@ PHASES: dict[str, ProgressPhase] = {
     )
 }
 
-SETUP_LINE_TITLE = "Getting ready"
-# The setup line becomes this when the turn answers without a tool.
-ANSWER_LINE_TITLE = "Writing the answer"
 PLAN_TITLE_WORKING = "Working on it"
 PLAN_TITLE_STOPPED = "Stopped"
 
@@ -133,7 +130,7 @@ class ToolCall:
     name: str
     kind: str | None
     command: str | None
-    # The plain-language description the agent gave a shell command, when it gave one.
+    # The plain-language description the agent gave a shell command or a PostHog call.
     description: str | None = None
     # The PostHog tool the call runs, or None for a call that is not a PostHog tool call.
     posthog_tool: str | None = None
@@ -322,9 +319,12 @@ def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     needs_command = lowered in _SHELL_TOOL_NAMES or kind == "execute" or lowered.endswith(f"__{_POSTHOG_EXEC_TOOL}")
     if command is None and needs_command:
         return None
-    # Only Claude's shell tool writes its description for people. A description argument on
-    # other tools is content, such as the text of a dashboard the agent creates.
-    description = _short_activity(raw_input.get("description")) if lowered == "bash" else None
+    # Claude's shell tool and the PostHog exec tool take a description written for people. A
+    # description argument on other tools is content, such as the text of a new dashboard.
+    describes_call = lowered == "bash" or any(
+        lowered == f"{prefix}{_POSTHOG_EXEC_TOOL}" for prefix in _POSTHOG_MCP_PREFIXES
+    )
+    description = _short_activity(raw_input.get("description")) if describes_call else None
     return ToolCall(
         name=name, kind=kind, command=command, description=description, posthog_tool=_posthog_tool(lowered, command)
     )

@@ -838,7 +838,7 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
 
     A tool call becomes ``{"phase": key}``. The plan names the kind of work only, so the payload
     carries no tool name and no arguments. The one exception is ``activity``: the description
-    Claude writes for people on a shell command. A Claude shell or PostHog call arrives with an
+    the agent writes for people on a shell command or a PostHog call. A Claude shell or PostHog call arrives with an
     empty rawInput first; the id is not marked seen until the command is known, so the next
     update retries.
 
