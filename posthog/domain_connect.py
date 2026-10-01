@@ -230,8 +230,7 @@ class DomainConnectContext:
     group_ids: tuple[str, ...] = ()
 
 
-# Cloudflare ignores TXT conflict matching, so applying the dmarc group next to an existing
-# _dmarc record publishes a second DMARC record, and receivers then ignore DMARC for the domain.
+# Cloudflare ignores TXT conflict matching and would publish a second, invalidating DMARC record.
 EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
 
 
@@ -281,7 +280,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
         "sesRegion": ses_region,
     }
     group_ids = (
-        () if _dmarc_record_is_absent(instance.config.get("domain", "")) else EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC
+        () if _dmarc_absence_confirmed(instance.config.get("domain", "")) else EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC
     )
     # The template variables are bare SES tokens and a subdomain label, so they stay
     # the same when the records move from the full sender domain to root plus host.
@@ -371,15 +370,10 @@ def generate_apply_url(
 
 
 def _txt_value(rdata: TXTBase) -> str:
-    # A TXT record holds a list of character strings that together form one value.
     return "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings).strip()
 
 
-def _dmarc_record_is_absent(domain: str) -> bool:
-    """True only when DNS confirms that _dmarc.{domain} has no DMARC record.
-
-    A failed lookup returns False, so the caller leaves the dmarc group out rather than risk a duplicate.
-    """
+def _dmarc_absence_confirmed(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
