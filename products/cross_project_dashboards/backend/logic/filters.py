@@ -66,7 +66,10 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
             raise serializers.ValidationError({"breakdown_filter": REFUSAL})
         if breakdown.get("breakdown_group_type_index") is not None:
             raise serializers.ValidationError({"breakdown_filter": REFUSAL})
-        for item in breakdown.get("breakdowns") or []:
+        breakdowns = breakdown.get("breakdowns") or []
+        if not isinstance(breakdowns, list):
+            raise serializers.ValidationError({"breakdown_filter": "Breakdowns must be a list."})
+        for item in breakdowns:
             if isinstance(item, dict) and (
                 item.get("type") in PROJECT_BOUND_BREAKDOWN_TYPES or item.get("group_type_index") is not None
             ):

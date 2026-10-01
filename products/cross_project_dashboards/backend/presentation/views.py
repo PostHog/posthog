@@ -1,6 +1,6 @@
 """DRF views for cross_project_dashboards."""
 
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
@@ -9,9 +9,14 @@ from rest_framework import viewsets
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.cross_project_dashboards.backend.facade.api import CrossProjectDashboard, CrossProjectDashboardTile
+from products.cross_project_dashboards.backend.facade.api import (
+    CrossProjectDashboard,
+    CrossProjectDashboardTile,
+    visible_project_ids,
+)
 from products.cross_project_dashboards.backend.presentation.serializers import (
     CrossProjectDashboardSerializer,
     CrossProjectDashboardTileSerializer,
@@ -32,12 +37,15 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        visible = visible_project_ids(cast(User, self.request.user), self.organization_id)
         return (
             queryset.filter(organization_id=self.organization_id, deleted=False)
             .prefetch_related(
                 Prefetch(
                     "tiles",
-                    queryset=CrossProjectDashboardTile.objects.filter(deleted=False).order_by("created_at"),
+                    queryset=CrossProjectDashboardTile.objects.filter(deleted=False, project_id__in=visible).order_by(
+                        "created_at"
+                    ),
                 )
             )
             .order_by("-created_at")
@@ -66,7 +74,12 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
     permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        return queryset.filter(deleted=False, dashboard__deleted=False).order_by("created_at")
+        # A reader denied a project does not learn which of its insights the dashboard references.
+        visible = visible_project_ids(cast(User, self.request.user), self.organization_id)
+        return queryset.filter(deleted=False, dashboard__deleted=False, project_id__in=visible).order_by("created_at")
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "organization_id": self.organization_id}
 
     def perform_create(self, serializer: BaseSerializer) -> None:
         dashboard = get_object_or_404(
