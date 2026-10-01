@@ -20,7 +20,14 @@ import {
 
 export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
-    const { linkedSource, saving } = useValues(llmPlaygroundPromptsLogic)
+    const {
+        linkedSource,
+        saving,
+        promptConfigs,
+        pendingTargetModel,
+        pendingTargetProvider,
+        pendingTargetProviderKeyId,
+    } = useValues(llmPlaygroundPromptsLogic)
     const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
         useActions(llmPlaygroundPromptsLogic)
     const { searchParams } = useValues(router)
@@ -31,13 +38,34 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
     const hasLinkedSource = !!linkedPromptName || !!linkedEvaluationId
     const linkedLabel = getLinkedSourceLabel(linkedSource)
 
-    const modelConfig = selectedModel
+    // Evaluations need a resolvable provider, so their config requires a matched option.
+    // Prompt saves keep the panel's model even while options load or when it has no match,
+    // so a save never silently drops the selection.
+    const evaluationModelConfig = selectedModel
         ? {
               model: prompt.model,
               provider: selectedModel.provider?.toLowerCase() ?? '',
               provider_key_id: prompt.selectedProviderKeyId ?? null,
           }
         : null
+    // A freshly loaded selection sits in pendingTarget* until the model loaders settle,
+    // while the panel still shows its previous model. Prefer the pending selection so a
+    // save in that window publishes the loaded model, not the stale panel one.
+    const isFirstPanel = promptConfigs[0]?.id === prompt.id
+    const promptModelConfig =
+        isFirstPanel && pendingTargetModel
+            ? {
+                  model: pendingTargetModel,
+                  provider: pendingTargetProvider ?? '',
+                  provider_key_id: pendingTargetProviderKeyId,
+              }
+            : prompt.model
+              ? (evaluationModelConfig ?? {
+                    model: prompt.model,
+                    provider: '',
+                    provider_key_id: prompt.selectedProviderKeyId ?? null,
+                })
+              : null
 
     const openSaveAsNewPromptDialog = (): void => {
         LemonDialog.openForm({
@@ -49,7 +77,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewPrompt(prompt.id, name),
+            onSubmit: ({ name }) => saveAsNewPrompt(prompt.id, name, promptModelConfig),
         })
     }
 
@@ -63,7 +91,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewEvaluation(prompt.id, name, modelConfig),
+            onSubmit: ({ name }) => saveAsNewEvaluation(prompt.id, name, evaluationModelConfig),
         })
     }
 
@@ -75,13 +103,15 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
         LemonDialog.open({
             title: `Save to ${linkedLabel}?`,
             description: isPrompt
-                ? 'This will publish a new version of the prompt with the system prompt from the playground.'
+                ? 'This will publish a new version of the prompt with the current playground state: system prompt, messages, tools, and model settings.'
                 : 'This will update the evaluation prompt and model configuration with the current playground state.',
             primaryButton: {
                 children: isPrompt ? 'Publish version' : 'Save',
                 type: 'primary',
                 onClick: () =>
-                    isPrompt ? saveToLinkedPrompt(prompt.id) : saveToLinkedEvaluation(prompt.id, modelConfig),
+                    isPrompt
+                        ? saveToLinkedPrompt(prompt.id, promptModelConfig)
+                        : saveToLinkedEvaluation(prompt.id, evaluationModelConfig),
             },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
@@ -99,7 +129,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
 
     const isLinkedSourceEnabled =
         (linkedSource.type === 'prompt' && linkedPromptName) ||
-        (linkedSource.type === 'evaluation' && linkedEvaluationId && modelConfig)
+        (linkedSource.type === 'evaluation' && linkedEvaluationId && evaluationModelConfig)
 
     if (linkedLabel && isLinkedSourceEnabled) {
         linkedActions.push(
@@ -137,7 +167,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
         </LemonButton>
     )
 
-    if (modelConfig) {
+    if (evaluationModelConfig) {
         saveAsNewActions.push(
             <LemonButton
                 key="save-new-evaluation"
@@ -187,7 +217,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 tooltip={
                     hasLinkedSource
                         ? 'Save changes back to the linked item or create a new one'
-                        : 'Save this system prompt as a prompt or evaluation'
+                        : 'Save this playground setup as a prompt or evaluation'
                 }
                 noPadding
                 loading={saving}

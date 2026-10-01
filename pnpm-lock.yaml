@@ -2755,15 +2755,45 @@ importers:
 
   products/canvas:
     dependencies:
+      '@posthog/icons':
+        specifier: 'catalog:'
+        version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/quill':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/quill
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
       '@types/react':
         specifier: 18.3.27
         version: 18.3.27
+      '@types/react-dom':
+        specifier: 18.3.7
+        version: 18.3.7(@types/react@18.3.27)
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      posthog-js:
+        specifier: 'catalog:'
+        version: 1.435.5(@types/react@18.3.27)(react@18.3.1)
       react:
         specifier: 18.3.1
         version: 18.3.1
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      zod:
+        specifier: '*'
+        version: 4.3.6
     devDependencies:
       '@testing-library/react':
         specifier: ^14.3.1
@@ -2771,6 +2801,9 @@ importers:
       jest:
         specifier: ^29.7.0
         version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   products/cdp:
     dependencies:
@@ -3543,6 +3576,9 @@ importers:
       clsx:
         specifier: '*'
         version: 1.2.1
+      fast-equals:
+        specifier: 'catalog:'
+        version: 6.0.1
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
@@ -3555,6 +3591,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      ts-pattern:
+        specifier: 'catalog:'
+        version: 4.3.0
     devDependencies:
       '@storybook/react':
         specifier: 'catalog:'
@@ -4818,8 +4857,8 @@ importers:
         specifier: 'catalog:'
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
-        specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        specifier: 'catalog:'
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -5134,8 +5173,8 @@ importers:
         specifier: 'catalog:'
         version: 0.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/react':
-        specifier: '*'
-        version: 1.9.0(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
+        specifier: 'catalog:'
+        version: 1.11.2(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)
       '@storybook/react':
         specifier: 'catalog:'
         version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
@@ -5526,8 +5565,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.21.1
-        version: '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.21.2
+        version: '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10798,8 +10837,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.21.1':
-    resolution: {integrity: sha512-NbSJlf1XDLJBbNBFtQWIUKS5oooXb9B1gY6V7a+MLZOAyO8Ap7zAIzagsLkpFngvkEfd757uVtEP1YyAEcWIuw==}
+  '@posthog/mcp@0.21.2':
+    resolution: {integrity: sha512-xfzkKZpnM604IKLVxj8ih6CHYaGMsWU6olvT8B2mtbHlRlJ1u5vQnYFII9lOgYkw0S0RME9sJxynm8+ITa4HAQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -10813,16 +10852,6 @@ packages:
 
   '@posthog/react@1.11.2':
     resolution: {integrity: sha512-6iO+dbmm9x31lhnmxBWKJlI5iWaCRx9fsUfVyrYz2zRhG9QcUmQr22jj2DKK2zaWNTp1gO1GCE7VxiqBqYwTxA==}
-    peerDependencies:
-      '@types/react': 18.3.27
-      posthog-js: '>=1.257.2'
-      react: 18.3.1
-    peerDependenciesMeta:
-      '@types/react':
-        optional: true
-
-  '@posthog/react@1.9.0':
-    resolution: {integrity: sha512-lVdTsWT5+PtHBu44gSQ7QohbLjAYqHkFAIGAQ+HV8Eh9yj+OcnQ7mXCmyhaMlTBD3z7D0H1eWMp4vQaFnsIyWQ==}
     peerDependencies:
       '@types/react': 18.3.27
       posthog-js: '>=1.257.2'
@@ -30414,7 +30443,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))':
+  '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.55.0(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.55.2
       posthog-node: 5.55.0(rxjs@7.8.1)
@@ -30422,13 +30451,6 @@ snapshots:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
 
   '@posthog/react@1.11.2(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
-    dependencies:
-      posthog-js: 1.435.5(@types/react@18.3.27)(react@18.3.1)
-      react: 18.3.1
-    optionalDependencies:
-      '@types/react': 18.3.27
-
-  '@posthog/react@1.9.0(@types/react@18.3.27)(posthog-js@1.435.5(@types/react@18.3.27)(react@18.3.1))(react@18.3.1)':
     dependencies:
       posthog-js: 1.435.5(@types/react@18.3.27)(react@18.3.1)
       react: 18.3.1
