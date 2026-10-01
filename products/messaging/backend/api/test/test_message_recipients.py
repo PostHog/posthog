@@ -149,3 +149,25 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "filter"
+
+    def test_pages_by_cursor_return_every_recipient_exactly_once(self) -> None:
+        self._prefer("a@example.com", {})
+        self._suppress("b@example.com")
+        self._person("c@example.com")
+        self._prefer("d@example.com", {})
+        self._person("e@example.com")
+
+        pages: list[list[str]] = []
+        cursor: str | None = None
+        while len(pages) < 4:
+            page = self._list(limit=2, **({"cursor": cursor} if cursor else {}))
+            pages.append([row["email"] for row in page["results"]])
+            cursor = page["next_cursor"]
+            if cursor is None:
+                break
+
+        assert pages == [
+            ["a@example.com", "b@example.com"],
+            ["c@example.com", "d@example.com"],
+            ["e@example.com"],
+        ]
