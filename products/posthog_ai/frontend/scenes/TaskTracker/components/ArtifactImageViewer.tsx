@@ -104,7 +104,7 @@ export function ArtifactImageViewer({ src, alt }: { src: string; alt: string }):
     }
 
     return (
-        <div className="relative size-full">
+        <div data-quill className="relative size-full">
             <div
                 ref={paneRef}
                 className={cn(
