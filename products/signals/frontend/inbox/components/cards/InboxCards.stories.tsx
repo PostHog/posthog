@@ -232,10 +232,12 @@ const impactReports: SignalReport[] = [
             },
         ],
     }),
+    // No metric to show, which is the common case in a real inbox: the row gives its whole width
+    // to the title and the summary, and the timestamp falls back to the metadata row.
     makeReport({
         title: "fix(posthog-ai): Stop sending users to a Help label that doesn't exist",
         summary:
-            'The answer points at a "Help" menu entry that was renamed, so people look for a label that is not there.',
+            'The answer points people at a "Help" entry that was renamed months ago, so they scan the sidebar for a label that is not there.',
         priority: 'P2',
         source_products: ['llm_analytics'],
         created_at: '2026-06-06T12:00:00Z',
