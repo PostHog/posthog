@@ -61,6 +61,7 @@ class TestEvaluationDelay(SimpleTestCase):
     ) -> None:
         self.alert.condition = {"type": condition}
         if condition != "absolute_value":
+            assert self.alert.threshold is not None
             self.alert.threshold.configuration = {
                 "type": threshold_type,
                 "bounds": {"upper": 0.1 if threshold_type == "percentage" else 10},
@@ -68,6 +69,7 @@ class TestEvaluationDelay(SimpleTestCase):
         dates = [f"2026-01-15T{hour:02d}:00:00Z" for hour in range(6, 11)]
         result = self.evaluate([40.0, value, 0.0, 0.0, 0.0], dates)
         self.assertEqual(result.value, expected)
+        assert result.breaches is not None
         self.assertEqual(bool(result.breaches), fires)
         self.assertEqual(
             result.triggered_metadata,
@@ -81,6 +83,7 @@ class TestEvaluationDelay(SimpleTestCase):
         if fires:
             self.assertIn(f"{dates[1]} to {dates[2]}", result.breaches[0])
             self.assertNotIn("previous hour", result.breaches[0])
+        assert self.insight.query is not None
         self.assertEqual(self.insight.query["dateRange"], self.query["dateRange"])
 
     @parameterized.expand([(False, 101.0, False), (True, 101.0, False), (False, 0.0, True), (True, 0.0, True)])
@@ -102,6 +105,7 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertEqual(simulation["data"], data[:32])
         self.assertEqual(simulation["evaluated_interval_start"], dates[31])
         self.assertEqual(simulation["evaluated_interval_end"], dates[32])
+        assert result.triggered_metadata is not None
         self.assertEqual(result.triggered_metadata["evaluated_interval_start"], simulation["dates"][-1])
 
     @parameterized.expand([(False,), (True,)])
@@ -113,6 +117,7 @@ class TestEvaluationDelay(SimpleTestCase):
         )
         self.assertIsNone(result.value)
         self.assertFalse(result.breaches)
+        assert result.skipped_reason is not None
         self.assertIn("Not enough completed intervals", result.skipped_reason)
 
     def test_empty_breakdown_result_breaches_as_zero(self) -> None:
@@ -122,6 +127,7 @@ class TestEvaluationDelay(SimpleTestCase):
             result = check_alert_for_insight(self.alert)
         self.assertIsNone(result.skipped_reason)
         self.assertEqual(result.value, 0)
+        assert result.breaches is not None
         self.assertEqual(len(result.breaches), 1)
         self.assertIn("less than lower threshold", result.breaches[0])
         self.assertNotIn("previous hour", result.breaches[0])
@@ -136,6 +142,7 @@ class TestEvaluationDelay(SimpleTestCase):
             without_delay = check_alert_for_insight(self.alert)
         self.assertIsNone(result.value)
         self.assertEqual(result.breaches, [])
+        assert result.skipped_reason is not None
         self.assertIn("No series is available to score", result.skipped_reason)
         self.assertEqual(without_delay.value, 0)
         self.assertIsNone(without_delay.skipped_reason)
@@ -143,11 +150,12 @@ class TestEvaluationDelay(SimpleTestCase):
     @parameterized.expand([(False, 31), (True, 31), (True, 0)])
     def test_missing_eligible_value_is_skipped(self, detector: bool, missing_index: int) -> None:
         self.alert.detector_config = {"type": "zscore", "window": 30} if detector else None
-        data: list[float | None] = [100.0] * 31 + [0.0, 0.0, 0.0, 0.0]
+        data = list[float | None]([100.0] * 31 + [0.0, 0.0, 0.0, 0.0])
         data[missing_index] = None
         dates = [(datetime(2026, 1, 15, tzinfo=UTC) + timedelta(hours=i)).isoformat() for i in range(len(data))]
         result = self.evaluate(data, dates, detector)
         self.assertIsNone(result.value)
+        assert result.skipped_reason is not None
         self.assertIn("missing values", result.skipped_reason)
 
     @parameterized.expand(
@@ -196,6 +204,7 @@ class TestEvaluationDelay(SimpleTestCase):
         self.query["interval"] = interval
         self.team.timezone = timezone
         result = self.evaluate([40.0, 42.0, 0.0, 0.0, 0.0], dates)
+        assert result.triggered_metadata is not None
         self.assertEqual(result.triggered_metadata["evaluated_interval_start"], dates[1])
         self.assertEqual(result.triggered_metadata["evaluated_interval_end"], expected_end or dates[2])
 

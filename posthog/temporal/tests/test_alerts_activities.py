@@ -1052,10 +1052,11 @@ class TestEvaluateAlert:
         )
         alert.evaluation_delay_intervals = 2
         await sync_to_async(alert.save)(update_fields=["evaluation_delay_intervals"])
+        dates = ["2026-01-15T08:00:00Z", "2026-01-15T09:00:00Z", "2026-01-15T10:00:00Z"]
         with (
             patch(
                 "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
-                return_value=MagicMock(result=[]),
+                return_value=MagicMock(result=[{"data": [0, 0, 0], "dates": dates, "label": "Orders"}]),
             ),
             patch("posthog.temporal.alerts.activities.decide_investigation") as investigate,
         ):
@@ -1067,6 +1068,7 @@ class TestEvaluateAlert:
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == state
         assert check.calculated_value is None
+        assert check.triggered_metadata is not None
         assert check.triggered_metadata["skipped_reason"]
         investigate.assert_not_called()
 
@@ -1155,7 +1157,6 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",

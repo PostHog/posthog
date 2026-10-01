@@ -24,6 +24,7 @@ class TestRunAlertCheck(APIBaseTest):
         assert alert.enabled
         assert not notify
         assert check.calculated_value is None
+        assert check.triggered_metadata is not None
         assert check.triggered_metadata["skipped_reason"] == "Not enough completed intervals"
         assert alert.next_check_at is not None
 
