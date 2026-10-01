@@ -716,7 +716,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
-    "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under

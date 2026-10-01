@@ -29,6 +29,9 @@ ALL_OUTCOMES: tuple[CanaryOutcome, ...] = (
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
+# Open executions and the workflow_type metric label carry this name, so a rename strands running workflows.
+METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow"
+
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 

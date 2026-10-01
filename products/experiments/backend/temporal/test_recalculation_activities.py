@@ -1632,8 +1632,11 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["trigger"] == "manual"
 
     def test_results_refresh_completed_event_on_finish(self):
-        exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp, metric_uuids=["m1"])
+        exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")], secondary=[_mean_metric("s1")])
+        for uuid, role in [("sp1", "primary"), ("ss1", "secondary")]:
+            saved = ExperimentSavedMetric.objects.create(team=self.team, name=f"saved-{uuid}", query=_mean_metric(uuid))
+            ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": role})
+        recalc = self._recalc(exp, metric_uuids=["m1", "s1", "sp1", "ss1"])
 
         with _record_captures() as captured:
             _update(
@@ -1656,6 +1659,8 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["status"] == "completed"
         assert props["succeeded_metrics"] == 3
         assert props["failed_metrics"] == 1
+        assert props["primary_metrics_count"] == 2
+        assert props["secondary_metrics_count"] == 2
         assert props["execution_mode"] == "recalculation"
         assert "total_duration_ms" in props
 
