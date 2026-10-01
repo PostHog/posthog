@@ -75,7 +75,6 @@ export const manifest: ProductManifest = {
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
         '/audience': ['Audience', 'audience'],
-        // Listed before '/audience/:tab' so a recipient address never opens as a tab.
         '/audience/recipients/:email': ['Audience', 'audience'],
         '/audience/:tab': ['Audience', 'audience'],
     },
@@ -125,8 +124,9 @@ export const manifest: ProductManifest = {
             sceneKey: 'Broadcasts',
         },
         {
+            // No intents while the flag gates it: onboarding and the backend pick product items by intent without checking flags.
             path: 'Audience',
-            intents: [ProductKey.WORKFLOWS],
+            intents: [],
             href: urls.audience(),
             type: 'audience',
             category: ProductItemCategory.MESSAGING,

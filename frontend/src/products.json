@@ -298,13 +298,7 @@
             "type": "broadcasts",
             "intents": ["workflows"]
         },
-        {
-            "path": "Audience",
-            "category": "Messaging",
-            "iconType": "cohort",
-            "type": "audience",
-            "intents": ["workflows"]
-        }
+        { "path": "Audience", "category": "Messaging", "iconType": "cohort", "type": "audience", "intents": [] }
     ],
     "games": [
         { "path": "368 Hedgehogs", "category": null, "iconType": null, "type": null, "intents": [] },

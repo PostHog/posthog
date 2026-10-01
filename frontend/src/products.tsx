@@ -2229,7 +2229,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Audience',
-        intents: [ProductKey.WORKFLOWS],
+        intents: [],
         href: urls.audience(),
         type: 'audience',
         category: ProductItemCategory.MESSAGING,
