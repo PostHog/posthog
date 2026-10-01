@@ -1,11 +1,14 @@
-import type { Task } from "@posthog/shared/domain-types";
+import type { Schemas } from "@posthog/api-client";
+import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
 import {
+  ciRefetchInterval,
   classifyPatchLine,
   fileStatusLabel,
   parsePatch,
   prFilesUrl,
   reviewErrorMessage,
+  reviewPrUrl,
   splitPath,
   taskPrUrl,
 } from "./review";
@@ -78,6 +81,48 @@ describe("taskPrUrl", () => {
     expect(taskPrUrl(withOutput(null))).toBeNull();
     expect(taskPrUrl(withOutput({ pr_url: "" }))).toBeNull();
     expect(taskPrUrl(withOutput({ pr_url: 12 }))).toBeNull();
+  });
+});
+
+describe("reviewPrUrl", () => {
+  const url = "https://github.com/o/r/pull/1";
+  const task = {
+    latest_run: { id: "run-2", output: { pr_url: url } },
+  } as unknown as Task;
+  const run = (id: string, output: Record<string, unknown> | null) =>
+    ({ id, output }) as unknown as TaskRun;
+
+  it("uses the PR the latest run opened", () => {
+    expect(reviewPrUrl(task, run("run-2", { pr_url: url }))).toBe(url);
+  });
+
+  it("ignores a PR the task copied from an earlier run", () => {
+    expect(reviewPrUrl(task, run("run-2", {}))).toBeNull();
+    expect(reviewPrUrl(task, run("run-2", null))).toBeNull();
+  });
+
+  it("waits for the latest run", () => {
+    expect(reviewPrUrl(task, undefined)).toBeNull();
+    expect(reviewPrUrl(task, run("run-1", { pr_url: url }))).toBeNull();
+  });
+
+  it("needs a PR on the task", () => {
+    const noPr = { latest_run: { id: "run-2", output: {} } } as unknown as Task;
+    expect(reviewPrUrl(noPr, run("run-2", { pr_url: url }))).toBeNull();
+    expect(reviewPrUrl(undefined, run("run-2", { pr_url: url }))).toBeNull();
+  });
+});
+
+describe("ciRefetchInterval", () => {
+  const review = (ci_status: string) =>
+    ({ ci_status }) as unknown as Schemas.TaskReview;
+
+  it("polls only while checks are running", () => {
+    expect(ciRefetchInterval(review("pending"))).toBeGreaterThan(0);
+    expect(ciRefetchInterval(review("passing"))).toBe(false);
+    expect(ciRefetchInterval(review("failing"))).toBe(false);
+    expect(ciRefetchInterval(review("none"))).toBe(false);
+    expect(ciRefetchInterval(undefined)).toBe(false);
   });
 });
 

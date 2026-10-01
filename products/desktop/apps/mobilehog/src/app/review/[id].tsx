@@ -122,9 +122,15 @@ export default function ReviewSheet() {
         review.isFetchingNextPage ? (
           <ActivityIndicator color={colors.inkSoft} style={styles.spinner} />
         ) : review.isFetchNextPageError ? (
-          <Text style={[sheetStyles.footnote, styles.footer]}>
-            Could not load more files.
-          </Text>
+          <RetryNote
+            message="Could not load more files."
+            onRetry={() => void review.fetchNextPage()}
+          />
+        ) : review.isRefetchError && files.length > 0 ? (
+          <RetryNote
+            message={reviewErrorMessage(review.error)}
+            onRetry={() => void review.refetch()}
+          />
         ) : null
       }
       onEndReached={() => {
@@ -134,6 +140,25 @@ export default function ReviewSheet() {
       }}
       onEndReachedThreshold={0.5}
     />
+  );
+}
+
+function RetryNote({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onRetry}
+      style={({ pressed }) => [styles.footer, pressed && { opacity: 0.5 }]}
+    >
+      <Text style={sheetStyles.footnote}>
+        {message} <Text style={styles.retry}>Try again</Text>
+      </Text>
+    </Pressable>
   );
 }
 
@@ -266,6 +291,7 @@ const styles = StyleSheet.create({
   header: { gap: 14, marginBottom: 8 },
   spinner: { marginTop: 24 },
   footer: { marginTop: 12 },
+  retry: { fontFamily: fonts.sansMedium, color: colors.accent },
   summary: { gap: 12 },
   title: {
     fontFamily: fonts.sansBold,

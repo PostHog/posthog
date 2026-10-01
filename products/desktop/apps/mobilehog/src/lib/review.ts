@@ -1,4 +1,5 @@
-import type { Task } from "@posthog/shared/domain-types";
+import type { Schemas } from "@posthog/api-client";
+import type { Task, TaskRun } from "@posthog/shared/domain-types";
 
 export type PatchLineKind = "add" | "del" | "hunk" | "meta" | "context";
 
@@ -48,10 +49,34 @@ export function fileStatusLabel(status: string): string {
   );
 }
 
-// The review endpoint reads the latest run's pr_url, so the menu does too.
-export function taskPrUrl(task: Task | undefined): string | null {
-  const url = task?.latest_run?.output?.pr_url;
+function outputPrUrl(
+  output: Record<string, unknown> | null | undefined,
+): string | null {
+  const url = output?.pr_url;
   return typeof url === "string" && url.length > 0 ? url : null;
+}
+
+// The task response copies an earlier run's PR into a resumed run.
+export function taskPrUrl(task: Task | undefined): string | null {
+  return outputPrUrl(task?.latest_run?.output);
+}
+
+// The review endpoint reads only the latest run's own output, so the menu
+// checks that run and not the PR the task response copies into it.
+export function reviewPrUrl(
+  task: Task | undefined,
+  run: TaskRun | undefined,
+): string | null {
+  if (!taskPrUrl(task) || !run || run.id !== task?.latest_run?.id) return null;
+  return outputPrUrl(run.output);
+}
+
+const CI_POLL_MS = 15_000;
+
+export function ciRefetchInterval(
+  review: Schemas.TaskReview | undefined,
+): number | false {
+  return review?.ci_status === "pending" ? CI_POLL_MS : false;
 }
 
 export function prFilesUrl(url: string): string {
