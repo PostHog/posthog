@@ -21,7 +21,11 @@ const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: '
 function emptyNote(types: SpaceFeedType[]): string {
     const nouns = SPACE_FEED_TYPES.filter(({ value }) => types.includes(value)).map(({ value }) => EMPTY_NOUNS[value])
     const last = nouns.pop()
-    return `No ${nouns.length ? `${nouns.join(', ')} or ${last}` : last} in this space yet.`
+    const note = `No ${nouns.length ? `${nouns.join(', ')} or ${last}` : last} in this space yet.`
+    if (!types.includes('task')) {
+        return note
+    }
+    return `${note} ${nouns.length ? 'Start a session' : 'Start one'} from the composer above.`
 }
 
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
@@ -84,7 +88,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
             )}
             {feedPending && <SpaceFeedSkeleton listRows={listRows} />}
             {feedEmpty && (
-                <div className="flex flex-col items-start gap-2 px-2 pt-6">
+                <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
                     <Text size="sm" variant="muted">
                         {filtersActive ? 'Nothing here matches these filters.' : emptyNote(emptyTypes)}
                     </Text>
