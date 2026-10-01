@@ -138,6 +138,7 @@ export const IntegrationsGithubReposRetrieveParams = () => zod.object({
         ),
 })
 
+export const integrationsGithubReposRetrieveQueryCompactDefault = false
 export const integrationsGithubReposRetrieveQueryLimitDefault = 100
 export const integrationsGithubReposRetrieveQueryLimitMax = 500
 
@@ -147,6 +148,12 @@ export const integrationsGithubReposRetrieveQueryOffsetMin = 0
 export const integrationsGithubReposRetrieveQuerySearchDefault = ``
 
 export const IntegrationsGithubReposRetrieveQueryParams = () => zod.object({
+    compact: zod
+        .boolean()
+        .default(integrationsGithubReposRetrieveQueryCompactDefault)
+        .describe(
+            'When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.'
+        ),
     limit: zod
         .number()
         .min(1)
