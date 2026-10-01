@@ -9,7 +9,8 @@
                 "backend/**/*.py",
                 "!backend/**/__pycache__/**",
                 // A few products run pytest against roots outside backend/:
-                // experiments (stats/), logs (skills/), posthog_ai (scripts/).
+                // experiments (stats/), logs (skills/), posthog_ai (scripts/),
+                // notebooks and replay_vision (evals/).
                 // These globs anchor per-package, so they only match where the
                 // dir exists. Do NOT collapse to a leading "**/*.py" — that
                 // resolves from the workspace root and marks every product's
@@ -17,6 +18,7 @@
                 "stats/**/*.py",
                 "skills/**/*.py",
                 "scripts/**/*.py",
+                "evals/**/*.py",
                 "../../pyproject.toml",
                 "../../uv.lock",
                 "../../common/**/*.py"
