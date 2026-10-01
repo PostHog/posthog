@@ -178,6 +178,8 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
         config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),
     ),
     ("string_null_default", config(targeted(value="compact"), return_type="string", default_value=None)),
+    # Readers accept the event-storage sentinel; only the writer reserves it.
+    ("string_false_sentinel", config(targeted(value="$false"), return_type="string", default_value="$false")),
     ("number_values", config(targeted(value=1.25), rollout(value=-40), return_type="number", default_value=0)),
     (
         "number_safe_integer_bounds",
@@ -235,11 +237,6 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         "string_bool_value",
         config(targeted(value=True), return_type="string", default_value=None),
         [("invalid", "filters.rules[0].value")],
-    ),
-    (
-        "string_reserved_false_sentinel",
-        config(targeted(value="$false"), return_type="string", default_value="$false"),
-        [("invalid", "filters.default_value"), ("invalid", "filters.rules[0].value")],
     ),
     ("number_bool_default", config(return_type="number", default_value=False), [("invalid", "filters.default_value")]),
     (
@@ -748,7 +745,7 @@ class TestValidateConfig:
     @parameterized.expand(
         [
             ("boolean", 1, "Must be true or false"),
-            ("string", "$false", "Must be a non-empty string other than $false"),
+            ("string", "", "Must be a non-empty string"),
             ("number", "1", "Must be a number from -9007199254740991 to 9007199254740991"),
             (
                 "object",
@@ -767,6 +764,50 @@ class TestValidateConfig:
             ("filters.default_value", f"{message}, or null."),
             ("filters.rules[0].value", f"{message}."),
         ]
+
+    @parameterized.expand(
+        [
+            # Mirrors the semver cases of the flags service's parser test in rust/feature-flags/tests/test_config_v2.rs.
+            *[
+                (operator, value, True)
+                for operator, value in [
+                    ("semver_eq", "1.2.3"),
+                    ("semver_eq", " 1.2.3 "),
+                    ("semver_tilde", "1.2"),
+                    ("semver_wildcard", "1.2.*"),
+                    ("semver_eq", "01.2.3-rc.1"),
+                    ("semver_eq", "1.2.3-alpha+build.01"),
+                    ("semver_eq", "18446744073709551615.0.0"),
+                ]
+            ],
+            *[
+                (operator, value, False)
+                for operator, value in [
+                    ("semver_eq", "1.2.3.4"),
+                    ("semver_tilde", "1.2.3.4"),
+                    ("semver_wildcard", "1.2.3.4.*"),
+                    ("semver_eq", "1.2.3-"),
+                    ("semver_eq", "1.2.3-01"),
+                    ("semver_eq", "1.2.3-a_b"),
+                    ("semver_eq", "1_0.2.3"),
+                    ("semver_eq", "18446744073709551616.0.0"),
+                    ("semver_eq", "1.2.3+meta"),
+                    ("semver_eq", "v1.2.3"),
+                    ("semver_eq", "+1.2.3"),
+                    ("semver_eq", "1. 2.3"),
+                    ("semver_eq", "1.+2.3"),
+                ]
+            ],
+        ]
+    )
+    def test_semver_values_are_the_ones_the_flags_service_parses(
+        self, operator: str, value: str, accepted: bool
+    ) -> None:
+        document = config(targeted(targeting={"properties": [person(operator=operator, value=value)]}))
+        if accepted:
+            validate_config(document, limits=LIMITS)
+        else:
+            assert errors_of(document) == [("invalid", "filters.rules[0].targeting.properties[0].value")]
 
     def test_v1_only_fields_name_the_format_clash(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:

@@ -22,7 +22,7 @@ const RUN_STATUSES: Record<string, SpaceFeedStatus> = {
 const PR_STATUSES: Record<Exclude<PrStateEnumApi, 'unknown'>, SpaceFeedStatus> = {
     open: { label: 'PR ready', variant: 'info' },
     draft: { label: 'Draft PR', variant: 'default' },
-    merged: { label: 'Merged', variant: 'default' },
+    merged: { label: 'Merged', variant: 'completed' },
     closed: { label: 'Closed', variant: 'destructive' },
 }
 

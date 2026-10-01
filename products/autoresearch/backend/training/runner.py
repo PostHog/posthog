@@ -68,9 +68,10 @@ MAX_SUGGESTION_PROMPT_CHARS = 1500
 MAX_PENDING_SUGGESTIONS = 10
 
 # The agent explores with execute-sql (query:read, insight:read) and writes only through
-# the autoresearch tools. The brief carries user-authored text, so the token grants
-# nothing beyond that.
-TRAINING_MCP_SCOPES = ["query:read", "insight:read", "autoresearch:read", "autoresearch:write"]
+# the autoresearch tools. The PostHog MCP server reads /api/users/@me/ to start a session,
+# so without user:read it refuses the connection and the agent gets none of those tools.
+# The brief carries user-authored text, so the token grants nothing beyond that.
+TRAINING_MCP_SCOPES = ["query:read", "insight:read", "user:read", "autoresearch:read", "autoresearch:write"]
 
 # Task.title is a 255-character column, and a pipeline name and target event can each
 # take all of it.
