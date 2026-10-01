@@ -14,7 +14,10 @@ import { mswDecorator } from '~/mocks/browser'
 import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
 
-import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunArtifactResponseApi,
+    TaskRunLivingArtifactResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
@@ -514,6 +517,75 @@ export const NoArtifacts: Story = {
 export const FlagOff: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.TASKS] },
     render: () => <StoryPage tab="conversation" />,
+}
+
+function livingDocument(
+    id: string,
+    name: string,
+    adapter: TaskRunLivingArtifactResponseApi['adapter'],
+    versions: Record<string, unknown>[]
+): TaskRunLivingArtifactResponseApi {
+    return {
+        id,
+        task_id: TASK_ID,
+        run_id: RUN_ID,
+        team_id: 1,
+        name,
+        artifact_type: adapter === 'slack_file' ? 'spreadsheet' : 'document',
+        adapter,
+        status: 'active',
+        location: { kind: adapter },
+        metadata: {},
+        current_version: versions.length,
+        versions,
+        created_at: '2026-09-28T17:58:00Z',
+        updated_at: String(versions[versions.length - 1].created_at),
+    }
+}
+
+const LIVING_DOCUMENTS = [
+    livingDocument('doc-weekly-trials', 'Weekly trial report', 'slack_canvas', [
+        {
+            version: 1,
+            content: REPORT_DRAFT_MARKDOWN,
+            content_type: 'text/markdown',
+            created_at: '2026-09-28T17:58:00Z',
+        },
+        {
+            version: 2,
+            content: REPORT_SECOND_DRAFT_MARKDOWN,
+            content_type: 'text/markdown',
+            created_at: '2026-09-28T18:05:00Z',
+        },
+        { version: 3, content: REPORT_MARKDOWN, content_type: 'text/markdown', created_at: '2026-09-28T18:21:00Z' },
+    ]),
+    livingDocument('doc-trial-sheet', 'trial-starts-by-week.xlsx', 'slack_file', [
+        {
+            version: 1,
+            size: 9216,
+            content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            created_at: '2026-09-28T18:17:00Z',
+        },
+    ]),
+]
+
+function livingMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
+    return {
+        get: {
+            ...mocks.get,
+            ...INSIGHT_MOCKS.get,
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/`]: {
+                artifacts: LIVING_DOCUMENTS,
+            },
+        },
+        post: { ...mocks.post, ...INSIGHT_MOCKS.post },
+    }
+}
+
+export const LivingArtifact: Story = {
+    parameters: { msw: { mocks: livingMocks() } },
+    render: () => <StoryPage fileName="living-doc-weekly-trials" />,
 }
 
 export const ResumedTask: Story = {
