@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
-@dataclass
+@dataclass(frozen=True)
 class GoldcastEndpointConfig:
     name: str
     # Path relative to the Goldcast base URL. For fan-out endpoints this is a template with a
@@ -21,8 +21,8 @@ class GoldcastEndpointConfig:
     should_sync_default: bool = True
 
 
-# Goldcast's public API exposes full collections with no pagination and no server-side
-# modified-at/updated-at filter, so every endpoint is full refresh only. `agenda_items` carries no
+# Goldcast list endpoints return the full collection as a bare array when no `limit` is sent, and
+# expose no server-side modified-at/updated-at filter, so every endpoint is full refresh only. `agenda_items` carries no
 # creation timestamp, nor do `broadcast_polls` and `speakers`, so those are left unpartitioned; every
 # other endpoint partitions on `created_at`.
 GOLDCAST_ENDPOINTS: dict[str, GoldcastEndpointConfig] = {

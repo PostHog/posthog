@@ -29,6 +29,7 @@ GOLDCAST_BASE_URL = "https://customapi.goldcast.io"
 # Broadcast rows carry live-stream and translation-session credentials. They have no analytics
 # value and would otherwise land in the warehouse in plain text.
 _BROADCAST_SECRET_FIELDS = (
+    "medialive_rtmp_input_details",
     "youtube_stream_key",
     "facebook_stream_key",
     "custom_stream_key",
@@ -56,7 +57,7 @@ def _require_id(parent_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     def _check(row: dict[str, Any]) -> dict[str, Any]:
         parent_id = row["id"]
         if not parent_id:
-            raise ValueError(f"Goldcast {parent_name} row is missing a valid id: {row}")
+            raise ValueError(f"Goldcast {parent_name} row is missing a valid id")
         return row
 
     return _check
@@ -139,6 +140,9 @@ def goldcast_source(
             "headers": _headers(),
             "auth": _auth(access_key),
             "paginator": SinglePagePaginator(),
+            # Broadcast and webinar bodies carry stream keys under field names the name-based sample
+            # scrubber doesn't recognise, so keep all Goldcast bodies out of HTTP sample capture.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": _resources_for(endpoint),

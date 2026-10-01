@@ -88,6 +88,7 @@ class TestTopLevelEndpoints:
                             "custom_stream_key": "custom-fake-key",
                             "external_rtmp_push_stream": "rtmp://stream.example.com/live/fake-key",
                             "wordly_session_key": "wordly-fake-key",
+                            "medialive_rtmp_input_details": {"in_stream_key": "rtmp-fake-key"},
                         }
                     ]
                 )
@@ -197,7 +198,7 @@ class TestAuthAndRedaction:
         assert auth.api_key == "Token super-secret"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sync_session_registers_token_for_redaction(self, MockSession) -> None:
+    def test_sync_session_redacts_token_and_skips_sample_capture(self, MockSession) -> None:
         # The token rides in the non-standard `Token` auth header the name-based scrubbers can't
         # recognise, so it must be registered for value-based redaction on the tracked session.
         MockSession.return_value.headers = {}
@@ -207,6 +208,8 @@ class TestAuthAndRedaction:
         _rows("super-secret", "events")
 
         assert MockSession.call_args.kwargs.get("redact_values") == ("Token super-secret",)
+        # Broadcast and webinar bodies carry stream keys the sample scrubber can't recognise.
+        assert MockSession.call_args.kwargs.get("capture") is False
 
 
 class TestSourceResponse:
