@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient, type Result } from '@/api/client'
-import { handleToolError, parseRetryAfterSeconds, PostHogApiError, PostHogRateLimitError } from '@/lib/errors'
+import {
+    handleToolError,
+    parseRetryAfterSeconds,
+    PostHogApiError,
+    PostHogRateLimitError,
+    wrapError,
+} from '@/lib/errors'
 
 const captureException = vi.fn()
 vi.mock('@/lib/posthog', () => ({
@@ -30,6 +36,10 @@ describe('outbound 429 handling', () => {
             { header: '5', expected: 5 },
             { header: '0', expected: 0 },
             { header: '-5', expected: null },
+            { header: ' 45 ', expected: 45 },
+            { header: '1.5', expected: null },
+            { header: '45seconds', expected: null },
+            { header: '9'.repeat(400), expected: null },
             { header: 'Wed, 21 Oct 2026 07:28:00 GMT', expected: null },
             { header: null, expected: null },
         ])('parses $header as $expected', ({ header, expected }) => {
@@ -183,5 +193,98 @@ describe('outbound 429 handling', () => {
             expect(text).toContain('Retry after 12 seconds')
             expect(captureException).not.toHaveBeenCalled()
         })
+    })
+})
+
+describe('outbound 503 retry hints', () => {
+    beforeEach(() => {
+        vi.clearAllMocks()
+        vi.useFakeTimers()
+        vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+        vi.unstubAllGlobals()
+    })
+
+    it.each([
+        { transport: 'json', wrapped: false },
+        { transport: 'json', wrapped: true },
+        { transport: 'text', wrapped: false },
+        { transport: 'text', wrapped: true },
+        { transport: 'sse', wrapped: false },
+        { transport: 'sse', wrapped: true },
+    ])(
+        'passes the server cooldown to the agent without retrying ($transport, wrapped=$wrapped)',
+        async ({ transport, wrapped }) => {
+            const body = JSON.stringify({
+                type: 'server_error',
+                code: 'service_unavailable',
+                detail: 'Please try later.',
+            })
+            const mockFetch = vi.fn().mockResolvedValue(
+                new Response(body, {
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    headers: { 'Retry-After': '45' },
+                })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://example.com' })
+            const options = { method: 'POST' as const, path: '/api/projects/123/logs/query/', body: {} }
+            const request =
+                transport === 'sse'
+                    ? client.requestSSE({ ...options, onEvent: vi.fn() })
+                    : client.request({ ...options, responseType: transport === 'text' ? 'text' : 'json' })
+            const error = await request.catch((error: unknown) => error)
+
+            expect(error).toBeInstanceOf(PostHogApiError)
+            expect(error).toMatchObject({ status: 503, body, retryAfterSeconds: 45 })
+            const result = handleToolError(wrapped ? wrapError('Failed to query logs', error) : error, 'query-logs')
+            expect(result.isError).toBe(true)
+            expect(result.content[0]).toMatchObject({
+                type: 'text',
+                text: expect.stringContaining('Wait at least 45 seconds'),
+            })
+            expect((result.content[0] as { text: string }).text).not.toContain('Narrow the query and retry')
+            expect(captureException).toHaveBeenCalledTimes(1)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+            expect(vi.getTimerCount()).toBe(0)
+        }
+    )
+
+    it.each([
+        { status: 503, header: '0', expected: 0 },
+        { status: 503, header: null, expected: null },
+        { status: 503, header: 'unknown', expected: null },
+        { status: 503, header: '-1', expected: null },
+        { status: 503, header: '45seconds', expected: null },
+        { status: 503, header: 'Wed, 21 Oct 2026 07:28:00 GMT', expected: null },
+        { status: 500, header: '45', expected: null },
+    ])('only returns valid 503 cooldowns (status=$status, header=$header)', async ({ status, header, expected }) => {
+        const mockFetch = vi.fn().mockResolvedValue(
+            new Response('Upstream failure', {
+                status,
+                headers: header === null ? {} : { 'Retry-After': header },
+            })
+        )
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://example.com' })
+        const error = await client
+            .request({ method: 'GET', path: '/api/projects/123/logs/query/' })
+            .catch((error: unknown) => error)
+
+        expect(error).toMatchObject({ status, retryAfterSeconds: expected })
+        const result = handleToolError(error, 'query-logs')
+        const text = (result.content[0] as { text: string }).text
+        if (expected === null) {
+            expect(text).not.toContain('Wait at least')
+            expect(text).toContain('Narrow the query and retry')
+        } else {
+            expect(text).toContain('Wait at least 0 seconds')
+        }
+        expect(mockFetch).toHaveBeenCalledTimes(1)
     })
 })

@@ -348,6 +348,8 @@ export class ApiClient {
                     body: errorText,
                     url,
                     method: opts.method,
+                    retryAfterSeconds:
+                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
                 })
             }
             return (await response.text()) as T
@@ -592,6 +594,8 @@ export class ApiClient {
             body: errorText,
             url,
             method,
+            retryAfterSeconds:
+                response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
         })
     }
 
