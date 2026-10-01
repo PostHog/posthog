@@ -68,21 +68,23 @@ class ReportState:
     status: str
 
 
-def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> list[tuple[str, str]]:
-    """The newest artefact content of one type per report, as `(report_id, content)`."""
+def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
+    """The newest artefact content of one type per report, by report id."""
     rows = (
         SignalReportArtefact.objects.filter(report_id__in=report_ids, type=artefact_type)
         .order_by("report_id", "-created_at")
         .distinct("report_id")
         .values_list("report_id", "content")
     )
-    return [(str(report_id), content) for report_id, content in rows]
+    return {str(report_id): content for report_id, content in rows}
 
 
 def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
     """Latest priority judgment per report, read the same way the inbox serializer reads it."""
     latest: dict[str, str] = {}
-    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT):
+    for report_id, content in _latest_artefacts(
+        report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+    ).items():
         priority = priority_from_judgment(content)
         if priority is not None:
             latest[report_id] = priority
@@ -100,7 +102,7 @@ def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
     )
 
     probabilities: dict[str, float] = {}
-    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.RANKING_SCORE):
+    for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.RANKING_SCORE).items():
         try:
             score = RankingScore.model_validate_json(content)
         except pydantic.ValidationError:
