@@ -17,6 +17,7 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
     StopSlackAgentDesignStreamInput,
     stop_slack_agent_design_stream,
 )
+from products.tasks.backend.temporal.process_task.utils import record_message_actor
 
 PROJECT_URL = "https://us.posthog.com/project/7"
 
@@ -115,8 +116,19 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert mock_stop.call_args.args[0].turn_trace_id == trace_id
 
+    @parameterized.expand(
+        [
+            ("run_actor", None, "U456"),
+            # Another participant spoke after this message, so the run's actor is no longer its sender.
+            ("message_sender", "msg-2", "U789"),
+        ]
+    )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
-    def test_closing_the_stream_tags_the_turns_sender_not_the_thread_creator(self, mock_stop) -> None:
+    def test_closing_the_stream_tags_the_turns_sender_not_the_thread_creator(
+        self, _name, message_id, expected_target, mock_stop
+    ) -> None:
+        record_message_actor(str(self.task_run.id), "msg-2", "U789")
+
         stop_slack_agent_design_stream(
             StopSlackAgentDesignStreamInput(
                 slack_thread_context={
@@ -128,7 +140,8 @@ class TestSlackAgentDesignStream(TestCase):
                 ts="2.0",
                 final_markdown="Done.",
                 run_id=str(self.task_run.id),
+                message_id=message_id,
             )
         )
 
-        assert mock_stop.call_args.args[0].actor_slack_user_id == "U456"
+        assert mock_stop.call_args.args[0].actor_slack_user_id == expected_target

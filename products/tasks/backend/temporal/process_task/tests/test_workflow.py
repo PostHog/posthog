@@ -2264,9 +2264,12 @@ class TestProcessTaskWorkflowUnit:
         start_relay_mock = AsyncMock()
         workflow._start_slack_agent_design_relay = start_relay_mock  # type: ignore[method-assign]
 
-        await workflow.turn_started({"slack_thread_context": {"channel": "C1"}})
+        await workflow.turn_started({"slack_thread_context": {"channel": "C1"}, "message_id": "msg-2"})
 
         assert start_relay_mock.called is starts_relay
+        if starts_relay:
+            # The relay tags the sender of the message this turn answers.
+            assert start_relay_mock.call_args.kwargs["message_id"] == "msg-2"
         assert workflow._early_slack_relay_open is False
 
     @pytest.mark.parametrize(

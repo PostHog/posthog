@@ -460,6 +460,8 @@ async def _relay_loop(
     last_audit_ts_ns: list[int] = [0]  # track last agentsh audit timestamp
     # Brackets turn_started / turn_completed signals to the parent.
     slack_turn_active: list[bool] = [False]
+    # The message the next turn answers, from the prompt that opens it.
+    slack_turn_message_id: list[str | None] = [None]
     # ACP emits one tool_call + N tool_call_update per id; only render the start.
     emitted_tool_call_ids: set[str] = set()
     # Buffered prose + last flush time (monotonic); see TEXT_DELTA_FLUSH_INTERVAL_SECONDS.
@@ -606,6 +608,8 @@ async def _relay_loop(
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
                             if is_agent_design_enabled and workflow_handle is not None:
+                                if not slack_turn_active[0] and (prompt_message_id := _prompt_message_id(event_data)):
+                                    slack_turn_message_id[0] = prompt_message_id
                                 if not slack_turn_active[0] and _is_session_update(event_data):
                                     slack_turn_active[0] = True
                                     # Await so turn_started is recorded before any delta of this turn,
@@ -615,8 +619,12 @@ async def _relay_loop(
                                     await _signal_safely(
                                         workflow_handle,
                                         "turn_started",
-                                        arg={"slack_thread_context": slack_thread_context or {}},
+                                        arg={
+                                            "slack_thread_context": slack_thread_context or {},
+                                            "message_id": slack_turn_message_id[0],
+                                        },
                                     )
+                                    slack_turn_message_id[0] = None
                                 if slack_turn_active[0]:
                                     step_payload = _extract_progress_update(event_data, emitted_tool_call_ids)
                                     if step_payload is not None:
@@ -751,6 +759,18 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
             run_id=run_id,
             error=str(error),
         )
+
+
+def _prompt_message_id(event_data: dict) -> str | None:
+    """The id of the user message a ``session/prompt`` delivers. Delivery records the sender under it."""
+    notification = event_data.get("notification")
+    if event_data.get("type") != "notification" or not isinstance(notification, dict):
+        return None
+    if notification.get("method") != "session/prompt":
+        return None
+    meta = (notification.get("params") or {}).get("_meta")
+    message_id = meta.get("messageId") if isinstance(meta, dict) else None
+    return message_id if isinstance(message_id, str) and message_id else None
 
 
 def _is_session_update(event_data: dict) -> bool:

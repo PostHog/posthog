@@ -34,8 +34,9 @@ class StartSlackAgentDesignStreamInput:
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     first_markdown_text: Optional[str] = None
     plan_title: Optional[str] = None
-    # Resolves who sent this turn's message, so the reply tags them.
+    # Resolve who sent this turn's message, so the reply tags them.
     run_id: Optional[str] = None
+    message_id: Optional[str] = None
 
 
 @frozen
@@ -69,6 +70,8 @@ class StopSlackAgentDesignStreamInput:
     plan_title: Optional[str] = None
     # The stream opened with the answer, which already carried the @-mention.
     mention_sent: bool = False
+    # The message this turn answers, whose sender the reply tags.
+    message_id: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -83,15 +86,17 @@ def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]
     return rewrite_object_tags_for_slack(text, project_url=project_url)
 
 
-def _turn_sender_slack_user_id(run_id: Optional[str]) -> Optional[str]:
-    """The Slack user whose message started this turn. Each follow-up stamps it on the run state."""
+def _reply_target(run_id: Optional[str], message_id: Optional[str]) -> Optional[str]:
+    """The Slack user this turn's reply tags, resolved as the non-streamed reply does."""
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.temporal.process_task.utils import slack_reply_target
 
-    if not run_id:
+    task_run = TaskRun.objects.filter(id=run_id).first() if run_id else None
+    if task_run is None:
         return None
-    task_run = TaskRun.objects.filter(id=run_id).only("state").first()
-    sender = (task_run.state or {}).get("slack_actor_slack_user_id") if task_run is not None else None
-    return sender if isinstance(sender, str) and sender else None
+    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+    return slack_reply_target(task_run, mapping, message_id)
 
 
 def _chunk_dicts(task_updates: list[TaskUpdateChunk]) -> list[dict[str, Any]]:
@@ -106,7 +111,7 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context, actor_slack_user_id=_turn_sender_slack_user_id(input.run_id))
+        handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
         markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
         new_ts = handler.start_status_stream(
             task_updates=_chunk_dicts(input.task_updates),
@@ -154,7 +159,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         handler = SlackThreadHandler.for_run(
             context,
             input.run_id,
-            actor_slack_user_id=_turn_sender_slack_user_id(input.run_id),
+            actor_slack_user_id=_reply_target(input.run_id, input.message_id),
             turn_trace_id=input.trace_id,
         )
         task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None

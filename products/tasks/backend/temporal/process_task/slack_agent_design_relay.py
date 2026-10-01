@@ -67,6 +67,8 @@ class SlackAgentDesignRelayInput:
     run_id: Optional[str] = None
     # Set for the relay that starts before the sandbox exists: the title of the first setup line.
     setup_title: Optional[str] = None
+    # The message this turn answers, so the reply tags its sender.
+    message_id: Optional[str] = None
 
 
 @workflow.defn(name="slack-agent-design-relay")
@@ -296,7 +298,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         return await workflow.execute_activity(
             start_slack_agent_design_stream,
             StartSlackAgentDesignStreamInput(
-                slack_thread_context=input.slack_thread_context, run_id=input.run_id, **fields
+                slack_thread_context=input.slack_thread_context,
+                run_id=input.run_id,
+                message_id=input.message_id,
+                **fields,
             ),
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
@@ -426,6 +431,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 trace_id=self._trace_id,
                 plan_title=self._closing_plan_title(),
                 mention_sent=mention_sent,
+                message_id=input.message_id,
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

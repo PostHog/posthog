@@ -49,8 +49,11 @@ def _turn_complete(trace_id: str | None = None) -> dict[str, Any]:
     return {"type": "notification", "notification": notification}
 
 
-def _session_prompt() -> dict[str, Any]:
-    return {"type": "notification", "notification": {"method": "session/prompt"}}
+def _session_prompt(message_id: str | None = None) -> dict[str, Any]:
+    notification: dict[str, Any] = {"method": "session/prompt"}
+    if message_id:
+        notification["params"] = {"_meta": {"messageId": message_id}}
+    return {"type": "notification", "notification": notification}
 
 
 class TestSlackAgentDesignSignalEmitter:
@@ -60,7 +63,7 @@ class TestSlackAgentDesignSignalEmitter:
         signals = emitter.process(_text_chunk("Hello"))
 
         assert signals == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": None}),
             ("agent_text_delta", "Hello"),
         ]
 
@@ -157,12 +160,13 @@ class TestSlackAgentDesignSignalEmitter:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("turn one"))
         emitter.process(_turn_complete())
-        emitter.process(_session_prompt())  # a new user message arms the next turn
+        emitter.process(_session_prompt("msg-2"))  # a new user message arms the next turn
 
         signals = emitter.process(_text_chunk("turn two"))
 
+        # The reply tags whoever sent the message this turn answers, so the turn names that message.
         assert signals == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": "msg-2"}),
             ("agent_text_delta", "turn two"),
         ]
 
@@ -195,7 +199,7 @@ class TestSlackAgentDesignSignalEmitter:
         assert emitter.process(_text_chunk("stray")) == []
         emitter.process(_session_prompt())
         assert emitter.process(_text_chunk("real")) == [
-            ("turn_started", {"slack_thread_context": SLACK_CTX}),
+            ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": None}),
             ("agent_text_delta", "real"),
         ]
 

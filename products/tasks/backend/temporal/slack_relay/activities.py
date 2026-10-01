@@ -202,7 +202,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import get_message_actor
+    from products.tasks.backend.temporal.process_task.utils import slack_reply_target
 
     try:
         task_run = TaskRun.objects.get(id=input.run_id)
@@ -249,13 +249,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Mention resolution, most precise first: the echoed message's recorded
     # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
     # handler so the handler knows whoever this reply is actually for.
-    mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
-    target = (
-        mention_from_message
-        or state.get("slack_actor_slack_user_id")
-        or mapping.latest_actor_slack_user_id
-        or mapping.mentioning_slack_user_id
-    )
+    target = slack_reply_target(task_run, mapping, input.message_id)
 
     handler = SlackThreadHandler.for_run(context, task_run.id, actor_slack_user_id=target, turn_trace_id=input.trace_id)
 
