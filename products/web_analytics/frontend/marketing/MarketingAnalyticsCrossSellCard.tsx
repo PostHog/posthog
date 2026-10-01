@@ -3,15 +3,22 @@ import { useValues } from 'kea'
 import { IconArrowRight, IconMegaphone, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { WebStatsBreakdown } from '~/queries/schema/schema-general'
+
 import {
     MarketingAnalyticsCrossSellLogicProps,
     marketingAnalyticsCrossSellLogic,
 } from './marketingAnalyticsCrossSellLogic'
 import { captureMarketingCrossSellClick } from './marketingCrossSellAttribution'
 
-export function MarketingAnalyticsCrossSellCard(
-    props: MarketingAnalyticsCrossSellLogicProps & { onDismiss: () => void }
-): JSX.Element | null {
+export function MarketingAnalyticsCrossSellCard({
+    breakdown,
+    onDismiss,
+    ...props
+}: MarketingAnalyticsCrossSellLogicProps & {
+    breakdown: WebStatsBreakdown
+    onDismiss: () => void
+}): JSX.Element | null {
     const { hasPaidTraffic, hasConnectedSources, hasConnectedSourcesLoading, destination } = useValues(
         marketingAnalyticsCrossSellLogic(props)
     )
@@ -32,7 +39,7 @@ export function MarketingAnalyticsCrossSellCard(
                     icon={<IconX />}
                     aria-label="Dismiss Marketing analytics suggestion"
                     data-attr="web-analytics-marketing-cross-sell-dismiss"
-                    onClick={props.onDismiss}
+                    onClick={onDismiss}
                 />
                 <div className="flex items-center gap-2 font-semibold pr-6 mb-2">
                     <IconMegaphone className="shrink-0" />
@@ -46,9 +53,7 @@ export function MarketingAnalyticsCrossSellCard(
                         sideIcon={<IconArrowRight />}
                         to={destination}
                         data-attr="web-analytics-marketing-cross-sell-open"
-                        onClick={() =>
-                            captureMarketingCrossSellClick(props.teamId, props.breakdown, hasConnectedSources)
-                        }
+                        onClick={() => captureMarketingCrossSellClick(props.teamId, breakdown, hasConnectedSources)}
                     >
                         {hasConnectedSources ? 'Analyze in Marketing analytics' : 'Connect ad sources'}
                     </LemonButton>
