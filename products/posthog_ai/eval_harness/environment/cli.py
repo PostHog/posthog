@@ -441,6 +441,11 @@ def prepare(args: argparse.Namespace) -> None:
             expected = validate_sha256(args.sha256)
             if not source.is_file() or file_sha256(source) != expected:
                 raise ValueError("The local bundle does not match --sha256")
+    original_source = source if isinstance(source, S3EnvironmentSource) else None
+    if getattr(args, "source_uri", None) is not None:
+        if not isinstance(source, Path) or not source.is_file():
+            raise ValueError("--source-uri applies only to a local archive relayed from S3")
+        original_source = S3EnvironmentSource(args.source_uri, sha256=args.sha256)
     workspace = require_private_path(args.state_dir)
     if isinstance(source, Path) and (workspace == source or workspace.is_relative_to(source)):
         raise ValueError("The state directory must be outside the fixture folder")
@@ -455,8 +460,8 @@ def prepare(args: argparse.Namespace) -> None:
         LocalApp.ensure_postgres_migrations(backend, checkout=app_checkout, workspace=workspace, timeout=args.timeout)
         print("Preparing the project and checking its data...", flush=True)
         provenance = source_provenance(app_checkout)
-        if isinstance(source, S3EnvironmentSource):
-            provenance.update(bundle_source=source.uri, bundle_sha256=source.sha256)
+        if original_source is not None:
+            provenance.update(bundle_source=original_source.uri, bundle_sha256=original_source.sha256)
         result = backend.restore(
             dataset,
             workspace=workspace,
@@ -547,6 +552,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     prepare_parser.add_argument("--sha256", help="Published archive SHA-256; required for S3 inputs")
     prepare_parser.add_argument("--aws-profile", help="AWS profile from ~/.aws/config; applies only to S3 inputs")
+    prepare_parser.add_argument(
+        "--source-uri", help="Original S3 URI for a local archive relayed over SSH; requires --sha256"
+    )
     prepare_parser.add_argument("--site-url", help="Browser base URL for the printed project link")
     prepare_parser.add_argument("--state-dir", type=Path, default=REPO_ROOT / ".flox/cache/eval-environment")
     prepare_parser.add_argument(

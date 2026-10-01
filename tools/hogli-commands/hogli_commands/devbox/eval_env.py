@@ -1,4 +1,4 @@
-"""Prepare a devbox from a private environment bundle on the caller's machine."""
+"""Prepare a devbox from a private environment bundle through the caller's machine."""
 
 from __future__ import annotations
 
@@ -8,11 +8,13 @@ import stat
 import time
 import shlex
 import hashlib
+import tempfile
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO
+from typing import BinaryIO, cast
 from urllib.parse import urlsplit
 
 import click
@@ -215,7 +217,14 @@ class EvalEnvironmentDevbox:
             raise click.ClickException("The configured Coder URL must be an HTTPS origin.")
         return f"https://app--{self.name}--{username}.{coder_url.netloc}"
 
-    def restore(self, digest: str, origin: str, user_id: int | None, target_cutoff: str | None) -> None:
+    def restore(
+        self,
+        digest: str,
+        origin: str,
+        user_id: int | None,
+        target_cutoff: str | None,
+        source_uri: str | None = None,
+    ) -> None:
         bundle = str(PurePosixPath(self.state_dir) / f"upload-{digest}.tar.gz")
         arguments = [
             "-m",
@@ -233,6 +242,8 @@ class EvalEnvironmentDevbox:
             arguments.extend(["--user-id", str(user_id)])
         if target_cutoff is not None:
             arguments.extend(["--target-cutoff", target_cutoff])
+        if source_uri is not None:
+            arguments.extend(["--source-uri", source_uri])
         click.echo("Restoring events and saved metrics, then checking the app...")
         self.run_remote(self.run_python(*arguments), operation="Restoring the eval environment")
 
@@ -253,11 +264,43 @@ class EvalEnvironmentDevbox:
         )
 
 
+@contextmanager
+def local_environment_bundle(source: str, expected_sha256: str | None, aws_profile: str | None) -> Iterator[Path]:
+    if not source.startswith("s3://"):
+        if "://" in source:
+            raise click.UsageError("--bundle must be a local .tar.gz file or an s3://bucket/key.tar.gz URI.")
+        if aws_profile is not None:
+            raise click.UsageError("--aws-profile applies only to an S3 bundle.")
+        yield cast(Path, click.Path(exists=True, dir_okay=False, path_type=Path).convert(source, None, None))
+        return
+    if expected_sha256 is None:
+        raise click.UsageError("S3 bundles require --sha256 from the dataset publisher.")
+    try:
+        from products.posthog_ai.eval_harness.environment.download import (  # noqa: PLC0415 — keeps the optional AWS SDK off the local bundle and help paths
+            S3EnvironmentSource,
+        )
+    except ModuleNotFoundError as error:
+        if error.name not in {"boto3", "botocore"}:
+            raise
+        raise click.ClickException(
+            "S3 bundles need the AWS Python SDK. From your PostHog checkout, run "
+            "`uv tool install --python 3.13 --with boto3 ./tools/hogli`, then retry."
+        ) from None
+    click.echo("Downloading the private bundle using this machine's AWS login...")
+    with tempfile.TemporaryDirectory(prefix="posthog-eval-environment-") as temporary:
+        try:
+            path = S3EnvironmentSource(source, sha256=expected_sha256, profile=aws_profile).fetch(Path(temporary))
+        except ValueError as error:
+            raise click.ClickException(str(error)) from None
+        yield path
+
+
 def prepare_eval_environment(
     *,
     name: str,
-    bundle_path: Path,
+    bundle_source: str,
     expected_sha256: str | None,
+    aws_profile: str | None,
     ref: str | None,
     state_dir: str,
     user_id: int | None,
@@ -279,7 +322,10 @@ def prepare_eval_environment(
             raise click.UsageError("--target-cutoff must be an ISO datetime with a timezone.") from None
         if cutoff.tzinfo is None:
             raise click.UsageError("--target-cutoff must be an ISO datetime with a timezone.")
-    with os.fdopen(os.open(bundle_path, os.O_RDONLY | os.O_NONBLOCK), "rb") as bundle:
+    with (
+        local_environment_bundle(bundle_source, expected_sha256, aws_profile) as bundle_path,
+        os.fdopen(os.open(bundle_path, os.O_RDONLY | os.O_NONBLOCK), "rb") as bundle,
+    ):
         metadata = os.fstat(bundle.fileno())
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_size <= 0 or metadata.st_size > MAX_BUNDLE_BYTES:
             raise click.ClickException("The bundle must be a nonempty regular .tar.gz file no larger than 2 GiB.")
@@ -299,15 +345,20 @@ def prepare_eval_environment(
         target.prepare_source(commit)
         origin = target.app_origin()
         target.transfer(bundle, digest, metadata.st_size)
-        target.restore(digest, origin, user_id, target_cutoff)
+        target.restore(
+            digest, origin, user_id, target_cutoff, bundle_source if bundle_source.startswith("s3://") else None
+        )
         target.wait_for_app()
         click.echo(f"Eval environment ready. Open the project URL above, or the app: {origin}")
 
 
 @click.command(name="devbox:prepare-eval-env", help="Create or start a devbox and restore a private data bundle")
 @click.option("--name", "-n", required=True, help="Your devbox label, for example eval1")
-@click.option("--bundle", "bundle_path", required=True, type=click.Path(exists=True, dir_okay=False, path_type=Path))
-@click.option("--sha256", "expected_sha256", help="Expected SHA-256 of the local bundle (otherwise computed)")
+@click.option(
+    "--bundle", "bundle_source", required=True, help="Private s3://bucket/key.tar.gz URI or local .tar.gz file"
+)
+@click.option("--sha256", "expected_sha256", help="Expected SHA-256; required for S3, otherwise computed")
+@click.option("--aws-profile", help="AWS profile on this machine for downloading an S3 bundle")
 @click.option("--ref", help="Local Git branch or commit to check out on a clean, stopped target; must be pushed")
 @click.option(
     "--state-dir", default=".flox/cache/eval-environment", show_default=True, help="State directory on the devbox"
@@ -319,8 +370,9 @@ def prepare_eval_environment(
 @click.option("--verbose", "-v", is_flag=True, help="Show full Coder build output")
 def cmd_prepare_eval_env(
     name: str,
-    bundle_path: Path,
+    bundle_source: str,
     expected_sha256: str | None,
+    aws_profile: str | None,
     ref: str | None,
     state_dir: str,
     user_id: int | None,
@@ -329,12 +381,13 @@ def cmd_prepare_eval_env(
     disk: int | None,
     verbose: bool,
 ) -> None:
-    """Run from the laptop containing the bundle after `hogli devbox:setup`."""
+    """Run from your laptop after `hogli devbox:setup`; S3 uses your laptop's AWS login."""
     try:
         prepare_eval_environment(
             name=name,
-            bundle_path=bundle_path,
+            bundle_source=bundle_source,
             expected_sha256=expected_sha256,
+            aws_profile=aws_profile,
             ref=ref,
             state_dir=state_dir,
             user_id=user_id,
@@ -346,6 +399,6 @@ def cmd_prepare_eval_env(
     except (OSError, subprocess.SubprocessError) as error:
         raise click.ClickException(
             f"Eval environment setup could not run a required command or read a file ({type(error).__name__}). "
-            "The private bundle and import state are preserved. "
+            "Existing devbox files and import state are preserved. Temporary laptop downloads are removed. "
             "Follow the error above before retrying; an incomplete import needs a fresh --state-dir."
         ) from error
