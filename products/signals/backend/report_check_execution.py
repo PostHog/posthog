@@ -65,6 +65,7 @@ from products.signals.backend.report_checks import (
     CheckInconclusiveReason,
     CheckOutcome,
     MetricThresholdConfig,
+    check_schedule_expires_at,
     parse_check_config,
     soak_minutes_from_gap,
 )
@@ -692,6 +693,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
                     "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
                 )
             continue
+        verdict: CheckVerdict | None = None
         if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
             start_at = check.measurement_start_at or now
             try:
@@ -702,11 +704,35 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
             except (CheckConfigValidationError, ValueError):
                 ready_at = now
             if check.measurement_start_at is None or now < ready_at:
-                SignalReportCheck.objects.for_team(check.team_id).filter(
-                    id=check.id, status=SignalReportCheck.Status.ACTIVE, measurement_start_at=check.measurement_start_at
-                ).update(measurement_start_at=start_at, next_run_at=max(check.next_run_at, ready_at), updated_at=now)
-                continue
-        verdict = measure_check(check, deadline=deadline)
+                next_run_at = max(check.next_run_at, ready_at)
+                expires_at = check.expires_at
+                if check.measurement_start_at is None:
+                    expires_at = check_schedule_expires_at(
+                        next_run_at=next_run_at,
+                        run_interval_minutes=check.run_interval_minutes,
+                        runs_remaining=check.runs_remaining,
+                        start_at=start_at,
+                    )
+                if next_run_at >= expires_at:
+                    verdict = CheckVerdict(
+                        outcome="inconclusive",
+                        reason="unmeasurable",
+                        explanation="The full measurement window cannot fit before this check expires.",
+                    )
+                else:
+                    SignalReportCheck.objects.for_team(check.team_id).filter(
+                        id=check.id,
+                        status=SignalReportCheck.Status.ACTIVE,
+                        measurement_start_at=check.measurement_start_at,
+                    ).update(
+                        measurement_start_at=start_at,
+                        next_run_at=next_run_at,
+                        expires_at=expires_at,
+                        updated_at=now,
+                    )
+                    continue
+        if verdict is None:
+            verdict = measure_check(check, deadline=deadline)
         try:
             record_check_verdict(check, verdict)
         except Exception:

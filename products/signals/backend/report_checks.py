@@ -80,6 +80,19 @@ MAX_CONSECUTIVE_CHECK_ERRORS = 3
 AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
 
 
+def check_schedule_expires_at(
+    *,
+    next_run_at: datetime,
+    run_interval_minutes: int | None,
+    runs_remaining: int,
+    start_at: datetime,
+) -> datetime:
+    last_run_at = next_run_at
+    if run_interval_minutes:
+        last_run_at += timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))
+    return min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, start_at + MAX_CHECK_HORIZON)
+
+
 class CheckThresholdBounds(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

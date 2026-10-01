@@ -475,11 +475,21 @@ class TestReportCheckExecution(APIBaseTest):
             ).order_by("created_at")
         )
 
-    @parameterized.expand([("legacy_without_anchor", None), ("prematurely_due", datetime(2026, 10, 1, 12, tzinfo=UTC))])
-    def test_incomplete_window_defers_without_a_verdict(self, _name: str, anchor: datetime | None) -> None:
+    @parameterized.expand(
+        [
+            ("legacy_without_anchor", None, None, 1),
+            ("legacy_recurring_near_expiry", None, 24 * 60, 3),
+            ("legacy_recurring_horizon", None, 30 * 24 * 60, 3),
+            ("prematurely_due", datetime(2026, 10, 1, 12, tzinfo=UTC), None, 1),
+        ]
+    )
+    def test_incomplete_window_defers_without_a_verdict(
+        self, _name: str, anchor: datetime | None, interval: int | None, runs: int
+    ) -> None:
         now = datetime(2026, 10, 2, 12, tzinfo=UTC)
         with time_machine.travel(now, tick=False):
-            check = self._check(measurement_start_at=anchor, expires_at=now + timedelta(days=60))
+            check = self._check(measurement_start_at=anchor, run_interval_minutes=interval, runs_remaining=runs)
+            original_expiry = check.expires_at
             with patch(_MEASURE) as measure:
                 summary = run_due_report_checks()
             check.refresh_from_db()
@@ -488,8 +498,56 @@ class TestReportCheckExecution(APIBaseTest):
             assert self._results() == []
             assert check.measurement_start_at == (anchor or now)
             assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, anchor or now)
+            assert check.next_run_at < check.expires_at <= now + MAX_CHECK_HORIZON
+            if anchor is None:
+                last_run_at = check.next_run_at + timedelta(minutes=(interval or 0) * (runs - 1))
+                assert check.expires_at == min(
+                    last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, now + MAX_CHECK_HORIZON
+                )
+                assert check.expires_at > original_expiry
+            else:
+                assert check.expires_at == original_expiry
             assert check.consecutive_errors == 0
-            assert check.runs_remaining == 1
+            assert check.runs_remaining == runs
+
+        with time_machine.travel(check.next_run_at, tick=False):
+            with patch(_MEASURE, return_value=MetricMeasurement(value=3, measured_at=check.next_run_at, series=None)):
+                summary = run_due_report_checks()
+        check.refresh_from_db()
+        assert summary.expired == 0
+        assert summary.passed == 1
+        assert check.runs_remaining == runs - 1
+        assert len(self._results()) == 1
+
+    @parameterized.expand(
+        [
+            ("legacy_window_exceeds_horizon", None, "-90d"),
+            ("anchored_deadline_before_window", datetime(2026, 10, 2, 12, tzinfo=UTC), "-30d"),
+        ]
+    )
+    def test_unreachable_window_records_inconclusive(self, _name: str, anchor: datetime | None, date_from: str) -> None:
+        now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+        with time_machine.travel(now, tick=False):
+            check = self._check(
+                measurement_start_at=anchor,
+                config=_threshold_config(
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from
+                    )
+                ),
+            )
+            original_expiry = check.expires_at
+            with patch(_MEASURE) as measure:
+                summary = run_due_report_checks()
+        check.refresh_from_db()
+        assert not measure.called
+        assert summary.inconclusive == 1
+        assert summary.expired == 0
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.last_outcome_reason == "unmeasurable"
+        assert check.expires_at == original_expiry
+        assert check.next_run_at < now
+        assert len(self._results()) == 1
 
     def test_a_one_shot_check_that_holds_retires_as_passed_with_a_result(self) -> None:
         check = self._check()

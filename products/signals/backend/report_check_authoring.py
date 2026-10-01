@@ -32,12 +32,12 @@ from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
 from products.signals.backend.report_check_timing import metric_check_ready_at
 from products.signals.backend.report_checks import (
-    DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    check_schedule_expires_at,
     parse_check_config,
     soak_minutes_from_gap,
     validate_metric_check_for_write,
@@ -114,10 +114,11 @@ def create_check(
                 if expires_at is not None and expires_at <= next_run_at:
                     raise CheckCreationError("The expiry must allow a full post-resolution measurement window.")
             if expires_at is None:
-                expires_at = min(
-                    _last_run_at(next_run_at, run_interval_minutes, runs_remaining)
-                    + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
-                    now + MAX_CHECK_HORIZON,
+                expires_at = check_schedule_expires_at(
+                    next_run_at=next_run_at,
+                    run_interval_minutes=run_interval_minutes,
+                    runs_remaining=runs_remaining,
+                    start_at=now,
                 )
         else:
             status = SignalReportCheck.Status.PENDING
@@ -318,7 +319,6 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
         .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
         .select_related("report__team")
     )
-    horizon = resolved_at + MAX_CHECK_HORIZON
     armed = 0
     for check in pending:
         next_run_at = resolved_at + timedelta(minutes=check.soak_minutes or 0)
@@ -331,10 +331,11 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             except (CheckConfigValidationError, ValueError):
                 # An invalid legacy config must not prevent the report's other checks from arming.
                 pass
-        expires_at = min(
-            _last_run_at(next_run_at, check.run_interval_minutes, check.runs_remaining)
-            + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
-            horizon,
+        expires_at = check_schedule_expires_at(
+            next_run_at=next_run_at,
+            run_interval_minutes=check.run_interval_minutes,
+            runs_remaining=check.runs_remaining,
+            start_at=resolved_at,
         )
         armed += (
             SignalReportCheck.objects.for_team(team_id)
@@ -348,9 +349,3 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             )
         )
     return armed
-
-
-def _last_run_at(next_run_at: datetime, run_interval_minutes: int | None, runs_remaining: int) -> datetime:
-    if not run_interval_minutes:
-        return next_run_at
-    return next_run_at + timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))

@@ -24,7 +24,7 @@ It also skips a plan that carries its own open, draft, or unknown PR, because th
 
 ## Follow-up measurement timing
 
-Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick. Agent checks keep their soak-based schedule.
+Metric follow-up checks wait until their full trailing query window contains only post-resolution data. The configured soak is an independent minimum wait. Reopening a report clears the measurement anchor; resolving it again starts a new window. Legacy active metric checks without an anchor start their window at the next coordinator tick and recalculate expiry from the remaining schedule, capped at 90 days from that tick. Legacy rows do not distinguish supplied expiries from defaults, so both follow this re-arming policy. Checks with an existing anchor retain their expiry. A window that cannot finish before expiry records an inconclusive result instead of scheduling an unreachable run. Agent checks keep their soak-based schedule.
 
 New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
 
