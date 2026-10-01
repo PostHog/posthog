@@ -2,6 +2,8 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
+
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
@@ -70,12 +72,6 @@ def extract_event_tools(properties: dict[str, Any]) -> Any:
     return properties.get("$ai_tools")
 
 
-# Temporal rejects a payload over 2 MiB. The Python converter escapes every non-ASCII character,
-# so an event that fit the UTF-8 start payload can come out twice as large when the workflow
-# forwards it to an activity. Above this size the workflow forwards a reference instead. The
-# threshold leaves room for the encryption codec's base64 overhead and the other input fields.
-EVENT_REFERENCE_THRESHOLD_BYTES = 1024 * 1024
-
 # The scheduler reads the same Kafka topic that fills ai_events, so a reference can reach an
 # activity before ClickHouse has the row.
 INGESTION_LAG_RETRY_DELAY = timedelta(seconds=15)
@@ -88,7 +84,11 @@ def reference_oversized_event(event_data: dict[str, Any]) -> dict[str, Any]:
     """
     if "properties" not in event_data:
         return event_data
-    if len(json.dumps(event_data, separators=(",", ":"))) <= EVENT_REFERENCE_THRESHOLD_BYTES:
+    # Temporal rejects a payload over 2 MiB. The Python converter escapes every non-ASCII character,
+    # so an event that fit the UTF-8 start payload can come out twice as large when the workflow
+    # forwards it to an activity. The default threshold leaves room for the encryption codec's
+    # base64 overhead and the other input fields.
+    if len(json.dumps(event_data, separators=(",", ":"))) <= settings.LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES:
         return event_data
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -114,7 +114,7 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
     large generation cannot cross the workflow boundary at all. A backfill dispatcher therefore
     ships the uuid, plus the timestamp and trace id that turn the read into a point lookup on the
     ai_events sort key, and every activity that needs the body reads it here. A live run does the
-    same for an event over `EVENT_REFERENCE_THRESHOLD_BYTES`.
+    same for an event over `settings.LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES`.
     """
     if "properties" in event_data:
         return event_data

@@ -315,6 +315,14 @@ REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
+# Evaluation and tagger workflows forward an event larger than this as a reference to ai_events.
+# A change only alters activity inputs, so it is safe while runs are in flight. A very large value
+# turns references off for live runs.
+LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES: int = get_from_env(
+    "LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES", 1024 * 1024, type_cast=int
+)
+if LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES < 0:
+    raise ImproperlyConfigured("LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES must be zero or positive")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
 # evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate

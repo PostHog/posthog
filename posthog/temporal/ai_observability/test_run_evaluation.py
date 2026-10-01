@@ -1466,10 +1466,10 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "event_data,expects_thin_reference",
+        "event_data,threshold,expects_thin_reference",
         [
-            pytest.param({"uuid": "g1", "team_id": 1}, True, id="thin_reference_reaches_the_activity"),
-            pytest.param(create_mock_event_data(team_id=1, uuid="g1"), False, id="full_event_is_used_as_is"),
+            pytest.param({"uuid": "g1", "team_id": 1}, None, True, id="thin_reference_reaches_the_activity"),
+            pytest.param(create_mock_event_data(team_id=1, uuid="g1"), None, False, id="full_event_is_used_as_is"),
             pytest.param(
                 create_mock_event_data(
                     team_id=1,
@@ -1477,14 +1477,27 @@ class TestRunEvaluationWorkflow:
                     # Under the reference threshold as UTF-8, over it once the worker escapes the non-ASCII text.
                     properties=json.dumps({"$ai_input": "日本語" * 70_000, "$ai_trace_id": "t1"}, ensure_ascii=False),
                 ),
+                None,
                 True,
                 id="oversized_live_event_becomes_a_reference",
+            ),
+            pytest.param(
+                create_mock_event_data(
+                    team_id=1,
+                    uuid="g1",
+                    properties=json.dumps({"$ai_input": "日本語" * 70_000, "$ai_trace_id": "t1"}, ensure_ascii=False),
+                ),
+                10 * 1024 * 1024,
+                False,
+                id="raised_threshold_rolls_back_to_the_full_event",
             ),
         ],
     )
     async def test_the_event_never_travels_through_the_workflow(
-        self, event_data: dict[str, Any], expects_thin_reference: bool
+        self, settings: Any, event_data: dict[str, Any], threshold: int | None, expects_thin_reference: bool
     ):
+        if threshold is not None:
+            settings.LLMA_EVAL_EVENT_REFERENCE_THRESHOLD_BYTES = threshold
         seen_inputs: list[RunLocalEvaluationInputs] = []
 
         @activity.defn(name="run_local_evaluation_activity")
