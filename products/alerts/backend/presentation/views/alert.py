@@ -109,13 +109,13 @@ from products.alerts.backend.insight_alert_state_machine import (
     apply_unsnooze,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts_platform.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 

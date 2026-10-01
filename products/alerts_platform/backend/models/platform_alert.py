@@ -13,6 +13,8 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
+
 
 class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
@@ -21,8 +23,10 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     fails the whole evaluation rather than one group of its results.
     """
 
-    class SourceKind(models.TextChoices):
-        LOGS = "logs", "Logs"
+    # The facade owns the vocabulary, because presentation needs the same list and may not
+    # import this module. The attribute stays so `PlatformAlertConfiguration.SourceKind` reads
+    # the way every other model in the repo does.
+    SourceKind = PlatformAlertConfigurationSourceKind
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
     # live writes. Django still cascades in Python, which is the only path that deletes a team.
@@ -83,12 +87,7 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     makes one row per group, so grouping needs no schema change beyond writing a real key.
     """
 
-    class State(models.TextChoices):
-        NOT_FIRING = "not_firing", "Not firing"
-        FIRING = "firing", "Firing"
-        ERRORED = "errored", "Errored"
-        SNOOZED = "snoozed", "Snoozed"
-        BROKEN = "broken", "Broken"
+    State = PlatformAlertState
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")

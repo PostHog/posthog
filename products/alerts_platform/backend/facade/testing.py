@@ -12,6 +12,7 @@ from typing import Any
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import PlatformAlertSnapshot, PlatformConfigurationSnapshot
+from products.alerts_platform.backend.logic.platform_reads import instance_view
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -52,13 +53,4 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
     row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
-    if row is None:
-        return None
-    return PlatformAlertSnapshot(
-        id=row.id,
-        grouping_key=row.grouping_key,
-        state=row.state,
-        firing_started_at=row.firing_started_at,
-        last_notified_at=row.last_notified_at,
-        snooze_until=row.snooze_until,
-    )
+    return None if row is None else instance_view(row)

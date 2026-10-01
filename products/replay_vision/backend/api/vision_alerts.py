@@ -32,13 +32,13 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
 from products.replay_vision.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     MATCH_EVENT_KINDS,

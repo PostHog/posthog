@@ -335,7 +335,7 @@ class PlatformConfigurationSnapshot:
 
 @frozen
 class PlatformAlertSnapshot:
-    """One instance's runtime state, as a source's own test reads it back."""
+    """One instance's runtime state, for a reader outside this product."""
 
     id: UUID
     grouping_key: str
@@ -343,6 +343,43 @@ class PlatformAlertSnapshot:
     firing_started_at: datetime | None
     last_notified_at: datetime | None
     snooze_until: datetime | None
+
+
+@frozen
+class PlatformAlertConfigurationView:
+    """One configuration and its instances, as a reader outside this product sees them.
+
+    The instances arrive with it because a reader asking for a configuration always wants its
+    runtime state, and fetching them separately would be one query per configuration.
+    """
+
+    id: UUID
+    name: str
+    enabled: bool
+    source_kind: str
+    source_config: dict[str, Any]
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    check_interval_minutes: int
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+    schedule_restriction: dict[str, Any] | None
+    next_check_at: datetime | None
+    consecutive_failures: int
+    legacy_configuration_id: UUID | None
+    created_at: datetime
+    updated_at: datetime
+    alerts: tuple[PlatformAlertSnapshot, ...]
+
+
+@frozen
+class PlatformAlertConfigurationPage:
+    """One page of configurations, with the total the reader needs to paginate."""
+
+    configurations: tuple[PlatformAlertConfigurationView, ...]
+    total: int
 
 
 @frozen
