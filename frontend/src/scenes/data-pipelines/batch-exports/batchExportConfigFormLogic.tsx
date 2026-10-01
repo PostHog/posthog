@@ -564,6 +564,7 @@ export interface batchExportConfigFormLogicValues {
     loading: boolean
     logicProps: any
     requiredFields: string[]
+    resumingBatchExport: boolean
     runningStep: number | null
     savedConfiguration: Record<string, any>
     selectedIntegration: IntegrationType | null
@@ -613,6 +614,8 @@ export interface batchExportConfigFormLogicActions {
     resetConfiguration: (values?: Record<string, any>) => {
         values?: Record<string, any>
     }
+    resumeBatchExport: () => true
+    resumeBatchExportFailure: () => true
     runBatchExportConfigTestStep: (step: any) => any
     runBatchExportConfigTestStepFailure: (
         error: string,
@@ -799,6 +802,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         setSelectedModel: (model: string) => ({ model }),
         setRunningStep: (step: number | null) => ({ step }),
         deleteBatchExport: () => true,
+        resumeBatchExport: () => true,
+        resumeBatchExportFailure: () => true,
         updateBatchExportConfig: (formdata: Record<string, any>) => ({ formdata }),
         updateBatchExportConfigSuccess: (batchExportConfig: BatchExportConfiguration) => ({ batchExportConfig }),
     }),
@@ -949,6 +954,14 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             null as number | null,
             {
                 setRunningStep: (_, { step }) => step,
+            },
+        ],
+        resumingBatchExport: [
+            false,
+            {
+                resumeBatchExport: () => true,
+                resumeBatchExportFailure: () => false,
+                updateBatchExportConfigSuccess: () => false,
             },
         ],
     })),
@@ -1186,6 +1199,22 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     actions.setConfigurationValue('offset_day', null)
                     actions.setConfigurationValue('offset_hour', null)
                 }
+            }
+        },
+        resumeBatchExport: async () => {
+            const batchExportConfig = values.batchExportConfig
+            if (!batchExportConfig) {
+                return
+            }
+            try {
+                await api.batchExports.unpause(batchExportConfig.id)
+                const resumedConfig = { ...batchExportConfig, paused: false }
+                actions.setBatchExportConfig(resumedConfig)
+                actions.updateBatchExportConfigSuccess(resumedConfig)
+                lemonToast.success('Batch export resumed')
+            } catch (error: any) {
+                actions.resumeBatchExportFailure()
+                lemonToast.error(error.detail || error.message || 'Could not resume the batch export. Try again.')
             }
         },
         deleteBatchExport: async () => {
