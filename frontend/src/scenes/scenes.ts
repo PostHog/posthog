@@ -646,7 +646,7 @@ export const redirects: Record<
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
-    '/events/:id/*': ({ id, _ }) => {
+    '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
@@ -654,6 +654,11 @@ export const redirects: Record<
                 value: null,
             },
         ])
+        if (typeof event === 'string' && event) {
+            // The events query reads some events, such as flag calls, from their own table.
+            // It picks that table only when the query filters to the event name, so a uuid filter alone misses the row.
+            Object.assign(query.source as EventsQuery, { event })
+        }
         try {
             const timestamp = decodeURIComponent(_)
             const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
