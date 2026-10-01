@@ -1,5 +1,5 @@
 rules:
-    - id: api-route-path-underscore-product
+    - id: api-route-path-underscore-in-products
       message: |
           This API route uses a hyphen in a path segment. API paths use underscores
           (`set_default`, not `set-default`), so that the URL, the view name and the JSON fields all
@@ -11,7 +11,7 @@ rules:
           values are not checked.
 
           A hyphenated path that has already shipped keeps its name, because SDKs, MCP tools and
-          customer scripts call it. It carries `# nosemgrep: api-route-path-underscore-product` on the line
+          customer scripts call it. It carries `# nosemgrep: api-route-path-underscore-in-products` on the line
           above. Use the same comment, with a reason, when a provider or an external contract
           dictates the path. Routes in `webhook_urlpatterns` are not checked.
       severity: WARNING
