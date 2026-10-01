@@ -38,7 +38,9 @@ const BriefCard = ({ title, text }: { title: string; text?: string }): JSX.Eleme
 
 export const ContentAutopilotBriefPanel = ({ brief, evidence }: ContentAutopilotBriefPanelProps): JSX.Element => {
     const reasons = evidence.map(({ explanation }) => explanation).filter(Boolean)
-    const briefSaved = Boolean(brief.intent || brief.outline?.length)
+    const briefSaved =
+        [brief.disambiguation, brief.intent, brief.audience, brief.engine_answer_summary].some(Boolean) ||
+        [brief.outline, brief.questions_to_answer, brief.competitor_coverage].some((items) => !!items?.length)
 
     return (
         <div className="@container flex flex-col gap-4">

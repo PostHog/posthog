@@ -16,13 +16,13 @@ const meta: Meta<typeof ContentAutopilotBriefPanel> = {
 export default meta
 
 export const Brief: StoryFn<typeof ContentAutopilotBriefPanel> = () => (
-    <div className="w-[720px] p-4">
+    <div className="w-180 p-4">
         <ContentAutopilotBriefPanel brief={EXAMPLE_PROPOSAL.brief} evidence={EXAMPLE_PROPOSAL.evidence} />
     </div>
 )
 
 export const MissingBrief: StoryFn<typeof ContentAutopilotBriefPanel> = () => (
-    <div className="w-[720px] p-4">
+    <div className="w-180 p-4">
         <ContentAutopilotBriefPanel brief={{}} evidence={[]} />
     </div>
 )
