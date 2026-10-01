@@ -616,15 +616,22 @@ class HyperCache:
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One key per DEL: on a cluster the two keys can sit in different slots. The ETag goes
-                # before and after the payload, so no reader or racing write sees an ETag without its
-                # payload. It goes even when enable_etag is off, to clear a stale one.
+                # Single-key DELs: the keys can hash to different cluster slots. The ETag is deleted before
+                # and after the payload so a reader or racing write never sees an ETag without its payload,
+                # and even with enable_etag off, to clear a stale one.
                 etag_key = self.get_etag_key(key)
                 redis_keys = (etag_key, cache_key, etag_key)
 
                 def delete_each(client: BaseCache) -> None:
+                    # Every key is attempted, so a failed ETag DEL cannot leave the payload behind.
+                    first_error: Exception | None = None
                     for redis_key in redis_keys:
-                        client.delete(redis_key)
+                        try:
+                            client.delete(redis_key)
+                        except Exception as e:
+                            first_error = first_error or e
+                    if first_error is not None:
+                        raise first_error
 
                 # Mirror first so a primary failure cannot block the secondary.
                 self._mirror_to_secondary(delete_each)

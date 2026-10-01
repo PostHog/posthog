@@ -29,6 +29,8 @@ from django.db import OperationalError
 from django.utils import timezone
 
 import structlog
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.exceptions_capture import capture_exception
@@ -411,7 +413,9 @@ def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
     gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
-REFRESH_MAX_CONSECUTIVE_FAILURES = 50
+# Infrastructure failures that count toward aborting the refresh.
+_REFRESH_INFRA_ERRORS = (ConnectionInterrupted, redis.exceptions.RedisError, OSError, OperationalError)
+REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES = 3
 
 
 def refresh_all_gateway_credentials() -> int:
@@ -434,24 +438,25 @@ def refresh_all_gateway_credentials() -> int:
 
     count = 0
     failed = 0
-    consecutive_failures = 0
+    infra_failures_in_a_row = 0
     first_error: Exception | None = None
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
-            # One failing credential must not leave the rest of the run unrefreshed: secret-key
-            # blobs expire within hours without this refresh.
+            # Skip a failing credential: secret-key blobs expire within hours without this refresh.
             try:
                 project_gateway_credential(credential, memo)
             except Exception as e:
                 failed += 1
-                consecutive_failures += 1
                 first_error = first_error or e
-                # A run of failures means Redis itself is down: fail the task instead of timing out on every credential.
-                if consecutive_failures >= REFRESH_MAX_CONSECUTIVE_FAILURES:
-                    raise
+                if isinstance(e, _REFRESH_INFRA_ERRORS):
+                    infra_failures_in_a_row += 1
+                    # An outage: fail the task now, since every remaining credential would time out too.
+                    if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+                        logger.warning("gateway_credential refresh aborted", failed=failed, projected=count)
+                        raise
                 continue
             count += 1
-            consecutive_failures = 0
+            infra_failures_in_a_row = 0
 
     if first_error is not None and count == 0:
         raise first_error

@@ -854,7 +854,6 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert caches["default"].get(etag_key) is None
 
     def test_delete_sends_one_key_per_command_etag_around_payload(self):
-        # A cluster rejects a multi-key DEL whose keys hash to different slots.
         hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
         hc.cache_client = Mock()
         hc.cache_client.delete_many.side_effect = RuntimeError("CROSSSLOT Keys in request don't hash to the same slot")
@@ -868,6 +867,23 @@ class TestHyperCacheSecondaryCache(BaseTest):
             call(hc.get_etag_key(team_id)),
         ]
         hc.cache_client.delete_many.assert_not_called()
+
+    def test_delete_attempts_every_key_and_raises_the_first_error(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        first = ConnectionError("etag shard down")
+        hc.cache_client.delete.side_effect = [first, True, ConnectionError("again")]
+        team_id = self.team.id
+
+        with pytest.raises(ConnectionError) as raised:
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert raised.value is first
+        assert hc.cache_client.delete.call_args_list == [
+            call(hc.get_etag_key(team_id)),
+            call(hc.get_cache_key(team_id)),
+            call(hc.get_etag_key(team_id)),
+        ]
 
     def test_delete_leaves_no_etag_when_a_write_lands_between_deletes(self):
         hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
@@ -888,6 +904,20 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         assert hc.cache_client.get(hc.get_cache_key(team_id)) is None
         assert hc.cache_client.get(hc.get_etag_key(team_id)) is None
+
+    def test_delete_mirrors_the_same_sequence_before_the_primary(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        calls = Mock()
+        hc.cache_client = calls.primary
+        hc.secondary_cache_client = calls.secondary
+        team_id = self.team.id
+
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        sequence = [hc.get_etag_key(team_id), hc.get_cache_key(team_id), hc.get_etag_key(team_id)]
+        assert calls.mock_calls == [
+            getattr(call, client).delete(key) for client in ("secondary", "primary") for key in sequence
+        ]
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""
