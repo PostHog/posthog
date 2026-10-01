@@ -155,12 +155,26 @@ export function Composer({
     try {
       await onSend(value, attached);
     } catch {
-      // Keep a draft the person started while the send was in flight.
-      setText((current) => current || value);
-      setPhotos((current) => (current.length ? current : attached));
+      if (hydratedKey.current === draftKey) {
+        // Keep a draft the person started while the send was in flight.
+        setText((current) => current || value);
+        setPhotos((current) => (current.length ? current : attached));
+      } else if (draftKey && sessionIdentity() === identity) {
+        // The composer shows another chat now, so return the message to the
+        // saved draft of the chat it was sent from.
+        const saved = loadDraft(draftKey);
+        saveDraft(draftKey, {
+          text: saved?.text || value,
+          photos: saved?.photos.length ? saved.photos : attached,
+        });
+      }
       return;
     }
-    if (sessionIdentity() !== identity) return;
+    // After a chat change, latest.current holds the other chat's draft. The
+    // key-change cleanup already saved this chat's draft, so keep it as is.
+    if (sessionIdentity() !== identity || hydratedKey.current !== draftKey) {
+      return;
+    }
     const { text: typed, photos: staged } = latest.current;
     if (draftKey && !typed.trim() && !staged.length) clearDraft(draftKey);
   };
