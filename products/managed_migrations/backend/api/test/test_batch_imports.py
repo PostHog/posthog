@@ -1385,6 +1385,18 @@ class TestBatchImportTrialAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 410)
 
+    @override_settings(MANAGED_MIGRATIONS_TRIAL_S3_BUCKET="")
+    def test_trial_records_unconfigured_storage_is_not_reported_as_expired(self):
+        batch_import = self._create_import(
+            status=BatchImport.Status.COMPLETED,
+            is_trial=True,
+            state={"parts": [], "trial": {"records_emitted": 4, "pages_written": 2, "summary": {}}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/{batch_import.id}/trial_records")
+
+        self.assertEqual(response.status_code, 500)
+
     def test_promote_creates_real_import_with_capture_sink_and_copied_secrets(self):
         trial = self._create_import(status=BatchImport.Status.COMPLETED, is_trial=True)
 

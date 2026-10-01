@@ -93,6 +93,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
     'loadTableDetails', // The model detail summary renders its own error state with a retry
+    'loadTrialRecordsPage', // managedMigrationLogic's failure listener toasts and closes the trial results modal
 ]
 
 /*
@@ -118,6 +119,14 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/*
+Load actions whose own logic tells the user that the resource expired (410 Gone). The backend
+returns that status on purpose, so it is not reported as an exception.
+*/
+const GONE_SELF_HANDLED = new Set([
+    'loadTrialRecordsPage', // Trial results expire from storage; managedMigrationLogic toasts and closes the modal
+])
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
 
@@ -264,9 +273,15 @@ export function initKea({
                 }
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                const isSelfHandledGone = error?.status === 410 && GONE_SELF_HANDLED.has(String(actionKey))
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
+                if (
+                    shouldReportApiFailure(error) &&
+                    !isSelfHandledNotFound &&
+                    !isSelfHandledGone &&
+                    !isSelfHandledExistingMember
+                ) {
                     posthog.captureException(error)
                 }
             },
