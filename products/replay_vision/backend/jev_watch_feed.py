@@ -33,6 +33,7 @@ import structlog
 from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.redis import get_client
 
@@ -62,6 +63,12 @@ JEV_INPUT_USD_PER_MILLION = 0.042
 # client's own default; the sweep is background work, so latency is cheap and a timeout loses a
 # whole chunk's judgments.
 JEV_TIMEOUT_SECONDS = 30.0
+# Gateway refusals the batch itself can cause, so a retry fails the same way: a malformed request,
+# a payload past the gateway's limit, unprocessable content. An allowlist, because the two mistakes
+# cost differently: wrongly charging parks rows as judged-with-no-score for the cache entry's life,
+# wrongly not charging re-buys one batch next sweep. Auth and routing refusals, rate limits, server
+# errors, contract breaks reported as 200, and unknown statuses all retry free.
+_BATCH_FAULT_STATUSES = frozenset({400, 413, 422})
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
@@ -158,7 +165,7 @@ class WindowJudgment:
     # from `probabilities` and retry next sweep.
     skipped_no_prose: tuple[str, ...]
     # Rows from chunks that failed for a reason the batch itself caused (an invalid answer, or a
-    # gateway refusal that is not a rate limit), so a retry will fail the same way. The sweep
+    # gateway refusal in _BATCH_FAULT_STATUSES), so a retry will fail the same way. The sweep
     # charges its retry budget only against these: an outage or a misconfigured gateway fails every
     # chunk alike and must not park rows as judged-with-no-score.
     batch_failed_ids: tuple[str, ...]
@@ -283,11 +290,12 @@ def judge_scanner_window(
             _LATENCY.observe(perf_counter() - started)
             _CALLS.labels(type(error).__name__).inc()
             failed_chunks += 1
-            # An invalid answer or a non-rate-limit gateway refusal is the batch's own fault; an
-            # unreachable, disabled, misconfigured, rate-limited, or erroring gateway is not, and
-            # its rows must retry free.
-            if isinstance(error, ValueError) or (
-                isinstance(error, DecisionGatewayError) and 400 <= error.status_code < 500 and error.status_code != 429
+            # An invalid answer or a batch-caused gateway refusal charges the retry budget. A
+            # missing gateway config raises a ValueError subclass and must not sneak in through
+            # the invalid-answer check: it fails every chunk alike, so its rows retry free, the
+            # same as an unreachable, disabled, rate-limited, or erroring gateway.
+            if (isinstance(error, ValueError) and not isinstance(error, GatewayNotConfiguredError)) or (
+                isinstance(error, DecisionGatewayError) and error.status_code in _BATCH_FAULT_STATUSES
             ):
                 batch_failed_ids.extend(entry_id for entry_id, _ in chunk)
             # The gateway error body can echo the state, which holds recording-derived prose, so

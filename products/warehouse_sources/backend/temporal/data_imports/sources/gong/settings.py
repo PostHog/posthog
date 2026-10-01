@@ -12,7 +12,8 @@ class GongEndpointConfig:
     path: str
     # Key under which the records array lives in the JSON response (e.g. "calls", "users").
     response_key: str
-    primary_key: str
+    # A tuple names a composite key, for rows unique only per user and day.
+    primary_key: str | tuple[str, ...]
     # Stable datetime field to partition by (never `updated`/`lastModified`). None disables partitioning.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -37,6 +38,17 @@ class GongEndpointConfig:
     # calls supplies the `callIds` filter for one transcript request, and the call's `started`
     # stamps the rows that come back.
     uses_call_id_batches: bool = False
+    # Keys of the inclusive start and exclusive end `YYYY-MM-DD` bounds in the JSON `filter` of the
+    # `/v2/stats/...` POST endpoints. Gong reads these dates in the company's time zone. Endpoints
+    # that set this send whole-day windows instead of `fromDateTime`/`toDateTime`.
+    date_filter_keys: Optional[tuple[str, str]] = None
+    # Filter fields sent with every request alongside the date bounds.
+    extra_filter: dict[str, Any] = field(default_factory=dict)
+    # Days per request window. Stats endpoints aggregate over the whole window, so a one-day window
+    # gives one row per user per day. None keeps the 90-day cap that `/v2/calls` enforces.
+    window_days: Optional[int] = None
+    # Column that receives the window's start date, for endpoints whose rows carry no date of their own.
+    window_date_column: Optional[str] = None
     # Whether responses from this endpoint may be sampled into HTTP troubleshooting storage.
     # Disabled for endpoints whose bodies carry participant names, free-form CRM field values, or
     # verbatim conversation text that the name-based scrubbers can't recognise; requests stay
@@ -183,6 +195,67 @@ GONG_ENDPOINTS: dict[str, GongEndpointConfig] = {
         response_key="scorecards",
         primary_key="scorecardId",
         partition_key="created",
+    ),
+    # Keyword trackers (the phrases Gong listens for on calls) across every workspace. Gong returns
+    # them in one unpaginated response. AI trackers are not included.
+    # Requires the `api:settings:trackers:read` scope.
+    "trackers": GongEndpointConfig(
+        name="trackers",
+        path="/v2/settings/trackers",
+        response_key="keywordTrackers",
+        primary_key="trackerId",
+        partition_key="created",
+    ),
+    # Answers to the scorecards in `scorecards`, one row per review of a call. Filtered by review
+    # date, so a call reviewed long after it took place still arrives on the next run. Default-off
+    # because reviewers' free-text feedback on a rep's call is performance-review data.
+    # Requires the `api:stats:scorecards` scope.
+    "answered_scorecards": GongEndpointConfig(
+        name="answered_scorecards",
+        path="/v2/stats/activity/scorecards",
+        response_key="answeredScorecards",
+        primary_key="answeredScorecardId",
+        partition_key="callStartTime",
+        supports_incremental=True,
+        uses_date_window=True,
+        date_filter_keys=("reviewFromDate", "reviewToDate"),
+        # Gong defaults to manual reviews only.
+        extra_filter={"reviewMethod": "BOTH"},
+        capture_http_samples=False,
+        should_sync_default=False,
+        incremental_fields=[
+            {
+                "label": "reviewTime",
+                "type": IncrementalFieldType.DateTime,
+                "field": "reviewTime",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Per-user conversation metrics (talk ratio, longest monologue, patience, ...) for each day,
+    # requested one day at a time because Gong aggregates over the whole requested range.
+    # Requires the `api:stats:interaction` scope.
+    "interaction_stats": GongEndpointConfig(
+        name="interaction_stats",
+        path="/v2/stats/interaction",
+        response_key="peopleInteractionStats",
+        primary_key=("userId", "day"),
+        partition_key="day",
+        supports_incremental=True,
+        uses_date_window=True,
+        date_filter_keys=("fromDate", "toDate"),
+        window_days=1,
+        window_date_column="day",
+        # A day's stats change as Gong finishes processing that day's calls. Re-read the last week.
+        default_incremental_lookback_seconds=7 * 24 * 60 * 60,
+        incremental_fields=[
+            {
+                "label": "day",
+                "type": IncrementalFieldType.Date,
+                "field": "day",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ],
     ),
     "workspaces": GongEndpointConfig(
         name="workspaces",

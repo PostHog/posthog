@@ -24,6 +24,7 @@ pub mod person_relevance;
 pub mod pinned;
 pub mod plan;
 pub mod projection;
+pub mod row_filter;
 pub mod window;
 
 pub use aggregate::{
@@ -73,4 +74,5 @@ pub use pinned::{
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
 pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};
+pub use row_filter::{ConditionConjuncts, ScanRowFilter};
 pub use window::{Boundary, DaySchedule, DomainError, PlanCaps, PlannedDay, SeedDomain};

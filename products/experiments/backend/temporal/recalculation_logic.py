@@ -161,7 +161,13 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 
 # Triggers that keep the prior window so unchanged metrics hit the (experiment, metric, query_to, fingerprint)
 # cache and only new or changed metrics recompute. Every other trigger advances the window to now.
-_REUSE_WINDOW_TRIGGERS = frozenset({ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE})
+_REUSE_WINDOW_TRIGGERS = frozenset(
+    {
+        ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE,
+        ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY,
+        ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN,
+    }
+)
 
 
 def _resolve_query_to(experiment: Experiment, trigger: str | None) -> datetime:
@@ -348,8 +354,11 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
         experiment_duration_hours = (
             round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
         )
-        primary_metrics_count = len(experiment.metrics or [])
-        secondary_metrics_count = len(experiment.metrics_secondary or [])
+        # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
+        # metrics that the run never calculates do not.
+        roles = [metric.metric_type for metric in discover_experiment_metrics(experiment)]
+        primary_metrics_count = roles.count("primary")
+        secondary_metrics_count = roles.count("secondary")
         # Global client, like most Temporal workflows: the worker is long-lived, so its background flush
         # runs fine, and a scoped client's synchronous shutdown stalls the activity (~2x flush_interval).
         posthoganalytics.capture(

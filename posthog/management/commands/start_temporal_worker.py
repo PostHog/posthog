@@ -165,7 +165,7 @@ from products.autoresearch.backend.facade.temporal import (
     ACTIVITIES as AUTORESEARCH_ACTIVITIES,
     WORKFLOWS as AUTORESEARCH_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
@@ -294,6 +294,10 @@ from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
     WORKFLOWS as TASKS_WORKFLOWS,
 )
+from products.today.backend.facade.temporal import (
+    ACTIVITIES as TODAY_ACTIVITIES,
+    WORKFLOWS as TODAY_WORKFLOWS,
+)
 from products.warehouse_sources.backend.facade.temporal import (
     ACTIVITIES as DATA_SYNC_ACTIVITIES,
     METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
@@ -381,7 +385,8 @@ _task_queue_specs = [
         + GROWTH_WORKFLOWS
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
+        + SECURITY_WORKFLOWS
+        + TODAY_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -407,7 +412,8 @@ _task_queue_specs = [
         + NOTEBOOKS_ACTIVITIES
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
+        + SECURITY_ACTIVITIES
+        + TODAY_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a

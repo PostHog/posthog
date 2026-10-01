@@ -1,4 +1,5 @@
 import re
+import json
 import base64
 import dataclasses
 from collections.abc import Iterator
@@ -33,11 +34,13 @@ class GorgiasRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GorgiasResumeConfig:
     # Opaque, short-lived cursor token returned in `meta.next_cursor`. We only persist
     # it for the duration of a single sync (Redis TTL is 24h) — never longer-term.
-    cursor: str
+    cursor: str | None
+    # Index into the endpoint's `param_variants` the cursor belongs to.
+    variant: int = 0
 
 
 def normalize_domain(domain: str) -> str:
@@ -97,6 +100,37 @@ def _incremental_sort_field(
     if should_use_incremental_field and incremental_field in config.sortable_datetime_fields:
         return incremental_field
     return None
+
+
+def _flatten_ticket_child(tickets: list[Any], child: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        parent = {"ticket_id": ticket.get("id"), "ticket_created_datetime": ticket.get("created_datetime")}
+        if child == "tags":
+            for tag in ticket.get("tags") or []:
+                if isinstance(tag, dict) and tag.get("id") is not None:
+                    rows.append({**tag, **parent})
+        elif child == "custom_fields":
+            # Keyed by custom field id: {"<field_id>": {"id", "field", "value", "prediction"}}.
+            for field_id, field_value in (ticket.get("custom_fields") or {}).items():
+                if not isinstance(field_value, dict):
+                    continue
+                value = field_value.get("value")
+                rows.append(
+                    {
+                        **field_value,
+                        **parent,
+                        "field_id": int(field_id) if str(field_id).isdigit() else field_id,
+                        # Values are text, number, or boolean depending on the field, so keep the
+                        # column one type rather than mixing them across rows.
+                        "value": value if value is None or isinstance(value, str) else json.dumps(value),
+                    }
+                )
+        else:
+            raise ValueError(f"Unknown Gorgias ticket child collection: {child}")
+    return rows
 
 
 def _get_auth_header(email: str, api_key: str) -> str:
@@ -159,7 +193,8 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume_config.cursor if resume_config else None
-    if cursor:
+    start_variant = resume_config.variant if resume_config else 0
+    if resume_config:
         logger.debug(f"Gorgias: resuming {endpoint} from saved cursor")
 
     @retry(
@@ -170,13 +205,15 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch_page(request_cursor: str | None) -> dict[str, Any]:
+    def fetch_page(request_cursor: str | None, variant_params: dict[str, str]) -> Any:
         # `cursor` is documented as "position in the list of resources" — the list is
         # defined by `order_by`/`limit`, so we re-send them on every page to keep the
         # sort stable. The docs list `cursor` and `order_by` as coexisting params (no
         # mutual exclusion); dropping order_by on follow-up pages could reset to the
         # endpoint default and corrupt the newest-first order incremental relies on.
-        params: dict[str, Any] = {"limit": PAGE_SIZE, "order_by": order_by}
+        params: dict[str, Any] = {"limit": PAGE_SIZE, **variant_params}
+        if order_by:
+            params["order_by"] = order_by
         if request_cursor:
             params["cursor"] = request_cursor
 
@@ -192,28 +229,37 @@ def get_rows(
             response.raise_for_status()
         return response.json()
 
-    while True:
-        data = fetch_page(cursor)
+    for variant_index in range(start_variant, len(config.param_variants)):
+        variant_params = config.param_variants[variant_index]
+        while True:
+            data = fetch_page(cursor, variant_params)
 
-        items = data.get("data", [])
-        if items:
-            yield items
+            items = data.get("data", [])
+            next_cursor = (data.get("meta") or {}).get("next_cursor")
 
-        # Rows arrive newest-first under incremental sort; once an entire page predates the
-        # watermark, everything further back is already synced, so stop.
-        if watermark is not None and sort_field is not None and items:
-            page_newest = _page_newest(items, sort_field)
-            if page_newest is not None and page_newest < watermark:
+            # Rows arrive newest-first under incremental sort; once an entire page predates the
+            # watermark, everything further back is already synced, so stop.
+            reached_watermark = False
+            if watermark is not None and sort_field is not None and items:
+                page_newest = _page_newest(items, sort_field)
+                reached_watermark = page_newest is not None and page_newest < watermark
+
+            # Stage the position after this page before yielding it. A resumed full refresh
+            # appends, so a cursor that lags one page behind would write that page twice. The
+            # final page stages a variant past the end, so a resume after it reads nothing.
+            if next_cursor and not reached_watermark:
+                resumable_source_manager.save_state(GorgiasResumeConfig(cursor=next_cursor, variant=variant_index))
+            else:
+                resumable_source_manager.save_state(GorgiasResumeConfig(cursor=None, variant=variant_index + 1))
+
+            if items:
+                yield _flatten_ticket_child(items, config.ticket_child) if config.ticket_child else items
+
+            if not next_cursor or reached_watermark:
                 break
+            cursor = next_cursor
 
-        next_cursor = (data.get("meta") or {}).get("next_cursor")
-        if not next_cursor:
-            break
-
-        cursor = next_cursor
-        # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
-        # primary key) instead of skipping it.
-        resumable_source_manager.save_state(GorgiasResumeConfig(cursor=cursor))
+        cursor = None
 
 
 def gorgias_source(
@@ -243,7 +289,7 @@ def gorgias_source(
             incremental_field=incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
-        primary_keys=["id"],
+        primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime",

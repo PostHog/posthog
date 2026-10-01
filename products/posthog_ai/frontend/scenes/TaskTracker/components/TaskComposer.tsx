@@ -1,7 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +28,11 @@ import {
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
-import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
+import {
+    ComposerModelEffortPickers,
+    type ComposerModelEffortPickersProps,
+} from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
@@ -38,9 +43,13 @@ import { RepositorySelector } from './RepositorySelector'
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
     variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
 }
 
-export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Element {
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
@@ -80,11 +89,44 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const frameRef = useRef<HTMLLabelElement>(null)
 
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
+
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
         if (item.requiresUserInput) {
             textAreaRef.current?.focus()
         }
+    }
+
+    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const modelPickerProps: ComposerModelEffortPickersProps = {
+        models: offeredModels,
+        selectedModel: displayModel,
+        defaultModel,
+        isDefaultModelLoading: myConfigLoading,
+        selectedEffort: displayEffort,
+        isDefaultSelection,
+        onModelChange: (model) =>
+            setNewTaskData({
+                model,
+                reasoningEffort: resolveEffortForModel(catalogue, newTaskData.reasoningEffort, model),
+                // Clamp the mode too, not just the effort: leaving a Claude-only mode selected against a Codex
+                // model would show one permission ceiling and send a broader one.
+                permissionMode: resolveModeForRuntimeAdapter(
+                    getRuntimeAdapterForModel(catalogue, model),
+                    newTaskData.permissionMode
+                ),
+            }),
+        onEffortChange: (reasoningEffort) => setNewTaskData({ reasoningEffort }),
+        // Clearing both pins is what hands the choice back to the resolved default — submit then omits the
+        // triple entirely.
+        onResetToDefault: () => setNewTaskData({ model: null, reasoningEffort: null }),
+        onOpenDefaultSettings: () =>
+            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
     }
 
     return (
@@ -143,7 +185,11 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
                                     <Composer.Placeholder>
                                         {composerOverride?.placeholder ?? 'Describe the task in detail…'}
                                     </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus onPaste={onPaste} data-attr="task-composer-input" />
+                                    <Composer.Textarea
+                                        autoFocus={autoFocus}
+                                        onPaste={onPaste}
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
@@ -151,40 +197,11 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
                                         selectedMode={newTaskData.permissionMode}
                                         onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
                                     />
-                                    <ComposerModelEffortPickers
-                                        models={offeredModels}
-                                        selectedModel={displayModel}
-                                        defaultModel={defaultModel}
-                                        isDefaultModelLoading={myConfigLoading}
-                                        selectedEffort={displayEffort}
-                                        isDefaultSelection={isDefaultSelection}
-                                        onModelChange={(model) =>
-                                            setNewTaskData({
-                                                model,
-                                                reasoningEffort: resolveEffortForModel(
-                                                    catalogue,
-                                                    newTaskData.reasoningEffort,
-                                                    model
-                                                ),
-                                                // Clamp the mode too, not just the effort: leaving a
-                                                // Claude-only mode selected against a Codex model would
-                                                // show one permission ceiling and send a broader one.
-                                                permissionMode: resolveModeForRuntimeAdapter(
-                                                    getRuntimeAdapterForModel(catalogue, model),
-                                                    newTaskData.permissionMode
-                                                ),
-                                            })
-                                        }
-                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
-                                        // Clearing both pins is what hands the choice back to the resolved
-                                        // default — submit then omits the triple entirely.
-                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
-                                        onOpenDefaultSettings={() =>
-                                            router.actions.push(
-                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                            )
-                                        }
-                                    />
+                                    {codexBillingEnabled ? (
+                                        <ComposerCodexBillingPickers {...modelPickerProps} />
+                                    ) : (
+                                        <ComposerModelEffortPickers {...modelPickerProps} />
+                                    )}
                                 </Composer.Footer>
                             </Composer.Frame>
                             {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
