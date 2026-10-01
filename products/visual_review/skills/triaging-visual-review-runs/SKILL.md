@@ -6,7 +6,7 @@ description: >
   "playwright snapshot", asks why a PR is blocked or what changed visually, wants to triage the VR backlog,
   decide whether a snapshot diff is real vs flaky, or check whether a story has been changing across runs.
   Also invoke when a PR has a failing `visual-review` status check, when a PR comment mentions "Visual review",
-  or when the user is on a branch with an open VR run.
+  when a PR from a fork fails `Visual regression tests pass`, or when the user is on a branch with an open VR run.
 ---
 
 # Triaging visual review runs
@@ -15,6 +15,8 @@ Visual Review is PostHog's screenshot-regression product: CI captures storybook 
 diffs them against committed baseline hashes, and gates the PR until a human approves the visible changes.
 A PR with visual changes carries a `visual-review` GitHub status check that stays red until each diffed
 snapshot is approved or tolerated in the [VR UI](https://us.posthog.com/project/2/visual_review).
+A PR from a fork is the exception: it gets no Visual Review run at all.
+See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
 This skill teaches an agent how to answer the questions a human reviewer would actually ask, by chaining
 the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
@@ -31,9 +33,61 @@ Trigger this skill on any of:
 - Questions about why a PR is blocked, what visually changed, or whether a diff is real.
 - "Is my run done?" / "What's left to review?" / "Has this story flaked recently?"
 - A failing `visual-review` GitHub check or a PR comment from the `posthog-bot` mentioning visual review.
+- A failing `Visual regression tests pass` check on a PR from a fork, which is the offline fallback and not a VR run.
 
 When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual_review)
 is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
+
+**First, check whether the PR comes from a fork.**
+A fork PR has no Visual Review run, so every run-scoped VR tool below returns nothing for it.
+Only the repo-scoped flakiness tool still answers.
+Read the flag before you query the tools:
+
+```bash
+gh pr view <n> --json isCrossRepository
+```
+
+If `isCrossRepository` is `true`, stop here.
+Go to [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
+
+## Fork PRs have no Visual Review run
+
+Visual Review needs a secret, and CI does not give a secret to a fork.
+The Visual Review upload is therefore skipped.
+No run, no snapshot row and no `visual-review` check exists for the PR.
+That is the designed behavior, not a fault.
+
+Each Storybook shard instead compares its own screenshots with the committed baseline file `frontend/snapshots.yml`, offline, in the `Verify snapshots against the baseline offline` step.
+A mismatch fails the `Visual regression tests pass` check.
+
+The offline fallback is weaker than Visual Review in ways that change the triage:
+
+| Visual Review                             | Offline fallback on a fork                                     |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| Diffs with a noise threshold              | Exact pixel hash match only                                    |
+| Knows tolerated alternate hashes          | Knows none — a tolerated variant still fails                   |
+| Applies quarantine                        | Applies none — a quarantined story still fails                 |
+| Rendered diff images in the VR UI         | No images; the job log names the snapshots that differ         |
+| Triage and finalize through the MCP tools | No tools apply; a maintainer updates the baseline file instead |
+
+So a flaky story can fail a fork PR that changes nothing visible.
+
+How to triage a fork PR failure:
+
+1. Read the failing `Visual regression tests pass` job.
+   The step summary and the `Baseline mismatch` error name each snapshot that differs.
+   `gh run view <run_id> --log-failed` gets the log.
+2. Run the scope check from [Is the diff real or unrelated?](#is-the-diff-real-or-unrelated) against the named identifiers.
+   It needs only `git diff`, so it works without a run.
+3. Judge flakiness from the default branch, not from the fork PR.
+   Use `posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, with the repo id from `posthog:visual-review-repos-list`.
+   This is the one VR tool that still helps, because it reports repo-level history and does not need a run.
+4. Report the verdict and stop.
+   You cannot approve, tolerate or finalize anything, because there is no run to act on.
+   A snapshot that must change needs a maintainer to update `frontend/snapshots.yml` on the PR branch, with a Visual Review run on an in-repo branch.
+
+Never push a fork's head to an in-repo branch to get it a Visual Review run.
+See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
 ## Tools
 
@@ -119,6 +173,8 @@ These appear in tool output and matter for interpretation:
 ### "What's the VR status of this PR?"
 
 The single most common job. Map a PR number to its run state in two calls.
+First confirm the PR is not from a fork.
+A fork PR has no run, and `visual-review-runs-list` returns an empty list for it.
 
 1. `posthog:visual-review-runs-list { pr_number: <n>, limit: 5 }` — sort by `created_at` desc, take the latest non-stale one.
 2. If the run has `summary.changed > 0` or `summary.unresolved > 0`, drill in:
@@ -221,5 +277,7 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
   decision to ship belongs to the user. Once they say "approve those" / "tolerate that", call the tool.
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
+- Do not read an empty run list on a fork PR as a broken or pending run.
+  Check `isCrossRepository` first, then triage the offline check instead.
 - Do not declare a verdict from metadata alone when `result: changed`. Pull the baseline and current PNGs
   and look at them; metadata can only say "something changed", not whether the change is intended.

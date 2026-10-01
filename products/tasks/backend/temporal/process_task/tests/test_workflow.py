@@ -80,7 +80,10 @@ from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_cre
     RefreshSandboxCredentialsOutput,
     refresh_sandbox_credentials,
 )
-from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
+from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
+    TURN_IN_FLIGHT_OUTCOME,
+    SendFollowupToSandboxInput,
+)
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -584,12 +587,18 @@ class TestSandboxRotation:
 
     @parameterized.expand(
         [
-            ("idle_with_flag_on", {}, True),
-            ("flag_off", {"rotation_enabled": False}, False),
-            ("agent_mid_turn", {"agent_active": True}, False),
-            ("run_finishing", {"task_completed": True}, False),
-            ("followup_in_flight", {"followup_running": True}, False),
-            ("followup_finished", {"followup_running": False, "followup_present": True}, True),
+            ("idle_with_flag_on", {"end_of_turn_received": True}, True),
+            ("flag_off", {"rotation_enabled": False, "end_of_turn_received": True}, False),
+            ("agent_mid_turn", {"agent_active": True, "end_of_turn_received": False}, False),
+            ("turn_open_after_followup_reset", {"agent_active": None, "end_of_turn_received": False}, False),
+            ("turn_closed", {"agent_active": False, "end_of_turn_received": True}, True),
+            ("run_finishing", {"task_completed": True, "end_of_turn_received": True}, False),
+            ("followup_in_flight", {"followup_running": True, "end_of_turn_received": True}, False),
+            (
+                "followup_finished",
+                {"followup_running": False, "followup_present": True, "end_of_turn_received": True},
+                True,
+            ),
         ]
     )
     def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
@@ -597,6 +606,7 @@ class TestSandboxRotation:
         wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
         wf._context.sandbox_rotation_enabled = overrides.get("rotation_enabled", True)
         wf._agent_active = overrides.get("agent_active", False)
+        wf._end_of_turn_received = overrides["end_of_turn_received"]
         wf._task_completed = overrides.get("task_completed", False)
         if overrides.get("followup_running") or overrides.get("followup_present"):
             followup = Mock()
@@ -604,6 +614,19 @@ class TestSandboxRotation:
             wf._active_followup_task = followup
 
         assert (wf._sandbox_rotation_block_reason() is None) is expected
+
+    def test_open_turn_guard_preserves_pre_patch_rotation(self, monkeypatch):
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = True
+        wf._agent_active = None
+        wf._end_of_turn_received = False
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
+        patched = Mock(return_value=False)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", patched)
+
+        assert wf._sandbox_rotation_block_reason() is None
+        patched.assert_called_once_with("tasks-block-rotation-on-open-turn")
 
     async def test_the_credential_refresh_loop_follows_the_run_to_the_new_sandbox(self, monkeypatch):
         wf = self._workflow(monkeypatch)
@@ -1897,6 +1920,77 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._end_of_turn_received is expected
         assert workflow._agent_active is (None if outcome is None else False)
 
+    @pytest.mark.parametrize(
+        "outcome, completes_after_delivery, expected_status",
+        [
+            (None, False, "completed"),
+            (TURN_IN_FLIGHT_OUTCOME, False, "failed"),
+            (TURN_IN_FLIGHT_OUTCOME, True, "completed"),
+        ],
+    )
+    async def test_followup_delivery_distinguishes_an_open_turn_from_an_earlier_completion(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        outcome: str | None,
+        completes_after_delivery: bool,
+        expected_status: str,
+    ) -> None:
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, origin_product="workflow")
+        workflow._context.sandbox_rotation_enabled = True
+        workflow._end_of_turn_received = True
+        workflow._agent_active = False
+
+        async def deliver_after_turn_completes(*_args: object, **_kwargs: object) -> str | None:
+            await workflow.agent_state_changed(False)
+            await workflow.agent_turn_completed(True)
+            await workflow.heartbeat(True)
+            return outcome
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", deliver_after_turn_completes)
+
+        await workflow._send_followup_to_sandbox("go", [])
+
+        if outcome == TURN_IN_FLIGHT_OUTCOME:
+            assert workflow._sandbox_rotation_block_reason() == "turn_open"
+        if completes_after_delivery:
+            await workflow.agent_state_changed(False)
+            await workflow.agent_turn_completed(True)
+
+        await workflow._mark_sandbox_gone()
+
+        assert workflow._completion_status == expected_status
+        assert workflow._end_of_turn_received is (expected_status == "completed")
+        assert workflow._agent_active is (False if expected_status == "completed" else None)
+
+    async def test_followup_delivery_preserves_the_pre_patch_turn_reset(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._end_of_turn_received = True
+        workflow._agent_active = False
+
+        async def deliver_after_turn_completes(*_args, **_kwargs):
+            await workflow.agent_state_changed(False)
+            return None
+
+        def patched(patch_id: str) -> bool:
+            return patch_id == process_task_workflow_module._PATCH_ID_TURN_OPENS_ON_DISPATCH
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", patched)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", deliver_after_turn_completes)
+
+        await workflow._send_followup_to_sandbox("go", [])
+
+        assert workflow._end_of_turn_received is False
+        assert workflow._agent_active is None
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
@@ -2242,6 +2336,8 @@ class TestProcessTaskWorkflowUnit:
         )
         monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
         monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
+        start_slack_relay_mock = AsyncMock()
+        monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
         result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
@@ -2249,6 +2345,47 @@ class TestProcessTaskWorkflowUnit:
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
+        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+
+    @pytest.mark.parametrize("early_relay_open, starts_relay", [(True, False), (False, True)])
+    async def test_turn_started_reuses_the_relay_started_during_provisioning(self, early_relay_open, starts_relay):
+        # A second relay for the first turn would post a second reply in the thread.
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._is_agent_design_enabled = True
+        workflow._early_slack_relay_open = early_relay_open
+        start_relay_mock = AsyncMock()
+        workflow._start_slack_agent_design_relay = start_relay_mock  # type: ignore[method-assign]
+
+        await workflow.turn_started({"slack_thread_context": {"channel": "C1"}})
+
+        assert start_relay_mock.called is starts_relay
+        assert workflow._early_slack_relay_open is False
+
+    @pytest.mark.parametrize(
+        "relay_open, step, forwarded",
+        [
+            (True, "clone", True),
+            # Pull request and CI steps come after the agent starts, and its own lines cover them.
+            (True, "pr", False),
+            # A follow-up turn reuses the running sandbox, so no setup shows in its plan.
+            (False, "clone", False),
+        ],
+    )
+    async def test_emit_progress_shows_sandbox_setup_in_the_early_slack_plan(
+        self, monkeypatch, relay_open, step, forwarded
+    ):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._early_slack_relay_open = relay_open
+        monkeypatch.setattr(workflow, "_run_progress_activity", AsyncMock(return_value=True))
+        forward_mock = Mock()
+        monkeypatch.setattr(workflow, "_forward_slack_setup_step", forward_mock)
+
+        await workflow._emit_progress(step, "in_progress", "Cloning repository", "setup")
+
+        assert forward_mock.called is forwarded
 
     @pytest.mark.parametrize(
         "origin_product, pr_progress_emitted, ci_repetitions, end_of_turn_received, expected_status",
