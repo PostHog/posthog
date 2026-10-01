@@ -115,8 +115,11 @@ export interface taskRunArtifactsLogicMeta {
         artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
         selectedIndex: (artifacts: RunArtifact[], selectedArtifactId: string | null) => number
         selectedArtifact: (artifacts: RunArtifact[], selectedIndex: number) => RunArtifact | null
-        selectedKind: (selectedArtifact: any) => ArtifactPreviewKind | null
-        selectedText: (selectedArtifact: any, textsById: Record<string, ArtifactText>) => ArtifactText | null
+        selectedKind: (selectedArtifact: RunArtifact | null) => ArtifactPreviewKind | null
+        selectedText: (
+            selectedArtifact: RunArtifact | null,
+            textsById: Record<string, ArtifactText>
+        ) => ArtifactText | null
     }
 }
 
