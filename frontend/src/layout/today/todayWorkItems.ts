@@ -63,6 +63,36 @@ export function activeCloudRunId(item: TodayWorkItem): string | null {
         : null
 }
 
+/** What a session's menus and its hover card act on. */
+export interface TodaySessionMenuTarget {
+    /** The row or card that owns the follow-up dialogs, so they outlive the menu that opened them. */
+    menuId: string
+    sessionId: string
+    title: string
+    pinned: boolean
+    spaceId: string | null
+    canHandOff: boolean
+    analysisRunId: string | null
+    /** The latest run while it is an active cloud run: it can be stopped, and archiving asks first. */
+    activeRunId: string | null
+}
+
+export function sessionMenuTarget(
+    item: TodayWorkItem,
+    { menuId, pinned, userId }: { menuId: string; pinned: boolean; userId: number | null | undefined }
+): TodaySessionMenuTarget {
+    return {
+        menuId,
+        sessionId: item.id,
+        title: item.title,
+        pinned,
+        spaceId: item.channel,
+        canHandOff: canHandOff(item, userId),
+        analysisRunId: analysisRunId(item),
+        activeRunId: activeCloudRunId(item),
+    }
+}
+
 function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {
     const message = output?.final_message
     return typeof message === 'string' && message.trim() ? message.trim() : null
