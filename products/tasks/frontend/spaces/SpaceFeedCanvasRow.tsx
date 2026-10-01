@@ -1,4 +1,4 @@
-import { IconBrowser } from '@posthog/icons'
+import { IconDocument, IconGraph, IconLineGraph, IconPalette } from '@posthog/icons'
 import { Badge, Card, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
@@ -6,6 +6,12 @@ import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { TaskAvatarUser, TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+
+const TEMPLATE_ICONS: Record<string, typeof IconGraph> = {
+    'web-analytics': IconLineGraph,
+    blank: IconDocument,
+    freeform: IconPalette,
+}
 
 interface SpaceFeedCanvasRowProps {
     canvas: CanvasApi
@@ -20,7 +26,8 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
         first_name: canvas.created_by.first_name ?? '',
         last_name: canvas.created_by.last_name ?? '',
     }
-    const icon = <IconBrowser className="size-3.5 shrink-0 text-muted-foreground" />
+    const TemplateIcon = TEMPLATE_ICONS[canvas.template_id] ?? IconGraph
+    const icon = <TemplateIcon className="size-3.5 shrink-0 text-muted-foreground" />
     const age = shortTimeAgo(canvas.updated_at)
     const avatar = (
         <span role="img" aria-label={taskUserName(author)} className="relative flex shrink-0">
@@ -74,7 +81,7 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
                 <Badge className="shrink-0">Canvas</Badge>
             </div>
             {canvas.description && (
-                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 leading-normal break-words">
+                <Text size="xs" variant="muted" className="mt-1 line-clamp-2 leading-normal break-words">
                     {canvas.description}
                 </Text>
             )}

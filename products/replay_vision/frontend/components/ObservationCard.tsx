@@ -428,7 +428,11 @@ export function ObservationDockCard({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
-                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
+                    <Link
+                        data-attr="vision-observation-open"
+                        to={urls.replayVisionObservation(observation.id)}
+                        className="text-xs whitespace-nowrap"
+                    >
                         View details
                     </Link>
                     {similarUrl && (

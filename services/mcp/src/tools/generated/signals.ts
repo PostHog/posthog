@@ -1063,7 +1063,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
 const ScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, Schemas.EmitReportResponse> => ({
@@ -2006,7 +2008,9 @@ const signalsScoutEditReport = (): ToolBase<
 const SignalsScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const signalsScoutEmitReport = (): ToolBase<

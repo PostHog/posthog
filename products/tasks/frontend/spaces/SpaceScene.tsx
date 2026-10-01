@@ -32,7 +32,7 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceSceneLogicProps, SpaceTab, spaceSceneLogic } from './spaceSceneLogic'
+import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 
 const SPACE_COMPOSER_OVERRIDE = {
@@ -142,7 +142,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                     <div className="-mx-4 border-b border-border px-4">
                         <TabsList variant="line" aria-label="Space pages">
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
-                                Feed
+                                Activity
                             </TabsTrigger>
                             <TabsTrigger value="settings" data-attr="today-space-tab-settings">
                                 Settings
@@ -157,7 +157,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                                 <div className="mb-1 border-b border-border pb-4" data-attr="today-space-new-task">
                                     <EmbeddedTaskComposer
                                         key={space.id}
-                                        panelId={`space-${space.id}`}
+                                        panelId={spaceComposerPanelId(id)}
                                         channelId={space.id}
                                         initialRepositoryConfig={composerRepositoryConfig}
                                         composerOverride={SPACE_COMPOSER_OVERRIDE}

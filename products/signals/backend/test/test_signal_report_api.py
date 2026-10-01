@@ -1154,6 +1154,28 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
+    def test_for_you_ranks_the_reports_naming_the_user_and_counts_only_theirs(self):
+        def report_naming_me(title: str, report_status: str) -> SignalReport:
+            report = self._create_report(title=title, status=report_status)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
+            )
+            return report
+
+        waiting = report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
+        report_naming_me("Names me as reviewer", SignalReport.Status.READY)
+        self._create_report(title="Someone else's report")
+
+        response = self.client.get(f"{self._list_url()}for_you/?limit=1")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["id"] for row in body["results"]] == [str(waiting.id)]
+        assert body["count"] == 2
+
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
         # flagged after a newer row drops them (latest-wins).

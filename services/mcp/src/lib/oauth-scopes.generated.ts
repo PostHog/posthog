@@ -200,6 +200,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'ticket:write',
     'task:read',
     'task:write',
+    'today:read',
+    'today:write',
     'toolbar:read',
     'toolbar:write',
     'tracing:read',

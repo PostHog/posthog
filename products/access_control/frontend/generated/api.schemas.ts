@@ -143,6 +143,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
+ * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
  * * `field_note` - field_note
@@ -262,6 +263,7 @@ export const ScopeObjectEnumApi = {
     Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
+    Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
     FieldNote: 'field_note',
@@ -404,6 +406,7 @@ export interface ProjectAccessSourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -566,6 +569,7 @@ export interface AccessControlObjectRuleApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -950,6 +954,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -1214,6 +1219,7 @@ export interface ResolvedAccessApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note

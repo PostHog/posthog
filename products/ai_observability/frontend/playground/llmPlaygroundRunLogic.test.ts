@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import {
     appendToolCallChunk,
     describeError,
@@ -138,6 +138,55 @@ describe('llmPlaygroundRunLogic', () => {
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
+        // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
+        // a warning that names a skipped panel's variable, or keeps firing after the
+        // values are filled, misreports what was sent.
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+        const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The second panel has no messages, so it is skipped: {{ghost}} is never sent
+        llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+            createPromptConfig({
+                model: 'gpt-5-mini',
+                messages: [{ role: 'user', content: '{{topic}} in a {{tone}} tone' }],
+            }),
+            createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{topic}}, {{tone}}. The placeholders are sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 2 })
+        )
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+        captureSpy.mockRestore()
     })
 
     it('does not run a completion without editor access to the playground and explains why', async () => {

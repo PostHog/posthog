@@ -848,6 +848,9 @@ importers:
       '@posthog/products-tasks':
         specifier: workspace:*
         version: link:../products/tasks
+      '@posthog/products-today':
+        specifier: workspace:*
+        version: link:../products/today
       '@posthog/products-tracing':
         specifier: workspace:*
         version: link:../products/tracing
@@ -4994,6 +4997,9 @@ importers:
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-disposables:
+        specifier: 'catalog:'
+        version: 1.0.0(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
@@ -5013,6 +5019,11 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      tailwindcss:
+        specifier: 4.3.0
+        version: 4.3.0
+
+  products/today: {}
 
   products/toolbar: {}
 
@@ -5515,8 +5526,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
-        specifier: npm:@posthog/mcp@0.21.1
-        version: '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
+        specifier: npm:@posthog/mcp@0.21.2
+        version: '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -10787,8 +10798,8 @@ packages:
       react: 18.3.1
       react-dom: 18.3.1
 
-  '@posthog/mcp@0.21.1':
-    resolution: {integrity: sha512-NbSJlf1XDLJBbNBFtQWIUKS5oooXb9B1gY6V7a+MLZOAyO8Ap7zAIzagsLkpFngvkEfd757uVtEP1YyAEcWIuw==}
+  '@posthog/mcp@0.21.2':
+    resolution: {integrity: sha512-xfzkKZpnM604IKLVxj8ih6CHYaGMsWU6olvT8B2mtbHlRlJ1u5vQnYFII9lOgYkw0S0RME9sJxynm8+ITa4HAQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@modelcontextprotocol/sdk': ^1.29.0
@@ -30403,7 +30414,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.21.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
+  '@posthog/mcp@0.21.2(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(posthog-node@5.54.1(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.55.2
       posthog-node: 5.54.1(rxjs@7.8.1)

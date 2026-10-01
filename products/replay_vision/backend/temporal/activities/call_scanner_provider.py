@@ -145,6 +145,8 @@ class _MissionOutcome:
     verification: VerificationRecord | None = None
     thumbnail_video_s: int | None = None
     key_moment_video_s: int | None = None
+    # The core turn's raw answer, for fields the scanner still has to move onto the session clock.
+    core_response: BaseModel | None = None
 
 
 @activity.defn
@@ -295,6 +297,8 @@ async def run_scan(
     # Built before the preamble so one object decides both the wording and the tool list, which keeps the
     # prompt from describing a tool the conversation does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
+    scanner = scanner.bind_session(video_clock, duration_ms)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
@@ -321,11 +325,11 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
     finalized = finalized.model_copy(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
+    finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
     return ScannerCallOutput(
         model_output=finalized,
@@ -398,7 +402,7 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
             # Drop citations past the video's end (a time the model invented) before converting, because the
             # clock clamps past its last span and would turn any such value into the recording endpoint. No
             # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
-            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            longest_citable_s = clock.citable_duration_s(duration_ms / 1000)
             if longest_citable_s is not None and video_s <= longest_citable_s:
                 segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
@@ -600,9 +604,7 @@ async def _run_mission(
             step,
             validate=functools.partial(
                 _validate_signal_timestamps,
-                duration_seconds=llm_inputs.metadata.duration_seconds
-                if video_clock.is_identity
-                else video_clock.video_duration_s,
+                duration_seconds=video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds),
             ),
         )
         if step.name == STEP_SIGNALS
@@ -659,6 +661,7 @@ async def _run_mission(
         verification=verification,
         thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
+        core_response=step_outputs.get(STEP_CORE),
     )
 
 

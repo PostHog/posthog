@@ -1,6 +1,13 @@
 import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { artifactPreviewKind, collectRunArtifacts, parseCsv, visibleRunArtifacts } from './taskRunArtifacts'
+import {
+    RunArtifact,
+    artifactPreviewKind,
+    collectRunArtifacts,
+    groupArtifactVersions,
+    parseCsv,
+    visibleRunArtifacts,
+} from './taskRunArtifacts'
 
 function artifact(overrides: Partial<TaskRunArtifactResponseApi>): TaskRunArtifactResponseApi {
     return {
@@ -46,21 +53,36 @@ describe('taskRunArtifacts', () => {
             'image',
         ],
         ['the extension with no type', { name: 'weeks.csv' }, 'csv'],
+        ['a video by extension', { name: 'walkthrough.webm' }, 'video'],
         ['an unknown binary', { name: 'bundle.zip', content_type: 'application/zip' }, 'none'],
     ])('artifactPreviewKind reads %s', (_, overrides, expected) => {
         expect(artifactPreviewKind(artifact(overrides))).toBe(expected)
     })
 
-    it('visibleRunArtifacts keeps only files the agent wrote', () => {
+    it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {
         const kept = artifact({ id: 'kept' })
+        const insight = artifact({
+            id: 'phref_insight',
+            type: 'reference',
+            source: 'posthog_object',
+            storage_path: undefined,
+            metadata: {
+                reference_type: 'posthog_object',
+                object_kind: 'insight',
+                object_id: 'aBc123',
+                source_message_ids: ['m1'],
+                occurrence_count: 1,
+            },
+        })
         const artifacts = [
             kept,
+            insight,
             artifact({ id: 'attachment', source: 'user_attachment' }),
             artifact({ id: 'plan', type: 'plan' }),
             artifact({ id: 'dismissed', dismissed_at: '2026-09-28T19:00:00Z' }),
             artifact({ id: 'reference', storage_path: undefined }),
         ]
-        expect(visibleRunArtifacts(artifacts)).toEqual([kept])
+        expect(visibleRunArtifacts(artifacts)).toEqual([kept, insight])
     })
 
     it('collectRunArtifacts keeps files from earlier runs of a resumed task', () => {
@@ -82,5 +104,64 @@ describe('taskRunArtifacts', () => {
             { id: 'chart', runId: 'run-3', uploaded_at: '2026-09-30T19:00:00Z' },
             { id: 'report', runId: 'run-1', uploaded_at: '2026-09-30T17:00:00Z' },
         ])
+    })
+
+    test.each([
+        [
+            'merges one name across runs, newest first',
+            [
+                { id: 'report-1', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T17:00:00Z' },
+                { id: 'report-3', runId: 'run-2', name: 'report.md', uploaded_at: '2026-09-30T19:00:00Z' },
+                { id: 'report-2', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T18:00:00Z' },
+            ],
+            [{ name: 'report.md', versionIds: ['report-3', 'report-2', 'report-1'], latestId: 'report-3' }],
+        ],
+        [
+            'keeps different names apart, by latest upload',
+            [
+                { id: 'chart-1', runId: 'run-1', name: 'chart.svg', uploaded_at: '2026-09-30T18:30:00Z' },
+                { id: 'report-2', runId: 'run-2', name: 'report.md', uploaded_at: '2026-09-30T19:00:00Z' },
+                { id: 'report-1', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T17:00:00Z' },
+            ],
+            [
+                { name: 'report.md', versionIds: ['report-2', 'report-1'], latestId: 'report-2' },
+                { name: 'chart.svg', versionIds: ['chart-1'], latestId: 'chart-1' },
+            ],
+        ],
+        [
+            'keeps two cited objects with one name apart',
+            [
+                {
+                    id: 'phref_a',
+                    runId: 'run-1',
+                    name: 'Signups',
+                    type: 'reference',
+                    uploaded_at: '2026-09-30T18:00:00Z',
+                },
+                {
+                    id: 'phref_b',
+                    runId: 'run-1',
+                    name: 'Signups',
+                    type: 'reference',
+                    uploaded_at: '2026-09-30T17:00:00Z',
+                },
+            ],
+            [
+                { name: 'Signups', versionIds: ['phref_a'], latestId: 'phref_a' },
+                { name: 'Signups', versionIds: ['phref_b'], latestId: 'phref_b' },
+            ],
+        ],
+    ])('groupArtifactVersions %s', (_, versions, expected) => {
+        const artifacts: RunArtifact[] = versions.map(({ runId, ...overrides }) => ({
+            ...artifact(overrides),
+            runId,
+        }))
+        expect(
+            groupArtifactVersions(artifacts).map((file) => ({
+                name: file.name,
+                versionIds: file.versions.map(({ id }) => id),
+                latestId: file.latest.id,
+            }))
+        ).toEqual(expected)
     })
 })
