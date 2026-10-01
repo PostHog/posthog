@@ -3,7 +3,7 @@
 from .content import BriefingContent
 from .fact_sheet import FactSheet
 
-MAX_WORDS = 130
+MAX_WORDS = 70
 MAX_LINK_WORDS = 8
 MAX_LABEL_WORDS = 6
 MAX_SIGNAL_CHARS = 40
