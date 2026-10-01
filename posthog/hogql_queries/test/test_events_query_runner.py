@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -1452,6 +1453,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_ids=["merged-user", "merged-user-anon"],
             properties={"email": "merged-user@example.com"},
         )
+        unnamed = _create_person(team_id=self.team.pk, distinct_ids=["unnamed-user"], properties={"plan": "free"})
         flush_persons_and_events()
         orphan_person_id = uuid.UUID("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         self._insert_flag_evaluation("first-user", first.uuid)
@@ -1459,6 +1461,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._insert_flag_evaluation("merged-user-anon", uuid.uuid4(), FLAG_CALL_TIMESTAMP + timedelta(seconds=1))
         self._insert_flag_evaluation("orphan-user", orphan_person_id, FLAG_CALL_TIMESTAMP + timedelta(seconds=2))
         self._insert_flag_evaluation("first-user", first.uuid, FLAG_CALL_TIMESTAMP + timedelta(seconds=3))
+        self._insert_flag_evaluation("unnamed-user", unnamed.uuid, FLAG_CALL_TIMESTAMP + timedelta(seconds=4))
         sync_execute(
             "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
             [(self.team.pk, "merged-user-anon", str(merged.uuid), 1, 0)],
@@ -1472,14 +1475,19 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 orderBy=["timestamp ASC"],
                 after="-30d",
             )
-            response = EventsQueryRunner(query=query, team=self.team).run()
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
 
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert not re.search(r"\bFROM\s+person\b", page_queries[0])
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0] for row in response.results] == [
             {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
             {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"},
             {"display_name": "orphan-user", "id": str(orphan_person_id), "distinct_id": "orphan-user"},
             {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
+            {"display_name": "unnamed-user", "id": str(unnamed.uuid), "distinct_id": "unnamed-user"},
         ]
 
     def _enable_property_access_control(self) -> None:

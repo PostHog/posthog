@@ -727,7 +727,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     properties["$has_recording"] = session_id in session_recordings_map
 
     def _expand_person_display_name_columns(self, table: EventsListTable) -> list[int]:
-        """Convert each person_display_name tuple into a dict, and return the `person` column indices."""
+        """Convert each person_display_name tuple into a dict, and return the `person` column indices.
+
+        When the table looks up display names, this queries `persons` in ClickHouse for the page's person ids.
+        """
         person_indices: list[int] = []
         display_name_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):

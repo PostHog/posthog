@@ -335,12 +335,12 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT where_optimization.id AS id
                                                     FROM person AS where_optimization
-                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id, tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))))))
+                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id, tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))))))
      GROUP BY person.id
      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE in(persons.id,
-           tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))
-  LIMIT 3 SETTINGS readonly=2,
+           tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))
+  LIMIT 4 SETTINGS readonly=2,
                    max_execution_time=60,
                    allow_experimental_object_type=1,
                    max_ast_elements=4000000,
