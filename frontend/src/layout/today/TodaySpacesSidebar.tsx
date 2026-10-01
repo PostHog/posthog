@@ -150,10 +150,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     <IconPlus />
                     New chat
                 </Button>
-                <div
-                    className="mt-6 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
-                    ref={layout.measureRefs.area}
-                >
+                <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-1" ref={layout.measureRefs.area}>
                     {hasPinned && (
                         <TodayPaneSection
                             label="Pinned"
