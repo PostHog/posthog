@@ -813,3 +813,64 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+# Hourly counts whose median is 3, ending on a new maximum of 13. A real new maximum, and a
+# completely unremarkable move for a series this small.
+LOW_VOLUME_COUNTS = np.array([2, 3, 4, 3, 2, 3, 5, 3, 2, 4] * 4 + [13], dtype=float)
+# The same shape at 100x the volume, where the move is worth alerting on.
+HIGH_VOLUME_COUNTS = LOW_VOLUME_COUNTS * 100
+# A metric that grew past the floor: 30 quiet points, then a settled baseline of ~50, then a
+# spike. The whole-series median stays under the floor while the recent baseline is well clear.
+GROWN_COUNTS = np.array([2, 3] * 15 + [50, 51, 49, 50, 52, 48, 50, 51, 49, 50, 50, 51] + [200], dtype=float)
+
+NO_FLOOR: dict[str, Any] = {"threshold": 0.95, "window": 10}
+WITH_FLOOR: dict[str, Any] = {**NO_FLOOR, "min_baseline": 5}
+
+STATISTICAL_DETECTOR_CLASSES = [
+    ("zscore", ZScoreDetector),
+    ("mad", MADDetector),
+    ("iqr", IQRDetector),
+]
+
+
+class TestVolumeFloor:
+    """Relative deviation means nothing on a count series of a handful of events per interval."""
+
+    @parameterized.expand(STATISTICAL_DETECTOR_CLASSES)
+    def test_a_small_count_series_fires_only_without_the_floor(self, _name: str, detector_cls: Any) -> None:
+        assert not detector_cls(WITH_FLOOR).detect(LOW_VOLUME_COUNTS).is_anomaly
+        assert detector_cls(NO_FLOOR).detect(LOW_VOLUME_COUNTS).is_anomaly
+
+    @parameterized.expand(STATISTICAL_DETECTOR_CLASSES)
+    def test_floor_leaves_a_high_volume_series_alone(self, _name: str, detector_cls: Any) -> None:
+        assert detector_cls(WITH_FLOOR).detect(HIGH_VOLUME_COUNTS).is_anomaly
+
+    @parameterized.expand(STATISTICAL_DETECTOR_CLASSES)
+    def test_floor_reads_the_training_window_not_the_whole_series(self, _name: str, detector_cls: Any) -> None:
+        # Judging the whole series would let a metric's quiet early days veto every later
+        # anomaly, and blank the simulation chart that previews the alert.
+        detector = detector_cls(WITH_FLOOR)
+
+        assert detector.detect(GROWN_COUNTS).is_anomaly
+        assert detector.detect_batch(GROWN_COUNTS).triggered_indices
+
+    @parameterized.expand(STATISTICAL_DETECTOR_CLASSES)
+    def test_batch_skips_a_small_count_series(self, _name: str, detector_cls: Any) -> None:
+        assert detector_cls(WITH_FLOOR).detect_batch(LOW_VOLUME_COUNTS).triggered_indices == []
+        assert detector_cls(NO_FLOOR).detect_batch(LOW_VOLUME_COUNTS).triggered_indices
+
+    @parameterized.expand([("with the floor", WITH_FLOOR, False), ("without it", NO_FLOOR, True)])
+    def test_or_ensemble_holds_the_floor_only_when_every_sub_detector_does(
+        self, _name: str, sub_config: dict[str, Any], expected: bool
+    ) -> None:
+        config = {
+            "type": "ensemble",
+            "operator": "or",
+            "detectors": [
+                {**sub_config, "type": "zscore", "preprocessing": {"diffs_n": 1, "smooth_n": 3}},
+                {**sub_config, "type": "isolation_forest", "preprocessing": {"smooth_n": 3}},
+            ],
+        }
+
+        assert EnsembleDetector(config).detect(LOW_VOLUME_COUNTS).is_anomaly is expected

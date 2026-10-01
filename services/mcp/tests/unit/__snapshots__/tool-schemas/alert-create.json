@@ -171,6 +171,17 @@
                                         "anyOf": [
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
@@ -249,6 +260,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
@@ -327,6 +349,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "multiplier": {
                                                         "anyOf": [
                                                             {
@@ -483,6 +516,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
@@ -561,6 +605,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
@@ -639,6 +694,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "n_estimators": {
                                                         "anyOf": [
                                                             {
@@ -740,6 +806,17 @@
                                                         ],
                                                         "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                                     },
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "n_neighbors": {
                                                         "anyOf": [
                                                             {
@@ -829,6 +906,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "n_bins": {
                                                         "anyOf": [
                                                             {
@@ -918,6 +1006,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "n_neighbors": {
                                                         "anyOf": [
                                                             {
@@ -1018,6 +1117,17 @@
                                                         ],
                                                         "description": "SVM kernel type (default: \"rbf\")"
                                                     },
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "nu": {
                                                         "anyOf": [
                                                             {
@@ -1107,6 +1217,17 @@
                                             },
                                             {
                                                 "properties": {
+                                                    "min_baseline": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ],
+                                                        "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                                    },
                                                     "preprocessing": {
                                                         "anyOf": [
                                                             {
@@ -1203,6 +1324,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
@@ -1281,6 +1413,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
@@ -1359,6 +1502,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "multiplier": {
                                     "anyOf": [
                                         {
@@ -1515,6 +1669,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
@@ -1593,6 +1758,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "preprocessing": {
                                     "anyOf": [
                                         {
@@ -1671,6 +1847,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "n_estimators": {
                                     "anyOf": [
                                         {
@@ -1772,6 +1959,17 @@
                                     ],
                                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')"
                                 },
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "n_neighbors": {
                                     "anyOf": [
                                         {
@@ -1861,6 +2059,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "n_bins": {
                                     "anyOf": [
                                         {
@@ -1950,6 +2159,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "n_neighbors": {
                                     "anyOf": [
                                         {
@@ -2050,6 +2270,17 @@
                                     ],
                                     "description": "SVM kernel type (default: \"rbf\")"
                                 },
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "nu": {
                                     "anyOf": [
                                         {
@@ -2139,6 +2370,17 @@
                         },
                         {
                             "properties": {
+                                "min_baseline": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Typical value the series must reach before a deviation counts. Unset, alerts default it to 5 on metrics that count events, users or sessions, and leave it off elsewhere. 0 always checks"
+                                },
                                 "preprocessing": {
                                     "anyOf": [
                                         {

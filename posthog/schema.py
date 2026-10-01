@@ -9345,6 +9345,14 @@ class ZScoreDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
     )
@@ -10978,6 +10986,14 @@ class BreakdownItem(BaseModel):
 class COPODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -17376,6 +17392,14 @@ class ECODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
     )
@@ -18268,6 +18292,14 @@ class HBOSDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -18285,6 +18317,14 @@ class HBOSDetectorConfig(BaseModel):
 class IQRDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
     )
     multiplier: float | None = Field(
         default=None,
@@ -18324,6 +18364,14 @@ class IsolationForestDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -18346,6 +18394,14 @@ class KNNDetectorConfig(BaseModel):
         default=None,
         description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
     )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -18363,6 +18419,14 @@ class KNNDetectorConfig(BaseModel):
 class LOFDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
     )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
     preprocessing: PreprocessingConfig | None = Field(
@@ -18575,6 +18639,14 @@ class LogsQueryResponse(BaseModel):
 class MADDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"
@@ -19996,6 +20068,14 @@ class OCSVMDetectorConfig(BaseModel):
         extra="forbid",
     )
     kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
+    )
     nu: float | None = Field(
         default=None,
         description="Upper bound on training errors fraction (default: 0.1)",
@@ -20016,6 +20096,14 @@ class OCSVMDetectorConfig(BaseModel):
 class PCADetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    min_baseline: float | None = Field(
+        default=None,
+        description=(
+            "Typical value the series must reach before a deviation counts. Unset,"
+            " alerts default it to 5 on metrics that count events, users or sessions,"
+            " and leave it off elsewhere. 0 always checks"
+        ),
     )
     preprocessing: PreprocessingConfig | None = Field(
         default=None, description="Preprocessing transforms applied before detection"

@@ -40,6 +40,10 @@ DETECTOR_DEFAULT_WINDOWS: dict[DetectorType, int] = {
     DetectorType.LLM: LLM_DETECTOR_DEFAULT_WINDOW,
 }
 
+# Typical value a count series must reach before a relative-deviation flag counts.
+# Alerts apply this to every detector config that does not set its own ``min_baseline``.
+DETECTOR_DEFAULT_MIN_BASELINE = 5.0
+
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
 MAX_DETECTOR_BREAKDOWN_VALUES = 25

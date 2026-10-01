@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import DetectorType, TrendsAlertConfig, TrendsQuery
+from posthog.schema import BaseMathType, DetectorType, FunnelMathType, GroupMathType, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
@@ -16,6 +16,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
 # Low-level scoring/extraction primitives still live in the legacy detector module.
 from posthog.tasks.alerts.detector import (
+    DETECTOR_DEFAULT_MIN_BASELINE,
     MAX_DETECTOR_BREAKDOWN_VALUES,
     _compute_min_samples_for_detector,
     _date_range_override_for_detector,
@@ -53,6 +54,55 @@ from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
+
+# Maths that count events, people, sessions or groups. Only these promise that one more event
+# moves the series by one, which is what the volume floor assumes when it calls a median of 3
+# too small to judge. A property aggregate (sum, avg, a percentile) or a count-per-actor average
+# measures something else entirely, and there a median of 3 can be the normal, meaningful scale.
+_COUNT_MATHS = frozenset({*BaseMathType, *FunnelMathType, *GroupMathType})
+
+
+def _is_count_series(query: TrendsQuery, series_index: int, has_breakdown: bool) -> bool:
+    """Report whether the scored series counts things, rather than measuring them.
+
+    Unset math is a plain event count. A formula combines series into an expression whose scale
+    belongs to no single one of them, so it never counts as a count.
+    """
+    trends_filter = query.trendsFilter
+    if trends_filter and (trends_filter.formula or trends_filter.formulas or trends_filter.formulaNodes):
+        return False
+
+    nodes = list(query.series or [])
+    if not has_breakdown:
+        # A breakdown scores every series the query returns, so all of them have to count.
+        nodes = nodes[series_index : series_index + 1]
+    if not nodes:
+        return False
+
+    return all(getattr(node, "math", None) in _COUNT_MATHS or getattr(node, "math", None) is None for node in nodes)
+
+
+def _with_volume_floor(config: dict[str, Any], *, is_count_metric: bool) -> dict[str, Any]:
+    """Default the alert volume floor on a stored detector config.
+
+    Relative-deviation detectors score a move against the recent spread, with no floor on
+    absolute volume. On a count series of a handful of events per interval, one extra event is
+    both a large relative move and a new maximum, so the detector fires on noise. Configs saved
+    before the floor existed carry no ``min_baseline``, and an ensemble holds the floor only
+    when every sub-detector does.
+
+    Only a count metric gets the floor by default: elsewhere a median of 3 may be the metric's
+    ordinary scale, and flooring it would silence the alert instead of quieting it. An alert
+    that sets ``min_baseline`` itself keeps that value whatever the metric measures.
+    """
+    if config.get("type") == "ensemble":
+        return {
+            **config,
+            "detectors": [_with_volume_floor(d, is_count_metric=is_count_metric) for d in config.get("detectors", [])],
+        }
+    if config.get("min_baseline") is not None or not is_count_metric:
+        return config
+    return {**config, "min_baseline": DETECTOR_DEFAULT_MIN_BASELINE}
 
 
 def extract_detector_series(
@@ -99,7 +149,11 @@ def extract_detector_series(
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not calculation_result.result:
         return ExtractionResult(
-            series=[], is_breakdown=has_breakdown, interval_type=query.interval, empty_query_result=True
+            series=[],
+            is_breakdown=has_breakdown,
+            interval_type=query.interval,
+            empty_query_result=True,
+            is_count_metric=_is_count_series(query, series_index, has_breakdown),
         )
 
     if has_breakdown:
@@ -121,7 +175,12 @@ def extract_detector_series(
         # the whole series rather than comparing against a single anchor interval.
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
-    return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
+    return ExtractionResult(
+        series=series,
+        is_breakdown=has_breakdown,
+        interval_type=query.interval,
+        is_count_metric=_is_count_series(query, series_index, has_breakdown),
+    )
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
@@ -314,6 +373,7 @@ def evaluate_with_detector(
     interval_value = result.interval_type.value if result.interval_type else None
     alert_config = (alert.config if alert is not None else None) or {}
     series_index = alert_config.get("series_index", 0)
+    floored_config = _with_volume_floor(detector_config, is_count_metric=result.is_count_metric)
 
     if not result.series:
         # Empty query → the metric is genuinely 0; rows present but unscorable → uncomputed (None).
@@ -327,7 +387,7 @@ def evaluate_with_detector(
     def score(series: ComparableSeries) -> _ScoredSeries:
         return _score_series(
             series,
-            detector_config,
+            floored_config,
             every_point=False,
             series_context=_series_context(
                 series, detector_config, insight=insight, interval=interval_value, metric_description=metric_description
@@ -510,12 +570,14 @@ def simulate_detector_on_insight(
         is_agent_billable=is_agent_billable,
     )
 
+    floored_config = _with_volume_floor(detector_config, is_count_metric=result.is_count_metric)
+
     if result.is_breakdown:
         if detector_type_str == DetectorType.LLM.value:
             # One model call per breakdown value is the cost profile the saved-alert path
             # refuses; the preview must refuse it before the first call, not after the last.
             raise ValueError("The AI detector does not support breakdown insights yet.")
-        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
+        breakdown_sims = [_sim_from_series(s, floored_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
             "dates": [],
@@ -528,7 +590,7 @@ def simulate_detector_on_insight(
             "breakdown_results": breakdown_sims,
         }
 
-    sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
+    sim = _sim_from_series(result.series[0], floored_config, detector_type_str, sim_context)
     sim.pop("label", None)
     return {**sim, "interval": interval_value}
 
