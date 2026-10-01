@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_hostname String,
     end_pathname String,
 
-    -- Taken from the session's first event, so a read can break down or filter by device and geo
+    -- Taken from the session's first pageview, so a read can break down or filter by device and geo
     -- without scanning events.
     device_type String,
     os String,
@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     is_bot Bool,
 
     -- Pageviews per (host, pathname) in the session, capped by the insert to the most-viewed entries.
-    -- Serves the paths breakdown and event-level host and pathname filters at session grain.
+    -- A session whose pageview_count exceeds the sum here was capped, so a read that filters on a
+    -- host or pathname can miss that session's tail entries.
     paths Array(Tuple(host String, pathname String, pageviews UInt32)),
 
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
