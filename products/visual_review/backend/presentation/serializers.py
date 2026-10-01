@@ -335,6 +335,19 @@ class MarkToleratedInputSerializer(serializers.Serializer):
     )
 
 
+class CompleteRunInputSerializer(serializers.Serializer):
+    check_run_id = serializers.RegexField(
+        r"^\d+$",
+        max_length=32,
+        required=False,
+        help_text=(
+            "Numeric GitHub Actions job ID of the CI job that completes the run, from "
+            "`${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict "
+            "without capturing the snapshots again. Omit it outside GitHub Actions."
+        ),
+    )
+
+
 class QuarantineSourceRunSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineSourceRun
