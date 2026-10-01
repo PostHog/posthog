@@ -200,7 +200,8 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
             validate_metric_check_for_write(normalized)
         except CheckConfigValidationError as error:
             raise CheckCreationError(str(error)) from None
-    return stored_config
+    # Accept metadata before writers persist it, so old workers can read checks during rollout.
+    return {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS}
 
 
 def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:

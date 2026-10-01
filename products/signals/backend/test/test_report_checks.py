@@ -937,12 +937,9 @@ class TestReportCheckAPI(APIBaseTest):
         stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
-        assert stored.config["metric_kind"] == "occurrences"
-        assert stored.config["value_format"] == "count"
+        assert not {"metric_kind", "value_format", "unit"}.intersection(stored.config)
         overridden = self._create(config={**config, "metric_kind": "custom", "value_format": "number", "unit": "USD"})
-        assert overridden.config["metric_kind"] == "occurrences"
-        assert overridden.config["value_format"] == "count"
-        assert overridden.config["unit"] is None
+        assert not {"metric_kind", "value_format", "unit"}.intersection(overridden.config)
 
         # Rewriting the metric under the same id must not move the check's target.
         rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
