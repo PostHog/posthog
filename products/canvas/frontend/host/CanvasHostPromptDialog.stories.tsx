@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { screen, waitFor } from '@testing-library/dom'
+import { screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { canvasHostLogic } from './canvasHostLogic'
