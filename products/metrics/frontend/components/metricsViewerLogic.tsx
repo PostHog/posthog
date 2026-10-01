@@ -1242,17 +1242,27 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     await breakpoint(300)
                     const controller = new AbortController()
                     actions.cancelInProgressAnomaly(controller)
-                    const report = await metricsCharacterizeCreate(
-                        String(values.currentTeamId),
-                        {
-                            query: {
-                                ...anomalyQuery,
-                                anomalyFrom,
-                                anomalyTo: toISO,
+                    let report: _MetricAnomalyReportApi
+                    try {
+                        report = await metricsCharacterizeCreate(
+                            String(values.currentTeamId),
+                            {
+                                query: {
+                                    ...anomalyQuery,
+                                    anomalyFrom,
+                                    anomalyTo: toISO,
+                                },
                             },
-                        },
-                        { signal: controller.signal }
-                    )
+                            { signal: controller.signal }
+                        )
+                    } catch (error: any) {
+                        if (error?.name === 'AbortError') {
+                            throw error
+                        }
+                        // The badge is a nice-to-have: a failed characterization hides it rather than toasting.
+                        actions.setAnomalyAbortController(null)
+                        return null
+                    }
                     breakpoint()
                     actions.setAnomalyAbortController(null)
                     return report
