@@ -48,7 +48,7 @@ def backfill_tokens(apps, schema_editor):
                 continue
             # A customer may already use this exact label; (team, label) is unique.
             if ProjectSecretAPIKey.objects.using(db).filter(team_id=team.id, label=label).exists():
-                label = f"{label[:31]} {secure_value[:8]}"
+                label = f"{label[:31]} {secure_value.removeprefix('sha256$')[:8]}"
             ProjectSecretAPIKey.objects.using(db).create(
                 team_id=team.id,
                 label=label,
