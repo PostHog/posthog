@@ -86,6 +86,16 @@ export function CloudEnvironmentsSettings(): JSX.Element {
                                 ),
                         },
                         {
+                            title: 'Image',
+                            key: 'custom_image_name',
+                            render: (_, environment) =>
+                                environment.custom_image_name ? (
+                                    <span>{environment.custom_image_name}</span>
+                                ) : (
+                                    <span className="text-secondary">Default</span>
+                                ),
+                        },
+                        {
                             key: 'actions',
                             width: 0,
                             render: (_, environment) =>

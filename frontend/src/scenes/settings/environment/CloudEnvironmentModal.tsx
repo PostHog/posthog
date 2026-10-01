@@ -8,6 +8,7 @@ import {
     LemonLabel,
     LemonModal,
     LemonSegmentedButton,
+    LemonSelect,
 } from '@posthog/lemon-ui'
 
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -16,10 +17,12 @@ import { SandboxEnvironmentNetworkAccessLevelEnumApi } from 'products/tasks/fron
 
 import { NETWORK_ACCESS_COPY } from './cloudEnvironmentNetworkAccess'
 import { cloudEnvironmentsLogic } from './cloudEnvironmentsLogic'
+import { cloudImagesLogic } from './cloudImagesLogic'
 
 export function CloudEnvironmentModal(): JSX.Element | null {
     const { draft, draftSaving, draftError } = useValues(cloudEnvironmentsLogic)
     const { updateDraft, closeDraft, saveDraft } = useActions(cloudEnvironmentsLogic)
+    const { readyImages, unavailable: imagesUnavailable } = useValues(cloudImagesLogic)
 
     if (!draft) {
         return null
@@ -98,6 +101,20 @@ export function CloudEnvironmentModal(): JSX.Element | null {
                         }))}
                     />
                 </div>
+                {imagesUnavailable ? null : (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel info="Runs that use this environment start from this image.">Image</LemonLabel>
+                        <LemonSelect
+                            value={draft.custom_image_id}
+                            onChange={(custom_image_id) => updateDraft({ custom_image_id })}
+                            options={[
+                                { value: null, label: 'Default image' },
+                                ...readyImages.map((image) => ({ value: image.id, label: image.name })),
+                            ]}
+                            fullWidth
+                        />
+                    </div>
+                )}
                 {draft.network_access_level === SandboxEnvironmentNetworkAccessLevelEnumApi.Custom ? (
                     <div className="flex flex-col gap-2">
                         <div className="flex flex-col gap-1">

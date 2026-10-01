@@ -16,6 +16,7 @@ const ENVIRONMENT = {
     environment_variable_keys: ['API_TOKEN'],
     private: false,
     internal: false,
+    custom_image_id: '0190e5a3-0000-7000-8000-0000000000c1',
 }
 
 describe('cloudEnvironmentsLogic', () => {
@@ -47,7 +48,12 @@ describe('cloudEnvironmentsLogic', () => {
         logic.actions.updateDraft({ name: 'Web app v2' })
         await expectLogic(logic, () => logic.actions.saveDraft()).toFinishAllListeners()
 
-        expect(patchBody).toMatchObject({ name: 'Web app v2', allowed_domains: ['api.example.com'], private: false })
+        expect(patchBody).toMatchObject({
+            name: 'Web app v2',
+            allowed_domains: ['api.example.com'],
+            private: false,
+            custom_image_id: '0190e5a3-0000-7000-8000-0000000000c1',
+        })
         expect(patchBody).not.toHaveProperty('environment_variables')
         expect(logic.values.draft).toBeNull()
     })
