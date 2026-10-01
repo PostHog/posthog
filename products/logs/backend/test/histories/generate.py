@@ -18,6 +18,7 @@ import importlib.util
 from pathlib import Path
 
 from temporalio import activity
+from temporalio.client import WorkflowHistory
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -62,7 +63,7 @@ async def _evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutpu
     )
 
 
-async def _record(name: str, workflow_cls: type, discovery: object) -> None:
+async def _record(workflow_cls: type, discovery: object) -> WorkflowHistory:
     @activity.defn(name="discover_cohorts_activity")
     async def _discover(_input: DiscoverCohortsInput) -> object:
         return discovery
@@ -83,7 +84,10 @@ async def _record(name: str, workflow_cls: type, discovery: object) -> None:
                 task_queue="logs-alerting-replay",
             )
             await handle.result()
-            history = await handle.fetch_history()
+            return await handle.fetch_history()
+
+
+def _write(name: str, history: WorkflowHistory) -> None:
     # The client and worker record "pid@hostname" as their identity. Replay ignores it,
     # so a fixed value keeps the machine that recorded the fixture out of the repo.
     events = json.loads(history.to_json())
@@ -111,8 +115,8 @@ def main(name: str, old_workflow_path: str | None = None) -> None:
         assert spec and spec.loader
         old = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(old)
-        asyncio.run(_record(name, old.LogsAlertCheckWorkflow, _DiscoveryBeforeCap(MANIFESTS, 3)))
+        _write(name, asyncio.run(_record(old.LogsAlertCheckWorkflow, _DiscoveryBeforeCap(MANIFESTS, 3))))
     elif name == "bounded_cap_2":
-        asyncio.run(_record(name, LogsAlertCheckWorkflow, _DiscoveryWithCap(MANIFESTS, 3, 2)))
+        _write(name, asyncio.run(_record(LogsAlertCheckWorkflow, _DiscoveryWithCap(MANIFESTS, 3, 2))))
     else:
         raise SystemExit(f"unknown history {name}")
