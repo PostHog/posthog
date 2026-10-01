@@ -1627,7 +1627,8 @@ class TestMultiTurnSessionStartFallback:
     @pytest.mark.asyncio
     async def test_json_retry_prompt_asks_once_on_the_same_session(self, _name, retry_reply, expected):
         session = self._fake_session()
-        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
+        followup_mock = AsyncMock(return_value=retry_reply)
+        session.send_followup_raw = followup_mock  # type: ignore[method-assign]
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
             if expected is None:
@@ -1639,8 +1640,9 @@ class TestMultiTurnSessionStartFallback:
                 )
                 assert parsed == expected
 
-        session.send_followup_raw.assert_awaited_once()  # type: ignore[attr-defined]
-        assert session.send_followup_raw.await_args.args[0] == "JSON"  # type: ignore[attr-defined]
+        followup_mock.assert_awaited_once()
+        assert followup_mock.await_args is not None
+        assert followup_mock.await_args.args[0] == "JSON"
         if expected is None:
             assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
         else:
