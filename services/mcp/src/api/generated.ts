@@ -20958,6 +20958,11 @@ export namespace Schemas {
       layout?: CanvasLayout | null;
       /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
       component_lifecycles?: CanvasComponentLifecycle[];
+      /**
+         * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+         * @nullable
+         */
+      readonly sandbox_document_url: string | null;
     }
 
     export interface CapabilityReadiness {
@@ -42684,7 +42689,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42775,7 +42780,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42858,7 +42863,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -48507,7 +48512,7 @@ export namespace Schemas {
       /** Whether this condition matched properties but was excluded due to rollout */
       rollout_excluded: boolean;
       /**
-         * Variant associated with this condition
+         * Variant associated with this condition. Empty or null when the condition has no variant override.
          * @nullable
          */
       variant: string | null;
@@ -66325,15 +66330,6 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
-    export interface PaginatedCanvasDraftList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: CanvasDraft[];
-    }
-
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -80506,6 +80502,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     /**
@@ -85767,9 +85768,9 @@ export namespace Schemas {
     }
 
     export interface PullRequestList {
-      /** Pull requests, newest first, capped at `limit`. */
+      /** This page of pull requests, newest first, capped at `limit`. */
       items: PullRequestListItem[];
-      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      /** True when more pull requests match after this page; call again with `offset` increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`. */
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
@@ -103519,6 +103520,17 @@ export namespace Schemas {
     }
 
     /**
+     * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+     */
+    export interface TasksAgentInstructions {
+      /**
+         * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+         * @maxLength 20000
+         */
+      agent_instructions: string;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -103568,6 +103580,8 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+      agent_instructions: string;
     }
 
     /**
@@ -103578,6 +103592,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+      agent_instructions: string;
     }
 
     export interface TeachingCanvas {
@@ -108350,7 +108366,7 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct values for this attribute in recent series metadata. */
+      /** Number of distinct values for this attribute in recent data. */
       value_count: number;
     }
 
@@ -112326,17 +112342,6 @@ export namespace Schemas {
     limit?: number;
     };
 
-    export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type CanvasesLayoutRetrieveParams = {
     /**
      * Also return the renderable build (with signed artifact URL) of every component the layout's live placements reference, so a grid renders from this one call.
@@ -114666,6 +114671,18 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Optional exclusive upper bound for merged_at / closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.
+     */
+    date_to?: string;
+    /**
+     * Page size, 1 to 1000. Defaults to 1000.
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.
+     */
+    offset?: number;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -114673,7 +114690,20 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window.
+     */
+    state?: EngineeringAnalyticsPullRequestsState;
     };
+
+    export type EngineeringAnalyticsPullRequestsState = typeof EngineeringAnalyticsPullRequestsState[keyof typeof EngineeringAnalyticsPullRequestsState];
+
+
+    export const EngineeringAnalyticsPullRequestsState = {
+      Closed: 'closed',
+      Merged: 'merged',
+      Open: 'open',
+    } as const;
 
     export type EngineeringAnalyticsQuarantineParams = {
     /**

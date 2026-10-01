@@ -3840,6 +3840,11 @@ export interface PatchedSignalScoutConfigUpdateApi {
      * @maxItems 10
      */
     write_scopes?: string[]
+    /**
+     * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+     * @maxLength 64
+     */
+    suggestion_id?: string
 }
 
 /**

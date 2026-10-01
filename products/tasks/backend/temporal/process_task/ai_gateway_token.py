@@ -180,11 +180,12 @@ def _posthog_code_team(team_id: int) -> "Team | None":
     return Team.objects.select_related("organization").filter(id=team_id).first()
 
 
-def _posthog_code_refusal(team_id: int, model: str | None) -> str | None:
+def _posthog_code_refusal(team_id: int, model: str | None, distinct_id: str | None) -> str | None:
     """The rollout flag is the switch for the product; a free plan's pin has no model an
     unpinned or paid-model run could fall back to."""
     team = _posthog_code_team(team_id)
-    if team is None or not desktop_rollout_enabled(team.organization, team):
+    # The run's user, so a person-targeted flag moves cloud runs with that person's desktop sessions.
+    if team is None or not desktop_rollout_enabled(team.organization, team, distinct_id):
         return "not_rolled_out"
     if posthog_code_plan(team) == "free" and not model_allowed_by_pin(FREE_TIER_MODELS, model):
         return "model_outside_pin"
@@ -207,6 +208,7 @@ def mint_refusal(
     runtime: str | None,
     internal: bool = False,
     prior_slack_run: bool = False,
+    distinct_id: str | None = None,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
     if ai_product == "slack_app" and not has_slack_provenance(
@@ -214,7 +216,7 @@ def mint_refusal(
     ):
         return "no_slack_provenance"
     if ai_product == POSTHOG_CODE_PRODUCT:
-        refusal = _posthog_code_refusal(team_id, model)
+        refusal = _posthog_code_refusal(team_id, model, distinct_id)
         if refusal:
             return refusal
     # The Pi harness reads only LLM_GATEWAY_URL.

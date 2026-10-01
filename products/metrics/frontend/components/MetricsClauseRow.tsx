@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
@@ -57,6 +58,13 @@ export function MetricsClauseRow({
         duplicateClause,
         removeClause,
     } = useActions(metricsViewerLogic)
+
+    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name.
+    const metricName = clause.metricName.trim()
+    const clauseEndpointFilters = useMemo(
+        () => (metricName ? { ...attributeEndpointFilters, metricName } : attributeEndpointFilters),
+        [attributeEndpointFilters, metricName]
+    )
 
     const select = (): void => {
         if (!isActive) {
@@ -130,7 +138,7 @@ export function MetricsClauseRow({
                 rootKey={`metrics-viewer-filters-${clause.name}`}
                 group={clause.filterGroup.values[0] as UniversalFiltersGroup}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                endpointFilters={attributeEndpointFilters}
+                endpointFilters={clauseEndpointFilters}
                 onChange={(group) => {
                     if (!disabledReason) {
                         withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })

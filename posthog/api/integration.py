@@ -2529,6 +2529,7 @@ class IntegrationViewSet(
                 host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
+                group_ids=resolved.group_ids,
             )
         except DomainConnectSigningKeyMissing as e:
             capture_exception(

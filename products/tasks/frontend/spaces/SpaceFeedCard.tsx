@@ -29,9 +29,12 @@ import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+
 import { TaskListItemApi } from '../generated/api.schemas'
 import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
+import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskFile, VISIBLE_FILE_COUNT, taskFiles } from './taskFiles'
@@ -57,6 +60,7 @@ function TaskFileChip({ file }: { file: TaskFile }): JSX.Element {
 }
 
 interface SpaceFeedCardProps {
+    spaceId: string
     task: TaskListItemApi
     pinned: boolean
     unread: boolean
@@ -64,7 +68,7 @@ interface SpaceFeedCardProps {
     repository: string | null
 }
 
-export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCardProps): JSX.Element {
+export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
@@ -80,6 +84,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
+    const source = getOriginProductMeta(item.originProduct ?? undefined)
 
     const card = (
         <Card
@@ -87,6 +92,11 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
             className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition hover:bg-fill-hover hover:ring-1 hover:ring-input"
         >
             <div className="flex min-w-0 items-center gap-3">
+                <SpaceFeedSelectCheckbox
+                    spaceId={spaceId}
+                    sessionId={task.id}
+                    title={item.title || 'Untitled session'}
+                />
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
                     <div className="flex min-w-0 flex-1 items-center gap-1.5">
                         <SpaceFeedStatusIcon item={item} />
@@ -131,8 +141,21 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             </div>
             <SpaceFeedCardPrompt taskId={task.id} prompt={preview} />
-            {(repository || author || item.pullRequests.length > 0 || files.length > 0) && (
+            {(source || repository || author || item.pullRequests.length > 0 || files.length > 0) && (
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
+                    {source && (
+                        <Badge
+                            // No padding: the chip has no fill, so it lines up with the prompt text above it.
+                            className={cn(
+                                TASK_CHIP_CLASS,
+                                'border-transparent bg-transparent px-0 text-muted-foreground'
+                            )}
+                            data-attr="today-space-feed-source"
+                        >
+                            <span className="flex size-3 shrink-0 [&>svg]:size-full">{source.icon}</span>
+                            {source.label}
+                        </Badge>
+                    )}
                     {repository && (
                         <Badge
                             className={cn(
