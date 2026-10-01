@@ -266,8 +266,8 @@ class SessionReplayEvents:
             FROM session_replay_events
             PREWHERE
                 team_id = %(team_id)s
-                AND min_first_timestamp >= %(started_after)s
-            WHERE _timestamp >= %(ingested_after)s
+                AND _timestamp >= %(ingested_after)s
+            WHERE min_first_timestamp >= %(started_after)s
             """
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(
@@ -278,7 +278,7 @@ class SessionReplayEvents:
                 "ingested_after": python_now - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
             },
         )
-        return int(result[0][0]) if result else 0
+        return int(result[0][0])
 
     def batch_exists(self, session_ids: list[str], team: Team) -> dict[str, bool]:
         """

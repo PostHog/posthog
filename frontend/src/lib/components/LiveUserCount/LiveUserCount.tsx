@@ -59,15 +59,12 @@ function LiveUserCountTooltipContent({
     )
 }
 
-interface LiveCountProps {
-    pollIntervalMs?: number
-}
-
 export type LiveUserCountProps = {
+    pollIntervalMs?: number
     docLink?: string
     showUpdatedTimeInTooltip?: boolean
     dataAttr?: string
-} & LiveCountProps
+}
 
 export function LiveUserCount({
     pollIntervalMs = 30000,

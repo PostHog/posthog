@@ -1,34 +1,17 @@
-import './LiveUserCount.scss'
-
-import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useValues } from 'kea'
 
 import { IconVideoCamera } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import 'lib/components/LiveUserCount/LiveUserCount.scss'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { liveRecordingsCountLogic } from './liveRecordingsCountLogic'
 
-export interface LiveRecordingsCountProps {
-    pollIntervalMs?: number
-}
-
-export function LiveRecordingsCount({ pollIntervalMs = 30000 }: LiveRecordingsCountProps): JSX.Element | null {
-    const { activeRecordings } = useValues(liveRecordingsCountLogic({ pollIntervalMs }))
-    const { pauseStream, resumeStream } = useActions(liveRecordingsCountLogic({ pollIntervalMs }))
-
-    const { isVisible } = usePageVisibility()
-    useEffect(() => {
-        if (isVisible) {
-            resumeStream()
-        } else {
-            pauseStream()
-        }
-    }, [isVisible, resumeStream, pauseStream])
+export function LiveRecordingsCount(): JSX.Element | null {
+    const { activeRecordings } = useValues(liveRecordingsCountLogic)
 
     if (activeRecordings === null) {
         return null
