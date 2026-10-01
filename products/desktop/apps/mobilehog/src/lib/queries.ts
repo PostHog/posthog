@@ -238,16 +238,19 @@ export function usePhotoUrl(taskId: string, photo: PhotoRef | null) {
     queryFn: async () => {
       if (!photo) throw new Error("No photo");
       const client = getClient();
-      // One manifest fetch serves every photo of the run.
-      const artifacts = await queryClient.fetchQuery({
-        queryKey: keys.runArtifacts(taskId, photo.runId),
-        queryFn: async () =>
-          (await client.getTaskRun(taskId, photo.runId)).artifacts ?? [],
-        staleTime: 10_000,
-      });
-      const storagePath = artifacts.find(
-        (artifact) => artifact.id === photo.artifactId,
-      )?.storage_path;
+      const findPath = async (staleTime: number) => {
+        const artifacts = await queryClient.fetchQuery({
+          queryKey: keys.runArtifacts(taskId, photo.runId),
+          queryFn: async () =>
+            (await client.getTaskRun(taskId, photo.runId)).artifacts ?? [],
+          staleTime,
+        });
+        return artifacts.find((artifact) => artifact.id === photo.artifactId)
+          ?.storage_path;
+      };
+      // One manifest fetch serves every photo of the run, but a cached one can
+      // predate a photo that was just sent, so a miss fetches it again.
+      const storagePath = (await findPath(10_000)) ?? (await findPath(0));
       if (!storagePath) throw new Error("Photo not found");
       return client.presignTaskRunArtifact(taskId, photo.runId, storagePath);
     },
