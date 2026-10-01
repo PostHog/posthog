@@ -6,9 +6,12 @@ interface TodayNavItemProps {
     color: string
     icon: JSX.Element
     to: string
+    target?: string
     /** Highlighted because the matching report is hovered elsewhere on the page. */
     active?: boolean
     current?: boolean
+    /** Crossed out, because the item was resolved after the briefing was written. */
+    done?: boolean
     onClick?: () => void
     onHoverChange?: (hovered: boolean) => void
     dataAttr?: string
@@ -20,8 +23,10 @@ export function TodayNavItem({
     color,
     icon,
     to,
+    target,
     active = false,
     current = false,
+    done = false,
     onClick,
     onHoverChange,
     dataAttr,
@@ -29,10 +34,12 @@ export function TodayNavItem({
     return (
         <Link
             to={to}
+            target={target}
             subtle
             className="TodayNavItem"
             data-active={active || current}
             aria-current={current ? 'page' : undefined}
+            data-done={done}
             data-attr={dataAttr}
             onClick={onClick}
             onMouseEnter={() => onHoverChange?.(true)}
