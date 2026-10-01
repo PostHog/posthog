@@ -35,7 +35,8 @@ from posthog.schema import (
 )
 
 from products.tracing.backend.ai_events import (
-    TraceAiEvent,
+    MAX_AI_EVENTS_PER_TRACE as _MAX_AI_EVENTS_PER_TRACE,
+    TraceAiEvents,
     fetch_trace_ai_events as _fetch_trace_ai_events,
 )
 from products.tracing.backend.attribute_breakdown_query_runner import (
@@ -70,6 +71,9 @@ FACET_COLUMNS = _FACET_COLUMNS
 # Cap on the ids one error-count request may ask about, per id kind. Re-exported so the
 # presentation layer can bound its request serializer without reaching into the lookup module.
 MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
+
+# Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
+MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -246,9 +250,10 @@ def count_session_exceptions(
     return _count_session_exceptions(team=team, session_ids=session_ids, date_from=date_from, date_to=date_to)
 
 
-def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> list[TraceAiEvent]:
+def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> TraceAiEvents:
     """List the LLM analytics events whose `$ai_trace_id` is the trace id, as lowercase hex or as
-    the hyphenated UUID the LLM gateway writes, earliest start first. The events side of the
+    the hyphenated UUID the LLM gateway writes, earliest start first, capped with `has_more` set
+    past the cap. The events side of the
     trace-to-AI-events join, which the caller finishes. The user's property access rules apply to
     the returned columns.
     """

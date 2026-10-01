@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -82,7 +81,6 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     props({} as SceneDashboardChoiceModalProps),
     key((props) => `${props.scene}`),
     connect(() => ({
-        logic: [eventUsageLogic],
         actions: [
             teamLogic,
             ['updateCurrentTeam'],

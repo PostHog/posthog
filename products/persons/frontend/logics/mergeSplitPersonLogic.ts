@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import type { CountedPaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { PersonType } from '~/types'
 import type { PersonListParams } from '~/types'
@@ -124,7 +124,7 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>([
                         lemonToast.success(
                             'Person succesfully split. This may take up to a couple of minutes to complete.'
                         )
-                        eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
+                        posthog.capture('split person started', { merge_count: values.person.distinct_ids.length })
                         actions.setSplitMergeModalShown(false)
                         router.actions.push('/persons')
                         return true

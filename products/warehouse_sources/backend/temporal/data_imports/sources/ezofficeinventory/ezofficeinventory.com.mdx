@@ -22,8 +22,8 @@ import AlphaRelease from '../_snippets/alpha-release.mdx'
 
 [EZOfficeInventory](https://ezo.io/ezofficeinventory/) (now branded EZO) is a cloud asset and
 inventory management platform. Linking it as a source syncs your assets, inventory, members,
-locations, and related records into PostHog so you can join asset and inventory data with the rest of
-your warehouse.
+locations, work orders, and related records into PostHog so you can join asset and inventory data with
+the rest of your warehouse.
 
 ## Prerequisites
 
@@ -61,6 +61,11 @@ limit (~60 requests/minute) and backs off automatically on rate-limit responses.
 
 <SourceTables />
 
+`asset_checkout_history` and `member_stock_histories` are turned off by default. EZOfficeInventory
+serves check-in and check-out history one item at a time, so these two tables need a request per asset
+or per member and are slow to sync on large accounts. Turn them on if you want to report on
+utilization or stock movement over time.
+
 ## Troubleshooting
 
 - **Invalid credentials on connect**: confirm API access is enabled in **Settings → Integrations → API
@@ -68,6 +73,7 @@ limit (~60 requests/minute) and backs off automatically on rate-limit responses.
   `https://` prefix or `.ezofficeinventory.com` suffix).
 - **Syncs are slow on large accounts**: EZOfficeInventory enforces a fair-use limit of roughly 60
   requests per minute (lower on trial accounts). The connector throttles to stay within it, so large
-  asset or inventory tables can take a while on the first sync.
+  asset or inventory tables can take a while on the first sync. The two history tables are the slowest,
+  because the API only serves history one item at a time.
 
 <TroubleshootingLink />

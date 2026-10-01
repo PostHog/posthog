@@ -23,9 +23,10 @@ import type {
 import { ACCOUNTS_TABLE_DATA_NODE_KEY, ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
 import { accountSidebarPropertiesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountSidebarPropertiesLogic'
 import { accountsColumnConfigLogic, ROLE_KEY_BY_NAME } from './accountsColumnConfigLogic'
+import { getTileString, type AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
-export interface AccountRelationshipsLogicProps {
+export interface AccountRelationshipsLogicProps extends AccountViewTileLogicProps {
     accountId: string
 }
 
@@ -131,7 +132,7 @@ export type accountRelationshipsLogicType = MakeLogicType<
 export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountRelationshipsLogic', key]),
     props({} as AccountRelationshipsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect(() => ({
         values: [teamLogic, ['currentTeam', 'currentTeamId'], accountsColumnConfigLogic, ['relationshipDefinitions']],
     })),
@@ -162,9 +163,9 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         definitionFilter: [
-            null as string | null,
+            getTileString(props.initialConfig, 'definitionFilter') || null,
             {
                 setDefinitionFilter: (_, { definitionId }) => definitionId,
             },
@@ -189,7 +190,7 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
                 closeDeleteConfirmation: () => null,
             },
         ],
-    }),
+    })),
     selectors({
         canDeleteRelationships: [
             (s) => [s.currentTeam],
@@ -237,6 +238,9 @@ export const accountRelationshipsLogic = kea<accountRelationshipsLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        setDefinitionFilter: () => {
+            props.onConfigChange?.({ definitionFilter: values.definitionFilter })
+        },
         loadRelationshipsSuccess: () => {
             if (values.currentTeamId) {
                 accountSidebarPropertiesLogic

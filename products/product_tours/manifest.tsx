@@ -36,7 +36,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Product tours',
             intents: [ProductKey.PRODUCT_TOURS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'product_tour',
             href: urls.productTours(),
             iconType: 'product_tour',
