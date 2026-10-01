@@ -4,7 +4,6 @@ import signal
 import typing
 import asyncio
 import datetime as dt
-import functools
 import threading
 import faulthandler
 import collections.abc
@@ -51,6 +50,7 @@ from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
+from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -165,7 +165,7 @@ from products.autoresearch.backend.facade.temporal import (
     ACTIVITIES as AUTORESEARCH_ACTIVITIES,
     WORKFLOWS as AUTORESEARCH_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
@@ -941,13 +941,21 @@ class Command(BaseCommand):
                     f"No healthcheck server due to health_port={health_port} and health_max_idle_seconds={health_max_idle_seconds}"
                 )
 
-            for sig in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(
-                    sig,
-                    functools.partial(shutdown_on_signal, worker=worker, health_srv=health_server, sig=sig, loop=loop),
-                )
+            signal_listener = ShutdownSignalListener()
+            signal_listener.install()
 
-            runner.run(worker.run())
+            async def run_until_worker_stops() -> None:
+                async def shut_down_on_first_signal() -> None:
+                    sig = await signal_listener.wait()
+                    shutdown_on_signal(worker=worker, health_srv=health_server, sig=sig, loop=loop)
+
+                signal_watcher = asyncio.create_task(shut_down_on_first_signal())
+                try:
+                    await worker.run()
+                finally:
+                    _ = signal_watcher.cancel()
+
+            runner.run(run_until_worker_stops())
 
             if shutdown_task:
                 logger.info("Waiting on shutdown_task")

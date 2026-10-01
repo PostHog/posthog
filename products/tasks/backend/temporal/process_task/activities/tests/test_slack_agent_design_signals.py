@@ -2,6 +2,8 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     SlackAgentDesignSignalEmitter,
     _event_method,
@@ -70,15 +72,67 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert signals == [("agent_text_delta", "second")]
 
-    def test_tool_call_emits_status_update_and_dedupes(self) -> None:
+    def test_tool_call_emits_its_phase_only_and_dedupes(self) -> None:
+        # The Slack plan names the kind of work, so the tool name and its arguments must not
+        # travel with the signal.
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
 
         first = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
         repeat = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
 
-        assert first == [("agent_status_update", {"title": "Read", "details": "/etc/hosts"})]
+        assert first == [("agent_status_update", {"phase": "reading_code"})]
         assert repeat == []
+
+    @parameterized.expand(
+        [
+            (
+                "shell_description",
+                "Bash",
+                {"command": "pytest", "description": "Run the tests"},
+                {"phase": "running_checks", "activity": "Run the tests"},
+            ),
+            (
+                "posthog_query",
+                "mcp__posthog__exec",
+                {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
+                {"phase": "posthog:Execute SQL query"},
+            ),
+        ]
+    )
+    def test_call_carries_what_runs_now_to_the_open_line(
+        self, _name: str, tool_name: str, raw_input: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        call = _tool_call("call-2", tool_name, "")
+        call["notification"]["params"]["update"]["rawInput"] = raw_input
+
+        signals = emitter.process(call)
+
+        assert signals == [("agent_status_update", expected)]
+
+    def test_agent_todo_list_reaches_the_relay(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        plan = {
+            "type": "notification",
+            "notification": {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "plan",
+                        "entries": [{"content": "Count weekly signups", "status": "in_progress"}],
+                    }
+                },
+            },
+        }
+
+        signals = emitter.process(plan)
+
+        assert signals == [
+            ("agent_status_update", {"plan": [{"title": "Count weekly signups", "status": "in_progress"}]})
+        ]
 
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

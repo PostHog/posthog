@@ -324,6 +324,7 @@ rules:
                               |PullRequestAudience
                               |QuarantinedIdentifier
                               |QueryTabState
+                              |QueueJob
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
@@ -374,6 +375,7 @@ rules:
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
+                              |SignalScoutBackgroundBand
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -755,6 +757,7 @@ rules:
                         |PullRequestAudience
                         |QuarantinedIdentifier
                         |QueryTabState
+                        |QueueJob
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
@@ -805,6 +808,7 @@ rules:
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
+                        |SignalScoutBackgroundBand
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
