@@ -5,6 +5,7 @@ import {
     Button,
     ContextMenuItem,
     ContextMenuSeparator,
+    ContextMenuShortcut,
     ContextMenuSub,
     ContextMenuSubContent,
     ContextMenuSubTrigger,
@@ -12,6 +13,7 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
+    DropdownMenuShortcut,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
@@ -43,6 +45,7 @@ export interface TodayMenuSubProps {
 export interface TodayMenuParts {
     Item: (props: TodayMenuItemProps) => JSX.Element
     Separator: () => JSX.Element | null
+    Shortcut: (props: { children: ReactNode }) => JSX.Element
     Sub: (props: TodayMenuSubProps) => JSX.Element
 }
 
@@ -62,6 +65,7 @@ export const DROPDOWN_PARTS: TodayMenuParts = {
         </DropdownMenuItem>
     ),
     Separator: () => <DropdownMenuSeparator />,
+    Shortcut: ({ children }) => <DropdownMenuShortcut>{children}</DropdownMenuShortcut>,
     Sub: ({ label, dataAttr, children }) => (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger data-attr={dataAttr}>{label}</DropdownMenuSubTrigger>
@@ -83,6 +87,7 @@ export const CONTEXT_PARTS: TodayMenuParts = {
         </ContextMenuItem>
     ),
     Separator: () => <ContextMenuSeparator />,
+    Shortcut: ({ children }) => <ContextMenuShortcut>{children}</ContextMenuShortcut>,
     Sub: ({ label, dataAttr, children }) => (
         <ContextMenuSub>
             <ContextMenuSubTrigger data-attr={dataAttr}>{label}</ContextMenuSubTrigger>
@@ -115,6 +120,7 @@ export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: 
             </Button>
         ),
         Separator: () => null,
+        Shortcut: ({ children }) => <DropdownMenuShortcut>{children}</DropdownMenuShortcut>,
         Sub: ({ label, dataAttr, children }) => (
             <DropdownMenu
                 onOpenChange={(open, details) => {
