@@ -457,11 +457,21 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
+export interface ExperimentScannerConfig {
+    prompt: string
+    length?: 'short' | 'medium' | 'long'
+    experiment_id: number
+    /** Variant keys to watch; null or absent means every variant. */
+    variants?: string[] | null
+    balance_variants?: boolean
+}
+
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
+    | ExperimentScannerConfig
 
 export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 
@@ -521,7 +531,12 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
+export interface ExperimentScanner extends BaseReplayScanner {
+    scanner_type: 'experiment'
+    scanner_config: ExperimentScannerConfig
+}
+
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | ExperimentScanner
 
 // The editor form's values: the API scanner plus UI-only state that is stripped before every API write.
 // `credit_limit_enabled` keeps "limit toggle on, amount still empty" representable so it can block the save.

@@ -2587,6 +2587,7 @@ export interface ScannerStatsByTypeApi {
     classifier: ScannerTypeStatsApi
     scorer: ScannerTypeStatsApi
     summarizer: ScannerTypeStatsApi
+    experiment: ScannerTypeStatsApi
 }
 
 /**
@@ -2597,7 +2598,7 @@ export interface ScannerStatsResponseApi {
     total: number
     /** Number of enabled scanners on the team. */
     enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
     by_type: ScannerStatsByTypeApi
 }
 
