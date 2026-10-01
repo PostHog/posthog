@@ -73,6 +73,28 @@ class TestTopLevelEndpoints:
         _wire(MockSession.return_value, [_response([])])
         assert _rows("tok", "events") == []
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_broadcasts_drop_stream_credentials(self, MockSession) -> None:
+        _wire(
+            MockSession.return_value,
+            [
+                _response(
+                    [
+                        {
+                            "id": "b1",
+                            "title": "Keynote",
+                            "youtube_stream_key": "yt-fake-key",
+                            "facebook_stream_key": "fb-fake-key",
+                            "custom_stream_key": "custom-fake-key",
+                            "external_rtmp_push_stream": "rtmp://stream.example.com/live/fake-key",
+                            "wordly_session_key": "wordly-fake-key",
+                        }
+                    ]
+                )
+            ],
+        )
+        assert _rows("tok", "broadcasts") == [{"id": "b1", "title": "Keynote"}]
+
 
 class TestFanOut:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -94,11 +116,22 @@ class TestFanOut:
             {"id": "w3", "event": "e2"},
         ]
 
+    @parameterized.expand(
+        [
+            ("webinars", "/event/", "/event/webinars/p1/", "event"),
+            ("speakers", "/event/", "/event/p1/public/v1/speakers/", "event"),
+            ("broadcast_polls", "/event/broadcasts/", "/event/broadcasts/p1/polls/", "broadcast"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_webinars_request_uses_event_in_path(self, MockSession) -> None:
-        snaps = _wire(MockSession.return_value, [_response([{"id": "e1"}]), _response([{"id": "w1"}])])
-        _rows("tok", "webinars")
-        assert snaps[1]["url"] == "https://customapi.goldcast.io/event/webinars/e1/"
+    def test_child_request_binds_parent_id_and_stamps_it(
+        self, endpoint: str, parent_path: str, child_path: str, parent_field: str, MockSession
+    ) -> None:
+        snaps = _wire(MockSession.return_value, [_response([{"id": "p1"}]), _response([{"id": "c1"}])])
+
+        assert _rows("tok", endpoint) == [{"id": "c1", parent_field: "p1"}]
+        assert snaps[0]["url"] == f"https://customapi.goldcast.io{parent_path}"
+        assert snaps[1]["url"] == f"https://customapi.goldcast.io{child_path}"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_event_members_query_param_path_and_restamping(self, MockSession) -> None:

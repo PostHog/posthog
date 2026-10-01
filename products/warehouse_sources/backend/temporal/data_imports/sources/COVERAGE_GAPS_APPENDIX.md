@@ -3711,12 +3711,12 @@ Today (7): `agenda_items`, `discussion_groups`, `event_members`, `events`, `orga
 
 Diffed against: <https://apidocs.goldcast.io/>
 
-- [ ] `event/broadcasts` — the live session objects under an event - sync-time joins for attendance and agenda analysis (high)
-- [ ] `event/broadcasts/{id}/polls` — in-session poll results, the main engagement measurement in a webinar tool (high)
-- [ ] `event/ticket-type` — lookup resolving the ticket type carried on event_members registrations (high)
+- [x] `event/broadcasts` — the live session objects under an event - sync-time joins for attendance and agenda analysis (high)
+- [x] `event/broadcasts/{id}/polls` — in-session poll results, the main engagement measurement in a webinar tool (high)
+- [x] `event/ticket-type` — lookup resolving the ticket type carried on event_members registrations (high)
 - [ ] `core/tag-library` — lookup resolving tag IDs referenced across events and members (medium)
 - [ ] `event/booths` — sponsor/expo booths, the unit sponsorship ROI is measured on (medium)
-- [ ] `event/{event_id}/public/v1/speakers` — speaker roster per event, a dimension for session performance breakdowns (medium)
+- [x] `event/{event_id}/public/v1/speakers` — speaker roster per event, a dimension for session performance breakdowns (medium)
 - [ ] `event/{id}/get_recordings` — recording assets per event, needed to join on-demand viewing (medium)
 - [ ] `event/resources` — downloadable content attached to an event (low)
 - [ ] `event/sponsor-resources/{id}` — sponsor-supplied content assets (low)
