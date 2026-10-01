@@ -1,9 +1,11 @@
 import json
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
+
+from django.utils import timezone
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -11,6 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.dataclasses import frozen
+from posthog.models.message_assets.sql import MESSAGE_ASSETS_TTL_DAYS
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
@@ -88,7 +91,7 @@ FROM (
     FROM message_assets
     WHERE team_id = %(team_id)s
       AND kind = 'email'
-      AND sent_at >= now() - INTERVAL 30 DAY
+      AND sent_at >= %(sent_after)s
       AND lower(trim(recipient)) IN %(addresses)s
     GROUP BY invocation_id, action_id
 )
@@ -278,7 +281,8 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
 def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, datetime]:
     if not addresses:
         return {}
-    rows = sync_execute(_LAST_SENT_QUERY, {"team_id": team_id, "addresses": addresses})
+    sent_after = timezone.now() - timedelta(days=MESSAGE_ASSETS_TTL_DAYS)
+    rows = sync_execute(_LAST_SENT_QUERY, {"team_id": team_id, "addresses": addresses, "sent_after": sent_after})
     return dict(rows)
 
 

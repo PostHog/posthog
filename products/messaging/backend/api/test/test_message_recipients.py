@@ -267,8 +267,9 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert response.status_code == expected_status
 
+    @time_machine.travel(NOW, tick=False)
     def test_last_sent_at_comes_from_sends_in_the_last_30_days(self) -> None:
-        recent = datetime.now(tz=UTC).replace(microsecond=0) - timedelta(days=2)
+        recent = NOW - timedelta(days=2)
         self._prefer("recent@example.com", {})
         self._prefer("stale@example.com", {})
         self._send("Recent@Example.com", recent - timedelta(days=1))
