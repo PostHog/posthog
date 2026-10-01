@@ -181,9 +181,10 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFlowSchedule.objects.filter(id=schedule_id).count() == 0
 
-    def test_delete_nonexistent_schedule_returns_404(self):
+    @parameterized.expand([("unknown_id", "00000000-0000-0000-0000-000000000000"), ("malformed_id", "not-a-uuid")])
+    def test_delete_nonexistent_schedule_returns_404(self, _name: str, schedule_id: str):
         workflow = self._create_batch_workflow()
-        response = self.client.delete(self._schedule_detail_url(workflow["id"], "00000000-0000-0000-0000-000000000000"))
+        response = self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_multiple_schedules_per_workflow(self):
