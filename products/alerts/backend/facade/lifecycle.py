@@ -214,6 +214,21 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
     )
 
 
+def _firing_is_unannounced(snapshot: AlertSnapshot) -> bool:
+    """Whether the firing the alert is in was never announced, so one is still owed.
+
+    Derived rather than stored, because the two timestamps already say it: a firing that was
+    announced has a notification at or after its start. A mute, a cooldown or any other gate
+    leaves `last_notified_at` behind the start, which is exactly the set of fires still owed.
+
+    A firing that began before the platform recorded starts has no start to compare, and reads as
+    announced. Reading it the other way re-fires it on every later check, forever.
+    """
+    if snapshot.firing_started_at is None:
+        return False
+    return snapshot.last_notified_at is None or snapshot.last_notified_at < snapshot.firing_started_at
+
+
 def decide_firing_episode(
     snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
 ) -> FiringEpisode | None:
@@ -317,6 +332,12 @@ def evaluate_alert_check(
         effective_state = AlertState.FIRING if policy.clear_check_ends_snooze else AlertState.NOT_FIRING
     elif snapshot.state in (AlertState.ERRORED, AlertState.BROKEN):
         # BROKEN is only reachable here when the policy allows checks to un-break.
+        effective_state = AlertState.NOT_FIRING
+    elif policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot):
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED arm does for an expired snooze. Last in the chain, so a
+        # state that names its own re-entry keeps it: under `clear_check_ends_snooze` a parked
+        # breach reads as unannounced and still has to re-enter as FIRING to resolve.
         effective_state = AlertState.NOT_FIRING
     else:
         effective_state = snapshot.state

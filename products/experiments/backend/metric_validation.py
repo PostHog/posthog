@@ -11,6 +11,8 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownAttributionType,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric as ExperimentMetricUnion,
@@ -136,6 +138,30 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
     if error:
         raise ValidationError(f"{error_prefix}{error}")
     return parsed
+
+
+class _SavedMetricLinkOverrides(pydantic.BaseModel):
+    """The link metadata keys that `resolve_saved_metric_definition` applies to the saved query, typed
+    as the metric schema types them. Other keys, such as `type`, are not overrides."""
+
+    model_config = pydantic.ConfigDict(extra="ignore")
+
+    breakdowns: list[Breakdown] | None = pydantic.Field(default=None, max_length=3)
+    breakdown_limit: int | None = None
+    breakdownAttributionType: BreakdownAttributionType | None = None
+    breakdownAttributionValue: int | None = None
+
+
+def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -> None:
+    """Validate the per-experiment overrides on a saved metric link.
+
+    Every calculation applies the overrides to the saved query. An override that the metric schema
+    rejects makes each calculation of that metric fail until someone edits the link.
+    """
+    try:
+        _SavedMetricLinkOverrides.model_validate(metadata)
+    except pydantic.ValidationError as e:
+        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
 
 
 def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]]:
