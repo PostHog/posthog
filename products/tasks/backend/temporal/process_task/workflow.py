@@ -110,6 +110,7 @@ from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
     SEND_FOLLOWUP_MAX_ATTEMPTS,
     STEER_DECLINED_OUTCOME,
+    TURN_IN_FLIGHT_OUTCOME,
     SendFollowupToSandboxInput,
     send_followup_to_sandbox,
 )
@@ -432,11 +433,31 @@ AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 # Replays of pre-rollout histories must keep recording an idle exit as completed.
 _PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
 
+# Changing the deadline branch changes the activities it schedules, so pre-rollout histories
+# must retain the old rotation decision when replayed.
+_PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN = "tasks-block-rotation-on-open-turn"
+
+# Preserving a completion signal can enable later command-producing branches, so histories that
+# already recorded the post-delivery reset must retain it during replay.
+_PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-during-delivery"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_TURN_OPENS_ON_DISPATCH)
+
+
+def _block_rotation_on_open_turn() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN)
+
+
+def _preserve_completion_during_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -523,6 +544,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._end_of_turn_received: Optional[bool] = None
         self._last_turn_succeeded = False
         self._turn_ended_received = False
+        self._turn_completion_signal_count = 0
         self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -830,6 +852,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         not yet produced an active-state signal counts as in flight too, which is why the
         follow-up task is checked alongside the agent's own state.
 
+        An open turn blocks rotation even when `_agent_active` is None. A delivered follow-up
+        resets `_agent_active` to None, and the relay only re-signals active on its own
+        False-to-True transition, so a follow-up delivered while the agent already works
+        leaves `_agent_active` at None for the rest of that turn.
+
         The reason is what tells a rollout whether rotation is idle-gated out of the runs that
         need it most, so it is a metric label rather than a log line.
         """
@@ -837,6 +864,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return "flag_disabled"
         if self._agent_active:
             return "agent_active"
+        if self._end_of_turn_received is False and _block_rotation_on_open_turn():
+            return "turn_open"
         if self._active_followup_task is not None and not self._active_followup_task.done():
             return "followup_in_flight"
         if self._task_completed:
@@ -3553,8 +3582,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
         self._last_turn_succeeded = False
-        if not agent_active and _turn_opens_on_dispatch():
-            self._turn_ended_received = True
+        if not agent_active:
+            self._turn_completion_signal_count += 1
+            if _turn_opens_on_dispatch():
+                self._turn_ended_received = True
 
     @temporalio.workflow.signal
     async def agent_turn_completed(self, succeeded: bool = False) -> None:
@@ -3736,6 +3767,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
+            turn_completion_count = self._turn_completion_signal_count
             outcome = await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
@@ -3757,12 +3789,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
             )
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
-            if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
-                self._end_of_turn_received = False
-                # The ingest plane never reports a turn active, only inactive at its close, so a
-                # stale `False` from the turn that just ended must not carry into this one — it
-                # would permanently hide a lost agent for every later turn of the run.
-                self._agent_active = None
+            if outcome != STEER_DECLINED_OUTCOME:
+                turn_opens_on_dispatch = _turn_opens_on_dispatch()
+                preserve_completion = _preserve_completion_during_delivery()
+                completion_arrived = self._turn_completion_signal_count != turn_completion_count
+                if turn_opens_on_dispatch and (
+                    outcome == TURN_IN_FLIGHT_OUTCOME or not completion_arrived or not preserve_completion
+                ):
+                    self._end_of_turn_received = False
+                    # The ingest plane never reports a turn active, only inactive at its close, so a
+                    # stale `False` from the turn that just ended must not carry into this one — it
+                    # would permanently hide a lost agent for every later turn of the run.
+                    self._agent_active = None
             return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)
