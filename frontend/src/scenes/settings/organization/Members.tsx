@@ -441,21 +441,6 @@ export function Members(): JSX.Element | null {
                     )
                 }
             />
-            <h3 className="mt-4">Two-factor authentication</h3>
-            <PayGateMini
-                feature={AvailableFeature.TWOFA_ENFORCEMENT}
-                featureDetail="organization-members-two-factor-authentication"
-            >
-                <p>Require all organization members to use two-factor authentication.</p>
-                <LemonSwitch
-                    label="Enforce 2FA"
-                    bordered
-                    checked={!!currentOrganization?.enforce_2fa}
-                    onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
-                    disabledReason={adminRestrictionReason}
-                />
-            </PayGateMini>
-
             <h3 className="mt-4">Invite settings</h3>
             <PayGateMini
                 feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}
