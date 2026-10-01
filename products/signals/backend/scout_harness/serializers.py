@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
@@ -39,6 +40,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
 )
+from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
@@ -3330,8 +3332,18 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
             "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
-            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
-            "unless `status` is `pending_pause` or `paused_by_system`."
+            "note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` "
+            "(PostHog retired the scout), or `background_removed` (the background lane stopped "
+            "managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`."
+        ),
+    )
+    managed_by = serializers.ChoiceField(
+        choices=SignalScoutConfig.ManagedBy.choices,
+        read_only=True,
+        help_text=(
+            "Who controls this scout now. `team`: a person set it up or has changed it. "
+            "`background`: PostHog runs it in the background and no person has edited it yet. Any "
+            "edit through this API changes `background` to `team`."
         ),
     )
     emit = serializers.BooleanField(
@@ -3515,6 +3527,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "pause_reason",
+            "managed_by",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -3752,6 +3765,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
         if validated_data and instance.consecutive_failure_count:
             validated_data["consecutive_failure_count"] = 0
+        # A person who edits a background-managed scout takes it over, so the background coordinator
+        # must not change or remove it after this. An empty write is not an edit.
+        if validated_data and instance.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
+            if validated_data.get("enabled") is False and instance.enabled:
+                request = self.context.get("request")
+                user = getattr(request, "user", None)
+                capture_background_scout_opted_out(
+                    config=instance, user=user if isinstance(user, User) else None, action=OPT_OUT_DISABLED
+                )
+            validated_data["managed_by"] = SignalScoutConfig.ManagedBy.TEAM
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE

@@ -190,7 +190,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
                 return_value=operation != "prevalidate",
             ),
-            patch("httpx.HTTPTransport.handle_request") as request,
+            patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         ):
             if operation == "create":
                 response = self.client.post(
@@ -260,7 +260,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
-    @patch("httpx.HTTPTransport.handle_request")
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
     @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
@@ -273,7 +273,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response_status = 200
 
         def respond(*_args: object, **_kwargs: object) -> httpx.Response:
-            return httpx.Response(response_status, content=body)
+            return httpx.Response(response_status, stream=httpx.ByteStream(body))
 
         request.side_effect = respond
         url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"

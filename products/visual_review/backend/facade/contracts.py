@@ -352,6 +352,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    purpose: str = "review"
     is_stale: bool = False
     superseded_by_id: UUID | None = None
     approved_by: UserBasicInfo | None = None

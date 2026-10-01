@@ -248,6 +248,7 @@ def _to_run(
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,

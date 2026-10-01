@@ -31,7 +31,7 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.oauth_provenance import is_sandbox_origin_request
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
@@ -46,6 +46,7 @@ from products.autoresearch.backend.facade.contracts import (
     SuggestionNotFound,
     TrainingRunNotFound,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
@@ -166,6 +167,19 @@ def _require_parent_pipeline_id(view: Any) -> str:
     return pipeline_id
 
 
+def _is_training_agent_sandbox(request: Request, team_id: int) -> bool:
+    """Whether to treat a sandbox request as the autoresearch training agent.
+
+    A request without a task-bound sandbox token counts as the training agent, so the check
+    fails closed when the header alone marks the request.
+    """
+    task_id = getattr(get_oauth_access_token(request), "sandbox_task_id", None)
+    if task_id is None:
+        return True
+    tasks = tasks_facade.get_tasks_by_ids([task_id], [team_id])
+    return not tasks or tasks[0].origin_product == tasks_facade.TaskOriginProduct.AUTORESEARCH
+
+
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     """The fields to persist.
 
@@ -217,10 +231,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
+        if self.action not in self.scope_object_write_actions or not is_sandbox_origin_request(request):
+            return
+        # A training run is a paid Tasks sandbox, so a person starts it. Tasks applies the same
+        # rule to its own launches.
+        if self.action == "start_training":
+            raise PermissionDenied(
+                "Training cannot be started from inside a sandbox. Start training from the pipeline's page in PostHog."
+            )
         # A sandbox token carries team-wide autoresearch:write, and the training agent writes only
-        # through its run, so a confused or injected agent must not reach pipeline writes. Tasks
-        # applies the same rule to its own launches.
-        if self.action in self.scope_object_write_actions and is_sandbox_origin_request(request):
+        # through its run, so a confused or injected agent must not reach pipeline writes. A
+        # user-driven sandbox, such as a PostHog AI task, can do what its user can do.
+        if _is_training_agent_sandbox(request, self.team_id):
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
     def get_throttles(self) -> list[BaseThrottle]:
