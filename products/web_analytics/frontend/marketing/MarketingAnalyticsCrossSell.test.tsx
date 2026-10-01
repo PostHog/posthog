@@ -68,9 +68,12 @@ describe('Marketing analytics cross sell', () => {
         expect(sources).not.toHaveBeenCalled()
     })
 
-    it.each([false, true])('offers source connection and respects setup flag=%s', async (setup) => {
+    it.each([
+        [false, WebStatsBreakdown.InitialUTMSource],
+        [true, WebStatsBreakdown.InitialUTMMedium],
+    ])('offers source connection with setup flag=%s on %s', async (setup, breakdown) => {
         enable(setup)
-        render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSource} />)
+        render(<MarketingAnalyticsCrossSell breakdown={breakdown} />)
         const link = await screen.findByRole('link', { name: 'Connect ad sources' })
         expect(link.getAttribute('href')).toContain('/marketing?')
         expect(link.getAttribute('href')?.includes('tab=setup')).toBe(setup)
@@ -112,7 +115,7 @@ describe('Marketing analytics cross sell', () => {
         sources
             .mockReturnValueOnce([200, { results: [{ source_type: 'Stripe' }], next: 'next', count: 2 }])
             .mockReturnValueOnce([200, { results: [{ source_type: 'GoogleAds' }], next: null, count: 2 }])
-        render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMCampaign} />)
+        render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSourceMediumCampaign} />)
         await screen.findByRole('link', { name: 'Analyze in Marketing analytics' })
         expect(sources).toHaveBeenCalledTimes(2)
     })

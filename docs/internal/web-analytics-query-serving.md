@@ -210,7 +210,7 @@ The component does not activate the five-section dashboard or change its queries
 
 The Sources table can show a dismissible Marketing analytics suggestion behind `web-analytics-marketing-cross-sell`.
 The gate precedes the query and connection loaders, so disabled users incur no additional requests.
-The Channel, UTM source and UTM campaign table views share the dashboard's Channels data node, including its date range, filters, test-account exclusion, comparison and query cache.
+The Channel and all existing UTM table views (source, medium, campaign, content, term, and combined source/medium/campaign) share the dashboard's Channels data node, including its date range, filters, test-account exclusion, comparison and query cache.
 Channel therefore adds no analytics request; a direct visit to a UTM table may load Channels once through the normal optimized query runner.
 The suggestion requires a recognized paid channel with visitors in the current period.
 Organic source names and comparison-only traffic do not qualify.
@@ -219,7 +219,7 @@ This is positive evidence from the returned top channels, not an exhaustive cens
 Connection metadata loads only after that evidence exists, without mounting the Marketing analytics dashboard or running its report queries.
 An enabled native ad integration or an existing external source mapping leads to Marketing analytics; otherwise the link opens source setup when that interface is enabled, or the existing dashboard onboarding flow.
 Sync health remains the destination's responsibility, so a failed integration does not prompt a duplicate connection.
-The three table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
+These table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
 Loading and failed metadata requests leave the suggestion hidden.
 The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
 Dismissal persists per project in the browser.

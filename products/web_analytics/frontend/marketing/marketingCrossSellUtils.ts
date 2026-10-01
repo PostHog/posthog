@@ -13,7 +13,11 @@ export function supportsMarketingCrossSell(breakdown: WebStatsBreakdown): boolea
     return [
         WebStatsBreakdown.InitialChannelType,
         WebStatsBreakdown.InitialUTMSource,
+        WebStatsBreakdown.InitialUTMMedium,
         WebStatsBreakdown.InitialUTMCampaign,
+        WebStatsBreakdown.InitialUTMContent,
+        WebStatsBreakdown.InitialUTMTerm,
+        WebStatsBreakdown.InitialUTMSourceMediumCampaign,
     ].includes(breakdown)
 }
 
