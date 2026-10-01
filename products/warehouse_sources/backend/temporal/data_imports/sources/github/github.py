@@ -16,7 +16,6 @@ from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from prometheus_client import Counter
 from structlog.types import FilteringBoundLogger
-from temporalio import activity
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
@@ -890,7 +889,9 @@ def _github_retry_wait(state: RetryCallState) -> float:
     return _github_backoff_wait(state)
 
 
-def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> None:
+def _pace_before_request(
+    installation_id: str, logger: FilteringBoundLogger, shutdown_wait: Callable[[float], bool] | None = None
+) -> None:
     """Wait out this installation's share of the shared egress budget before the next request.
 
     A backfill spends one request per page and can run for hours, so at full speed it drains the
@@ -914,8 +915,8 @@ def _pace_before_request(installation_id: str, logger: FilteringBoundLogger) -> 
         return
 
     logger.debug(f"Github: waiting {pace:.1f}s for egress budget before the next request")
-    if activity.in_activity():
-        activity.wait_for_worker_shutdown_sync(timeout=pace)
+    if shutdown_wait is not None:
+        shutdown_wait(pace)
     else:
         time.sleep(pace)
 
@@ -963,6 +964,7 @@ def _fetch_page(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -975,7 +977,7 @@ def _fetch_page(
     # and skips the gate too. On the rare page that is still shed, the retry backoff above applies
     # as well, which is the conservative order: the budget really is spent at that point.
     if installation_id is not None:
-        _pace_before_request(installation_id, logger)
+        _pace_before_request(installation_id, logger, shutdown_wait)
 
     response = github_request(
         "GET",
@@ -1075,6 +1077,7 @@ def _iter_pages(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -1091,6 +1094,7 @@ def _iter_pages(
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
                 required_permission=required_permission,
+                shutdown_wait=shutdown_wait,
             )
         except GithubResourceUnavailableError:
             logger.debug(f"Github: endpoint holds nothing for this repository, syncing zero rows: url={url}")
@@ -1127,6 +1131,7 @@ def _iter_child_for_parent(
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
     egress_identity: GithubEgressIdentity | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
     child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members).
@@ -1155,6 +1160,7 @@ def _iter_child_for_parent(
         egress_identity=egress_identity,
         repository=repository,
         required_permission=ENDPOINT_REQUIRED_PERMISSION.get(config.name),
+        shutdown_wait=shutdown_wait,
     ):
         for item in items:
             if item_filter and not item_filter(item):
@@ -1174,6 +1180,7 @@ def _fan_out_get_rows(
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
     max_parents: int | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -1287,6 +1294,7 @@ def _fan_out_get_rows(
         skip_on_not_found=parent_org_scoped,
         repository=repository,
         required_permission=ENDPOINT_REQUIRED_PERMISSION.get(parent_config.name),
+        shutdown_wait=shutdown_wait,
     ):
         parents = [parent_mapper(parent) for parent in raw_parents] if parent_mapper else raw_parents
         stop_after_this_page = _should_stop_desc(parents, "desc", parent_cursor_field, parent_cutoff)
@@ -1322,7 +1330,7 @@ def _fan_out_get_rows(
                 else None
             )
             for item in _iter_child_for_parent(
-                repository, parent_value, headers, logger, child_config, egress_identity
+                repository, parent_value, headers, logger, child_config, egress_identity, shutdown_wait
             ):
                 batcher.batch(inject(item) if inject else item)
                 if batcher.should_yield():
@@ -1476,6 +1484,7 @@ def _fetch_merge_commit_shas(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> dict[int, str]:
     """Ask GraphQL for the merge commit of each pull request number, through the gated and recorded
     transport, budget pacing, and retry policy the REST walk uses. Returns only the numbers GraphQL
@@ -1483,7 +1492,7 @@ def _fetch_merge_commit_shas(
     still resolves."""
     installation_id = egress_identity.installation_id if egress_identity is not None else None
     if installation_id is not None:
-        _pace_before_request(installation_id, logger)
+        _pace_before_request(installation_id, logger, shutdown_wait)
 
     owner, _, name = repository.partition("/")
     response = github_request(
@@ -1521,6 +1530,7 @@ def _add_merge_commit_shas(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> bool:
     """Fill in `merge_commit_sha` on the merged pull requests of one page, in place. False says
     GraphQL is closed to this connection, so the caller can stop asking for the rest of the walk.
@@ -1551,6 +1561,7 @@ def _add_merge_commit_shas(
                 logger,
                 egress_identity=egress_identity,
                 api_version=api_version,
+                shutdown_wait=shutdown_wait,
             )
         except GithubGraphqlUnavailableError as error:
             logger.warning(
@@ -1583,6 +1594,7 @@ def get_rows(
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
     max_parents: int | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -1598,6 +1610,7 @@ def get_rows(
             api_version=api_version,
             parent_cutoff_override=parent_cutoff_override,
             max_parents=max_parents,
+            shutdown_wait=shutdown_wait,
         )
         return
 
@@ -1646,6 +1659,7 @@ def get_rows(
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
                 required_permission=ENDPOINT_REQUIRED_PERMISSION.get(endpoint),
+                shutdown_wait=shutdown_wait,
             )
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
@@ -1689,6 +1703,7 @@ def get_rows(
                 logger,
                 egress_identity=egress_identity,
                 api_version=api_version,
+                shutdown_wait=shutdown_wait,
             )
 
         next_url = _parse_next_url(response.headers.get("Link", ""))
@@ -1819,6 +1834,7 @@ def github_source(
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     reconcile_since: datetime | None = None,
+    shutdown_wait: Callable[[float], bool] | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
@@ -1916,6 +1932,7 @@ def github_source(
                     # Stays on with a watermark so the first run after a long gap stays bounded. A parent
                     # past the cap loses its inactive transition until GitHub updates it again.
                     max_parents=endpoint_config.max_fan_out_parents,
+                    shutdown_wait=shutdown_wait,
                 ),
             )
 
@@ -1933,6 +1950,7 @@ def github_source(
             incremental_field=incremental_field,
             egress_identity=egress_identity,
             api_version=api_version,
+            shutdown_wait=shutdown_wait,
         )
 
     return SourceResponse(

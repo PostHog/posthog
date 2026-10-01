@@ -176,3 +176,5 @@ class SourceInputs:
     # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None
+    # Thread-safe wait that returns early when the runtime requests shutdown.
+    shutdown_wait: Optional[Callable[[float], bool]] = None
