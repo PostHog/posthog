@@ -30,7 +30,7 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 ## Follow-up check editing
 
-Approval records a person's quality signal without changing the check schedule. Only open checks can be approved. Atomic metric replacement cancels the old check and creates an unapproved replacement, preserving recurring runs and the configured soak unless a new soak is supplied. Invalid replacements leave the old check running. The requester must have access to the replacement query.
+Approval records a person's quality signal without changing the check schedule. Only open checks can be approved. Approval advances the check's update timestamp so older list responses cannot undo it on screen; retries preserve the original approval and timestamp. Atomic metric replacement cancels the old check and creates an unapproved replacement, preserving recurring runs and the configured soak unless a new soak is supplied. Invalid replacements leave the old check running. The requester must have access to the replacement query.
 
 ## Proposed impact measurement
 

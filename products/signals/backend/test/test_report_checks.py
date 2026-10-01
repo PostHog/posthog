@@ -949,14 +949,19 @@ class TestReportCheckAPI(APIBaseTest):
 
     def test_approval_is_idempotent_and_does_not_change_the_schedule(self) -> None:
         check = self._create()
-        first = self.client.post(f"{self.url}{check.id}/approve/")
-        second = self.client.post(f"{self.url}{check.id}/approve/")
+        approved_at = check.updated_at + timedelta(minutes=1)
+        with time_machine.travel(approved_at, tick=False):
+            first = self.client.post(f"{self.url}{check.id}/approve/")
+        with time_machine.travel(approved_at + timedelta(minutes=1), tick=False):
+            second = self.client.post(f"{self.url}{check.id}/approve/")
 
         assert first.status_code == status.HTTP_200_OK
         assert second.status_code == status.HTTP_200_OK
         check.refresh_from_db()
         assert check.approved_by_id == self.user.id
-        assert check.approved_at is not None
+        assert check.approved_at == check.updated_at == approved_at
+        assert datetime.fromisoformat(first.json()["updated_at"]) == approved_at
+        assert first.json()["updated_at"] == second.json()["updated_at"]
         assert first.json()["next_run_at"] == second.json()["next_run_at"]
         assert check.status == SignalReportCheck.Status.ACTIVE
 

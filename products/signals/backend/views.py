@@ -4878,9 +4878,10 @@ class SignalReportCheckViewSet(
             return Response(
                 {"error": "The measurement query is not available to you."}, status=status.HTTP_403_FORBIDDEN
             )
+        approved_at = timezone.now()
         SignalReportCheck.objects.for_team(self.team.id).filter(
             id=check.id, status__in=SignalReportCheck.OPEN_STATUSES, approved_at__isnull=True
-        ).update(approved_at=timezone.now(), approved_by_id=attribution.user_id)
+        ).update(approved_at=approved_at, approved_by_id=attribution.user_id, updated_at=approved_at)
         check.refresh_from_db()
         if check.status not in SignalReportCheck.OPEN_STATUSES:
             return Response({"error": "Only open checks can be approved."}, status=status.HTTP_400_BAD_REQUEST)
