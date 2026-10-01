@@ -69,6 +69,17 @@ ManagedWarehouseMonitoringMetric = Literal[
     "storage_bytes",
     "worker_crash_rate",
 ]
+ManagedWarehouseTrinoMonitoringMetric = Literal[
+    "queries_in_flight",
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "queue_time_p95",
+    "scanned_bytes_rate",
+    "cpu_seconds_rate",
+    "storage_bytes",
+]
 ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
 DataOpsVariant = Literal["trino", "duckdb"]
 
@@ -1112,6 +1123,26 @@ def monitoring_series_for(
         "GET",
         organization_id,
         "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
+
+
+def trino_monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live Trino query data for one organization."""
+    return _request("GET", organization_id, "/monitoring/trino/snapshot", timeout=10)
+
+
+def trino_monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseTrinoMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed Trino monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/trino/series",
         params={"metric": metric, "window": window},
         timeout=10,
     )
