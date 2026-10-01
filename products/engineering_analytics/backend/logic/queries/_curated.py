@@ -384,8 +384,8 @@ class CuratedGitHubSource:
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
         event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
-        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
-        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        ``pr_number`` alone, unlike the push-activity query in ``pull_request_list``: a run's association
+        can list the fork network's PRs (which is why that query needs the repo qualifier), whereas every row of a resolved
         issue-events table belongs to that one repo by table construction.
 
         The events table and the pull requests table sync independently, so a timestamp here can run
@@ -437,21 +437,19 @@ class CuratedGitHubSource:
         return f"({query})"
 
     def runs_cte(self) -> str:
-        """CTE materializing the curated workflow-runs source once.
+        """CTE naming the curated workflow-runs source for ``ci_rollup``.
 
-        ``ci_rollup`` and ``runs_by_pr`` both derive from the same runs source; reading them from
-        this shared CTE keeps the (JSON- and timestamp-parsing) source to a single scan per query
-        instead of inlining — and re-parsing — it once per rollup.
+        ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
+        parses the whole runs source again.
         """
         return f"runs AS {self.run_source()}"
 
     def _pr_scope_cte(self, pr_scope_where: str) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over
-        unqualified curated PR columns), read once and shared by both runs rollups below —
-        the same one-scan-per-query reasoning as ``runs_cte``, applied to the PR source.
+        unqualified curated PR columns).
 
-        The runs rollups only ever join back to PRs the consuming query keeps, so they
-        prefilter the runs scan to this set. Unscoped, they aggregate the team's whole
+        The CI rollup only ever joins back to PRs the consuming query keeps, so it
+        prefilters the runs scan to this set. Unscoped, it aggregates the team's whole
         run history — millions of ``(head_sha, workflow)`` groups on a busy repo — and
         the query runs out of memory before the join discards almost all of it.
         """
@@ -497,67 +495,18 @@ class CuratedGitHubSource:
             )
         """
 
-    def pr_rollup_query(self, select: str, *, pr_scope_where: str) -> str:
+    def pr_rollup_query(
+        self, select: str, *, pr_scope_where: str, ready: ReadyToMergeSql = READY_TO_MERGE_UNOBSERVABLE
+    ) -> str:
         """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
 
-        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs and fills its
-        ``__PR_SOURCE__`` placeholder with the curated pull-requests source — the steps the
-        cards and PR-list queries always do together. ``pr_scope_where`` must keep every PR the
-        ``select`` reads CI for (it prunes the rollup scan, see ``_pr_scope_cte``); a PR outside
-        it joins as if it had no runs.
+        Prefixes ``select`` with the ``pr_scope`` and CI rollup CTEs, and the CTE of the ``ready``
+        measure when ``select`` reads it, and fills its ``__PR_SOURCE__`` placeholder with the
+        curated pull-requests source. The cards and PR-list queries always do these steps together.
+        ``pr_scope_where`` must keep every PR the ``select`` reads CI for (it prunes the rollup scan,
+        see ``_pr_scope_cte``); a PR outside it joins as if it had no runs.
         """
-        return self._compose_pr_query(
-            [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()], select
-        )
-
-    def runs_by_pr_cte(self) -> str:
-        """CTE: per-PR activity from the workflow runs attributed to each PR. Scoped to the
-        ``pr_scope`` CTE the composing query adds (see ``_pr_scope_cte``); the scope is a
-        prefilter — the repo-qualified join below still decides correctness.
-
-        A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
-        the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
-        (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
-        association (``pr_number = 0``) and are excluded.
-
-        Merge-queue gate runs are excluded too, even though the runs builder credits them to the PR
-        they were landing. This rollup measures what the *author* did to the PR, and a gate branch's
-        head SHA is a rebase the queue made — counting it would report a push nobody made, once per
-        merge attempt. Cost and CI-health surfaces keep the gate run; they measure spend and outcomes,
-        not authoring activity.
-
-        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
-        restart per repository, so the PR-list join is qualified by repo to stay correct — as
-        repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
-        today (the warehouse GitHub source syncs one ``owner/repo``), so the qualifier is a no-op
-        now; it keeps the rollup correct if a source ever spans repos, instead of silently
-        cross-attributing runs to a same-numbered PR in another repo.
-        """
-        return f"""
-            runs_by_pr AS (
-                SELECT
-                    repo_owner,
-                    repo_name,
-                    pr_number,
-                    count(DISTINCT head_sha) AS pushes,
-                    countIf(run_attempt > 1) AS rerun_cycles
-                FROM runs AS r
-                WHERE {_PUSH_RUN_PREDICATE}
-                    AND pr_number IN (SELECT number FROM pr_scope)
-                GROUP BY repo_owner, repo_name, pr_number
-            )
-        """
-
-    def pr_list_rollup_query(self, select: str, *, pr_scope_where: str, ready: ReadyToMergeSql) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup and the CTE of the ``ready`` measure that
-        ``select`` reads. ``pr_scope_where`` scopes both runs rollups via the shared ``pr_scope`` CTE
-        (see ``pr_rollup_query``)."""
-        ctes = [
-            self.runs_cte(),
-            self._pr_scope_cte(pr_scope_where),
-            self.ci_rollup_cte(),
-            self.runs_by_pr_cte(),
-        ]
+        ctes = [self.runs_cte(), self._pr_scope_cte(pr_scope_where), self.ci_rollup_cte()]
         if ready.cte:
             ctes.append(ready.cte)
         return self._compose_pr_query(ctes, select)

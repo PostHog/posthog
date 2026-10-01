@@ -187,14 +187,12 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             1,
             ["E2E CI"],
-            5,
-            2,
         )
         # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
         # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
         push_rows = [
-            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
-            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
+            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1, 5, 2),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0, 5, 2),
         ]
         with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -248,8 +246,6 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             0,
             list[str](),
-            0,
-            0,
         )
         with (
             mock.patch(f"{_PR_LIST}._LIMIT", 2),
@@ -326,6 +322,10 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # its head SHA is a rebase the queue made, so it must not inflate the author's push count.
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
         assert {sample.head_sha for sample in by_number[10].push_history} == {"sha10", "sha10b"}
+        with mock.patch.object(pull_request_list, "_PUSH_HISTORY_LIMIT", 1):
+            capped = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 10)
+        assert [sample.head_sha for sample in capped.push_history] == ["sha10"]
+        assert (capped.pushes, capped.rerun_cycles) == (2, 1)  # counts include the push the cap dropped
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
@@ -644,7 +644,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
         # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
         # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
-        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # rollup is already repo-safe; this proves the push-activity rollup is too.) A resolved source is
         # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
         self._create_table(
             "github_pull_requests",
