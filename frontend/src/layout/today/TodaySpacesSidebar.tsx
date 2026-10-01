@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
+import { IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
+import { TodayChatRow } from './TodayChatRow'
 import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -50,7 +51,7 @@ export function TodaySpacesSidebar(): JSX.Element {
     const { openNewSpace } = useActions(newSpaceLogic)
     const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
     const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
-    const { location, searchParams } = useValues(router)
+    const { location } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
     const selectedIds = new Set(selectedSessionIds)
@@ -85,14 +86,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                 onSelectClick={(event) => onSelectClick(item.id, event)}
             />
         ) : (
-            <TodaySpacesRow
-                key={`${item.kind}-${item.id}`}
-                label={item.title || 'Untitled chat'}
-                icon={<IconChat className="text-muted-foreground" />}
-                to={urls.ai(item.id)}
-                active={location.pathname.endsWith('/ai') && searchParams.chat === item.id}
-                dataAttr={dataAttr}
-            />
+            <TodayChatRow key={`${item.kind}-${item.id}`} item={item} dataAttr={dataAttr} />
         )
 
     const hasPinned = pinnedItems.length > 0

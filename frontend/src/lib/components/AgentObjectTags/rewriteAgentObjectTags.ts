@@ -47,7 +47,7 @@ const XML_ENTITIES: Record<string, string> = {
 }
 const RE_XML_ENTITY = /&(?:quot|apos|lt|gt|amp);/g
 
-function unescapeXml(value: string): string {
+export function unescapeXml(value: string): string {
     return value.replace(RE_XML_ENTITY, (entity) => XML_ENTITIES[entity])
 }
 
