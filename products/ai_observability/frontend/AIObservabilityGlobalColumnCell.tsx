@@ -5,12 +5,12 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QueryContextColumnComponent } from '~/queries/types'
 
-type CellProps = ComponentProps<QueryContextColumnComponent>
+type CellProps = ComponentProps<QueryContextColumnComponent> & { rendererKey: string }
 
 const RendererCell = lazyWithRetry(() =>
     import('./aiObservabilityColumnRenderers').then(({ aiObservabilityColumnRenderers }) => ({
-        default: function RendererCell(props: CellProps): JSX.Element | null {
-            const Render = aiObservabilityColumnRenderers[props.columnName]?.render
+        default: function RendererCell({ rendererKey, ...props }: CellProps): JSX.Element | null {
+            const Render = aiObservabilityColumnRenderers[rendererKey]?.render
             return Render ? <Render {...props} /> : null
         },
     }))

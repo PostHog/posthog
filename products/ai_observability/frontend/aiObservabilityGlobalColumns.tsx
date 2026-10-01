@@ -2,6 +2,15 @@ import { QueryContextColumn } from '~/queries/types'
 
 import { AIObservabilityGlobalColumnCell } from './AIObservabilityGlobalColumnCell'
 
+// Each entry names its own renderer, so the cell does not depend on the column name it is given.
+function globalColumn(rendererKey: string): QueryContextColumn {
+    return {
+        render: function AIObservabilityGlobalColumn(props) {
+            return <AIObservabilityGlobalColumnCell rendererKey={rendererKey} {...props} />
+        },
+    }
+}
+
 // The renderers that `renderColumn` applies to every DataTable in the app. A key here wins over the
 // core renderer for that column name everywhere, so only namespaced keys belong: a `$ai_` property,
 // or a name carrying the `__llm_` prefix. A plain name such as `person` would take the column over
@@ -18,5 +27,5 @@ export const aiObservabilityGlobalColumnRenderers: Record<string, QueryContextCo
         '__llm_sentiment',
         '__llm_tools',
         '__llm_person',
-    ].map((key) => [key, { render: AIObservabilityGlobalColumnCell }])
+    ].map((rendererKey) => [rendererKey, globalColumn(rendererKey)])
 )
