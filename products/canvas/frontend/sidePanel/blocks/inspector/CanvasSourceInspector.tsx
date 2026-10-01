@@ -1,5 +1,5 @@
 import { IconCopy, IconSparkles, IconTrash } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { Button, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
 import { BlockPropsRecord, blockDefinition } from '../../../editing/blockLibrary/blockDefinitions'
 import { SQL_BLOCK_TYPES } from '../../../editing/blockLibrary/blockSql'
@@ -63,15 +63,17 @@ export function CanvasSourceInspector({
     return (
         <div className="flex flex-col gap-4 p-3">
             {selection.params && selection.blockType && !blockDefinition(selection.blockType) ? (
-                <div className="flex gap-2.5 rounded-lg border border-border bg-fill-hover px-3 py-2.5">
-                    <IconSparkles className="mt-0.5 shrink-0" />
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                        <span className="text-xs font-medium text-foreground">Set up by the agent</span>
-                        <span className="text-xs leading-snug text-muted-foreground">
+                <Item variant="muted" size="xs" className="items-start">
+                    <ItemMedia variant="icon" aria-hidden>
+                        <IconSparkles />
+                    </ItemMedia>
+                    <ItemContent>
+                        <ItemTitle>Set up by the agent</ItemTitle>
+                        <ItemDescription>
                             These fields come from the component's code, so you can change them without a prompt.
-                        </span>
-                    </div>
-                </div>
+                        </ItemDescription>
+                    </ItemContent>
+                </Item>
             ) : null}
             {selection.blockType && SQL_BLOCK_TYPES.has(selection.blockType) ? (
                 <QueryModeFields type={selection.blockType} props={props} onChange={onProps}>
@@ -94,7 +96,7 @@ export function CanvasSourceInspector({
                 </ControlNote>
             ) : null}
             {isRoot ? null : (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={onDuplicate} data-attr="canvas-block-duplicate">
                         <IconCopy />
                         Duplicate

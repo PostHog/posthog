@@ -1,10 +1,29 @@
 import { ChangeEvent, PointerEvent, useMemo, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import { Input } from '@posthog/quill'
+import { IconSearch, IconSparkles } from '@posthog/icons'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Text,
+} from '@posthog/quill'
 
 import { LIBRARY, LIBRARY_GROUPS, LibraryEntry } from '../../editing/libraryCatalog'
 import { CanvasBlocksLibraryItem } from './CanvasBlocksLibraryItem'
+
+const IMPROVE_PROMPT = 'Improve this canvas. Keep the blocks I placed, and make the layout clear and consistent.'
 
 /** The block library: every block by group, searchable, with a way to hand the rest to the agent. */
 export function CanvasBlocksLibrary({
@@ -30,60 +49,94 @@ export function CanvasBlocksLibrary({
     }, [search])
     return (
         <div className="flex min-h-0 flex-1 flex-col">
-            <div className="px-3 pt-3 pb-2">
-                <Input
-                    value={search}
-                    placeholder="Search blocks"
-                    aria-label="Search blocks"
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
-                    data-attr="canvas-blocks-search"
-                />
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4">
-                {groups.map(({ group, entries }) => (
-                    <div key={group} className="mt-2">
-                        <div className="px-2 pb-1 text-xs font-medium text-muted-foreground">{group}</div>
-                        {entries.map((entry) => (
-                            <CanvasBlocksLibraryItem
-                                key={entry.type}
-                                entry={entry}
-                                onPointerDown={onPointerDown}
-                                onActivate={onActivate}
-                            />
-                        ))}
-                    </div>
-                ))}
-                {groups.length === 0 ? (
-                    <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                        No blocks match “{search}”
-                    </div>
-                ) : null}
-                <div className="mx-2 mt-4 rounded-md bg-fill-hover px-2.5 py-2 text-xs leading-snug text-muted-foreground">
+            <div className="flex flex-col gap-2 px-3 pt-3 pb-2">
+                <InputGroup>
+                    <InputGroupAddon align="inline-start">
+                        <InputGroupText>
+                            <IconSearch />
+                        </InputGroupText>
+                    </InputGroupAddon>
+                    <InputGroupInput
+                        type="search"
+                        value={search}
+                        placeholder="Search blocks"
+                        aria-label="Search blocks"
+                        onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)}
+                        data-attr="canvas-blocks-search"
+                    />
+                </InputGroup>
+                <Text size="xs" variant="muted">
                     {addsAfter
                         ? `Click a block to add it after the selected ${addsAfter.toLowerCase()}, or drag it anywhere in the canvas.`
                         : 'Click a block to add it at the end, or drag it anywhere in the canvas.'}
-                </div>
-                <div className="mt-4 px-2">
-                    <button
-                        type="button"
-                        onClick={() =>
-                            onAskAgent(
-                                'Improve this canvas. Keep the blocks I placed, and make the layout clear and consistent.'
-                            )
-                        }
-                        className="flex w-full items-start gap-2.5 rounded-md border border-dashed border-border px-2.5 py-2 text-left transition-colors hover:bg-fill-hover"
-                        data-attr="canvas-blocks-ask-agent"
-                    >
-                        <IconSparkles className="mt-px shrink-0" />
-                        <span className="min-w-0">
-                            <span className="block text-xs font-medium text-foreground">Ask the agent</span>
-                            <span className="block text-xs leading-snug text-muted-foreground">
-                                Blocks are code in this canvas. The agent can change them, or build what no block
-                                covers.
-                            </span>
-                        </span>
-                    </button>
-                </div>
+                </Text>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 pb-4">
+                {groups.length === 0 ? (
+                    <Empty className="border-0 p-4">
+                        <EmptyHeader>
+                            <EmptyTitle>No blocks match your search</EmptyTitle>
+                            <EmptyDescription>
+                                Try another word, or ask the agent to build what you need.
+                            </EmptyDescription>
+                        </EmptyHeader>
+                        <EmptyContent>
+                            <Button variant="outline" size="sm" onClick={() => setSearch('')}>
+                                Clear search
+                            </Button>
+                        </EmptyContent>
+                    </Empty>
+                ) : (
+                    groups.map(({ group, entries }) => (
+                        <section
+                            key={group}
+                            aria-labelledby={`canvas-blocks-group-${group}`}
+                            className="flex flex-col gap-1"
+                        >
+                            <Text
+                                id={`canvas-blocks-group-${group}`}
+                                size="xs"
+                                variant="muted"
+                                weight="medium"
+                                render={<h3 />}
+                            >
+                                {group}
+                            </Text>
+                            <div className="flex flex-col">
+                                {entries.map((entry) => (
+                                    <CanvasBlocksLibraryItem
+                                        key={entry.type}
+                                        entry={entry}
+                                        onPointerDown={onPointerDown}
+                                        onActivate={onActivate}
+                                    />
+                                ))}
+                            </div>
+                        </section>
+                    ))
+                )}
+                <Item
+                    variant="outline"
+                    size="xs"
+                    className="w-full items-start text-left hover:bg-fill-button-tertiary-hover"
+                    render={
+                        <button
+                            type="button"
+                            onClick={() => onAskAgent(IMPROVE_PROMPT)}
+                            data-attr="canvas-blocks-ask-agent"
+                        />
+                    }
+                >
+                    <ItemMedia variant="icon" aria-hidden>
+                        <IconSparkles />
+                    </ItemMedia>
+                    <ItemContent>
+                        <ItemTitle>Ask the agent…</ItemTitle>
+                        <ItemDescription>
+                            Blocks are code in this canvas. The agent can change them, or build what no block covers.
+                        </ItemDescription>
+                    </ItemContent>
+                </Item>
             </div>
         </div>
     )

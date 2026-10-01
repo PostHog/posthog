@@ -35,7 +35,7 @@ function MeasureField({
 }): JSX.Element {
     return (
         <InspectorField label={label}>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-2">
                 <EventPicker
                     value={asString(props.event, '$pageview')}
                     onChange={(event) => onChange({ ...props, event })}
@@ -103,6 +103,7 @@ export function ComponentFields({
                     </InspectorField>
                     <EventStepList
                         label="Events"
+                        itemLabel="event"
                         values={asStrings(props.events, ['$pageview'])}
                         min={1}
                         max={5}
@@ -163,6 +164,7 @@ export function ComponentFields({
                     <TitleField props={props} onChange={onChange} />
                     <EventStepList
                         label="Steps"
+                        itemLabel="step"
                         values={asStrings(props.steps, ['$pageview', '$autocapture'])}
                         min={2}
                         max={8}

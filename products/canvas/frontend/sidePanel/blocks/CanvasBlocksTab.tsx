@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { PointerEvent } from 'react'
 
 import { IconChevronLeft, IconSparkles } from '@posthog/icons'
-import { Button, Skeleton } from '@posthog/quill'
+import { Button, Item, ItemContent, ItemDescription, ItemMedia, ItemTitle, Skeleton } from '@posthog/quill'
 
 import { canvasEditLogic } from '../../editing/canvasEditLogic'
 import { isRootSelection } from '../../editing/canvasSourceSnapshots'
@@ -10,15 +10,15 @@ import { LibraryEntry, libraryIcon, libraryLabel } from '../../editing/libraryCa
 import { beginSourceDrag } from '../../editing/sourceDrag'
 import { CanvasBlocksLibrary } from './CanvasBlocksLibrary'
 import { CanvasBlocksNotice } from './CanvasBlocksNotice'
-import { CanvasBlocksSaveIndicator } from './CanvasBlocksSaveIndicator'
 import { CanvasSourceInspector } from './inspector/CanvasSourceInspector'
 
 /**
  * The Blocks tab of an edited canvas: the library to add blocks from, or the inspector for the
- * selected block, with the save state and any save problem on top. Like PostHog Desktop's Blocks panel.
+ * selected block, with any save problem on top. Like PostHog Desktop's Blocks panel.
+ * The save state itself shows in the canvas header.
  */
 export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element {
-    const { entry, selection, libraryOpen, saveStatus } = useValues(canvasEditLogic({ id: canvasId }))
+    const { entry, selection, libraryOpen } = useValues(canvasEditLogic({ id: canvasId }))
     const {
         setLibraryOpen,
         addAfterSelection,
@@ -32,10 +32,11 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
         askAgent,
     } = useActions(canvasEditLogic({ id: canvasId }))
 
-    if (!entry || !saveStatus) {
+    if (!entry) {
         return (
             <div className="flex flex-col gap-2 p-3" aria-label="Loading blocks">
                 <Skeleton className="h-8 w-full" />
+                <Skeleton className="h-3 w-16" />
                 <Skeleton className="h-12 w-full" />
                 <Skeleton className="h-12 w-full" />
             </div>
@@ -69,30 +70,26 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
 
     return (
         <div className="flex h-full min-h-0 flex-col" data-attr="canvas-blocks-tab">
-            <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border px-3">
-                {inspecting ? (
+            {inspecting ? (
+                <div className="flex shrink-0 items-center border-b border-border px-2 py-1">
                     <Button
                         variant="default"
-                        size="xs"
+                        size="sm"
                         onClick={() => setLibraryOpen(true)}
                         data-attr="canvas-blocks-all"
                     >
                         <IconChevronLeft />
                         All blocks
                     </Button>
-                ) : (
-                    <span className="text-xs font-medium text-muted-foreground">Library</span>
-                )}
-                <div className="flex-1" />
-                <CanvasBlocksSaveIndicator status={saveStatus} />
-            </div>
+                </div>
+            ) : null}
             {entry.saveError ? (
-                <CanvasBlocksNotice tone="error" title="Your changes are not saved" detail={entry.saveError}>
+                <CanvasBlocksNotice tone="destructive" title="Your changes are not saved" detail={entry.saveError}>
                     <Button variant="outline" size="xs" onClick={() => retrySave()} data-attr="canvas-save-retry">
                         Try again
                     </Button>
                     <Button
-                        variant="default"
+                        variant="outline"
                         size="xs"
                         onClick={() =>
                             askAgent(
@@ -102,7 +99,7 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
                         data-attr="canvas-save-ask-agent"
                     >
                         <IconSparkles />
-                        Ask the agent to fix
+                        Ask agent to fix
                     </Button>
                 </CanvasBlocksNotice>
             ) : null}
@@ -110,7 +107,7 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
                 <CanvasBlocksNotice
                     tone="warning"
                     title="This canvas changed somewhere else"
-                    detail="A newer version was saved while you edited. Load it and drop your unsaved edits, or keep your edits and replace it."
+                    detail="Edits stop saving until you choose. Load the latest and drop your unsaved edits, or keep your edits and replace it."
                 >
                     <Button
                         variant="outline"
@@ -121,7 +118,7 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
                         Load the latest
                     </Button>
                     <Button
-                        variant="default"
+                        variant="outline"
                         size="xs"
                         onClick={() => resolveConflict(true)}
                         data-attr="canvas-conflict-keep-mine"
@@ -132,18 +129,22 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
             ) : null}
             {inspecting && selection ? (
                 <div className="min-h-0 flex-1 overflow-y-auto">
-                    <div className="flex items-center gap-2.5 border-b border-border px-3 py-2.5">
-                        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-fill-hover text-foreground">
-                            <SelectedIcon className="size-4" />
-                        </div>
-                        <div className="min-w-0">
-                            <div className="text-xs font-medium text-foreground">
-                                {isRoot ? 'Canvas' : libraryLabel(selection.blockType, selection.tag)}
-                            </div>
-                            <div className="truncate font-mono text-xs text-muted-foreground" translate="no">
-                                {selection.source?.file ?? ''}
-                            </div>
-                        </div>
+                    <div className="px-3 pt-3">
+                        <Item variant="muted" size="xs">
+                            <ItemMedia variant="icon" aria-hidden>
+                                <SelectedIcon />
+                            </ItemMedia>
+                            <ItemContent className="min-w-0">
+                                <ItemTitle>
+                                    {isRoot ? 'Canvas' : libraryLabel(selection.blockType, selection.tag)}
+                                </ItemTitle>
+                                {selection.source?.file ? (
+                                    <ItemDescription className="truncate font-mono" translate="no">
+                                        {selection.source.file}
+                                    </ItemDescription>
+                                ) : null}
+                            </ItemContent>
+                        </Item>
                     </div>
                     <CanvasSourceInspector
                         key={selection.blockId ?? `${selection.source?.file}:${selection.source?.start}`}
@@ -167,7 +168,7 @@ export function CanvasBlocksTab({ canvasId }: { canvasId: string }): JSX.Element
                                 data-attr="canvas-block-ask-agent"
                             >
                                 <IconSparkles />
-                                Ask the agent about this
+                                Ask the agent about this…
                             </Button>
                         </div>
                     )}

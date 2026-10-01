@@ -1,6 +1,7 @@
 import { ReactNode } from 'react'
 
 import { IconWarning } from '@posthog/icons'
+import { Item, ItemContent, ItemFooter, ItemMedia, ItemTitle, Text } from '@posthog/quill'
 
 /** A problem with saving, shown above the library or inspector with the actions that resolve it. */
 export function CanvasBlocksNotice({
@@ -9,26 +10,35 @@ export function CanvasBlocksNotice({
     detail,
     children,
 }: {
-    tone: 'error' | 'warning'
+    tone: 'destructive' | 'warning'
     title: string
     detail: string
     children: ReactNode
 }): JSX.Element {
     return (
-        <div
-            className={`flex flex-col gap-2 border-b border-border px-3 py-2.5 ${tone === 'error' ? 'bg-destructive' : 'bg-warning'}`}
-            data-attr={`canvas-blocks-notice-${tone}`}
-        >
-            <div className="flex items-start gap-2">
-                <IconWarning
-                    className={`mt-px shrink-0 ${tone === 'error' ? 'text-destructive-foreground' : 'text-warning-foreground'}`}
-                />
-                <div className="min-w-0 text-xs leading-snug">
-                    <div className="font-medium text-foreground">{title}</div>
-                    <div className="break-words text-muted-foreground">{detail}</div>
-                </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5 pl-5">{children}</div>
+        // Item drops a role prop, so the alert role sits on the wrapper.
+        <div role="alert" className="shrink-0 px-3 pt-3">
+            <Item
+                variant="outline"
+                size="xs"
+                tone={tone}
+                className="items-start"
+                data-attr={`canvas-blocks-notice-${tone === 'destructive' ? 'error' : 'warning'}`}
+            >
+                <ItemMedia variant="icon" aria-hidden>
+                    <IconWarning />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                    <ItemTitle>{title}</ItemTitle>
+                    {/* ItemDescription clamps to two lines, and this detail must show in full. */}
+                    <Text size="xs" variant="muted" className="break-words">
+                        {detail}
+                    </Text>
+                </ItemContent>
+                <ItemFooter className="justify-start">
+                    <div className="flex flex-wrap gap-2">{children}</div>
+                </ItemFooter>
+            </Item>
         </div>
     )
 }

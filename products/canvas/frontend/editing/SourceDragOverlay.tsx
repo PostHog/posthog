@@ -3,6 +3,8 @@ import './SourceDragOverlay.scss'
 import { useValues } from 'kea'
 import { createPortal } from 'react-dom'
 
+import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
+
 import { canvasSourceDragLogic } from './canvasSourceDragLogic'
 import { libraryIcon } from './libraryCatalog'
 
@@ -28,15 +30,15 @@ export function SourceDragOverlay(): JSX.Element | null {
                 data-phase={ghost.phase}
                 style={{ transform: `translate3d(${x}px, ${y}px, 0) rotate(${ghost.tilt.toFixed(2)}deg)` }}
             >
-                <div className="CanvasSourceDrag__card flex w-56 items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5">
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-fill-hover text-foreground">
-                        <Icon className="size-4" />
-                    </div>
-                    <div className="min-w-0">
-                        <div className="truncate text-xs font-medium text-foreground">{ghost.label}</div>
-                        <div className="truncate text-xs text-muted-foreground">{ghost.hint}</div>
-                    </div>
-                </div>
+                <Item variant="outline" size="xs" className="CanvasSourceDrag__card w-56 bg-card shadow-lg">
+                    <ItemMedia variant="icon" aria-hidden>
+                        <Icon />
+                    </ItemMedia>
+                    <ItemContent className="min-w-0">
+                        <ItemTitle className="truncate">{ghost.label}</ItemTitle>
+                        <ItemDescription className="truncate">{ghost.hint}</ItemDescription>
+                    </ItemContent>
+                </Item>
             </div>
         </div>,
         document.body

@@ -10,6 +10,7 @@ import {
     ComboboxItem,
     ComboboxList,
     ComboboxTrigger,
+    Text,
 } from '@posthog/quill'
 
 const CUSTOM_PREFIX = '__custom__:'
@@ -114,19 +115,21 @@ export function SearchPicker({
                             <span className="min-w-0 truncate">
                                 {value ? format(value) : allowNone ? noneLabel : placeholder}
                             </span>
-                            <IconChevronDown className="shrink-0 opacity-60" />
+                            <IconChevronDown />
                         </Button>
                     }
                 />
                 <ComboboxContent anchor={anchorRef} side="bottom" align="start" sideOffset={4} className="w-64">
                     <ComboboxInput placeholder={searchPlaceholder} showTrigger={false} />
-                    <ComboboxEmpty>{loading ? 'Loading…' : 'Nothing found'}</ComboboxEmpty>
+                    <ComboboxEmpty>{loading ? 'Loading…' : 'No matches. Type a name to use it anyway.'}</ComboboxEmpty>
                     <ComboboxList className="max-h-72">
                         {(item: string) => {
                             if (item === NONE_VALUE) {
                                 return (
                                     <ComboboxItem key={item} value={item}>
-                                        <span className="text-muted-foreground">{noneLabel}</span>
+                                        <Text size="xs" variant="muted" render={<span />}>
+                                            {noneLabel}
+                                        </Text>
                                     </ComboboxItem>
                                 )
                             }
@@ -143,7 +146,15 @@ export function SearchPicker({
                                 <ComboboxItem key={item} value={item} title={item}>
                                     <span className="min-w-0 flex-1 truncate">{format(item)}</span>
                                     {format(item) !== item ? (
-                                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{item}</span>
+                                        <Text
+                                            size="xs"
+                                            variant="muted"
+                                            render={<span />}
+                                            className="shrink-0 font-mono"
+                                            translate="no"
+                                        >
+                                            {item}
+                                        </Text>
                                     ) : null}
                                 </ComboboxItem>
                             )

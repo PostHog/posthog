@@ -1,8 +1,8 @@
 import { useId } from 'react'
 
-import { Switch } from '@posthog/quill'
+import { Field, FieldContent, FieldDescription, FieldLabel, Switch } from '@posthog/quill'
 
-/** An on or off inspector setting, with its label on the left. */
+/** An on or off inspector setting that applies at once, with its label on the left. */
 export function InspectorSwitch({
     label,
     hint,
@@ -16,12 +16,12 @@ export function InspectorSwitch({
 }): JSX.Element {
     const id = useId()
     return (
-        <div className="flex items-start justify-between gap-3">
-            <label htmlFor={id} className="min-w-0 cursor-pointer">
-                <span className="block text-xs text-foreground">{label}</span>
-                {hint ? <span className="block text-xs leading-snug text-muted-foreground">{hint}</span> : null}
-            </label>
+        <Field orientation="horizontal">
+            <FieldContent>
+                <FieldLabel htmlFor={id}>{label}</FieldLabel>
+                {hint ? <FieldDescription>{hint}</FieldDescription> : null}
+            </FieldContent>
             <Switch id={id} checked={checked} onCheckedChange={onChange} size="sm" />
-        </div>
+        </Field>
     )
 }

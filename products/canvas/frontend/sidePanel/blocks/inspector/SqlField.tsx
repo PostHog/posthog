@@ -1,7 +1,7 @@
 import { ChangeEvent, KeyboardEvent, useEffect, useState } from 'react'
 
 import { IconPlay } from '@posthog/icons'
-import { Button, Textarea } from '@posthog/quill'
+import { Button, Kbd, KbdGroup, Text, Textarea } from '@posthog/quill'
 
 import { SQL_COLUMN_HINTS } from '../../../editing/blockLibrary/blockSql'
 import { InspectorField } from './InspectorField'
@@ -34,7 +34,7 @@ export function SqlField({
                 rows={8}
                 aria-label="HogQL"
                 spellCheck={false}
-                className="font-mono text-xs leading-relaxed"
+                className="font-mono"
                 onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setDraft(event.target.value)}
                 onKeyDown={(event: KeyboardEvent<HTMLTextAreaElement>) => {
                     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && changed) {
@@ -43,8 +43,20 @@ export function SqlField({
                 }}
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">⌘↵ to run</span>
-                <Button variant="primary" size="sm" disabled={!changed} onClick={() => onCommit(draft)}>
+                <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-1">
+                    <KbdGroup>
+                        <Kbd>⌘</Kbd>
+                        <Kbd>↵</Kbd>
+                    </KbdGroup>
+                    <span>to run</span>
+                </Text>
+                <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={!changed}
+                    onClick={() => onCommit(draft)}
+                    data-attr="canvas-block-sql-run"
+                >
                     <IconPlay />
                     Run query
                 </Button>

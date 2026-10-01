@@ -95,6 +95,7 @@ export function ParamField({
             return (
                 <EventStepList
                     label={spec.label}
+                    itemLabel="event"
                     values={asStrings(value, ['$pageview'])}
                     min={1}
                     max={8}

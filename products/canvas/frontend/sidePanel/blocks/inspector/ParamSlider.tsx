@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Slider } from '@posthog/quill'
+import { Slider, Text } from '@posthog/quill'
 
 import type { ParamSpec } from '../../../editing/blockLibrary/params'
 
@@ -52,9 +52,15 @@ export function ParamSlider({
                     }
                 }}
             />
-            <span className="w-9 shrink-0 text-right text-xs tabular-nums text-muted-foreground" translate="no">
+            <Text
+                size="xs"
+                variant="muted"
+                render={<span />}
+                className="w-9 shrink-0 text-right tabular-nums"
+                translate="no"
+            >
                 {draft.toFixed(decimals)}
-            </span>
+            </Text>
         </div>
     )
 }

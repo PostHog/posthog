@@ -26,7 +26,6 @@ export function DraftInput({
             value={draft}
             placeholder={placeholder}
             aria-label={ariaLabel}
-            className="h-8"
             onChange={(event: ChangeEvent<HTMLInputElement>) => setDraft(event.target.value)}
             onBlur={commit}
             onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {

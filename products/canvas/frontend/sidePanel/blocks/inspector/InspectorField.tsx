@@ -1,4 +1,6 @@
-import { ReactNode } from 'react'
+import { ReactNode, useId } from 'react'
+
+import { Field, FieldDescription, FieldTitle } from '@posthog/quill'
 
 /** A labeled inspector control, with an optional hint under it. */
 export function InspectorField({
@@ -10,11 +12,13 @@ export function InspectorField({
     hint?: ReactNode
     children: ReactNode
 }): JSX.Element {
+    // Controls here name themselves with aria-label, so the title only labels the group.
+    const titleId = useId()
     return (
-        <div className="flex flex-col gap-1.5">
-            <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        <Field aria-labelledby={titleId}>
+            <FieldTitle id={titleId}>{label}</FieldTitle>
             {children}
-            {hint ? <div className="text-xs leading-snug text-muted-foreground">{hint}</div> : null}
-        </div>
+            {hint ? <FieldDescription>{hint}</FieldDescription> : null}
+        </Field>
     )
 }
