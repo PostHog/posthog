@@ -98,6 +98,7 @@ Take each screenshot from the first source that can show the change:
 
 1. The running app, when one is up.
 2. Storybook, through a headless browser. Use the story that covers the surface. When no story does, write a scratch story for the screenshot and keep it out of the commit.
+3. A feature reel, when one still cannot show a new flow. Reel mode of `/qa-frontend` turns Storybook stills into an animated WebP.
 
 Capture at `deviceScaleFactor: 2`. A 1x image looks soft on a high-density screen, and GitHub shrinks a wider image to fit the column. Take the before from the base branch the same way. A new surface has no before, so say that in one line.
 
