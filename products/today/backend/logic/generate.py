@@ -1,5 +1,6 @@
 """Generating a briefing: one read-only sandbox agent run that gathers the person's data over MCP and answers with the text."""
 
+import re
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID
@@ -37,6 +38,8 @@ RUN_TIMEOUT = TURN_TIMEOUT * WRITE_ATTEMPTS + timedelta(minutes=6)
 # How many of the person's previous briefings the agent sees, so it does not repeat itself.
 RECENT_BRIEFINGS = 3
 SANDBOX_ENV_NAME = "today-briefing"
+# The login goes into a `gh` command the agent runs, so only a well-formed GitHub login gets through.
+_GITHUB_LOGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 
 
 class _HasTaskId(Protocol):
@@ -64,6 +67,17 @@ def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return []
+
+
+def _github_login(team: Team, user: User) -> str | None:
+    """The person's GitHub login, or None when the sandbox gets no GitHub token to search with.
+
+    The sandbox token belongs to the team's GitHub app installation, not to the person, so `@me` cannot name them.
+    """
+    if not tasks_facade.can_mint_readonly_github_token(team.id):
+        return None
+    login = user.get_github_login()
+    return login if login and _GITHUB_LOGIN.fullmatch(login) else None
 
 
 def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
@@ -99,7 +113,11 @@ def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
         initial_permission_mode="full-access",
     )
     prompt = build_prompt(
-        briefing, user, _preranked_reports(team, user), recent_ready_briefings(briefing, RECENT_BRIEFINGS)
+        briefing,
+        user,
+        _preranked_reports(team, user),
+        recent_ready_briefings(briefing, RECENT_BRIEFINGS),
+        _github_login(team, user),
     )
     return _PreparedRun(context=context, prompt=prompt, title=_title(briefing))
 
