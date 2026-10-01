@@ -186,6 +186,7 @@ export interface OnlinePerformanceRow {
 export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeamId: number | null // teamLogic
+    activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     artifactsByRun: Record<string, string[]>
     artifactsByRunLoading: boolean
@@ -210,7 +211,6 @@ export interface autoresearchPipelineLogicValues {
     runs: AutoresearchRunApi[]
     runsError: boolean
     runsLoading: boolean
-    activeScoreRun: AutoresearchRunApi | null
     scoreResult: AutoresearchRunApi | null
     scoreResultLoading: boolean
     startTrainingResult: AutoresearchTrainingRunApi | null
@@ -440,6 +440,9 @@ export interface autoresearchPipelineLogicActions {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
     }
+    pollScoreRun: () => {
+        value: true
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -455,7 +458,6 @@ export interface autoresearchPipelineLogicActions {
         pipeline: AutoresearchPipelineApi | null
         payload?: any
     }
-    pollScoreRun: () => any
     scoreNow: () => any
     scoreNowFailure: (
         error: string,
@@ -480,12 +482,14 @@ export interface autoresearchPipelineLogicActions {
     setActiveTab: (tab: AutoresearchPipelineTab) => {
         tab: AutoresearchPipelineTab
     }
-    startScorePolling: () => any
     setSuggestionDraft: (draft: string) => {
         draft: string
     }
     setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => {
         priority: CreateSuggestionPriorityEnumApi
+    }
+    startScorePolling: () => {
+        value: true
     }
     startTraining: () => any
     startTrainingFailure: (
