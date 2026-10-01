@@ -28,7 +28,6 @@ import {
 import type {
     DataHealthIssueApi,
     DataHealthIssuesResponseApi,
-    PipelineActivityResponseApi,
     PipelineActivityRowApi,
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
