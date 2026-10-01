@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { supportsMarketingCrossSell } from 'lib/marketingCrossSell'
 import { teamLogic } from 'scenes/teamLogic'
 import { SourceTab, TileId } from 'scenes/web-analytics/common'
 import { buildDataTableTileDataNodeLogicProps } from 'scenes/web-analytics/tiles/skeletons/useTileSkeletonLoading'
@@ -10,7 +11,6 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import { MarketingAnalyticsCrossSellCard } from './MarketingAnalyticsCrossSellCard'
-import { supportsMarketingCrossSell } from './marketingCrossSellUtils'
 
 export function MarketingAnalyticsCrossSell({ breakdown }: { breakdown: WebStatsBreakdown }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)

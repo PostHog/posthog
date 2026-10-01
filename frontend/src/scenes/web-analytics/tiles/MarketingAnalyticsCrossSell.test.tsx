@@ -54,6 +54,22 @@ describe('Marketing analytics cross sell', () => {
         })
     }
 
+    const getChannelsNode = (): ReturnType<typeof dataNodeLogic> => {
+        const tile = webAnalyticsLogic.values.tiles.find((tile) => tile.tileId === TileId.SOURCES)
+        const channel = tile?.kind === 'tabs' ? tile.tabs.find((tab) => tab.id === SourceTab.CHANNEL) : undefined
+        if (!channel || channel.query.kind !== NodeKind.DataTableNode) {
+            throw new Error('Sources must contain a Channels table')
+        }
+        return dataNodeLogic(
+            buildDataTableTileDataNodeLogicProps({
+                query: channel.query,
+                insightProps: channel.insightProps,
+                context: { insightProps: channel.insightProps },
+                uniqueKey: `WebAnalytics.${TileId.SOURCES}.${SourceTab.CHANNEL}`,
+            })
+        )
+    }
+
     it.each([
         [false, WebStatsBreakdown.InitialChannelType],
         [true, WebStatsBreakdown.InitialReferringDomain],
@@ -86,19 +102,7 @@ describe('Marketing analytics cross sell', () => {
 
     it('reuses the mounted Channels query without another analytics request', async () => {
         enable()
-        const tile = webAnalyticsLogic.values.tiles.find((tile) => tile.tileId === TileId.SOURCES)
-        const channel = tile?.kind === 'tabs' ? tile.tabs.find((tab) => tab.id === SourceTab.CHANNEL) : undefined
-        if (!channel || channel.query.kind !== NodeKind.DataTableNode) {
-            throw new Error('Sources must contain a Channels table')
-        }
-        const node = dataNodeLogic(
-            buildDataTableTileDataNodeLogicProps({
-                query: channel.query,
-                insightProps: channel.insightProps,
-                context: { insightProps: channel.insightProps },
-                uniqueKey: `WebAnalytics.${TileId.SOURCES}.${SourceTab.CHANNEL}`,
-            })
-        )
+        const node = getChannelsNode()
         const unmountNode = node.mount()
         try {
             await waitFor(() => expect(node.values.response).not.toBeNull())
@@ -124,8 +128,12 @@ describe('Marketing analytics cross sell', () => {
         enable()
         channel = 'Organic Search'
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialChannelType} />)
-        await waitFor(() => expect(queries).toHaveBeenCalledTimes(1))
-        await act(async () => {})
+        const node = getChannelsNode()
+        await waitFor(() => {
+            expect(node.values.responseLoading).toBe(false)
+            expect(node.values.response).toMatchObject({ results: [['Organic Search', [10, null]]] })
+        })
+        expect(queries).toHaveBeenCalledTimes(1)
         expect(screen.queryByText('Connect ad sources')).toBeNull()
         expect(sources).not.toHaveBeenCalled()
     })
@@ -144,10 +152,15 @@ describe('Marketing analytics cross sell', () => {
         enable()
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSource} />)
         await screen.findByRole('link', { name: 'Connect ad sources' })
+        const node = getChannelsNode()
         channel = 'Organic Search'
         act(() => webAnalyticsLogic.actions.setDates('-14d', null))
-        await waitFor(() => expect(screen.queryByRole('link', { name: 'Connect ad sources' })).toBeNull())
-        await waitFor(() => expect(queries).toHaveBeenCalledTimes(2))
+        await waitFor(() => {
+            expect(node.values.responseLoading).toBe(false)
+            expect(node.values.response).toMatchObject({ results: [['Organic Search', [10, null]]] })
+        })
+        expect(screen.queryByRole('link', { name: 'Connect ad sources' })).toBeNull()
+        expect(queries).toHaveBeenCalledTimes(2)
         expect(sources).toHaveBeenCalledTimes(1)
     })
 })

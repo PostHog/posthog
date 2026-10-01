@@ -12,6 +12,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,10 +37,6 @@ import {
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import {
-    captureMarketingCrossSellSourceCreated,
-    getMarketingCrossSellAttribution,
-} from 'products/web_analytics/frontend/marketing/marketingCrossSellAttribution'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'

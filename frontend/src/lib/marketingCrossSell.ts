@@ -4,8 +4,6 @@ import { uuid } from 'lib/utils/dom'
 
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 
-import { supportsMarketingCrossSell } from './marketingCrossSellUtils'
-
 const STORAGE_KEY = 'web-analytics-marketing-cross-sell'
 const ATTRIBUTION_WINDOW_MS = 24 * 60 * 60 * 1000
 const CROSS_SELL_PROPERTIES = {
@@ -23,6 +21,18 @@ export interface MarketingCrossSellAttribution {
     has_connected_sources: boolean
     team_id: number
     distinct_id: string
+}
+
+export function supportsMarketingCrossSell(breakdown: WebStatsBreakdown): boolean {
+    return [
+        WebStatsBreakdown.InitialChannelType,
+        WebStatsBreakdown.InitialUTMSource,
+        WebStatsBreakdown.InitialUTMMedium,
+        WebStatsBreakdown.InitialUTMCampaign,
+        WebStatsBreakdown.InitialUTMContent,
+        WebStatsBreakdown.InitialUTMTerm,
+        WebStatsBreakdown.InitialUTMSourceMediumCampaign,
+    ].includes(breakdown)
 }
 
 export function captureMarketingCrossSellClick(

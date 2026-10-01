@@ -3,13 +3,14 @@ import { useValues } from 'kea'
 import { IconArrowRight, IconMegaphone, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { captureMarketingCrossSellClick } from 'lib/marketingCrossSell'
+
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 import {
     MarketingAnalyticsCrossSellLogicProps,
     marketingAnalyticsCrossSellLogic,
 } from './marketingAnalyticsCrossSellLogic'
-import { captureMarketingCrossSellClick } from './marketingCrossSellAttribution'
 
 export function MarketingAnalyticsCrossSellCard({
     breakdown,

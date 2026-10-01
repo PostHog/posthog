@@ -6,7 +6,7 @@ import {
     captureMarketingCrossSellClick,
     captureMarketingCrossSellSourceCreated,
     getMarketingCrossSellAttribution,
-} from './marketingCrossSellAttribution'
+} from './marketingCrossSell'
 
 describe('Marketing cross-sell attribution', () => {
     beforeEach(() => {

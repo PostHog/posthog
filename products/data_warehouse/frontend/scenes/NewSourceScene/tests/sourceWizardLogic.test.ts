@@ -6,16 +6,13 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-import {
-    captureMarketingCrossSellClick,
-    getMarketingCrossSellAttribution,
-} from 'products/web_analytics/frontend/marketing/marketingCrossSellAttribution'
 
 import {
     buildKeaFormDefaultFromSourceDetails,
