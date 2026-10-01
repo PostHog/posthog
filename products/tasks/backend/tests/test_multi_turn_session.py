@@ -912,6 +912,22 @@ class TestPollForTurnTerminalDrain:
 
         assert turn.last_message == "partial-before-death"
 
+    @pytest.mark.asyncio
+    async def test_completed_run_waits_for_the_final_message_to_reach_the_log(self):
+        before_flush = "\n".join([_user_message_line("initial prompt"), _tool_call_line(), _usage_update_line(0)])
+        after_flush = "\n".join([before_flush, _agent_message_line('{"value": "briefing"}'), _end_turn_line()])
+        fake_task_run = FakeTaskRun(status=TaskRun.Status.COMPLETED)
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=[before_flush, before_flush, after_flush]),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == '{"value": "briefing"}'
+
 
 class TestExtractAgentError:
     @parameterized.expand(

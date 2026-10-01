@@ -35,6 +35,10 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+# The workflow can mark a run COMPLETED before the agent server writes its last log lines: the
+# log writer flushes on a debounce of up to 10s, and again when the server shuts down. So the
+# drain reads the log again this many times, POLL_INTERVAL_SECONDS apart, before it fails the turn.
+COMPLETED_LOG_FLUSH_REREADS = 3
 # Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
 # read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
 # a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
@@ -700,7 +704,8 @@ async def _drain_final_log(
 ) -> TurnPollResult:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
-    before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+    before Temporal marked the run done, so for a COMPLETED run we retry the read up to
+    `COMPLETED_LOG_FLUSH_REREADS` times. Raises RuntimeError if no message is recoverable.
 
     Re-parses from the start-of-turn cursor (`original_skip_lines`) rather than only the slice past the *last* poll
     cursor: when the agent emits text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout
@@ -710,6 +715,23 @@ async def _drain_final_log(
     the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
     final_state = await _read_turn_log_with_retry(task_run, skip_lines=original_skip_lines, context="drain_final_log")
+    rereads = 0
+    while (
+        not final_state.last_message
+        and refreshed_status == TaskRun.Status.COMPLETED
+        and rereads < COMPLETED_LOG_FLUSH_REREADS
+    ):
+        rereads += 1
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        final_state = await _read_turn_log_with_retry(
+            task_run, skip_lines=original_skip_lines, context="drain_final_log"
+        )
+    if rereads and final_state.last_message:
+        logger.warning(
+            "custom_prompt - drain_final_log: agent message landed %d reread(s) after terminal status, run=%s",
+            rereads,
+            task_run.id,
+        )
     printed_lines = _stream_new_lines(final_state.full_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_state.last_message:
         return TurnPollResult(
