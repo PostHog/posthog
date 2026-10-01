@@ -20,7 +20,6 @@ export function TemplateVariableTextArea({
     unfilledVariables,
     placeholder,
     minRows,
-    maxRows,
     onPressCmdEnter,
 }: {
     value: string
@@ -28,13 +27,13 @@ export function TemplateVariableTextArea({
     unfilledVariables: string[]
     placeholder?: string
     minRows?: number
-    maxRows?: number
     onPressCmdEnter?: () => void
 }): JSX.Element {
     const backdropRef = useRef<HTMLDivElement | null>(null)
     const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
 
-    // The field autosizes, so its scroll offset only moves once the content passes `maxRows`.
+    // The field autosizes to its content, so it should never scroll; the sync is insurance
+    // against rounding leaving the textarea a pixel scrollable.
     const syncScroll = (): void => {
         if (backdropRef.current && textAreaRef.current) {
             backdropRef.current.scrollTop = textAreaRef.current.scrollTop
@@ -80,7 +79,6 @@ export function TemplateVariableTextArea({
                 onChange={onChange}
                 placeholder={placeholder}
                 minRows={minRows}
-                maxRows={maxRows}
                 onPressCmdEnter={onPressCmdEnter}
                 className="TemplateVariableTextArea__field"
             />

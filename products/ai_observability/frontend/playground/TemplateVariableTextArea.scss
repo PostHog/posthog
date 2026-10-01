@@ -12,6 +12,9 @@
     position: relative;
 
     // Everything that decides where a line breaks. The two layers must agree on all of it.
+    // No scrollbar-gutter on purpose: these editors autosize without a row cap, so no scrollbar
+    // ever appears, and react-textarea-autosize 8.3.4 does not copy the property to its hidden
+    // measuring textarea, so declaring it would make the measured height drift from the real one.
     &__backdrop,
     textarea.LemonTextArea {
         padding: 0.5rem;
@@ -20,7 +23,6 @@
         line-height: 1.5;
         overflow-wrap: break-word;
         white-space: pre-wrap;
-        scrollbar-gutter: stable;
     }
 
     &__backdrop {
