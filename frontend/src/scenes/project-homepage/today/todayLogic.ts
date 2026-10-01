@@ -116,7 +116,6 @@ export interface todayLogicValues {
     personalBriefing: BriefingApi | null
     personalBriefingFailed: boolean
     personalBriefingLoading: boolean
-    personalBriefingPending: boolean
     refreshedBriefing: BriefingApi | null
     refreshedBriefingLoading: boolean
     reportId: string | null
@@ -264,11 +263,6 @@ export interface todayLogicMeta {
             personalBriefing: BriefingApi | null,
             moreReportCount: number
         ) => TodayInboxMore | null
-        personalBriefingPending: (
-            personalBriefing: BriefingApi | null,
-            personalBriefingFailed: boolean,
-            useSampleData: boolean
-        ) => boolean
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
@@ -455,14 +449,6 @@ export const todayLogic = kea<todayLogicType>([
             },
         ],
         // Nothing to show yet, but a briefing is on its way. A failed request falls back to the report list.
-        personalBriefingPending: [
-            (s) => [s.personalBriefing, s.personalBriefingFailed, s.useSampleData],
-            (personalBriefing: BriefingApi | null, personalBriefingFailed: boolean, useSampleData: boolean): boolean =>
-                !useSampleData &&
-                !personalBriefingFailed &&
-                (personalBriefing === null ||
-                    (!hasBriefingText(personalBriefing) && !isBriefingSettled(personalBriefing))),
-        ],
         briefingItems: [
             (s) => [s.personalBriefing, s.showPersonalBriefing],
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>

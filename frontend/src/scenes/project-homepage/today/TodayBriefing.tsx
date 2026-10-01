@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
 import { TodayAskBox } from './TodayAskBox'
@@ -105,27 +107,34 @@ function TodayBriefingReports(): JSX.Element {
 }
 
 export function TodayBriefing(): JSX.Element {
-    const {
-        greeting,
-        topReports,
-        topReportsLoading,
-        reportsFailed,
-        reports,
-        showPersonalBriefing,
-        personalBriefingPending,
-    } = useValues(todayLogic)
-    const { loadTopReports } = useActions(todayLogic)
+    const { greeting, topReports, topReportsLoading, reportsFailed, reports, showPersonalBriefing, briefingWaiting } =
+        useValues(todayLogic)
+    const { loadTopReports, refreshBriefing } = useActions(todayLogic)
 
     return (
         <div className="TodayHome Today__page">
             <TodaySampleBanner />
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
-                <div className="TodayHome__greeting">{greeting}</div>
+                <div className="TodayHome__greeting">
+                    <span>{greeting}</span>
+                    {briefingWaiting ? (
+                        <span className="TodayHome__badge" data-attr="today-briefing-writing">
+                            <Spinner textColored />
+                            <span>Writing your briefing…</span>
+                        </span>
+                    ) : showPersonalBriefing ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconRefresh />}
+                            tooltip="Write a fresh briefing"
+                            onClick={() => refreshBriefing()}
+                            data-attr="today-briefing-refresh"
+                        />
+                    ) : null}
+                </div>
                 {showPersonalBriefing ? (
                     <TodayPersonalBriefing />
-                ) : personalBriefingPending ? (
-                    <p>Reading what changed in your project…</p>
                 ) : topReports === null && reportsFailed ? (
                     <LemonBanner
                         type="error"

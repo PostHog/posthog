@@ -51,13 +51,83 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert morning["id"] != midday["id"]
         assert sync_connect.return_value.start_workflow.call_count == 2
 
-    def test_refresh_is_limited_per_day(self, sync_connect: MagicMock) -> None:
+    def test_refresh_starts_a_new_generation_every_time(self, sync_connect: MagicMock) -> None:
         sync_connect.return_value.start_workflow = AsyncMock()
         with self._flag(True):
             responses = [self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/") for _ in range(4)]
 
-        assert [response.status_code for response in responses] == [200, 200, 200, 429]
-        assert sync_connect.return_value.start_workflow.call_count == 3
+        assert [response.status_code for response in responses] == [200, 200, 200, 200]
+        assert sync_connect.return_value.start_workflow.call_count == 4
+
+    def _written(self, briefing_id: str, **overrides) -> dict:
+        item = {
+            "key": "report:1",
+            "group": "report",
+            "source": "self_driving",
+            "reason": "waiting_for_you",
+            "title": "Checkout button is hidden on narrow screens",
+            "label": "Checkout button hidden",
+            "signal": "P2, waits for you",
+            "url": f"/project/{self.team.id}/inbox/1",
+            "urgency": 0,
+            "source_product": "session_replay",
+            "facts": [{"name": "priority", "value": "P2"}],
+        }
+        return {
+            "briefing_id": briefing_id,
+            "headline": "One report needs your input",
+            "paragraphs": [
+                [
+                    {"text": "The ", "item_key": None, "highlight": False},
+                    {"text": "hidden checkout button", "item_key": "report:1", "highlight": True},
+                    {"text": " waits for your call.", "item_key": None, "highlight": False},
+                ]
+            ],
+            "items": [item],
+            **overrides,
+        }
+
+    def test_the_agent_writes_the_briefing_it_was_started_for(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        with self._flag(True):
+            started = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/today/briefing/write/", self._written(started["id"]), format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert (body["status"], body["writer"], body["headline"]) == ("ready", "agent", "One report needs your input")
+        assert [(item["key"], item["label"], item["source_product"]) for item in body["items"]] == [
+            ("report:1", "Checkout button hidden", "session_replay")
+        ]
+        assert body["paragraphs"][0][1] == {"text": "hidden checkout button", "item_key": "report:1", "highlight": True}
+
+    def test_a_briefing_that_breaks_the_rules_comes_back_with_them(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        with self._flag(True):
+            started = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/today/briefing/write/",
+                self._written(started["id"], headline="One report needs you — now"),
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "em or en dash" in response.json()["detail"]
+        assert DailyBriefing.objects.for_team(self.team.id).get(id=started["id"]).status == BriefingStatus.COLLECTING
+
+    def test_nobody_writes_another_persons_briefing(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        other = self._create_user("other@example.com")
+        with self._flag(True):
+            started = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+            self.client.force_login(other)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/today/briefing/write/", self._written(started["id"]), format="json"
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_briefings_of_other_people_stay_private(self, _sync_connect: MagicMock) -> None:
         other = self._create_user("other@example.com")

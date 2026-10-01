@@ -345,11 +345,27 @@
 }
 
 .TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
     margin-bottom: 10px;
     font-size: 21px;
     font-weight: 560;
     color: var(--today-ink);
     letter-spacing: -0.015em;
+}
+
+.TodayHome__badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-faint);
+    letter-spacing: 0;
+    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
+    border-radius: 999px;
 }
 
 .TodayChipStack {

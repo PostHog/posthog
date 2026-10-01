@@ -9,6 +9,7 @@ feature: today
 url_prefix: /today
 ui_apps: {}
 tools:
+    
     today-briefing-get:
         operation: today_briefing_retrieve
         enabled: true
@@ -31,6 +32,24 @@ tools:
     today-briefing-refresh-create:
         operation: today_briefing_refresh_create
         enabled: false
+    today-briefing-write:
+        operation: today_briefing_write_create
+        enabled: true
+        scopes:
+            - today:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Write my Today briefing
+        description: >
+            Store the text and items of the Today briefing that is being generated for the current
+            user. Only the briefing whose id the generation prompt named can be written. The text
+            links every item exactly once and highlights only the first item; labels have at most
+            6 words, signals at most 40 characters, and there are no em or en dashes. A 400 lists
+            every rule the text broke; fix them and send the whole briefing again.
+        feature_flag: today-rail-nav
+        feature_flag_behavior: enable
     today-candidates-list:
         operation: today_candidates_retrieve
         enabled: true

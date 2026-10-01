@@ -4,9 +4,11 @@ from posthog.models import Team, User
 
 from ..feature_flags import is_enabled_for as is_enabled_for
 from ..logic import briefings
-from ..logic.briefings import MAX_REFRESHES_PER_DAY as MAX_REFRESHES_PER_DAY
 from . import contracts
-from .contracts import RefreshLimitReached as RefreshLimitReached
+from .contracts import (
+    BriefingNotFound as BriefingNotFound,
+    BriefingWriteRejected as BriefingWriteRejected,
+)
 
 
 def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
@@ -16,9 +18,19 @@ def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contra
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
-    """Regenerate the current edition. Raises RefreshLimitReached after the daily limit."""
+    """Regenerate the current edition. The ready briefing stays until the new one is written."""
     briefings.refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return get_briefing(team=team, user=user, timezone_name=timezone_name)
+
+
+def write_briefing(*, team: Team, user: User, write: contracts.BriefingWrite) -> contracts.Briefing:
+    """Store the text and items an agent wrote for one of the person's briefings.
+
+    Raises BriefingNotFound for another person's row, and BriefingWriteRejected with the rules
+    the text broke.
+    """
+    briefing = briefings.store_briefing(team=team, user=user, write=write)
+    return briefings.to_contract(briefing, team, user)
 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:

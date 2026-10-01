@@ -83,7 +83,7 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({
             reports,
             personalBriefingFailed: true,
-            personalBriefingPending: false,
+            briefingWaiting: false,
             showPersonalBriefing: false,
             briefingItems: [],
         })

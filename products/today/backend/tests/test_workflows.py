@@ -1,6 +1,5 @@
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 import pytest
 
@@ -12,16 +11,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.today.backend.facade.enums import ItemGroup, ItemReason, ItemSource
-from products.today.backend.logic.candidates import Candidate
-from products.today.backend.logic.sources import SOURCE_NAMES
-from products.today.backend.temporal.inputs import (
-    GENERATE_WORKFLOW_NAME,
-    CollectSourceInputs,
-    DraftInputs,
-    GenerateBriefingInputs,
-    MarkFailedInputs,
-)
+from products.today.backend.temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, MarkFailedInputs
 from products.today.backend.temporal.workflows import GenerateTodayBriefingWorkflow
 
 
@@ -32,39 +22,15 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 
 
 @pytest.mark.asyncio
-async def test_a_failing_source_loses_only_its_own_items(environment: WorkflowEnvironment) -> None:
-    drafted: list[DraftInputs] = []
+async def test_an_agent_failure_marks_the_briefing_failed_once(environment: WorkflowEnvironment) -> None:
+    attempts = 0
     marked_failed: list[MarkFailedInputs] = []
-    github_attempts = 0
 
-    @activity.defn(name="collect_source_activity")
-    async def collect_source(inputs: CollectSourceInputs) -> list[dict[str, Any]]:
-        nonlocal github_attempts
-        if inputs.source == "github":
-            github_attempts += 1
-            raise ApplicationError("GitHub is down")
-        return [
-            Candidate(
-                key=f"{inputs.source}:1",
-                group=ItemGroup.OTHER,
-                source=ItemSource.SUPPORT,
-                reason=ItemReason.ASSIGNED_TICKET,
-                title="Ticket #1042",
-                url="/project/1/support/tickets/1",
-                urgency=1,
-                sort_key=(0.0,),
-                facts={"unread_messages": 3},
-            ).model_dump(mode="json")
-        ]
-
-    @activity.defn(name="draft_activity")
-    async def draft(inputs: DraftInputs) -> bool:
-        drafted.append(inputs)
-        return False
-
-    @activity.defn(name="write_and_check_activity")
-    async def write_and_check(inputs: GenerateBriefingInputs) -> None:
-        raise AssertionError("an ineligible briefing is never written")
+    @activity.defn(name="run_agent_activity")
+    async def run_agent(inputs: GenerateBriefingInputs) -> None:
+        nonlocal attempts
+        attempts += 1
+        raise ApplicationError("The agent finished without storing the briefing.")
 
     @activity.defn(name="mark_failed_activity")
     async def mark_failed(inputs: MarkFailedInputs) -> None:
@@ -74,20 +40,16 @@ async def test_a_failing_source_loses_only_its_own_items(environment: WorkflowEn
         environment.client,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         workflows=[GenerateTodayBriefingWorkflow],
-        activities=[collect_source, draft, write_and_check, mark_failed],
+        activities=[run_agent, mark_failed],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
         await environment.client.execute_workflow(
             GENERATE_WORKFLOW_NAME,
-            GenerateBriefingInputs(team_id=1, briefing_id=str(uuid.uuid4())),
+            GenerateBriefingInputs(team_id=1, briefing_id="b-1"),
             id=str(uuid.uuid4()),
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    assert marked_failed == []
-    assert github_attempts == 2
-    [draft_inputs] = drafted
-    assert draft_inputs.failed_sources == ["github"]
-    assert sorted(Candidate.model_validate(payload).key for payload in draft_inputs.candidates) == sorted(
-        f"{source}:1" for source in SOURCE_NAMES if source != "github"
-    )
+    # One attempt: a retry would start a second sandbox for the same briefing.
+    assert attempts == 1
+    assert [failed.error for failed in marked_failed] == ["The agent finished without storing the briefing."]

@@ -17,20 +17,16 @@ from posthog.temporal.common.client import sync_connect
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from ..facade.contracts import RefreshLimitReached
 from ..facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemState
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
-from .candidates import SourceContext
-from .content import BriefingContent
+from .checks import check_content
+from .content import BriefingContent, ContentSegment
 from .eligibility import EditionSlot, current_edition, resolve_timezone
-from .fact_sheet import FactSheet, FactSheetItem, build_fact_sheet, stored_fact_sheet
-from .ranking import rank_candidates, select
-from .sources import collect_all
+from .fact_sheet import FactSheet, FactSheetCounts, FactSheetItem, stored_fact_sheet
 
 logger = structlog.get_logger(__name__)
 
-MAX_REFRESHES_PER_DAY = 3
 _DONE_REPORT_STATUSES = {"resolved", "suppressed", "deleted"}
 
 
@@ -99,15 +95,69 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     """Regenerate the current edition. The ready briefing stays on screen until the new one is written."""
     tz = resolve_timezone(timezone_name, team)
     slot = current_edition(timezone.now(), tz)
-    refreshes = (
-        DailyBriefing.objects.for_team(team.id)
-        .filter(user_id=user.id, local_day=slot.local_day, trigger=BriefingTrigger.REFRESH)
-        .count()
-    )
-    if refreshes >= MAX_REFRESHES_PER_DAY:
-        raise RefreshLimitReached()
     briefing = create_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
     start_generation(briefing)
+    return briefing
+
+
+MAX_WRITE_ITEMS = 5
+
+
+def store_briefing(*, team: Team, user: User, write: contracts.BriefingWrite) -> DailyBriefing:
+    """Store the briefing the agent wrote for one of the person's own rows, after the shape checks.
+
+    The agent gathered the facts itself, so the number check stays off; the structural rules
+    (every item linked once, one highlight, label and signal lengths, no dashes) still apply and
+    come back as `BriefingWriteRejected` so the agent can fix them.
+    """
+    briefing = DailyBriefing.objects.for_team(team.id).filter(id=write.briefing_id, user_id=user.id).first()
+    if briefing is None:
+        raise contracts.BriefingNotFound()
+    if len(write.items) > MAX_WRITE_ITEMS:
+        raise contracts.BriefingWriteRejected([f"at most {MAX_WRITE_ITEMS} items, got {len(write.items)}"])
+    fact_sheet = FactSheet(
+        first_name=user.first_name,
+        local_day=briefing.local_day,
+        counts=FactSheetCounts(items_in_text=len(write.items)),
+        failed_sources=[],
+        reason_glossary={},
+        items=[
+            FactSheetItem(
+                key=item.key,
+                group=item.group,
+                source=item.source,
+                reason=item.reason,
+                title=item.title,
+                url=item.url,
+                rank=rank,
+                urgency=item.urgency,
+                in_text=True,
+                top=rank == 1,
+                source_product=item.source_product,
+                facts={fact.name: fact.value for fact in item.facts},
+            )
+            for rank, item in enumerate(write.items, start=1)
+        ],
+    )
+    content = BriefingContent(
+        headline=write.headline,
+        paragraphs=[
+            [ContentSegment(text=s.text, item_key=s.item_key, highlight=s.highlight) for s in paragraph]
+            for paragraph in write.paragraphs
+        ],
+        labels={item.key: item.label for item in write.items},
+        signals={item.key: item.signal for item in write.items},
+    )
+    problems = check_content(fact_sheet, content, check_numbers=False)
+    if problems:
+        raise contracts.BriefingWriteRejected(problems)
+    briefing.facts = fact_sheet.model_dump(mode="json")
+    briefing.content = content.model_dump(mode="json")
+    briefing.writer = BriefingWriter.AGENT
+    briefing.error = None
+    briefing.status = BriefingStatus.READY
+    briefing.ready_at = timezone.now()
+    briefing.save(update_fields=["facts", "content", "writer", "error", "status", "ready_at"])
     return briefing
 
 
@@ -218,20 +268,11 @@ def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: 
 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:
-    """Today's ranked items with their facts: from today's briefing when there is one, else collected now."""
+    """The items behind today's briefing with their facts, or an empty list while it is being written."""
     tz = resolve_timezone(timezone_name, team)
     slot = current_edition(timezone.now(), tz)
-    day = slot.local_day
     briefing = _current(team, user, slot)
     fact_sheet = stored_fact_sheet(briefing) if briefing is not None else None
-    if fact_sheet is not None:
-        return _facts_to_candidates(fact_sheet, day, team=team, user=user)
-    ctx = SourceContext(team=team, user=user, now=timezone.now())
-    collected = collect_all(ctx)
-    fact_sheet = build_fact_sheet(
-        first_name=user.first_name,
-        local_day=day,
-        items=select(rank_candidates(collected.candidates)),
-        failed_sources=collected.failed_sources,
-    )
-    return _facts_to_candidates(fact_sheet, day, team=team, user=user)
+    if fact_sheet is None:
+        return contracts.CandidateList(local_day=slot.local_day, candidates=[], more_reports_count=0, failed_sources=[])
+    return _facts_to_candidates(fact_sheet, slot.local_day, team=team, user=user)

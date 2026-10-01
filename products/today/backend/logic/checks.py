@@ -34,8 +34,12 @@ def _backed(number: float, known: set[float]) -> bool:
     return any(abs(number - value) < 0.51 for value in known)
 
 
-def check_content(fact_sheet: FactSheet, content: BriefingContent) -> list[str]:
-    """Every rule the output breaks, or an empty list when it passes."""
+def check_content(fact_sheet: FactSheet, content: BriefingContent, *, check_numbers: bool = True) -> list[str]:
+    """Every rule the output breaks, or an empty list when it passes.
+
+    `check_numbers` compares every number in the text with the fact sheet. Off when the writer
+    gathered the facts itself, since then the sheet is its own account of them.
+    """
     problems: list[str] = []
     text_keys = [item.key for item in fact_sheet.text_items]
     top_key = next((item.key for item in fact_sheet.items if item.top), None)
@@ -83,6 +87,8 @@ def check_content(fact_sheet: FactSheet, content: BriefingContent) -> list[str]:
     for text in texts:
         if any(dash in text for dash in _DASHES):
             problems.append(f"em or en dash in {text!r}")
+        if not check_numbers:
+            continue
         for match in _NUMBER.findall(text):
             if not _backed(float(match.replace(",", "")), known):
                 problems.append(f"number {match} in {text!r} is not in the fact sheet")

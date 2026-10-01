@@ -13152,6 +13152,22 @@
         "feature_flag": "today-rail-nav",
         "feature_flag_behavior": "enable"
     },
+    "today-briefing-write": {
+        "description": "Store the text and items of the Today briefing that is being generated for the current user. Only the briefing whose id the generation prompt named can be written. The text links every item exactly once and highlights only the first item; labels have at most 6 words, signals at most 40 characters, and there are no em or en dashes. A 400 lists every rule the text broke; fix them and send the whole briefing again.",
+        "category": "Today",
+        "feature": "today",
+        "summary": "Write my Today briefing",
+        "title": "Write my Today briefing",
+        "required_scopes": ["today:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "today-rail-nav",
+        "feature_flag_behavior": "enable"
+    },
     "today-candidates-list": {
         "description": "The ranked items behind the current user's briefing, each with its source, the reason it was picked, a link, and the raw facts (for example priority, status, or last week and this week values of a metric). Use this when you need the numbers and details, not the written text. Items of every kind are ranked together by urgency; up to 10 come back, and in_text marks the ones the briefing text names.",
         "category": "Today",

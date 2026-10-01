@@ -1,34 +1,34 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
-from products.today.backend.logic.content import BriefingContent
-from products.today.backend.logic.generate import draft_briefing, write_and_check
+from posthog.sync import database_sync_to_async
+
+from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger
+from products.today.backend.logic.generate import MODEL, run_agent
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
-from products.today.backend.tests.test_checks import FACT_SHEET, VALID
 
-INVENTED = VALID.model_copy(update={"headline": "Orders fell 41% overnight."})
-
-
-WRITE = "products.today.backend.logic.generate.write"
+FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
+SESSION = "products.today.backend.logic.generate.MultiTurnSession"
+SANDBOX_ENV = "products.today.backend.logic.generate.tasks_facade.upsert_internal_sandbox_env"
 
 
-class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
+class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        self.draft: dict[str, Any] = {"headline": "draft", "paragraphs": [], "labels": {}, "signals": {}}
         self.briefing = DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -36,52 +36,52 @@ class TestWriteAndCheck(TodayTeamScopedTestMixin, BaseTest):
             edition=BriefingEdition.MORNING,
             timezone="UTC",
             trigger=BriefingTrigger.FIRST_OPEN,
-            status=BriefingStatus.WRITING,
-            writer=BriefingWriter.TEMPLATE,
-            facts=FACT_SHEET.model_dump(mode="json"),
-            draft=self.draft,
-            content=self.draft,
+            status=BriefingStatus.COLLECTING,
         )
 
-    @parameterized.expand(
-        [
-            ("first answer passes", [VALID], BriefingWriter.LLM, VALID, 1),
-            ("retry with the problems passes", [INVENTED, VALID], BriefingWriter.LLM, VALID, 2),
-            ("both answers fail the checks", [INVENTED, INVENTED], BriefingWriter.TEMPLATE, None, 2),
-        ]
-    )
-    def test_only_checked_text_replaces_the_draft(
-        self,
-        _name: str,
-        answers: list[dict[str, Any]],
-        expected_writer: BriefingWriter,
-        expected_content: BriefingContent | None,
-        expected_calls: int,
-    ) -> None:
-        with patch(WRITE, side_effect=list(answers)) as write:
-            write_and_check(team_id=self.team.id, briefing_id=str(self.briefing.id))
+    def _run(self, *, on_start: Callable[[], None] | None = None) -> MagicMock:
+        session = MagicMock()
+        session.end = AsyncMock()
+
+        async def start_raw(prompt: str, context: Any, **kwargs: Any) -> tuple[MagicMock, str]:
+            if on_start:
+                await database_sync_to_async(on_start, thread_sensitive=False)()
+            return session, "Stored."
+
+        with (
+            patch(SANDBOX_ENV, return_value="env-1"),
+            patch(f"{SESSION}.start_raw", side_effect=start_raw) as start,
+            patch(FLAG, return_value=True),
+        ):
+            async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(self.briefing.id))
+        return start
+
+    def test_the_agent_runs_as_the_person_with_the_briefing_scopes(self) -> None:
+        def store() -> None:
+            DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).update(status=BriefingStatus.READY)
+
+        start = self._run(on_start=store)
+
+        prompt, context = start.call_args.args
+        assert str(self.briefing.id) in prompt
+        assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "today_briefing", MODEL)
+        assert context.initial_permission_mode == "full-access"
+
+    def test_a_run_that_stores_nothing_fails_the_briefing(self) -> None:
+        with self.assertRaises(RuntimeError):
+            self._run()
 
         self.briefing.refresh_from_db()
-        assert self.briefing.status == BriefingStatus.READY
-        assert self.briefing.writer == expected_writer
-        assert self.briefing.content == (expected_content.model_dump(mode="json") if expected_content else self.draft)
-        assert write.call_count == expected_calls
-        if expected_calls == 2:
-            assert write.call_args.kwargs["problems"]
+        assert self.briefing.status == BriefingStatus.WRITING
 
-    def test_no_llm_call_without_ai_data_processing_approval(self) -> None:
+    def test_no_sandbox_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        with patch(WRITE) as write:
-            write_and_check(team_id=self.team.id, briefing_id=str(self.briefing.id))
+        start = self._run()
 
-        self.briefing.refresh_from_db()
-        write.assert_not_called()
-        assert (self.briefing.status, self.briefing.content) == (BriefingStatus.READY, self.draft)
-
-
-FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
+        start.assert_not_called()
+        assert not DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).exists()
 
 
 class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
@@ -120,13 +120,11 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
         ]
         assert again == []
 
-    def test_draft_deletes_the_row_when_the_flag_turned_off(self) -> None:
+    def test_the_run_deletes_the_row_when_the_flag_turned_off(self) -> None:
         briefing = self._viewer_row()
 
-        with patch(FLAG, return_value=False):
-            eligible = draft_briefing(
-                team_id=self.team.id, briefing_id=str(briefing.id), candidates=[], failed_sources=[]
-            )
+        with patch(FLAG, return_value=False), patch(SANDBOX_ENV) as sandbox_env:
+            async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(briefing.id))
 
-        assert eligible is False
+        sandbox_env.assert_not_called()
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=briefing.id).exists()

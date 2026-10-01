@@ -1666,13 +1666,8 @@ from = [
 path = "products.today"
 depends_on = [
     "posthog",
-    "products.access_control",
-    "products.alerts",
-    "products.conversations",
-    "products.dashboards",
-    "products.error_tracking",
-    "products.product_analytics",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 

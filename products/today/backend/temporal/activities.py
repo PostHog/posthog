@@ -1,10 +1,6 @@
-"""Temporal activities. Each one only calls logic.
-
-Payloads carry ids, except the source results: short titles and scalar facts, never text written by customers.
-"""
+"""Temporal activities. Each one only calls logic. Payloads carry ids only."""
 
 from datetime import datetime, timedelta
-from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -16,18 +12,16 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from ..facade.enums import BriefingStatus, BriefingTrigger
 from ..feature_flags import is_enabled_for
 from ..logic import generate
 from ..logic.briefings import create_briefing
-from ..logic.candidates import Candidate
 from ..logic.eligibility import due_edition
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
-    CollectSourceInputs,
-    DraftInputs,
     GenerateBriefingInputs,
     MarkFailedInputs,
     SchedulerInputs,
@@ -38,32 +32,14 @@ from .inputs import (
 SCHEDULE_WINDOW_MINUTES = 15
 ACTIVE_VIEWER_DAYS = 14
 MAX_STARTS_PER_RUN = 500
-STUCK_AFTER = timedelta(minutes=15)
+# Longer than the agent's budget, so a sweep never fails a run that is still inside it.
+STUCK_AFTER = generate.AGENT_TIMEOUT + timedelta(minutes=15)
 
 
 @temporalio.activity.defn
-async def collect_source_activity(inputs: CollectSourceInputs) -> list[dict[str, Any]]:
-    candidates = await database_sync_to_async(generate.collect_source, thread_sensitive=False)(
-        team_id=inputs.team_id, briefing_id=inputs.briefing_id, source=inputs.source
-    )
-    return [candidate.model_dump(mode="json") for candidate in candidates]
-
-
-@temporalio.activity.defn
-async def draft_activity(inputs: DraftInputs) -> bool:
-    return await database_sync_to_async(generate.draft_briefing, thread_sensitive=False)(
-        team_id=inputs.team_id,
-        briefing_id=inputs.briefing_id,
-        candidates=[Candidate.model_validate(payload) for payload in inputs.candidates],
-        failed_sources=list(inputs.failed_sources),
-    )
-
-
-@temporalio.activity.defn
-async def write_and_check_activity(inputs: GenerateBriefingInputs) -> None:
-    await database_sync_to_async(generate.write_and_check, thread_sensitive=False)(
-        team_id=inputs.team_id, briefing_id=inputs.briefing_id
-    )
+async def run_agent_activity(inputs: GenerateBriefingInputs) -> None:
+    async with Heartbeater():
+        await generate.run_agent(team_id=inputs.team_id, briefing_id=inputs.briefing_id)
 
 
 @temporalio.activity.defn
@@ -74,7 +50,7 @@ async def mark_failed_activity(inputs: MarkFailedInputs) -> None:
 
 
 def _fail_stuck_briefings(now: datetime) -> int:
-    """Rows left in progress by a lost workflow; the page then falls back to their draft."""
+    """Rows left in progress by a lost workflow, so the page stops waiting for them."""
     return (
         DailyBriefing.objects.unscoped()
         .filter(status__in=[BriefingStatus.COLLECTING, BriefingStatus.WRITING], created_at__lt=now - STUCK_AFTER)

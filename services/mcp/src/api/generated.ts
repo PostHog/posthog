@@ -17931,6 +17931,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `agent` - AGENT
      * * `llm` - LLM
      * * `template` - TEMPLATE
      */
@@ -17938,6 +17939,7 @@ export namespace Schemas {
 
 
     export const WriterEnum = {
+      Agent: 'agent',
       Llm: 'llm',
       Template: 'template',
     } as const;
@@ -17979,6 +17981,53 @@ export namespace Schemas {
       created_at: string;
       /** @nullable */
       ready_at: string | null;
+    }
+
+    export interface CandidateFact {
+      /** Fact name, for example pct_change or unread_messages. */
+      name: string;
+      /** Fact value as text. */
+      value: string;
+    }
+
+    export interface BriefingWriteItem {
+      /** Stable item key: report:<uuid>, dashboard:<id>, insight:<short_id>, alert:<id>, ticket:<uuid>, issue:<uuid> or github_pr:<owner/repo>#<number>. */
+      key: string;
+      /** The item's own title, as its source names it. */
+      title: string;
+      /** Left-bar label of at most 6 words that says what the item is. */
+      label: string;
+      /** Short fact under the label, at most 40 characters, with a number when there is one. */
+      signal: string;
+      /** Where the item opens: an app path such as /project/1/inbox/<uuid>, or a GitHub URL. */
+      url: string;
+      /**
+         * 0 act now, 1 today, 2 this week, 3 when the person has time.
+         * @minimum 0
+         * @maximum 3
+         */
+      urgency: number;
+      /** The numbers and short facts the text uses for this item, so a reader can check them. */
+      facts: CandidateFact[];
+      /**
+         * For a report, the product its signals came from, for example error_tracking or session_replay.
+         * @nullable
+         */
+      source_product?: string | null;
+      group: TodayItemGroupEnum;
+      source: TodayItemSourceEnum;
+      reason: TodayItemReasonEnum;
+    }
+
+    export interface BriefingWrite {
+      /** The briefing to write, from the prompt that started the run. */
+      briefing_id: string;
+      /** One sentence that counts the items, for example 'Five items need your attention'. */
+      headline: string;
+      /** Two or three short paragraphs, each a list of segments. A segment with an item_key links that item; every item is linked exactly once and only the first item has highlight true. */
+      paragraphs: BriefingSegment[][];
+      /** The items the text names, most urgent first, at most 5. Each needs its own sentence. */
+      items: BriefingWriteItem[];
     }
 
     /**
@@ -19064,13 +19113,6 @@ export namespace Schemas {
     export interface CancelReportCheckRequest {
       /** The check to stop. Its recorded results stay on the report. */
       check_id: string;
-    }
-
-    export interface CandidateFact {
-      /** Fact name, for example pct_change or unread_messages. */
-      name: string;
-      /** Fact value as text. */
-      value: string;
     }
 
     export interface Candidate {

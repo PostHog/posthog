@@ -1,26 +1,28 @@
-"""The generation steps. Each runs as its own Temporal activity: one per source, then the draft, then the writer."""
+"""Generating a briefing: one sandbox agent run that gathers the person's data over MCP and writes the result."""
 
-from django.utils import timezone
+from datetime import timedelta
 
 import structlog
 
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
-from ..facade.enums import BriefingStatus, BriefingWriter
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+
+from ..facade.enums import BriefingStatus
 from ..feature_flags import is_enabled_for
 from ..models import DailyBriefing
-from .candidates import Candidate, SourceContext
-from .checks import check_content
-from .draft import build_draft
-from .fact_sheet import build_fact_sheet, stored_fact_sheet
-from .ranking import rank_candidates, select
-from .sources import SOURCES_BY_NAME
-from .writer import WriterError, write
+from .prompt import build_prompt
 
 logger = structlog.get_logger(__name__)
 
-WRITER_ATTEMPTS = 2
+MODEL = "gpt-6-luna"
+RUNTIME_ADAPTER = "codex"
+REASONING_EFFORT = "medium"
+# A briefing is a few tool calls and a short text; a run past this is stuck.
+AGENT_TIMEOUT = timedelta(minutes=20)
+SANDBOX_ENV_NAME = "today-briefing"
 
 
 def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
@@ -30,79 +32,65 @@ def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
     return briefing, team, user
 
 
-def collect_source(*, team_id: int, briefing_id: str, source: str) -> list[Candidate]:
-    """One source's candidates for the briefing's person. Raises, so Temporal retries only this source."""
-    _briefing, team, user = _load(team_id, briefing_id)
-    try:
-        return SOURCES_BY_NAME[source].collect(SourceContext(team=team, user=user, now=timezone.now()))
-    except Exception as error:
-        capture_exception(error, {"source": source, "team_id": team_id, "product": "today"})
-        raise
+def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext, str] | None:
+    """The sandbox context and the prompt, or None when the person may not get a briefing.
 
-
-def draft_briefing(*, team_id: int, briefing_id: str, candidates: list[Candidate], failed_sources: list[str]) -> bool:
-    """Rank the collected candidates and store the fact sheet and the draft.
-
-    False when the person may not get a briefing. The flag can turn off after the row was created,
-    so the row is deleted then: a briefing nobody can open is not worth keeping.
+    The flag can turn off after the row was created, so the row is deleted then: a briefing
+    nobody can open is not worth a sandbox.
     """
     briefing, team, user = _load(team_id, briefing_id)
-    if not is_enabled_for(user, team):
+    if not is_enabled_for(user, team) or not team.organization.is_ai_data_processing_approved:
         briefing.delete()
-        return False
-    items = select(rank_candidates(candidates))
-    fact_sheet = build_fact_sheet(
-        first_name=user.first_name,
-        local_day=briefing.local_day,
-        items=items,
-        failed_sources=failed_sources,
-    )
-    draft = build_draft(fact_sheet).model_dump(mode="json")
-    briefing.facts = fact_sheet.model_dump(mode="json")
-    briefing.draft = draft
-    briefing.content = draft
-    briefing.writer = BriefingWriter.TEMPLATE
+        return None
     briefing.status = BriefingStatus.WRITING
-    briefing.save(update_fields=["facts", "draft", "content", "writer", "status"])
-    return True
+    briefing.save(update_fields=["status"])
+    sandbox_environment_id = str(
+        tasks_facade.upsert_internal_sandbox_env(
+            team.id, SANDBOX_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+    )
+    context = CustomPromptSandboxContext(
+        team_id=team.id,
+        user_id=user.id,
+        sandbox_environment_id=sandbox_environment_id,
+        posthog_mcp_scopes="today_briefing",
+        model=MODEL,
+        runtime_adapter=RUNTIME_ADAPTER,
+        reasoning_effort=REASONING_EFFORT,
+        # Headless: the agent must be able to call the write tool without anyone approving it.
+        initial_permission_mode="full-access",
+    )
+    return context, build_prompt(briefing, user)
 
 
-def write_and_check(*, team_id: int, briefing_id: str) -> None:
-    """Replace the draft with the LLM text when it passes the checks; keep the draft otherwise."""
-    briefing, team, user = _load(team_id, briefing_id)
-    fact_sheet = stored_fact_sheet(briefing)
-    if fact_sheet is not None and fact_sheet.items and team.organization.is_ai_data_processing_approved:
-        problems: list[str] | None = None
-        for attempt in range(1, WRITER_ATTEMPTS + 1):
-            try:
-                content = write(
-                    team=team, user=user, briefing=briefing, fact_sheet=fact_sheet, attempt=attempt, problems=problems
-                )
-            except WriterError as error:
-                problems = [str(error)]
-                continue
-            except Exception as error:
-                logger.exception("today_writer_failed", team_id=team.id)
-                capture_exception(error, {"team_id": team.id, "product": "today"})
-                briefing.error = f"writer failed: {error}"[:1000]
-                break
-            problems = check_content(fact_sheet, content)
-            if not problems:
-                briefing.content = content.model_dump(mode="json")
-                briefing.writer = BriefingWriter.LLM
-                briefing.error = None
-                break
-        if problems:
-            briefing.error = ("checks failed: " + "; ".join(problems))[:1000]
-    briefing.status = BriefingStatus.READY
-    briefing.ready_at = timezone.now()
-    briefing.save(update_fields=["content", "writer", "error", "status", "ready_at"])
+def _is_written(team_id: int, briefing_id: str) -> bool:
+    return DailyBriefing.objects.for_team(team_id).filter(id=briefing_id, status=BriefingStatus.READY).exists()
+
+
+async def run_agent(*, team_id: int, briefing_id: str) -> None:
+    """Run the briefing agent to completion. Raises when it finished without storing a briefing."""
+    prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
+    if prepared is None:
+        return
+    context, prompt = prepared
+    session, reply = await MultiTurnSession.start_raw(
+        prompt,
+        context,
+        step_name="today_briefing",
+        origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        ai_stage="today_briefing",
+        ai_agent_name="today-briefing",
+        internal=True,
+        max_poll_seconds=int(AGENT_TIMEOUT.total_seconds()),
+    )
+    await session.end()
+    if not await database_sync_to_async(_is_written, thread_sensitive=False)(team_id, briefing_id):
+        logger.warning("today_agent_did_not_write", team_id=team_id, briefing_id=briefing_id, reply=reply[:500])
+        raise RuntimeError("The agent finished without storing the briefing.")
 
 
 def mark_failed(*, team_id: int, briefing_id: str, error: str) -> None:
     briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
     briefing.status = BriefingStatus.FAILED
     briefing.error = error[:1000]
-    if briefing.draft and not briefing.content:
-        briefing.content = briefing.draft
-    briefing.save(update_fields=["status", "error", "content"])
+    briefing.save(update_fields=["status", "error"])

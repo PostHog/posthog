@@ -113,6 +113,7 @@ McpScopePreset = Literal[
     "signals_scout_reports",
     "signals_research",
     "signals_implementation",
+    "today_briefing",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
@@ -339,6 +340,10 @@ MCP_SCOPE_PRESETS = (
 # state. The stage reads data and returns findings; the pipeline persists them afterwards.
 RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
 
+# The one write the Today briefing agent may do: store the briefing it wrote. Every other write
+# stays out, and `task:write` comes out for the same reason as in `signals_research`.
+TODAY_BRIEFING_WRITE_SCOPES: list[str] = ["today:write"]
+
 
 def scout_scope_posture(
     preset: ScoutScopePreset,
@@ -431,6 +436,9 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
+        elif scopes == "today_briefing":
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            resolved = [*reads, *TODAY_BRIEFING_WRITE_SCOPES]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -480,6 +488,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "signals_scout_reports",
             "signals_research",
             "signals_implementation",
+            "today_briefing",
         )
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 

@@ -7,7 +7,6 @@ from parameterized import parameterized
 
 from products.today.backend.logic.checks import check_content
 from products.today.backend.logic.content import BriefingContent
-from products.today.backend.logic.draft import build_draft
 from products.today.backend.logic.fact_sheet import FactSheet
 
 # The stored JSON shapes, as a row in the database holds them.
@@ -125,11 +124,7 @@ class TestCheckContent(SimpleTestCase):
 
         assert any(expected in problem for problem in problems), problems
 
-    def test_draft_links_every_text_item_once_and_highlights_the_top_item(self) -> None:
-        draft = build_draft(FACT_SHEET)
+    def test_the_number_check_can_be_left_to_the_writer(self) -> None:
+        content = _with(["paragraphs", 1, 2, "text"], " fell 41% this week.")
 
-        problems = check_content(FACT_SHEET, draft)
-
-        # The draft keeps the source titles, so only the link-length rule may fail on it.
-        assert [problem for problem in problems if "more than 8 words" not in problem] == []
-        assert set(draft.labels) == {"report:1", "dashboard:7"}
+        assert check_content(FACT_SHEET, content, check_numbers=False) == []

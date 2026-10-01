@@ -73,5 +73,40 @@ class CandidateList:
     failed_sources: list[str]
 
 
-class RefreshLimitReached(Exception):
-    """The person already refreshed today's briefing the maximum number of times."""
+@dataclass(frozen=True)
+class BriefingWriteItem:
+    """One item the agent chose for the briefing, in the order it ranked them."""
+
+    key: str
+    group: ItemGroup
+    source: ItemSource
+    reason: ItemReason
+    title: str
+    label: str
+    signal: str
+    url: str
+    urgency: int
+    facts: list[CandidateFact]
+    source_product: str | None = None
+
+
+@dataclass(frozen=True)
+class BriefingWrite:
+    """The briefing the agent wrote: the text and the items it names, in rank order."""
+
+    briefing_id: str
+    headline: str
+    paragraphs: list[list[BriefingSegment]]
+    items: list[BriefingWriteItem]
+
+
+class BriefingNotFound(Exception):
+    """No briefing with that id belongs to the person."""
+
+
+class BriefingWriteRejected(Exception):
+    """The written briefing broke the rules; `problems` says which, so the writer can fix them."""
+
+    def __init__(self, problems: list[str]) -> None:
+        super().__init__("; ".join(problems))
+        self.problems = problems

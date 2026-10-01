@@ -57,11 +57,11 @@ export function TodayHomeSidebar(): JSX.Element {
         inboxMore,
         showPersonalBriefing,
         personalBriefing,
-        personalBriefingPending,
     } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
 
-    const loading = personalBriefingPending || (topReports === null && !reportsFailed)
+    // The team reports stand in until the personal briefing is written, so only their own load counts.
+    const loading = topReports === null && !reportsFailed
     const homeMeta = showPersonalBriefing
         ? (personalBriefing?.headline ?? '')
         : loading

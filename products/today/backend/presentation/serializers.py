@@ -3,7 +3,16 @@
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import Briefing, BriefingItem, BriefingSegment, Candidate, CandidateFact, CandidateList
+from ..facade.contracts import (
+    Briefing,
+    BriefingItem,
+    BriefingSegment,
+    BriefingWrite,
+    BriefingWriteItem,
+    Candidate,
+    CandidateFact,
+    CandidateList,
+)
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -102,6 +111,52 @@ class CandidateListSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = CandidateList
+
+
+class BriefingWriteItemSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        help_text="Stable item key: report:<uuid>, dashboard:<id>, insight:<short_id>, alert:<id>, ticket:<uuid>, issue:<uuid> or github_pr:<owner/repo>#<number>."
+    )
+    title = serializers.CharField(help_text="The item's own title, as its source names it.")
+    # DRF removes declared fields from the class, so this does not replace Field.label at runtime.
+    label = serializers.CharField(help_text="Left-bar label of at most 6 words that says what the item is.")  # type: ignore[assignment]
+    signal = serializers.CharField(
+        help_text="Short fact under the label, at most 40 characters, with a number when there is one."
+    )
+    url = serializers.CharField(
+        help_text="Where the item opens: an app path such as /project/1/inbox/<uuid>, or a GitHub URL."
+    )
+    urgency = serializers.IntegerField(
+        min_value=0, max_value=3, help_text="0 act now, 1 today, 2 this week, 3 when the person has time."
+    )
+    facts = CandidateFactSerializer(
+        many=True, help_text="The numbers and short facts the text uses for this item, so a reader can check them."
+    )
+    source_product = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="For a report, the product its signals came from, for example error_tracking or session_replay.",
+    )
+
+    class Meta:
+        dataclass = BriefingWriteItem
+
+
+class BriefingWriteSerializer(DataclassSerializer):
+    briefing_id = serializers.CharField(help_text="The briefing to write, from the prompt that started the run.")
+    headline = serializers.CharField(
+        help_text="One sentence that counts the items, for example 'Five items need your attention'."
+    )
+    paragraphs = serializers.ListField(
+        child=BriefingSegmentSerializer(many=True),
+        help_text="Two or three short paragraphs, each a list of segments. A segment with an item_key links that item; every item is linked exactly once and only the first item has highlight true.",
+    )
+    items = BriefingWriteItemSerializer(
+        many=True, help_text="The items the text names, most urgent first, at most 5. Each needs its own sentence."
+    )
+
+    class Meta:
+        dataclass = BriefingWrite
 
 
 class TodayErrorSerializer(serializers.Serializer):
