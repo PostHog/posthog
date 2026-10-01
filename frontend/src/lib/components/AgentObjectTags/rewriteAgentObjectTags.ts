@@ -17,7 +17,12 @@
  * tag or fence that is still streaming in is held back from the rendered
  * output; it re-renders whole once the rest of the chunk arrives.
  */
-import { OBJECT_KIND_ALIASES, OBJECT_KIND_DATA, ObjectKindData } from './objectKinds.generated'
+import {
+    FALLBACK_OBJECT_KIND_DATA,
+    OBJECT_KIND_ALIASES,
+    OBJECT_KIND_DATA,
+    ObjectKindData,
+} from './objectKinds.generated'
 
 // A link whose URL is longer than this degrades to its plain label; a SQL editor
 // deep link carries the whole query in the query string.
@@ -229,6 +234,16 @@ function objectUrl(projectBase: string, kind: ObjectKindData, objectId: string):
         return null
     }
     return projectBase + kind.pathTemplate.replace('{id}', encodeObjectId(objectId))
+}
+
+/** The object kind's display data and its page under `projectBase`, or a null url when it has no page. */
+export function objectKindLink(
+    kindName: string,
+    objectId: string,
+    projectBase: string
+): { kind: ObjectKindData; url: string | null } {
+    const kind = resolveKind(kindName) ?? FALLBACK_OBJECT_KIND_DATA
+    return { kind, url: objectUrl(projectBase, kind, objectId) }
 }
 
 function renderHogql(tag: Tag, projectBase: string): string | null {

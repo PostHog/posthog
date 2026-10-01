@@ -59,16 +59,30 @@ describe('taskRunArtifacts', () => {
         expect(artifactPreviewKind(artifact(overrides))).toBe(expected)
     })
 
-    it('visibleRunArtifacts keeps only files the agent wrote', () => {
+    it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {
         const kept = artifact({ id: 'kept' })
+        const insight = artifact({
+            id: 'phref_insight',
+            type: 'reference',
+            source: 'posthog_object',
+            storage_path: undefined,
+            metadata: {
+                reference_type: 'posthog_object',
+                object_kind: 'insight',
+                object_id: 'aBc123',
+                source_message_ids: ['m1'],
+                occurrence_count: 1,
+            },
+        })
         const artifacts = [
             kept,
+            insight,
             artifact({ id: 'attachment', source: 'user_attachment' }),
             artifact({ id: 'plan', type: 'plan' }),
             artifact({ id: 'dismissed', dismissed_at: '2026-09-28T19:00:00Z' }),
             artifact({ id: 'reference', storage_path: undefined }),
         ]
-        expect(visibleRunArtifacts(artifacts)).toEqual([kept])
+        expect(visibleRunArtifacts(artifacts)).toEqual([kept, insight])
     })
 
     it('collectRunArtifacts keeps files from earlier runs of a resumed task', () => {
@@ -112,6 +126,29 @@ describe('taskRunArtifacts', () => {
             [
                 { name: 'report.md', versionIds: ['report-2', 'report-1'], latestId: 'report-2' },
                 { name: 'chart.svg', versionIds: ['chart-1'], latestId: 'chart-1' },
+            ],
+        ],
+        [
+            'keeps two cited objects with one name apart',
+            [
+                {
+                    id: 'phref_a',
+                    runId: 'run-1',
+                    name: 'Signups',
+                    type: 'reference',
+                    uploaded_at: '2026-09-30T18:00:00Z',
+                },
+                {
+                    id: 'phref_b',
+                    runId: 'run-1',
+                    name: 'Signups',
+                    type: 'reference',
+                    uploaded_at: '2026-09-30T17:00:00Z',
+                },
+            ],
+            [
+                { name: 'Signups', versionIds: ['phref_a'], latestId: 'phref_a' },
+                { name: 'Signups', versionIds: ['phref_b'], latestId: 'phref_b' },
             ],
         ],
     ])('groupArtifactVersions %s', (_, versions, expected) => {

@@ -2,24 +2,44 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import {
+    IconBolt,
     IconCheck,
     IconChevronLeft,
     IconChevronRight,
     IconCode,
     IconCollapse45,
     IconCopy,
+    IconCursor,
+    IconDashboard,
     IconDatabase,
     IconDocument,
     IconDownload,
     IconExpand45,
+    IconExternal,
+    IconFlask,
+    IconGraph,
     IconImage,
+    IconListCheck,
     IconLock,
+    IconMessage,
+    IconNotebook,
+    IconPeople,
+    IconPerson,
+    IconRewindPlay,
     IconShare,
+    IconSparkles,
+    IconToggle,
     IconVideoCamera,
+    IconWarning,
 } from '@posthog/icons'
 import {
     Badge,
     Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
     Dialog,
     DialogContent,
     DialogTitle,
@@ -61,8 +81,10 @@ import {
     cn,
 } from '@posthog/quill-primitives'
 
+import { objectKindLink } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { withStrictCsp } from '../artifactHtml'
 import {
@@ -74,6 +96,7 @@ import {
     formatArtifactSize,
     isTextPreview,
     parseCsv,
+    postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
@@ -94,6 +117,40 @@ function KindIcon({ kind, className }: { kind: ArtifactPreviewKind; className?: 
                   ? IconDatabase
                   : IconDocument
     return <Icon className={className} />
+}
+
+const OBJECT_KIND_ICONS: Record<string, typeof IconGraph> = {
+    insight: IconGraph,
+    hogql: IconDatabase,
+    dashboard: IconDashboard,
+    error: IconWarning,
+    replay: IconRewindPlay,
+    flag: IconToggle,
+    experiment: IconFlask,
+    survey: IconMessage,
+    ticket: IconMessage,
+    report: IconNotebook,
+    trace: IconSparkles,
+    eval: IconListCheck,
+    event: IconBolt,
+    cohort: IconPeople,
+    action: IconCursor,
+    person: IconPerson,
+}
+
+function ArtifactIcon({ artifact, className }: { artifact: RunArtifact; className?: string }): JSX.Element {
+    const ref = postHogObjectRef(artifact)
+    if (ref) {
+        const Icon = OBJECT_KIND_ICONS[ref.objectKind] ?? IconExternal
+        return <Icon className={className} />
+    }
+    return <KindIcon kind={artifactPreviewKind(artifact)} className={className} />
+}
+
+/** Size for a file, the object kind for a cited PostHog object. */
+function artifactDetail(artifact: RunArtifact): string {
+    const ref = postHogObjectRef(artifact)
+    return ref ? objectKindLink(ref.objectKind, ref.objectId, '').kind.kindLabel : formatArtifactSize(artifact.size)
 }
 
 function IconAction({
@@ -251,6 +308,55 @@ function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.E
     )
 }
 
+/** Sentence case for a button: "Insight" reads "Open insight", "LLM trace" keeps its acronym. */
+function lowerFirst(label: string): string {
+    return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label
+}
+
+function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element | null {
+    const { currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
+    const ref = postHogObjectRef(artifact)
+    if (!ref || currentProjectId === null) {
+        return null
+    }
+    const { kind, url } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
+    return (
+        <div className="flex h-full items-center justify-center p-6">
+            <Card className="w-full max-w-sm">
+                <CardHeader>
+                    <div className="flex min-w-0 items-start gap-3">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground">
+                            <ArtifactIcon artifact={artifact} className="size-4" />
+                        </span>
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <CardTitle className="truncate">{artifact.name}</CardTitle>
+                            <CardDescription>{`${kind.kindLabel} in ${kind.source}`}</CardDescription>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {url ? (
+                        <Button
+                            variant="primary"
+                            className="w-full"
+                            render={<LinkPrimitive to={url} />}
+                            onClick={() => reportObjectOpened(ref.objectKind)}
+                            data-attr="task-artifact-open-object"
+                        >
+                            {`Open ${lowerFirst(kind.kindLabel)}`}
+                        </Button>
+                    ) : (
+                        <Text size="xs" variant="muted">
+                            This object has no page to open.
+                        </Text>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
 function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element | null {
     const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId, artifactTextLoading } =
         useValues(taskRunArtifactsLogic({ taskId }))
@@ -264,6 +370,9 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
         return src ? <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} /> : null
+    }
+    if (selectedKind === 'reference') {
+        return <ReferencePreview taskId={taskId} artifact={selectedArtifact} />
     }
     if (selectedKind === 'video') {
         return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
@@ -332,12 +441,41 @@ function fileMeta(file: ArtifactFile): string {
     const age = dayjs(file.latest.uploaded_at).fromNow()
     return file.versions.length > 1
         ? `${file.versions.length} versions · ${age}`
-        : `${formatArtifactSize(file.latest.size)} · ${age}`
+        : `${artifactDetail(file.latest)} · ${age}`
 }
 
 function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
     const { files, selectedFile } = useValues(taskRunArtifactsLogic({ taskId }))
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
+    // Cited PostHog objects sit under their own label, after the files.
+    const objects = files.filter((file) => !!postHogObjectRef(file.latest))
+    const renderRow = (file: ArtifactFile): JSX.Element => {
+        const selected = file.key === selectedFile?.key
+        return (
+            <Item
+                key={file.key}
+                size="xs"
+                role="option"
+                aria-selected={selected}
+                className={cn(
+                    'w-full cursor-pointer rounded-md border-transparent text-left hover:bg-fill-hover',
+                    selected && 'bg-fill-selected hover:bg-fill-selected'
+                )}
+                // eslint-disable-next-line react/forbid-elements
+                render={<button type="button" />}
+                onClick={() => selectArtifact(file.key)}
+                data-attr="task-artifact-nav-item"
+            >
+                <ItemMedia>
+                    <ArtifactIcon artifact={file.latest} className="size-4 text-muted-foreground" />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                    <ItemTitle className="w-full truncate">{file.name}</ItemTitle>
+                    <ItemDescription className="truncate">{fileMeta(file)}</ItemDescription>
+                </ItemContent>
+            </Item>
+        )
+    }
     return (
         <aside className="hidden w-64 shrink-0 flex-col border-r border-border @[52rem]/main-content:flex">
             <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
@@ -345,7 +483,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                     Files
                 </Text>
                 <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                    {files.length}
+                    {files.length - objects.length}
                 </Text>
             </div>
             <div
@@ -353,36 +491,21 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                 aria-label="Files"
                 className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
             >
-                {files.map((file) => {
-                    const selected = file.name === selectedFile?.name
-                    return (
-                        <Item
-                            key={file.name}
+                {files.filter((file) => !postHogObjectRef(file.latest)).map(renderRow)}
+                {objects.length > 0 && (
+                    <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
+                        <Text
                             size="xs"
-                            role="option"
-                            aria-selected={selected}
-                            className={cn(
-                                'w-full cursor-pointer rounded-md border-transparent text-left hover:bg-fill-hover',
-                                selected && 'bg-fill-selected hover:bg-fill-selected'
-                            )}
-                            // eslint-disable-next-line react/forbid-elements
-                            render={<button type="button" />}
-                            onClick={() => selectArtifact(file.name)}
-                            data-attr="task-artifact-nav-item"
+                            weight="medium"
+                            variant="muted"
+                            render={<span aria-hidden />}
+                            className="px-2 pt-3 pb-1"
                         >
-                            <ItemMedia>
-                                <KindIcon
-                                    kind={artifactPreviewKind(file.latest)}
-                                    className="size-4 text-muted-foreground"
-                                />
-                            </ItemMedia>
-                            <ItemContent className="min-w-0">
-                                <ItemTitle className="w-full truncate">{file.name}</ItemTitle>
-                                <ItemDescription className="truncate">{fileMeta(file)}</ItemDescription>
-                            </ItemContent>
-                        </Item>
-                    )
-                })}
+                            In PostHog
+                        </Text>
+                        {objects.map(renderRow)}
+                    </div>
+                )}
             </div>
         </aside>
     )
@@ -538,7 +661,7 @@ function ArtifactToolbar({
     const hasRenderedForm = kind === 'markdown' || kind === 'html' || kind === 'csv'
     return (
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
-            <KindIcon kind={kind} className="size-4 shrink-0 text-muted-foreground" />
+            <ArtifactIcon artifact={artifact} className="size-4 shrink-0 text-muted-foreground" />
             {/* The name truncates and the meta hides on narrow panes, so the tooltip carries both in full. */}
             <Tooltip>
                 <TooltipTrigger render={<span className="flex min-w-0 items-baseline gap-2" />}>
@@ -551,11 +674,11 @@ function ArtifactToolbar({
                         render={<span />}
                         className="hidden shrink-0 tabular-nums @[40rem]/main-content:inline"
                     >
-                        {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                        {`${artifactDetail(artifact)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
                     </Text>
                 </TooltipTrigger>
                 <TooltipContent>
-                    {`${artifact.name} · ${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}`}
+                    {`${artifact.name} · ${artifactDetail(artifact)} · ${dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}`}
                 </TooltipContent>
             </Tooltip>
             {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
@@ -612,22 +735,26 @@ function ArtifactToolbar({
                     </IconAction>
                 </div>
                 <CopyLinkAction taskId={taskId} />
-                <IconAction
-                    label={versioned ? 'Download this version' : 'Download'}
-                    href={downloadUrl ?? undefined}
-                    disabledReason={downloadUrl ? undefined : 'The file is not ready yet'}
-                    onClick={() => downloadArtifact(artifact)}
-                    dataAttr="task-artifact-download"
-                >
-                    <IconDownload className="size-4" />
-                </IconAction>
-                <IconAction
-                    label={expanded ? 'Exit full page' : 'Open full page'}
-                    onClick={() => onExpandedChange(!expanded)}
-                    dataAttr={expanded ? 'task-artifact-collapse' : 'task-artifact-expand'}
-                >
-                    {expanded ? <IconCollapse45 className="size-4" /> : <IconExpand45 className="size-4" />}
-                </IconAction>
+                {kind !== 'reference' && (
+                    <IconAction
+                        label={versioned ? 'Download this version' : 'Download'}
+                        href={downloadUrl ?? undefined}
+                        disabledReason={downloadUrl ? undefined : 'The file is not ready yet'}
+                        onClick={() => downloadArtifact(artifact)}
+                        dataAttr="task-artifact-download"
+                    >
+                        <IconDownload className="size-4" />
+                    </IconAction>
+                )}
+                {kind !== 'reference' && (
+                    <IconAction
+                        label={expanded ? 'Exit full page' : 'Open full page'}
+                        onClick={() => onExpandedChange(!expanded)}
+                        dataAttr={expanded ? 'task-artifact-collapse' : 'task-artifact-expand'}
+                    >
+                        {expanded ? <IconCollapse45 className="size-4" /> : <IconExpand45 className="size-4" />}
+                    </IconAction>
+                )}
             </div>
         </div>
     )
@@ -636,7 +763,11 @@ function ArtifactToolbar({
 function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
     const { selectedKind } = useValues(taskRunArtifactsLogic({ taskId }))
     const fills =
-        mode === 'rendered' && (selectedKind === 'html' || selectedKind === 'image' || selectedKind === 'video')
+        mode === 'rendered' &&
+        (selectedKind === 'html' ||
+            selectedKind === 'image' ||
+            selectedKind === 'video' ||
+            selectedKind === 'reference')
     return (
         <div className={cn('min-h-0 flex-1 bg-surface-tertiary', fills ? 'flex flex-col' : 'overflow-y-auto')}>
             <ArtifactPreview taskId={taskId} mode={mode} />
