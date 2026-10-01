@@ -39,6 +39,20 @@ They sample the combined input, tool definitions, and output only when that text
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
+## OpenAI-compatible judges
+
+Custom OpenAI-compatible connections use the shared DNS-pinned HTTPX transport with response bounds enabled.
+Every completion request has a 60-second total HTTP deadline, including connection setup, response headers, and the body.
+Key validation and model listing use a 10-second total deadline.
+Responses, including errors and streamed completions, are limited to 1 MiB.
+The endpoint must return uncompressed responses; compressed responses are rejected before decoding.
+Expired requests, rejected responses, and streams closed by the caller close their underlying connection.
+
+The OpenAI SDK does not retry custom-provider requests. Online evaluations use their existing Temporal retry policy for transient failures, and worker cancellation propagates to Temporal.
+Models without native structured-output support retain the JSON fallback, which can make one additional bounded request.
+Oversized or compressed completion responses skip the evaluation as an unreadable response without disabling the connection.
+These connection and response limits also apply when using the same provider in the playground.
+
 ## System One judges
 
 System One-compatible models are available under the existing LLM judge option.

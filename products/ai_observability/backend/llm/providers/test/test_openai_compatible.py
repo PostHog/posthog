@@ -1,14 +1,23 @@
+import json
+from collections.abc import AsyncIterator, Iterator
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
 import openai
 from parameterized import parameterized
+from pydantic import BaseModel
+from temporalio.exceptions import CancelledError
 
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 
-from products.ai_observability.backend.llm.errors import ProviderConfigurationError
+from products.ai_observability.backend.llm.errors import (
+    ProviderConfigurationError,
+    ProviderConnectionError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
     DISALLOWED_BASE_URL_MESSAGE,
@@ -61,6 +70,7 @@ class TestErrorFieldForValidationMessage:
             ("not_found", "The endpoint did not return a model list, check the base URL", "base_url"),
             ("redirect", REDIRECT_MESSAGE, "base_url"),
             ("connection", "Could not connect to the endpoint", "base_url"),
+            ("response_limit", openai_compatible.RESPONSE_LIMIT_MESSAGE, "base_url"),
             ("bad_key", "Invalid API key", "api_key"),
             ("unattributed", "Rate limited, please try again later", None),
             ("none", None, None),
@@ -216,3 +226,185 @@ class TestOpenAICompatibleAdapter:
         with pytest.raises(ValueError, match="BYOK-only"):
             adapter.complete(_completion_request(), None, AnalyticsContext())
         mock_openai.assert_not_called()
+
+
+class _Verdict(BaseModel):
+    verdict: bool
+
+
+class _ResponseBody(httpx.SyncByteStream, httpx.AsyncByteStream):
+    def __init__(self, chunks: list[bytes], clock: list[float] | None = None) -> None:
+        self.chunks = chunks
+        self.clock = clock
+        self.closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        for chunk in self.chunks:
+            if self.clock is not None:
+                self.clock[0] += 1
+            yield chunk
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self:
+            yield chunk
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def aclose(self) -> None:
+        self.close()
+
+
+class TestOpenAICompatibleRequestBounds:
+    @pytest.mark.parametrize("operation", ["complete", "stream", "validate_key", "list_models"])
+    @pytest.mark.parametrize("response_kind", ["oversized", "compressed"])
+    def test_rejects_unbounded_responses(self, operation: str, response_kind: str) -> None:
+        body = _ResponseBody([b"x" * 8192] * 129 if response_kind == "oversized" else [b"compressed"])
+        headers = {"Content-Encoding": "gzip"} if response_kind == "compressed" else {}
+        response = httpx.Response(200, stream=body, headers=headers)
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        request = _completion_request()
+        request.response_format = _Verdict
+
+        with (
+            patch("httpx.HTTPTransport.handle_request", return_value=response),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+            patch("openai._base_client.time.sleep"),
+        ):
+            if operation == "complete":
+                with pytest.raises(StructuredOutputParseError, match="compressed or oversized"):
+                    adapter.complete(request, "test-key", AnalyticsContext(capture=False))
+            elif operation == "stream":
+                chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
+                assert [chunk.type for chunk in chunks] == ["error"]
+            elif operation == "validate_key":
+                state, message = adapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+                assert state == "invalid"
+                assert message is not None and "compressed or oversized" in message
+            else:
+                assert adapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+
+        assert body.closed
+
+    @pytest.mark.parametrize("operation", ["complete", "stream"])
+    @pytest.mark.parametrize("capture", [False, True])
+    def test_preserves_cancellation_without_retrying(self, operation: str, capture: bool) -> None:
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        request = _completion_request()
+        request.response_format = _Verdict
+        with (
+            patch("httpx.HTTPTransport.handle_request", side_effect=CancelledError) as sync_send,
+            patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=CancelledError) as async_send,
+            patch("openai._base_client.time.sleep"),
+            patch("posthoganalytics.default_client", MagicMock()),
+            pytest.raises(CancelledError),
+        ):
+            if operation == "complete":
+                adapter.complete(request, "test-key", AnalyticsContext(capture=capture))
+            else:
+                list(adapter.stream(request, "test-key", AnalyticsContext(capture=capture)))
+
+        assert sync_send.call_count + async_send.call_count == 1
+
+    @pytest.mark.parametrize("operation", ["complete", "stream", "validate_key", "list_models"])
+    def test_total_deadline_stops_dripping_response(self, operation: str) -> None:
+        payload = json.dumps(
+            {
+                "id": "fixture",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "some-model",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
+            }
+        ).encode()
+        clock = [0.0]
+        body = _ResponseBody([b" "] * 4 + [payload], clock)
+        response = httpx.Response(200, stream=body, headers={"Content-Type": "application/json"})
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+
+        with (
+            patch.object(adapter, "request_timeout", 2.0),
+            patch.object(openai_compatible, "VALIDATION_TIMEOUT", 2.0),
+            patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+            patch("httpx.HTTPTransport.handle_request", return_value=response) as sync_send,
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as async_send,
+            patch("openai._base_client.time.sleep"),
+        ):
+            if operation == "complete":
+                with pytest.raises(ProviderConnectionError):
+                    adapter.complete(_completion_request(), "test-key", AnalyticsContext(capture=False))
+            elif operation == "stream":
+                chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
+                assert [chunk.type for chunk in chunks] == ["error"]
+            elif operation == "validate_key":
+                state, _ = adapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+                assert state == "error"
+            else:
+                assert adapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+
+        assert sync_send.call_count + async_send.call_count == 1
+        assert body.closed
+
+    def test_structured_output_falls_back_without_sdk_retries(self) -> None:
+        fallback_body = _ResponseBody(
+            [
+                json.dumps(
+                    {
+                        "id": "fixture",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": "some-model",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "finish_reason": "stop",
+                                "message": {"role": "assistant", "content": '{"verdict": true}'},
+                            }
+                        ],
+                    }
+                ).encode()
+            ]
+        )
+        responses = [
+            httpx.Response(
+                400,
+                stream=_ResponseBody([b'{"error":{"message":"response_format json_schema is not supported"}}']),
+                headers={"Content-Type": "application/json"},
+            ),
+            httpx.Response(200, stream=fallback_body, headers={"Content-Type": "application/json"}),
+        ]
+        request = _completion_request()
+        request.response_format = _Verdict
+
+        with patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=responses) as send:
+            result = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL).complete(
+                request, "test-key", AnalyticsContext(capture=False)
+            )
+
+        assert result.parsed == _Verdict(verdict=True)
+        assert send.call_count == 2
+        assert fallback_body.closed
+
+    def test_closing_stream_closes_the_connection(self) -> None:
+        payload = json.dumps(
+            {
+                "id": "fixture",
+                "object": "chat.completion.chunk",
+                "created": 0,
+                "model": "some-model",
+                "choices": [{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
+            }
+        ).encode()
+        body = _ResponseBody([b"data: " + payload + b"\n\n", b"data: [DONE]\n\n"])
+        response = httpx.Response(200, stream=body, headers={"Content-Type": "text/event-stream"})
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+
+        with (
+            patch("httpx.HTTPTransport.handle_request", return_value=response),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        ):
+            stream = adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False))
+            assert next(stream).data == {"text": "hello"}
+            stream.close()
+
+        assert body.closed

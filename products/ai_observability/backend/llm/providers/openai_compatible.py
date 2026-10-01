@@ -20,13 +20,21 @@ from urllib.parse import urlparse
 
 import httpx
 import openai
+from temporalio.exceptions import CancelledError
 
+from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
 
-from products.ai_observability.backend.llm.errors import ProviderConfigurationError, error_field_for_message
-from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.errors import (
+    LLMError,
+    ProviderConfigurationError,
+    ProviderConnectionError,
+    StructuredOutputParseError,
+    error_field_for_message,
+)
+from products.ai_observability.backend.llm.providers._diagnostics import _tag_response
+from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -44,6 +52,10 @@ PROVIDER_DISPLAY_NAME = "OpenAI-compatible"
 DISALLOWED_BASE_URL_MESSAGE = "Base URL must be a public https:// URL (e.g. https://api.example.com/v1)"
 
 REDIRECT_MESSAGE = "The endpoint redirected to a different address, use that address as the base URL"
+RESPONSE_LIMIT_MESSAGE = (
+    "The endpoint returned a compressed or oversized response. "
+    "Configure it to return uncompressed responses no larger than 1 MiB."
+)
 
 # Validating a key and listing models are cheap calls; don't inherit the long completion timeout.
 # The endpoint is user-configured, so a host that accepts the connection then stalls would otherwise
@@ -60,6 +72,7 @@ _ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
     ("Base URL must be", "base_url"),
     ("The endpoint did not return a model list", "base_url"),
     ("The endpoint redirected", "base_url"),
+    ("The endpoint returned a compressed or oversized response", "base_url"),
     ("Could not connect to the endpoint", "base_url"),
     ("Invalid API key", "api_key"),
 )
@@ -92,7 +105,14 @@ def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
     verdict = validate_url_and_pin_ips(base_url)
     if not verdict.allowed:
         raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
-    return tagged_http_client(timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False)
+    return pinned_client(
+        base_url,
+        verdict.pinned_ips,
+        timeout=timeout,
+        total_timeout=timeout,
+        follow_redirects=False,
+        event_hooks={"response": [_tag_response]},
+    )
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -107,6 +127,9 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
     """
 
     name = "openai_compatible"
+    request_timeout = 60.0
+    # Temporal owns retries; SDK retries can catch thread cancellation and start another request.
+    max_retries = 0
 
     def __init__(self, base_url: str = ""):
         self.base_url = base_url
@@ -124,7 +147,17 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
 
     def _build_http_client(self) -> httpx.Client:
         """Pin the connection to the configured endpoint's validated address."""
-        return _pinned_http_client(self._require_allowed_base_url(), OpenAIConfig.TIMEOUT)
+        return _pinned_http_client(self._require_allowed_base_url(), self.request_timeout)
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        cause = error.__cause__ if isinstance(error, openai.APIConnectionError) else error
+        if isinstance(cause, CancelledError):
+            raise cause
+        if isinstance(cause, httpx.DecodingError):
+            return StructuredOutputParseError(RESPONSE_LIMIT_MESSAGE)
+        if isinstance(cause, httpx.TimeoutException):
+            return ProviderConnectionError("The endpoint exceeded the request timeout.")
+        return super()._mapped_error(error, model)
 
     def complete(
         self,
@@ -183,7 +216,9 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
                 return (LLMProviderKey.State.INVALID, REDIRECT_MESSAGE)
             logger.exception("%s key validation error", PROVIDER_DISPLAY_NAME)
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
-        except openai.APIConnectionError:
+        except openai.APIConnectionError as error:
+            if isinstance(error.__cause__, httpx.DecodingError):
+                return (LLMProviderKey.State.INVALID, RESPONSE_LIMIT_MESSAGE)
             return (LLMProviderKey.State.ERROR, "Could not connect to the endpoint")
         except Exception:
             logger.exception("%s key validation error", PROVIDER_DISPLAY_NAME)
