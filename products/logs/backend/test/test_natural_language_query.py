@@ -20,8 +20,9 @@ CONTEXT = FilterContext(
     services=("checkout", "api-gateway"),
     services_truncated=False,
     log_attribute_keys=("http.status_code",),
+    log_attribute_keys_truncated=False,
     resource_attribute_keys=("k8s.namespace.name",),
-    attribute_keys_truncated=False,
+    resource_attribute_keys_truncated=False,
 )
 
 
@@ -95,8 +96,9 @@ class TestValidateCandidate(SimpleTestCase):
             services=("checkout",),
             services_truncated=True,
             log_attribute_keys=(),
+            log_attribute_keys_truncated=True,
             resource_attribute_keys=(),
-            attribute_keys_truncated=True,
+            resource_attribute_keys_truncated=True,
         )
 
         query = validate_candidate(
@@ -110,6 +112,22 @@ class TestValidateCandidate(SimpleTestCase):
         assert query is not None
         assert query["serviceNames"] == ["payments"]
         assert query["filterGroup"][0]["key"] == "user.id"
+
+    def test_drops_unknown_keys_from_a_complete_list_when_the_other_list_is_truncated(self) -> None:
+        context = FilterContext(
+            services=("checkout",),
+            services_truncated=False,
+            log_attribute_keys=("http.status_code",),
+            log_attribute_keys_truncated=True,
+            resource_attribute_keys=("k8s.namespace.name",),
+            resource_attribute_keys_truncated=False,
+        )
+
+        unknown_resource_key = _proposal(filters=[_filter("resource_attribute", "k8s.pod.name", "exact", ["web-1"])])
+        unknown_log_key = _proposal(filters=[_filter("log_attribute", "user.id", "exact", ["1"])])
+
+        assert validate_candidate(unknown_resource_key, context) is None
+        assert validate_candidate(unknown_log_key, context) is not None
 
 
 class TestRankCandidates(SimpleTestCase):

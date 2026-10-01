@@ -150,8 +150,9 @@ class FilterContext:
     services: tuple[str, ...]
     services_truncated: bool
     log_attribute_keys: tuple[str, ...]
+    log_attribute_keys_truncated: bool
     resource_attribute_keys: tuple[str, ...]
-    attribute_keys_truncated: bool
+    resource_attribute_keys_truncated: bool
 
 
 @frozen
@@ -203,8 +204,9 @@ def gather_filter_context(team: Team, date_range: DateRange) -> FilterContext:
         services=services[:MAX_SERVICES],
         services_truncated=len(services) > MAX_SERVICES,
         log_attribute_keys=tuple(log_keys),
+        log_attribute_keys_truncated=log_count > len(log_keys),
         resource_attribute_keys=tuple(resource_keys),
-        attribute_keys_truncated=log_count > len(log_keys) or resource_count > len(resource_keys),
+        resource_attribute_keys_truncated=resource_count > len(resource_keys),
     )
 
 
@@ -295,8 +297,10 @@ def _to_filter(proposed: _ProposedFilter, context: FilterContext) -> dict[str, A
             return None
         key: str | None = "message"
     else:
-        known = context.log_attribute_keys if proposed.source == "log_attribute" else context.resource_attribute_keys
-        key = _resolve(proposed.key, known, context.attribute_keys_truncated)
+        if proposed.source == "log_attribute":
+            key = _resolve(proposed.key, context.log_attribute_keys, context.log_attribute_keys_truncated)
+        else:
+            key = _resolve(proposed.key, context.resource_attribute_keys, context.resource_attribute_keys_truncated)
     if key is None:
         return None
 
