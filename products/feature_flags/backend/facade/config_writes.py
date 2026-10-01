@@ -1,6 +1,6 @@
 """Writer admission and server-owned identity for config version 2 writes.
 
-Three things a v2 write needs that the pure validator deliberately does not do:
+Four things a v2 write needs that the pure validator deliberately does not do:
 
 - **Admission.** ``v2_write_limits`` and ``v2_creation_enabled`` are the writer policy: two
   internal feature flags evaluated for the project, both off by default. Nothing else grants
@@ -12,6 +12,9 @@ Three things a v2 write needs that the pure validator deliberately does not do:
 - **Comparison.** ``review_update`` validates both documents' shape and semantics, so
   warnings describe the real before/proposed pair and unsupported stored families are
   rejected. Byte limits apply only to the candidate so oversized rows can be reduced.
+- **Writer-only rules.** ``check_writer_rules`` rejects what readers accept but a writer may
+  not store. It runs on the submitted document and on a stored one being enabled, never on
+  the stored side of an update, so tightening a rule never blocks replacing a stored row.
 
 Deliberately free of Django ORM and DRF imports: the endpoint owns HTTP error shapes and
 the row lock, this module owns the document.
@@ -19,13 +22,15 @@ the row lock, this module owns the document.
 
 import sys
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 from uuid import uuid4
 
 from django.conf import settings
 
 import structlog
+
+from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 
 from posthog.ph_client import feature_enabled_or_false
 
@@ -231,21 +236,55 @@ def review_update(
                 )
             ]
         )
-    return review_config(document, limits=limits, current=current).warnings
+    warnings = review_config(document, limits=limits, current=current).warnings
+    assert isinstance(document, Mapping)  # review_config rejects anything else
+    check_writer_rules(document)
+    return warnings
 
 
 def validate_stored(stored: Mapping[str, Any], *, limits: ValidationLimits) -> None:
-    """Reject enabling a stored document that no longer validates under the current limits.
+    """Reject enabling a stored document that no longer validates under the current limits or writer rules.
 
     Enabling is what makes the document reachable by evaluation, so a row written under an
     older contract or a larger byte limit must be edited back into validity first.
     """
-    _validated_stored(stored, limits=limits, operation="enabled")
+    _validated_stored(stored, limits=limits, operation="enabled", writer_rules=True)
 
 
-def _validated_stored(stored: Mapping[str, Any], *, limits: ValidationLimits, operation: str) -> ValidatedConfig:
+def _validated_stored(
+    stored: Mapping[str, Any], *, limits: ValidationLimits, operation: str, writer_rules: bool = False
+) -> ValidatedConfig:
     try:
-        return validate_config(stored, limits=limits)
+        config = validate_config(stored, limits=limits)
+        if writer_rules:
+            check_writer_rules(stored)
+        return config
     except ConfigValidationError as exc:
         detail = f"This flag's stored configuration cannot be {operation} through this API."
         raise ConfigValidationError([ConfigError(code="unsupported", detail=detail, attr="filters")]) from exc
+
+
+def check_writer_rules(document: Mapping[str, Any]) -> None:
+    """Reject a document ``validate_config`` admitted that a writer still may not store.
+
+    Readers never apply these. Each entry in ``_WRITER_RULES`` reads the validated document
+    and yields its field errors.
+    """
+    errors = [error for rule in _WRITER_RULES for error in rule(document)]
+    if errors:
+        raise ConfigValidationError(errors)
+
+
+def _reserved_string_values(document: Mapping[str, Any]) -> Iterator[ConfigError]:
+    # A string value is served as the variant, and `$false` is the event-storage sentinel that v1 reserves as a variant key.
+    if document["return_type"] != "string":
+        return
+    detail = f"Must be a non-empty string other than {FEATURE_FLAG_FALSE_VARIANT_SENTINEL}"
+    if document["default_value"] == FEATURE_FLAG_FALSE_VARIANT_SENTINEL:
+        yield ConfigError(code="invalid", detail=f"{detail}, or null.", attr="filters.default_value")
+    for index, rule in enumerate(document["rules"]):
+        if rule.get("value") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL:
+            yield ConfigError(code="invalid", detail=f"{detail}.", attr=f"filters.rules[{index}].value")
+
+
+_WRITER_RULES: tuple[Callable[[Mapping[str, Any]], Iterator[ConfigError]], ...] = (_reserved_string_values,)

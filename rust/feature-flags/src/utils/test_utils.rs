@@ -199,10 +199,7 @@ pub async fn write_flags_wire_json_to_redis(
 }
 
 pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
-    let redis_url = match url {
-        Some(value) => value,
-        None => "redis://localhost:6379/".to_string(),
-    };
+    let redis_url = url.unwrap_or_else(|| DEFAULT_TEST_CONFIG.redis_url.clone());
     // Use reasonable test timeout defaults
     const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
     const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout

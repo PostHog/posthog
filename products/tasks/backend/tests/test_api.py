@@ -30,6 +30,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
+from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -6528,6 +6529,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
         self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
         self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+        self.assertEqual(set(task.tagged_items.values_list("tag__name", flat=True)), {"bug-fix", "feature-flags"})
 
         cleared = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
@@ -6537,6 +6539,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(cleared.status_code, status.HTTP_200_OK)
         self.assertEqual(cleared.json()["task_tags"], [])
+        self.assertFalse(task.tagged_items.exists())
+        self.assertFalse(Tag.objects.filter(team=self.team, name__in=["bug-fix", "feature-flags"]).exists())
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -7484,6 +7488,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={
                 "ai_stage": "scout:custom",
                 "ai_agent_name": "signals-scout-errors",
+                "slack_app_agent_design_enabled": True,
                 "sandbox_connect_token": "connect-token",
             },
         )
@@ -7494,6 +7499,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         state = response.json()["state"]
         self.assertEqual(state["ai_stage"], "scout:custom")
         self.assertEqual(state["ai_agent_name"], "signals-scout-errors")
+        self.assertTrue(state["slack_app_agent_design_enabled"])
         self.assertNotIn("sandbox_connect_token", state)
 
     def test_list_runs_only_returns_task_runs(self):
