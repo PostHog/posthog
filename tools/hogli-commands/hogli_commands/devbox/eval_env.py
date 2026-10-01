@@ -30,6 +30,7 @@ from .coder import (
     get_coder_url,
     get_username,
     get_workspace,
+    get_workspace_status,
 )
 
 MAX_BUNDLE_BYTES = 2 * 1024**3
@@ -136,6 +137,15 @@ class EvalEnvironmentDevbox:
             _ssh_host_alias(self.name),
             shlex.join(["bash", "-lc", script, "bash", *arguments]),
         ]
+
+    def require_started(self) -> None:
+        workspace = get_workspace(self.name)
+        status = get_workspace_status(workspace) if workspace is not None else "deleted"
+        if status in {"stopping", "stopped", "deleting", "deleted"}:
+            raise click.ClickException(
+                f"Devbox '{self.name}' is {status}, so setup cannot reach it. "
+                "Wait for Coder to finish, then rerun this command."
+            )
 
     def wait_for_checkout(self) -> None:
         click.echo("Waiting for the devbox connection and PostHog checkout...")
@@ -342,6 +352,7 @@ def prepare_eval_environment(
             raise click.ClickException("Coder SSH access is not configured. Run `hogli devbox:setup` first.")
         workspace = start_or_create_workspace(name, disk, DEFAULT_TEMPLATE, DEFAULT_PRESET, region, False, verbose)
         target = EvalEnvironmentDevbox(workspace, state_dir)
+        target.require_started()
         target.wait_for_checkout()
         target.prepare_source(commit)
         origin = target.app_origin()
