@@ -51549,6 +51549,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_run_at: string | null;
+      /** When this version was published. */
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -51912,6 +51913,7 @@ export namespace Schemas {
     export interface HogFlowRevision {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
+      /** When this version was published. */
       readonly created_at: string;
       readonly created_by: UserBasic | null;
       /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
@@ -51921,6 +51923,7 @@ export namespace Schemas {
     export interface HogFlowRevisionBasic {
       /** Workflow version this snapshot was published as. */
       readonly version: number;
+      /** When this version was published. */
       readonly created_at: string;
       readonly created_by: UserBasic | null;
     }
@@ -76542,6 +76545,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_run_at?: string | null;
+      /** When this version was published. */
       readonly created_at?: string;
       readonly updated_at?: string;
     }

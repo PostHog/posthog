@@ -627,6 +627,7 @@ export interface HogFlowScheduleApi {
      * @nullable
      */
     readonly next_run_at: string | null
+    /** When this version was published. */
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1584,6 +1585,7 @@ export interface WorkflowEmailPauseStatusApi {
 export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
 }
@@ -1600,6 +1602,7 @@ export interface PaginatedHogFlowRevisionBasicListApi {
 export interface HogFlowRevisionApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
@@ -1657,6 +1660,7 @@ export interface PatchedHogFlowScheduleApi {
      * @nullable
      */
     readonly next_run_at?: string | null
+    /** When this version was published. */
     readonly created_at?: string
     readonly updated_at?: string
 }
