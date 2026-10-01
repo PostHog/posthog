@@ -42,7 +42,7 @@ with workflow.unsafe.imports_passed_through():
         PLAN_TITLE_STOPPED,
         PLAN_TITLE_WORKING,
         UNDERSTANDING_REQUEST,
-        phase_details,
+        phase_line_title,
     )
 
 
@@ -119,12 +119,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._trace_id = trace_id
 
     def _line_chunk(self, key: str, status: str) -> TaskUpdateChunk:
-        phase = PHASES[key]
         return TaskUpdateChunk(
-            id=self._line_ids[key],
-            title=phase.title,
-            status=status,
-            details=phase_details(phase, self._counts.get(key, 0)),
+            id=self._line_ids[key], title=phase_line_title(PHASES[key], self._counts.get(key, 0)), status=status
         )
 
     def _open_line(self) -> Optional[TaskUpdateChunk]:
@@ -142,9 +138,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         for key in self._new_keys:
             closing = self._open_line()
             if closing is not None:
-                chunks.append(
-                    TaskUpdateChunk(id=closing.id, title=closing.title, status="complete", details=closing.details)
-                )
+                chunks.append(TaskUpdateChunk(id=closing.id, title=closing.title, status="complete"))
             self._setup_line = None
             self._current_key = key
             chunks.append(self._line_chunk(key, "in_progress"))
@@ -264,7 +258,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         closing = self._open_line()
         if closing is not None and not self._turn_complete:
             # The run stopped inside this step, so it must not read as done.
-            pending.append(TaskUpdateChunk(id=closing.id, title=closing.title, status="error", details=closing.details))
+            pending.append(TaskUpdateChunk(id=closing.id, title=closing.title, status="error"))
             closing = None
         if pending:
             await self._append(input, pending)
@@ -275,7 +269,6 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 ts=self._stream.ts,
                 complete_task_id=closing.id if closing else None,
                 complete_task_title=closing.title if closing else None,
-                complete_task_details=closing.details if closing else None,
                 final_markdown=final_for_stop,
                 run_id=input.run_id,
                 trace_id=self._trace_id,

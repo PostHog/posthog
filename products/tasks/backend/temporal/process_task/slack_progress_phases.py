@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 class ProgressPhase:
     key: str
     title: str
-    # Singular and plural noun for the call counter, or None for a line without a count.
+    # Singular and plural noun for the call counter in the line title, or None for no count.
     counter: tuple[str, str] | None
 
 
@@ -139,12 +139,16 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
     return None
 
 
-def phase_details(phase: ProgressPhase, count: int) -> str | None:
-    """The counter line under a phase, such as "7 queries"."""
+def phase_line_title(phase: ProgressPhase, count: int) -> str:
+    """The plan line for a phase, such as "Looking at PostHog data (7 queries)".
+
+    The counter goes in the title because Slack replaces a step's title on each
+    task_update but appends its details and output to the text it already shows.
+    """
     if phase.counter is None or count <= 0:
-        return None
+        return phase.title
     singular, plural = phase.counter
-    return f"{count} {singular if count == 1 else plural}"
+    return f"{phase.title} ({count} {singular if count == 1 else plural})"
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:

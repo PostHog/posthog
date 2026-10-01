@@ -112,12 +112,18 @@ class TestSlackAgentDesignRelay:
         )
 
         assert sorted(calls.final_lines().values()) == [
-            ("Looking at PostHog data", "3 queries", "complete"),
-            ("Making changes", "1 edit", "complete"),
-            ("Reading the code", "1 lookup", "complete"),
+            ("Looking at PostHog data (3 queries)", None, "complete"),
+            ("Making changes (1 edit)", None, "complete"),
+            ("Reading the code (1 lookup)", None, "complete"),
         ]
         assert calls.answer() == "Signups grew."
         assert [s.plan_title for s in calls.stops] == ["Done"]
+        # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
+        sent = [chunk for start in calls.starts for chunk in start.task_updates] + [
+            chunk for append in calls.appends for chunk in append.task_updates
+        ]
+        assert all(chunk.details is None for chunk in sent)
+        assert all(stop.complete_task_details is None for stop in calls.stops)
 
     @pytest.mark.parametrize(
         "tail",
@@ -144,7 +150,7 @@ class TestSlackAgentDesignRelay:
 
         assert len(calls.starts) == 1
         assert sorted(calls.final_lines().values()) == [
-            ("Looking at PostHog data", "1 query", "complete"),
+            ("Looking at PostHog data (1 query)", None, "complete"),
             ("Starting a workspace", None, "complete"),
             ("Understanding the request", None, "complete"),
         ]
