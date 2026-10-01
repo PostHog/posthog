@@ -35,6 +35,7 @@ import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-comp
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
+import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -80,6 +81,25 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
         ? 'run `call business-knowledge-documents-search <json_input>`'
         : 'call `business-knowledge-documents-search`'
     return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
+}
+
+/** The SQL section's bullets that name a tool. Each one is left out when the connection
+ *  lacks a tool it names, so the guidance never sends the agent to a name it cannot call. */
+function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
+    const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
+    const runAll = available('notebooks-run') ? ', or all at once with `notebooks-run`' : ''
+    return {
+        throwaway_checks: available('execute-sql')
+            ? " Use `execute-sql` only for throwaway checks the notebook does not rely on, like confirming a table's columns."
+            : '',
+        fix_in_place:
+            available('notebooks-update-cell') && available('notebooks-delete-cell')
+                ? '- Fix a failing or wrong query in the same cell with `notebooks-update-cell`, and remove dead ends with `notebooks-delete-cell`, so the notebook keeps only the steps the conclusion rests on.'
+                : '',
+        run_later: available('notebooks-run-cell')
+            ? `- To lay out dependent cells before running them, add them with \`run: false\`, then run them in order with \`notebooks-run-cell\`${runAll}.`
+            : '',
+    }
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
@@ -139,12 +159,12 @@ export class InstructionsFormatter {
     }
 
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
-     *  Python-goes-in-a-cell rule when the notebook cell tools are available, and
+     *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : []),
+            ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
     }

@@ -498,15 +498,29 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('**Dashboard**')
         })
 
-        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // The SQL and Python guidance names `notebooks-add-cell`, so it must stay out of prompts
         // for clients that aren't advertised the cell tools.
-        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+        it.each(surfaces)('$name gates the SQL and Python sections on the notebook cell tools', ({ render }) => {
             const formatter = new InstructionsFormatter()
             const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### SQL in an analysis')
+            expect(cellsOn).toContain("cell_type: 'sql'")
             expect(cellsOn).toContain('### Python in an analysis')
             expect(cellsOn).toContain("cell_type: 'python'")
 
+            // A connection can carry the cell tools without execute-sql, which needs another scope.
+            const sqlSection = (text: string): string =>
+                text.slice(text.indexOf('### SQL in an analysis'), text.indexOf('### Python in an analysis'))
+            expect(sqlSection(cellsOn)).toContain('`execute-sql`')
+            const withoutExecuteSql = render(formatter, {
+                ...fullCtx,
+                notebookCellsEnabled: true,
+                tools: fullCtx.tools?.filter(({ name }) => name !== 'execute-sql'),
+            })
+            expect(sqlSection(withoutExecuteSql)).not.toContain('execute-sql')
+
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### SQL in an analysis')
             expect(cellsOff).not.toContain('### Python in an analysis')
             expect(cellsOff).toBe(render(formatter, fullCtx))
         })
