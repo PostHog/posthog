@@ -660,6 +660,11 @@ describe('recentTaxonomicFiltersLogic', () => {
                 { title: 'Launch notes', short_id: 'ab12cd' },
             ],
             [
+                'keeps the group key of a group, whose properties are too heavy to store',
+                { group_key: 'org:acme', group_properties: { name: 'Acme', plan: 'pro' } },
+                { group_key: 'org:acme' },
+            ],
+            [
                 'drops everything a group cannot label a row with',
                 { name: '$pageview', id: 'uuid-1', description: 'A page view', tags: ['web'] },
                 { name: '$pageview', id: 'uuid-1' },
