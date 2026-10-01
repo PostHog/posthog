@@ -81,7 +81,12 @@ export function CanvasVersionControls(): JSX.Element | null {
     // While editing, undo and redo step through local edits instead of published versions, like PostHog Desktop.
     if (sourceEditing) {
         return (
-            <ButtonGroup aria-label="Edits" data-attr="canvas-version-controls">
+            <div
+                role="group"
+                aria-label="Edits"
+                className="flex items-center gap-0.5"
+                data-attr="canvas-version-controls"
+            >
                 <StepButton
                     label="Undo"
                     disabledReason={canUndoEdit ? null : 'There is nothing to undo.'}
@@ -98,7 +103,7 @@ export function CanvasVersionControls(): JSX.Element | null {
                 >
                     <IconRedo />
                 </StepButton>
-            </ButtonGroup>
+            </div>
         )
     }
     if (versions.length === 0 && drafts.length === 0) {

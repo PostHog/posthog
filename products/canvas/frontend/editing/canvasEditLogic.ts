@@ -861,6 +861,9 @@ export const canvasEditLogic = kea<canvasEditLogicType>([
         ) {
             actions.save()
         }
+        if (values.editing) {
+            actions.setBlocksCanvasId(null)
+        }
     }),
     afterMount(({ actions, values, props }) => {
         // Start blank on the start page lands here to add the first blocks.
@@ -868,11 +871,6 @@ export const canvasEditLogic = kea<canvasEditLogicType>([
             actions.clearEditHandoff()
             actions.setEditing(true)
             actions.openTab('blocks', props.id)
-        }
-    }),
-    beforeUnmount(({ actions, values }) => {
-        if (values.editing) {
-            actions.setBlocksCanvasId(null)
         }
     }),
 ])

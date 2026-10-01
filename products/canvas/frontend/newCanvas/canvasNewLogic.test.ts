@@ -181,7 +181,7 @@ describe('canvasNewLogic', () => {
         expect(editLogic.values.editing).toBe(editing)
         expect(logic.values.editHandoff).toBeNull()
         if (editing) {
-            expect(canvasSidePanelLogic.values).toMatchObject({ tab: 'blocks', collapsed: false })
+            expect(canvasSidePanelLogic.values).toMatchObject({ selectedTab: 'canvas-blocks', sidePanelOpen: true })
         }
     })
 })
