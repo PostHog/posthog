@@ -122,6 +122,8 @@ a workflow-origin run fails instead of reporting unfinished work as completed.
 
 With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
 the agent reports idle, including background work after a user turn ends.
+Pi message and tool events mark the agent active. The first activity after a turn
+ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.

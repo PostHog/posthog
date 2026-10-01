@@ -4966,6 +4966,11 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
     )
+    activity_started = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether this heartbeat marks new activity after the agent was idle, bypassing throttling.",
+    )
     turn_completed = serializers.BooleanField(
         required=False,
         default=True,
