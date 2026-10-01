@@ -13,6 +13,7 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { linkAt } from "./links";
 import { orange } from "./theme";
 import {
   type ShellLine,
@@ -199,6 +200,8 @@ export class ChatView {
   private groups = new Set<string>();
   private hovered: string | null = null;
   private rows: { id: string; start: number; end: number }[] = [];
+  // The lines on screen after the last render, for finding the link under a click.
+  private shown: string[] = [];
 
   setTranscript(
     lines: TranscriptLine[],
@@ -272,6 +275,7 @@ export class ChatView {
       .slice(top, top + height)
       // Ink gives an empty string no height, so blank lines carry a space.
       .map((line) => line.replace(PROMPT_MARKS, "") || " ");
+    this.shown = visible;
     return [...visible, ...Array<string>(height - visible.length).fill(" ")];
   }
 
@@ -280,6 +284,12 @@ export class ChatView {
     const at = this.scroll.scrollTop + row;
     const hit = this.rows.find(({ start, end }) => at >= start && at < end);
     return hit && this.groups.has(hit.id) ? hit.id : null;
+  }
+
+  // The web link at a cell within the chat, as last drawn, or null.
+  linkAt(row: number, column: number): string | null {
+    const line = this.shown[row];
+    return line === undefined ? null : linkAt(line, column);
   }
 
   // A click on a tool group, by row within the chat, opens or closes it; false when it hit something else.

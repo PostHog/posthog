@@ -897,12 +897,10 @@ export function App({
       const chatBox = chatBoxes.current.get(hit[0]);
       const box = chatBox && boxOf(chatBox);
       const chat = chatFor(`${hit[0]}:${paneTaskId(hit[0])}`);
-      if (
-        box &&
-        hitTest(click, [["chat", box]]) &&
-        chat.toggleAt(click.row - box.top)
-      )
-        repaint((tick) => tick + 1);
+      if (!box || !hitTest(click, [["chat", box]])) return;
+      const link = chat.linkAt(click.row - box.top, click.column - box.left);
+      if (link) openUrl(link);
+      else if (chat.toggleAt(click.row - box.top)) repaint((tick) => tick + 1);
     }
   };
   const onMove = (move: Click): void => {
