@@ -100,8 +100,10 @@ describe("recognitionLang", () => {
     ["en-US", "en-US"],
     ["de-DE", "de-DE"],
     ["en-GB-u-ca-gregory", "en-GB"],
+    ["zh-Hans-CN", "zh-CN"],
+    ["zh-Hant-TW", "zh-TW"],
     ["en", undefined],
-    ["zh-Hans-CN", undefined],
+    ["zh-Hans", undefined],
     ["", undefined],
   ])("maps locale %j to %j", (locale, lang) => {
     expect(recognitionLang(locale)).toBe(lang);

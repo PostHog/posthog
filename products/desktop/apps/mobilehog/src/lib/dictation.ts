@@ -53,9 +53,13 @@ export function joinHeard({ finals, interim }: Heard): string {
     .join(" ");
 }
 
-// Only a plain language-region tag; anything else falls back to the recognizer default.
+// Recognizers name locales by language and region, so a script subtag is dropped: zh-Hans-CN becomes zh-CN.
+// Any other shape returns undefined, and the recognizer then uses its en-US default.
 export function recognitionLang(locale: string): string | undefined {
-  return /^([a-z]{2,3}-[A-Z]{2})(?:-u-|$)/.exec(locale)?.[1];
+  const match = /^([a-z]{2,3})(?:-[A-Z][a-z]{3})?(-[A-Z]{2})(?:-u-|$)/.exec(
+    locale,
+  );
+  return match ? match[1] + match[2] : undefined;
 }
 
 const emptyRing = (): number[] => new Array(RING).fill(-1);
