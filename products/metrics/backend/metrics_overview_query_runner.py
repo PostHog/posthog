@@ -1,8 +1,11 @@
-"""Build metrics overview data from `metric_series`.
+"""Build metrics overview data from `metric_series` and `metric_names`.
 
 `max(last_seen)` and `uniqExact` handle duplicate rows without FINAL.
-Counts use a window so the index skips old parts. Freshness reads the last
-data point. All three queries run concurrently.
+Only one query reads `metric_series` in the usual case, because each read of
+that table scans every series-hour in the window. The services query also
+returns the totals over all services, and the small `metric_names` table gives
+the name count. Freshness comes from the services rows. A bounded fallback query
+reads it only when the window has no data.
 """
 
 import datetime as dt
@@ -42,9 +45,10 @@ DEFAULT_LOOKBACK = dt.timedelta(days=1)
 
 
 @frozen
-class _OverviewCounts:
-    metric_names: int
+class _ServicesRollup:
+    services: tuple[MetricsServiceOverview, ...]
     series: int
+    last_seen: str | None
 
 
 def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
@@ -67,11 +71,19 @@ class MetricsOverviewQueryRunner:
     def _lookback_interval(self) -> ast.Call:
         return ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
 
-    def _run_freshness(self) -> str | None:
+    def _run_freshness_fallback(self) -> str | None:
         with tracer.start_as_current_span("metrics.overview.freshness") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Report the last data point, even after ingestion stops.
-            query = parse_select("SELECT max(toNullable(last_seen)) AS last_seen_at FROM posthog.metric_series")
+            # Report the last data point, even after ingestion stops. The newest
+            # `metric_names` hour bounds the read, so the minmax index on `last_seen`
+            # skips all older parts.
+            query = parse_select(
+                """
+                    SELECT max(toNullable(last_seen)) AS last_seen_at
+                    FROM posthog.metric_series
+                    WHERE last_seen >= (SELECT max(time_bucket) FROM posthog.metric_names)
+                """
+            )
             assert isinstance(query, ast.SelectQuery)
 
             response = execute_hogql_query(
@@ -86,24 +98,23 @@ class MetricsOverviewQueryRunner:
                 return None
             return response.results[0][0].isoformat()
 
-    def _run_counts(self) -> _OverviewCounts:
-        with tracer.start_as_current_span("metrics.overview.counts") as span:
+    def _run_metric_names_count(self) -> int:
+        with tracer.start_as_current_span("metrics.overview.metric_names") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Put the time window in WHERE so the index skips old parts.
+            # Hour buckets, so the window can start up to one hour before the
+            # services window.
             query = parse_select(
                 """
-                    SELECT
-                        uniqExact(metric_name) AS metric_names,
-                        uniqExact(series_fingerprint) AS active_series
-                    FROM posthog.metric_series
-                    WHERE last_seen > now() - {lookback}
+                    SELECT uniqExact(metric_name) AS metric_names
+                    FROM posthog.metric_names
+                    WHERE time_bucket >= toStartOfHour(now() - {lookback})
                 """,
                 placeholders={"lookback": self._lookback_interval()},
             )
             assert isinstance(query, ast.SelectQuery)
 
             response = execute_hogql_query(
-                query_type="MetricsOverviewCountsQuery",
+                query_type="MetricsOverviewMetricNamesQuery",
                 query=query,
                 team=self.team,
                 workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
@@ -111,20 +122,24 @@ class MetricsOverviewQueryRunner:
             )
             _set_query_timing_attributes(span, response)
             if not response.results:
-                return _OverviewCounts(metric_names=0, series=0)
-            metric_names, series = response.results[0]
-            return _OverviewCounts(metric_names=int(metric_names), series=int(series))
+                return 0
+            return int(response.results[0][0])
 
-    def _run_services(self) -> tuple[MetricsServiceOverview, ...]:
+    def _run_services(self) -> _ServicesRollup:
         with tracer.start_as_current_span("metrics.overview.services") as span:
             span.set_attribute("team_id", self.team.pk)
+            # Put the time window in WHERE so the index skips old parts. The window
+            # functions run before LIMIT, so the totals cover every service. Each
+            # series has one service, so the sum of the service counts is exact.
             query = parse_select(
                 """
                     SELECT
                         service_name,
                         uniqExact(metric_name) AS metric_names,
                         uniqExact(series_fingerprint) AS series,
-                        max(last_seen) AS last_seen_at
+                        max(last_seen) AS last_seen_at,
+                        sum(uniqExact(series_fingerprint)) OVER () AS total_series,
+                        max(max(last_seen)) OVER () AS total_last_seen_at
                     FROM posthog.metric_series
                     WHERE last_seen > now() - {lookback}
                     GROUP BY service_name
@@ -144,14 +159,20 @@ class MetricsOverviewQueryRunner:
             )
             _set_query_timing_attributes(span, response)
             span.set_attribute("services.count", len(response.results))
-            return tuple(
-                MetricsServiceOverview(
-                    service_name=row[0],
-                    metric_names=int(row[1]),
-                    series=int(row[2]),
-                    last_seen=row[3].isoformat(),
-                )
-                for row in response.results
+            if not response.results:
+                return _ServicesRollup(services=(), series=0, last_seen=None)
+            return _ServicesRollup(
+                services=tuple(
+                    MetricsServiceOverview(
+                        service_name=row[0],
+                        metric_names=int(row[1]),
+                        series=int(row[2]),
+                        last_seen=row[3].isoformat(),
+                    )
+                    for row in response.results
+                ),
+                series=int(response.results[0][4]),
+                last_seen=response.results[0][5].isoformat(),
             )
 
     def run(self) -> MetricsOverview:
@@ -160,22 +181,23 @@ class MetricsOverviewQueryRunner:
             span.set_attribute("lookback_seconds", int(self.lookback.total_seconds()))
 
             if TEST:
-                last_seen = self._run_freshness()
-                counts = self._run_counts()
-                services = self._run_services()
+                rollup = self._run_services()
+                metric_names = self._run_metric_names_count()
             else:
-                with ThreadPoolExecutor(max_workers=3, thread_name_prefix="metrics_overview") as executor:
-                    freshness_future = executor.submit(contextvars.copy_context().run, self._run_freshness)
-                    counts_future = executor.submit(contextvars.copy_context().run, self._run_counts)
+                with ThreadPoolExecutor(max_workers=2, thread_name_prefix="metrics_overview") as executor:
                     services_future = executor.submit(contextvars.copy_context().run, self._run_services)
-                    last_seen = freshness_future.result()
-                    counts = counts_future.result()
-                    services = services_future.result()
+                    metric_names_future = executor.submit(contextvars.copy_context().run, self._run_metric_names_count)
+                    rollup = services_future.result()
+                    metric_names = metric_names_future.result()
+
+            # No data in the window. Look further back so the page can say when
+            # ingestion stopped.
+            last_seen = rollup.last_seen if rollup.services else self._run_freshness_fallback()
 
             return MetricsOverview(
                 last_seen=last_seen,
-                metric_names=counts.metric_names,
-                series=counts.series,
+                metric_names=metric_names,
+                series=rollup.series,
                 lookback_seconds=int(self.lookback.total_seconds()),
-                services=services,
+                services=rollup.services,
             )
