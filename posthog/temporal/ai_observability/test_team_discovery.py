@@ -434,7 +434,7 @@ class TestAIDataProcessingConsentGate:
     )
     @patch(CONSENT_QUERY_PATH)
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    @patch(FF_PAYLOAD_PATH, return_value=None)
+    @patch(FF_PAYLOAD_PATH, return_value={"sample_percentage": 1.0})
     async def test_consent_query_retries_fail_closed(
         self,
         _mock_ff: MagicMock,
