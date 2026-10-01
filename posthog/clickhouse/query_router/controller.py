@@ -126,8 +126,8 @@ def fetch_node_counters() -> list[NodeCounters]:
             settings={"max_execution_time": 2, "skip_unavailable_shards": 1},
             workload=Workload.ONLINE,
             readonly=True,
-            # The default user has a small concurrency limit on the online nodes, which other callers
-            # can fill. The operations user keeps the poll working when they do.
+            # Other callers can fill the default user's concurrency limit. The operations user keeps
+            # the poll working when they do.
             ch_user=ClickHouseUser.OPS,
         )
     return [

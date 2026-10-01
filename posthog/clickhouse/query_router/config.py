@@ -141,11 +141,15 @@ def _load_settings(_minute: int) -> _RouterSettings:
 
     try:
         values = get_instance_settings(_SETTING_KEYS)
-        return _RouterSettings(
-            mode=RouterMode(values["QUERY_ROUTER_MODE"]),
-            enforced=_enforced_pairs(values["QUERY_ROUTER_ENFORCE"]),
-            bounds=_bounds_from(values),
-        )
+        mode = RouterMode(values["QUERY_ROUTER_MODE"])
+        bounds = _bounds_from(values)
+        try:
+            enforced = _enforced_pairs(values["QUERY_ROUTER_ENFORCE"])
+        except ValueError:
+            # A mistyped enforce list stops enforcement but keeps the router counting.
+            logger.warning("query_router_enforce_setting_invalid", value=values["QUERY_ROUTER_ENFORCE"])
+            enforced = frozenset()
+        return _RouterSettings(mode=mode, enforced=enforced, bounds=bounds)
     except Exception:
         # The settings table does not exist during the first Postgres migrations, and a mistyped
         # value must not take queries down. Both cases turn the router off.

@@ -192,6 +192,23 @@ class TestQueryRouterAdmission(SimpleTestCase):
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
+    def test_waiter_interrupted_in_its_sleep_leaves_the_queue(self) -> None:
+        class Interrupted(BaseException):
+            pass
+
+        def interrupt(_seconds: float) -> None:
+            raise Interrupted
+
+        self.router.sleep = interrupt
+        with ExitStack() as held:
+            self._hold(held, 1)
+            with self.assertRaises(Interrupted):
+                with self._admit(QueryClass.BACKGROUND):
+                    pass
+
+            assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
+            assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
+
     def test_query_is_dropped_at_once_when_its_class_queue_is_full(self) -> None:
         one_deep = dataclasses.replace(CLASS_POLICIES[QueryClass.BACKGROUND], max_queue_depth=1)
         self.enterContext(patch.dict(CLASS_POLICIES, {QueryClass.BACKGROUND: one_deep}))

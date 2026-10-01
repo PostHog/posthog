@@ -340,6 +340,12 @@ class QueryRouter:
             with suppress(RedisError):
                 self._remove(slot)
             return admission
+        except BaseException:
+            # A waiter interrupted in its sleep, for example by a Celery soft time limit, would
+            # otherwise stay in the queue and block the waiters behind it until it turns stale.
+            with suppress(RedisError):
+                self._remove(slot)
+            raise
 
         waited_ms = self._elapsed_ms(started_at)
         ADMISSIONS_COUNTER.labels(

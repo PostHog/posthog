@@ -39,16 +39,27 @@ def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:
 
 
 @pytest.mark.parametrize(
-    "read",
+    "read, expected_mode",
     [
-        pytest.param({"side_effect": RuntimeError("database is down")}, id="settings unreadable"),
-        pytest.param({"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_MODE": "enforced"}}, id="mistyped mode"),
-        pytest.param({"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ENFORCE": "offline:9"}}, id="unknown class"),
+        pytest.param({"side_effect": RuntimeError("database is down")}, RouterMode.OFF, id="settings unreadable"),
+        pytest.param(
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_MODE": "enforced"}}, RouterMode.OFF, id="mistyped mode"
+        ),
+        pytest.param(
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ENFORCE": "offline"}},
+            RouterMode.OBSERVE,
+            id="enforce item without a class",
+        ),
+        pytest.param(
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ENFORCE": "offline:9"}},
+            RouterMode.OBSERVE,
+            id="enforce item with an unknown class",
+        ),
     ],
 )
-def test_bad_settings_turn_the_router_off_and_are_read_once_a_minute(read: dict[str, Any]) -> None:
+def test_bad_settings_never_enforce_and_are_read_once_a_minute(read: dict[str, Any], expected_mode: RouterMode) -> None:
     with patch("posthog.models.instance_setting.get_instance_settings", **read) as get_instance_settings:
         modes = [config.get_mode(Pool.OFFLINE, QueryClass.BACKGROUND) for _ in range(3)]
 
-    assert modes == [RouterMode.OFF] * 3
+    assert modes == [expected_mode] * 3
     assert get_instance_settings.call_count == 1
