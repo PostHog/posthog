@@ -75,6 +75,14 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         return {
             "Not Found for url: https://api.intercom.io/companies/scroll",
             "Bad Request for url: https://api.intercom.io/companies/scroll",
+            # Every Intercom request goes through `_make_intercom_session`, whose transport-level
+            # retry (`_INTERCOM_RETRY`, derived from `DEFAULT_RETRY`) already retries a 429/5xx
+            # response before `raise_for_status` can raise. A `HTTPError` reaching here has already
+            # exhausted that budget, so it's a transient upstream blip — Temporal retries the whole
+            # activity next. `raise_for_status` derives the "Server Error" prefix from the status
+            # code alone, not Intercom's reason text, so it's stable to match on (see
+            # convex/app_store_connect for the same pattern).
+            "Server Error",
         }
 
     @property
