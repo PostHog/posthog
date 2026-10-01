@@ -70,18 +70,23 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
-        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
-        # batch's `ActivityError` doesn't abort the cycle.
-        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
-            *(
-                workflow.execute_activity(
+        # Per-activity limits multiply across worker pods, so bound admission in the workflow.
+        # Histories without the patch must retain their unbounded activity scheduling.
+        semaphore = asyncio.Semaphore(8 if workflow.patched("logs-alert-check-max-8-batches") else len(batches))
+
+        async def evaluate_batch(batch: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+            async with semaphore:
+                return await workflow.execute_activity(
                     evaluate_cohort_batch_activity,
                     batch,
                     start_to_close_timeout=ACTIVITY_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
-                for batch in batches
-            ),
+
+        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
+        # batch's `ActivityError` doesn't abort the cycle.
+        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
+            *(evaluate_batch(batch) for batch in batches),
             return_exceptions=True,
         )
 
