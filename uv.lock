@@ -2319,6 +2319,18 @@ wheels = [
 ]
 
 [[package]]
+name = "drf-spectacular-sidecar"
+version = "2026.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/87/ef9f1693499ac2c1bf3c33ce57e72c423aed51ab51f7ebd5d3a38f20c606/drf_spectacular_sidecar-2026.9.1.tar.gz", hash = "sha256:99c2b845d0a52b01a7a8e96736a48ef2099dc3dedea103012dfea41a9e4e9ecc", size = 2605997, upload-time = "2026-09-01T15:27:00.127Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/3b/c4866e6304d09d8813883774dadc5ff70a355279fc2527af3a4004fdb5f0/drf_spectacular_sidecar-2026.9.1-py3-none-any.whl", hash = "sha256:1e521d0ff78c7ab1a873423fc6e6b82ef6bae863f170762e7410ac63b2c7b72f", size = 2628532, upload-time = "2026-09-01T15:26:58.472Z" },
+]
+
+[[package]]
 name = "duckdb"
 version = "1.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -5816,6 +5828,7 @@ dependencies = [
     { name = "drf-exceptions-hog" },
     { name = "drf-extensions" },
     { name = "drf-spectacular" },
+    { name = "drf-spectacular-sidecar" },
     { name = "duckdb" },
     { name = "elevenlabs" },
     { name = "fastavro" },
@@ -6104,6 +6117,7 @@ requires-dist = [
     { name = "drf-exceptions-hog", specifier = "==0.4.0" },
     { name = "drf-extensions", specifier = "~=0.8.0" },
     { name = "drf-spectacular", specifier = "~=0.30.0" },
+    { name = "drf-spectacular-sidecar", specifier = "~=2026.9.1" },
     { name = "duckdb", specifier = "~=1.5.2" },
     { name = "elevenlabs", specifier = "~=2.1.0" },
     { name = "fastavro", specifier = "~=1.12.0" },

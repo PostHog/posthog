@@ -9,6 +9,9 @@ from products.ai_observability.backend.offline_evaluation_service import Offline
 from products.ai_observability.backend.offline_evaluation_types import JSONValue, ResultValue
 from products.ai_observability.backend.read_pagination import CursorPage
 
+MAX_READ_SCORER_VERSIONS = 20
+MAX_RESULT_CELL_ITEMS = 50
+
 
 @frozen
 class OfflineReadQuery:
@@ -33,10 +36,28 @@ class OfflineReadQuery:
     def __post_init__(self) -> None:
         if not 1 <= self.limit <= 100:
             raise OfflineEvaluationValidationError("limit", "Use a page size between 1 and 100.")
-        if len(self.scorer_version_ids) > 20 or len(set(self.scorer_version_ids)) != len(self.scorer_version_ids):
-            raise OfflineEvaluationValidationError("scorer_version_ids", "Select at most 20 distinct scorer versions.")
+        if len(self.scorer_version_ids) > MAX_READ_SCORER_VERSIONS or len(set(self.scorer_version_ids)) != len(
+            self.scorer_version_ids
+        ):
+            raise OfflineEvaluationValidationError(
+                "scorer_version_ids", f"Select at most {MAX_READ_SCORER_VERSIONS} distinct scorer versions."
+            )
         if self.date_from is not None and self.date_to is not None and self.date_from > self.date_to:
             raise OfflineEvaluationValidationError("date_to", "The end time must not precede the start time.")
+
+
+@frozen
+class OfflineResultCellQuery:
+    item_ids: tuple[UUID, ...]
+    scorer_version_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        for name, values, limit in (
+            ("item_ids", self.item_ids, MAX_RESULT_CELL_ITEMS),
+            ("scorer_version_ids", self.scorer_version_ids, MAX_READ_SCORER_VERSIONS),
+        ):
+            if not 1 <= len(values) <= limit or len(set(values)) != len(values):
+                raise OfflineEvaluationValidationError(name, f"Select between 1 and {limit} distinct UUIDs.")
 
 
 @frozen
@@ -90,6 +111,12 @@ class OfflineResultRead:
     accepted_at: datetime
     payload_state: str
     payload_expires_at: datetime | None
+
+
+@frozen
+class OfflineResultCells:
+    scorer_versions: list[OfflineScorerVersionRead]
+    results: list[OfflineResultRead]
 
 
 @frozen

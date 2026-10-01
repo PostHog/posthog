@@ -1,5 +1,8 @@
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
@@ -61,5 +64,32 @@ describe('todayShellLogic', () => {
 
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+    })
+    it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
+        try {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            const logic = todayShellLogic()
+            logic.mount()
+
+            expect(logic.values.todayRailEnabled).toBe(true)
+            expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+            expect(logic.values.sidebarVisible).toBe(false)
+
+            logic.actions.setSidebarOpen(false)
+            logic.actions.pickPane('library')
+            expect(logic.values.sidebarVisible).toBe(true)
+            expect(logic.values.sidebarOpen).toBe(false)
+            expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+
+            router.actions.push('/project/1/insights/abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
     })
 })

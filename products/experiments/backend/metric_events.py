@@ -45,7 +45,7 @@ from posthog.models.user import User
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
-from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, iter_metric_dicts
+from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric, scheduled_metric_definitions
 from products.experiments.backend.models.experiment import Experiment
 
 logger = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     never fail the whole surface.
     """
     metric_sources: list[MetricEventSource] = []
-    for metric_dict in iter_metric_dicts(experiment):
+    for metric_dict in scheduled_metric_definitions(experiment).values():
         try:
             metric = build_metric(metric_dict)
         except (KeyError, pydantic.ValidationError):
