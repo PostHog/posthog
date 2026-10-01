@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
@@ -541,9 +541,10 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 // The Views sidebar lists canvases by name.
                 todayViewsLogic.findMounted()?.actions.loadRecentViews()
             } catch (error) {
-                lemonToast.error(
-                    `Couldn't rename the canvas. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-                )
+                toast.error({
+                    title: "Couldn't rename the canvas",
+                    description: error instanceof Error ? error.message : 'Try again in a moment.',
+                })
             }
         },
         copyLink: async () => {
@@ -585,9 +586,10 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.generationStarted()
                 actions.startPolling()
             } catch (error) {
-                lemonToast.error(
-                    `Couldn't start building the canvas. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-                )
+                toast.error({
+                    title: "Couldn't start building the canvas",
+                    description: error instanceof Error ? error.message : 'Try again in a moment.',
+                })
             } finally {
                 actions.generationFinished()
             }

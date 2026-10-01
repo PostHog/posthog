@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { CANVAS_EVENTS, CanvasSurface } from '../canvasAnalytics'
 import { canvasesDestroy } from '../generated/api'
@@ -44,9 +44,9 @@ export function deleteCanvasWithUndo({
             posthog.capture(CANVAS_EVENTS.dashboardAction, { action_type: 'delete', success: true, ...properties })
         } catch (error) {
             posthog.capture(CANVAS_EVENTS.dashboardAction, { action_type: 'delete', success: false, ...properties })
-            lemonToast.error(
-                `Couldn't delete ${name}. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-            )
+            toast.error({
+                title: `Couldn't delete ${name}. ${error instanceof Error ? error.message : 'Try again in a moment.'}`,
+            })
             onRestore()
         }
     }
@@ -56,13 +56,12 @@ export function deleteCanvasWithUndo({
         setTimeout(() => void commit(), CANVAS_DELETE_UNDO_MS)
     )
 
-    lemonToast.success(`Deleted ${name}`, {
-        toastId: `canvas-delete-undo-${canvasId}`,
-        autoClose: CANVAS_DELETE_UNDO_MS,
-        button: {
+    toast.success({
+        title: `Deleted ${name}`,
+        timeout: CANVAS_DELETE_UNDO_MS,
+        action: {
             label: 'Undo',
-            dataAttr: 'canvas-delete-undo',
-            action: () => {
+            onClick: () => {
                 const timer = pendingTimers.get(canvasId)
                 // No timer means the delete is already in flight or done.
                 if (!timer) {

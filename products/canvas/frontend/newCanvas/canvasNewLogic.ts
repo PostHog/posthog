@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
@@ -280,9 +280,10 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
                         template_id: FREEFORM_TEMPLATE_ID,
                     })
                 } catch (error) {
-                    lemonToast.error(
-                        `Couldn't create the canvas. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-                    )
+                    toast.error({
+                        title: "Couldn't create the canvas",
+                        description: error instanceof Error ? error.message : 'Try again in a moment.',
+                    })
                     return
                 }
                 posthog.capture(CANVAS_EVENTS.dashboardAction, {
@@ -305,9 +306,10 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
                 } catch (error) {
                     // The canvas exists, so the person lands on it with the prompt kept, ready to send again.
                     actions.handOffStart({ canvasId: canvas.id, instruction, fromSuggestion })
-                    lemonToast.error(
-                        `Couldn't start building the canvas. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-                    )
+                    toast.error({
+                        title: "Couldn't start building the canvas",
+                        description: error instanceof Error ? error.message : 'Try again in a moment.',
+                    })
                 }
                 if (stillOnStartPage()) {
                     router.actions.replace(urls.canvasDetail(canvas.id))
