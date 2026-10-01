@@ -109,6 +109,14 @@ A daily write and a recalculation share a window only when an experiment stops w
 The daily write then takes over the recalculation's row, and the next reload recomputes that metric.
 The calc activity's write keeps its lock order and its terminal-run guard (see [cancellation and result-write protection](../../../../docs/internal/experiment-metric-recalculation.md)).
 
+Each row also records the calculation spec that its fingerprint was derived from: `spec` holds the JSON form and `spec_version` the version whose reader decodes it (`StoredSpec` in `metric_calculation/spec.py`).
+A write replaces the spec together with the fingerprint.
+A daily write stores no spec when the current configuration no longer gives the key that the daily discovery computed.
+A sync copy keeps the spec of the daily row it copies.
+Rows written before specs were stored have none.
+Code that stores no spec can still take a row over and leave the earlier spec behind, so `MetricResultStore.stored_spec` returns a spec only when its key, bare or salted, is the row's fingerprint.
+A non-unique index on `(experiment, metric_uuid, fingerprint, query_to)` serves lookups by calculation key, so it keeps working when several rows share a window.
+
 ### Counters are derived, not stored
 
 `completed_metrics` and `failed_metrics` aren't columns on the recalc row. They're computed at read time from `ExperimentMetricResult` rows (`status=COMPLETED` for completed, `status=FAILED` plus discovery-step failures from `metric_errors` for failed). This eliminates a class of bug: when Temporal retries an activity, there's no counter to double-increment. The only thing that matters is whether the result row exists.
