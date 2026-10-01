@@ -144,7 +144,11 @@ describe('settingsSearch', () => {
     test.each([
         ['model preferences', 'task-agent-my-preference'],
         ['subscriptions', 'ai-subscription-codex'],
-    ])('finds a renamed section by its old name "%s" with today-rail-nav on', (term, expectedSettingId) => {
+        ['personalization', 'task-agent-my-instructions'],
+        ['plan & usage', 'ai-usage-spend'],
+        ['worktrees', 'task-agent-other-settings'],
+        ['self-driving', 'task-agent-other-settings'],
+    ])('finds a setting by its PostHog Desktop name "%s" with today-rail-nav on', (term, expectedSettingId) => {
         const flags = {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
             [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: true,
