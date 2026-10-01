@@ -27,8 +27,6 @@ class RunControl:
     heartbeat: Callable[[], contextlib.AbstractAsyncContextManager[object]]
     # Entered by the run. The pipeline checks it between batches.
     shutdown_monitor: ShutdownMonitor
-    # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
-    shutdown_wait: Callable[[float], bool]
     # 1-based. A value above 1 means an earlier attempt of the same job ran.
     attempt: int
     workflow_id: str | None
@@ -36,6 +34,8 @@ class RunControl:
     # True when the run holds the V3 pipeline lock under `workflow_run_id` and must confirm it
     # still holds it before it creates the job row.
     verify_v3_lock: bool
+    # Thread-safe wait used by source code that blocks between requests. Returns early on shutdown.
+    shutdown_wait: Callable[[float], object] | None = None
 
 
 @contextlib.asynccontextmanager

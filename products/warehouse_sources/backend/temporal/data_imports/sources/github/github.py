@@ -890,7 +890,7 @@ def _github_retry_wait(state: RetryCallState) -> float:
 
 
 def _pace_before_request(
-    installation_id: str, logger: FilteringBoundLogger, shutdown_wait: Callable[[float], bool] | None = None
+    installation_id: str, logger: FilteringBoundLogger, shutdown_wait: Callable[[float], object] | None = None
 ) -> None:
     """Wait out this installation's share of the shared egress budget before the next request.
 
@@ -964,7 +964,7 @@ def _fetch_page(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -1077,7 +1077,7 @@ def _iter_pages(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> Iterator[tuple[list[dict[str, Any]], str]]:
     """Yield (items, page_url) for each page of a paginated GitHub list,
     unwrapping the envelope and following the Link header. Stops at ``max_pages``,
@@ -1131,7 +1131,7 @@ def _iter_child_for_parent(
     logger: FilteringBoundLogger,
     config: GithubEndpointConfig,
     egress_identity: GithubEgressIdentity | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Walk a fan-out child endpoint for one parent, substituting the parent's value into the
     child path placeholder (e.g. {run_id} for workflow_jobs, {team_slug} for team_members).
@@ -1180,7 +1180,7 @@ def _fan_out_get_rows(
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
     max_parents: int | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> Iterator[Any]:
     """Single-hop parent->child fan-out: walk the parent endpoint and emit every child row for each
     parent, substituting the parent's field into the child path (workflow_jobs -> {run_id},
@@ -1484,7 +1484,7 @@ def _fetch_merge_commit_shas(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> dict[int, str]:
     """Ask GraphQL for the merge commit of each pull request number, through the gated and recorded
     transport, budget pacing, and retry policy the REST walk uses. Returns only the numbers GraphQL
@@ -1530,7 +1530,7 @@ def _add_merge_commit_shas(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> bool:
     """Fill in `merge_commit_sha` on the merged pull requests of one page, in place. False says
     GraphQL is closed to this connection, so the caller can stop asking for the rest of the walk.
@@ -1594,7 +1594,7 @@ def get_rows(
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     parent_cutoff_override: datetime | None = None,
     max_parents: int | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> Iterator[Any]:
     config = GITHUB_ENDPOINTS[endpoint]
     if config.fan_out_parent is not None:
@@ -1834,7 +1834,7 @@ def github_source(
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
     reconcile_since: datetime | None = None,
-    shutdown_wait: Callable[[float], bool] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> SourceResponse:
     endpoint_config = GITHUB_ENDPOINTS[endpoint]
 
