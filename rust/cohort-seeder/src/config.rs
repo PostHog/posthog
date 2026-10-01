@@ -335,8 +335,9 @@ pub struct Config {
     /// Not 0, which ClickHouse reads as unlimited.
     pub seeder_ch_max_memory_usage: Option<NonZeroU64>,
 
-    /// ClickHouse ranks replicas by recent errors before `<priority>`, so a high value keeps legs on
-    /// the offline replicas when they fail.
+    /// ClickHouse ranks a shard's replicas by recent error count before `<priority>`. A high value
+    /// treats a replica with up to that many recent errors as healthy, so a shard's read stays on its
+    /// offline replica instead of moving to an online one.
     pub seeder_ch_distributed_replica_max_ignored_errors: Option<u64>,
 
     #[envconfig(default = "100")]

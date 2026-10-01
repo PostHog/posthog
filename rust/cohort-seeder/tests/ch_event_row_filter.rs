@@ -27,6 +27,8 @@ use serde_json::{json, Value};
 const HASH: &str = "aaaaaaaaaaaaaaaa";
 const EVENT: &str = "$feature_flag_called";
 const KEY: &str = "$feature_flag";
+/// A second event property, for the condition whose filter holds two conjuncts.
+const SECOND_KEY: &str = "plan";
 const MATERIALIZED: &str = "mat_$feature_flag";
 
 const VALUES: &[&str] = &[
@@ -85,18 +87,29 @@ struct Admitted {
 async fn the_row_filter_admits_every_row_the_program_matches() {
     let client = connect(None);
     let materialized = MaterializedColumns::from_iter([(KEY.to_owned(), MATERIALIZED.to_owned())]);
-    for value in VALUES {
-        let (filters, program) = condition(value);
-        let blobs = blobs_for(value);
-        for columns in [&MaterializedColumns::default(), &materialized] {
-            let predicate = rendered_predicate(&filters, columns);
-            let admitted = admit_all(&client, &predicate, &blobs).await;
-            for (blob, admitted) in blobs.iter().zip(admitted) {
-                if program_matches(&program, blob) {
-                    assert!(
-                        admitted,
-                        "value {value:?}: the program matches {blob:?} but the filter dropped it\n{predicate}"
-                    );
+    for keys in [&[KEY][..], &[KEY, SECOND_KEY]] {
+        for value in VALUES {
+            let (filters, program) = condition(value, keys);
+            let blobs = blobs_for(value);
+            let plain = Value::Object(
+                keys.iter()
+                    .map(|key| ((*key).to_owned(), json!(value)))
+                    .collect(),
+            );
+            assert!(
+                program_matches(&program, &plain.to_string()),
+                "value {value:?}: the program matches no blob, so nothing below is checked"
+            );
+            for columns in [&MaterializedColumns::default(), &materialized] {
+                let predicate = rendered_predicate(&filters, columns);
+                let admitted = admit_all(&client, &predicate, &blobs).await;
+                for (blob, admitted) in blobs.iter().zip(admitted) {
+                    if program_matches(&program, blob) {
+                        assert!(
+                            admitted,
+                            "value {value:?}: the program matches {blob:?} but the filter dropped it\n{predicate}"
+                        );
+                    }
                 }
             }
         }
@@ -106,7 +119,7 @@ async fn the_row_filter_admits_every_row_the_program_matches() {
 #[tokio::test]
 async fn the_row_filter_drops_rows_no_program_can_match() {
     let client = connect(None);
-    let (filters, _) = condition("my-flag");
+    let (filters, _) = condition("my-flag", &[KEY]);
     let predicate = rendered_predicate(&filters, &MaterializedColumns::default());
     let dropped = [
         r#"{}"#,
@@ -177,7 +190,34 @@ fn connect(database: Option<&str>) -> ClickHouseClient {
     build_client(&config).expect("the default ClickHouse client builds")
 }
 
-fn condition(value: &str) -> (TeamFilters, Vec<Value>) {
+/// `event == EVENT` and `properties[key] == value` for every key, the bytecode the compiler emits for
+/// exact event property filters.
+fn condition(value: &str, keys: &[&str]) -> (TeamFilters, Vec<Value>) {
+    let mut bytecode = vec![
+        json!("_H"),
+        json!(1),
+        json!(32),
+        json!(EVENT),
+        json!(32),
+        json!("event"),
+        json!(1),
+        json!(1),
+        json!(11),
+    ];
+    for key in keys {
+        bytecode.extend([
+            json!(32),
+            json!(value),
+            json!(32),
+            json!(key),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(11),
+        ]);
+    }
+    bytecode.extend([json!(3), json!(keys.len() + 1)]);
     let mut builder = TeamFiltersBuilder::default();
     builder
         .add_cohort(
@@ -191,12 +231,7 @@ fn condition(value: &str) -> (TeamFilters, Vec<Value>) {
                     "conditionHash": HASH,
                     "time_value": 7,
                     "time_interval": "day",
-                    "bytecode": [
-                        "_H", 1,
-                        32, EVENT, 32, "event", 1, 1, 11,
-                        32, value, 32, KEY, 32, "properties", 1, 2, 11,
-                        3, 2
-                    ]
+                    "bytecode": bytecode
                 }]}
             }),
         )
@@ -233,7 +268,10 @@ fn rendered_predicate(filters: &TeamFilters, columns: &MaterializedColumns) -> S
     let predicate = row_filter_sql(&row_filter, columns);
     assert_eq!(
         predicate.contains("e.properties"),
-        columns.column_for(KEY).is_none(),
+        row_filter
+            .keys()
+            .iter()
+            .any(|key| columns.column_for(key).is_none()),
         "a materialized column must keep the filter off the blob: {predicate}"
     );
     // The materializer's default expression, so the column holds what it holds in `events`.
@@ -254,6 +292,11 @@ fn blobs_for(value: &str) -> Vec<String> {
     let mut blobs: Vec<String> = FIXED_BLOBS.iter().map(|blob| (*blob).to_owned()).collect();
     blobs.push(json!({ KEY: value }).to_string());
     blobs.push(format!(r#"{{"{KEY}":"{escaped}"}}"#));
+    blobs.push(json!({ KEY: value, SECOND_KEY: value }).to_string());
+    blobs.push(format!(
+        r#"{{"{KEY}":"{escaped}","{SECOND_KEY}":"{escaped}"}}"#
+    ));
+    blobs.push(json!({ SECOND_KEY: value }).to_string());
     blobs
 }
 

@@ -9,7 +9,12 @@ from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_datetime
 
 from posthog.errors import InternalCHQueryError
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import (
@@ -269,7 +274,13 @@ class Command(BaseCommand):
     def _scan_estimate(self, team_id: int, event_names: list[str], max_events_per_day: int) -> BehavioralScanEstimate:
         try:
             return estimate_behavioral_scan_events(team_id, event_names, max_events_per_day=max_events_per_day)
-        except (ClickHouseQueryTimeOut, InternalCHQueryError) as error:
+        except (
+            ClickHouseQueryTimeOut,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseAtCapacity,
+            InternalCHQueryError,
+        ) as error:
             raise CommandError(
                 f"The scan estimate failed: {error}. Pass --max-scan-events-per-day 0 to create the run without it."
             ) from error

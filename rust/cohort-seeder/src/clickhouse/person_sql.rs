@@ -30,19 +30,16 @@
 
 use cohort_core::filters::TeamId;
 
-use crate::clickhouse::sql::key_list;
+use crate::clickhouse::sql::{key_list, MAX_GET_QUERY_BYTES};
 use crate::domain::{PersonRange, ProjectedKeys, UtcMillis};
 
-/// The rendered ceiling one scan may reach, leaving about 2 KB of margin.
+/// The rendered ceiling one scan may reach, leaving 2 KB of margin below the GET limit.
 ///
-/// The `cohort_seeder` ClickHouse profile runs `readonly=2`, under which a query over 8192 bytes is
-/// POSTed as `readonly=1` and fails with code 164. The profile lives in the infrastructure
-/// repository, not here, so this constant cannot be derived — re-check it against the profile
-/// rather than against this comment. Conservative in the safe direction: the `?` → `??` escaping in
+/// Conservative in the safe direction: the `?` → `??` escaping in
 /// [`clickhouse_string_literal`](super::sql::clickhouse_string_literal) is undone by the client's
 /// template parser, so the query that reaches the server is never longer than the text measured
 /// here.
-const MAX_RENDERED_SCAN_BYTES: usize = 6144;
+const MAX_RENDERED_SCAN_BYTES: usize = MAX_GET_QUERY_BYTES - 2048;
 
 /// What became of a run's key filter on one chunk, as a bounded metric label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

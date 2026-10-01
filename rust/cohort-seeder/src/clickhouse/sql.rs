@@ -14,8 +14,10 @@ use crate::domain::{
 };
 
 /// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
-/// `readonly=2` refuses because the seeder sends settings with every query.
-const MAX_GET_QUERY_BYTES: usize = 8192;
+/// `readonly=2` refuses with code 164, because the seeder sends settings with every query. The
+/// profile lives in the infrastructure repository, so re-check this against the profile rather than
+/// against this comment.
+pub(crate) const MAX_GET_QUERY_BYTES: usize = 8192;
 
 /// Appended by the crate's `fetch` before it measures the query.
 const FETCH_FORMAT_CLAUSE: &str = " FORMAT RowBinary";
@@ -195,17 +197,13 @@ fn property_value_sql<'a>(
     // past 64 bits, which `serde_json` reads. A materialized column stores that '', so admitting ''
     // there keeps the test off the blob.
     let (value, unparsed) = match columns.column_for(key) {
-        Some(column) => {
-            let value = format!("e.{}", clickhouse_identifier(column));
-            let unparsed = format!("{value} = ''");
-            (value, unparsed)
-        }
+        Some(column) => (format!("e.{}", clickhouse_identifier(column)), "v = ''"),
         None => (
             format!(
                 "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
                 clickhouse_string_literal(key)
             ),
-            "JSONType(e.properties) != 'Object'".to_owned(),
+            "JSONType(e.properties) != 'Object'",
         ),
     };
     let literals = values
@@ -216,8 +214,10 @@ fn property_value_sql<'a>(
         .map(clickhouse_string_literal)
         .collect::<Vec<_>>()
         .join(", ");
+    // The lambda binds the extraction once. Written inline, ClickHouse computes each copy of it
+    // separately inside the lazily evaluated branch, which parses the blob once per copy.
     format!(
-        "({value} IN ({literals}) OR position({value}, '\\\\') > 0 OR startsWith({value}, '{{') OR {unparsed})"
+        "arrayExists(v -> v IN ({literals}) OR position(v, '\\\\') > 0 OR startsWith(v, '{{') OR {unparsed}, [{value}])"
     )
 }
 
@@ -596,7 +596,7 @@ mod tests {
         let rendered = row_filter_sql(&row_filter, &columns);
         assert_eq!(
             rendered,
-            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND (e.`mat_$feature_flag` IN ('a', 'b', 'false', 'true') OR position(e.`mat_$feature_flag`, '\\\\') > 0 OR startsWith(e.`mat_$feature_flag`, '{') OR e.`mat_$feature_flag` = '')) OR (e.event = '$pageview' AND (replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '') IN ('false', 'https://example.com/', 'true') OR position(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '\\\\') > 0 OR startsWith(replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', ''), '{') OR JSONType(e.properties) != 'Object')))"
+            "(e.event NOT IN ('$feature_flag_called', '$pageview') OR (e.event = '$feature_flag_called' AND arrayExists(v -> v IN ('a', 'b', 'false', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR v = '', [e.`mat_$feature_flag`])) OR (e.event = '$pageview' AND arrayExists(v -> v IN ('false', 'https://example.com/', 'true') OR position(v, '\\\\') > 0 OR startsWith(v, '{') OR JSONType(e.properties) != 'Object', [replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^\"|\"$', '')])))"
         );
 
         let banded = spec(event_names.into_vec(), BandSpec::new(1, 2).unwrap());
@@ -608,6 +608,13 @@ mod tests {
                 &format!("\n  AND {rendered}\n  AND cityHash64")
             )
         );
+    }
+
+    #[test]
+    fn a_query_fits_the_client_get_only_with_room_for_the_format_clause() {
+        // The crate POSTs a query longer than 8192 bytes once ` FORMAT RowBinary` is appended.
+        assert!(fits_client_get(&"x".repeat(8175)));
+        assert!(!fits_client_get(&"x".repeat(8176)));
     }
 
     /// The wide arm and the plan that keeps every column render the same text, which is what makes

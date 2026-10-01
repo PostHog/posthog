@@ -290,6 +290,15 @@ pub(super) enum ChunkOutcome {
     },
 }
 
+/// What a settled chunk tells its run's breaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum BreakerSignal {
+    Success,
+    ResourceFailure(ResourceError),
+    /// An unclaim refunds the attempt, and any other failure says nothing about ClickHouse load.
+    Ignore,
+}
+
 impl ChunkOutcome {
     pub(super) fn run_id(&self) -> crate::domain::RunId {
         match self {
@@ -297,6 +306,23 @@ impl ChunkOutcome {
             | Self::Failed { lease, .. }
             | Self::Unclaimed { lease }
             | Self::RecoveryFailed { lease, .. } => lease.run_id(),
+        }
+    }
+
+    pub(super) fn breaker_signal(&self) -> BreakerSignal {
+        match self {
+            Self::Confirmed { .. } => BreakerSignal::Success,
+            Self::Failed {
+                resource: Some(resource),
+                ..
+            }
+            | Self::RecoveryFailed {
+                resource: Some(resource),
+                ..
+            } => BreakerSignal::ResourceFailure(*resource),
+            Self::Failed { resource: None, .. }
+            | Self::RecoveryFailed { resource: None, .. }
+            | Self::Unclaimed { .. } => BreakerSignal::Ignore,
         }
     }
 }
@@ -336,7 +362,7 @@ pub(super) fn record_task_result(
             warn!(
                 ?lease,
                 error = %detail,
-                clickhouse_resource_code = resource.map(ResourceError::as_str),
+                clickhouse_code = resource.map(ResourceError::as_str),
                 retry_delay_secs = retry_delay.as_secs_f64(),
                 "chunk failed and was released for retry"
             );
@@ -352,7 +378,13 @@ pub(super) fn record_task_result(
         }) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
             record_resource_error(kind, *resource);
-            warn!(?lease, error = %detail, recovery_error = %recovery, "chunk recovery update did not apply");
+            warn!(
+                ?lease,
+                error = %detail,
+                clickhouse_code = resource.map(ResourceError::as_str),
+                recovery_error = %recovery,
+                "chunk recovery update did not apply"
+            );
         }
         Err(error) => {
             counter!(CHUNKS_FAILED, "kind" => kind.as_str()).increment(1);
@@ -386,6 +418,48 @@ mod tests {
         assert_eq!(<StreamedChunk as ChunkState>::STAGE, FailureStage::PreMark);
         assert_eq!(<EnqueuedChunk as ChunkState>::STAGE, FailureStage::PostMark);
         assert_eq!(<ProducedChunk as ChunkState>::STAGE, FailureStage::PostMark);
+    }
+
+    #[test]
+    fn only_a_confirmed_chunk_or_a_resource_failure_reaches_the_breaker() {
+        let lease = ChunkLease::new(
+            crate::domain::ChunkId(uuid::Uuid::from_u128(1)),
+            crate::domain::RunId(uuid::Uuid::from_u128(2)),
+            crate::domain::ClaimEpoch(1),
+        );
+        let memory = ResourceError::MemoryLimitExceeded;
+        let failed = |resource| ChunkOutcome::Failed {
+            lease,
+            detail: String::new(),
+            resource,
+            retry_delay: Duration::ZERO,
+        };
+        let recovery_failed = |resource| ChunkOutcome::RecoveryFailed {
+            lease,
+            detail: String::new(),
+            resource,
+            recovery: ChunkStoreError::TilesProducedOutOfRange(0),
+        };
+        for (outcome, expected) in [
+            (
+                ChunkOutcome::Confirmed {
+                    lease,
+                    tiles_produced: 0,
+                    detail: ConfirmedDetail::Behavioral,
+                },
+                BreakerSignal::Success,
+            ),
+            (failed(Some(memory)), BreakerSignal::ResourceFailure(memory)),
+            (
+                recovery_failed(Some(memory)),
+                BreakerSignal::ResourceFailure(memory),
+            ),
+            (failed(None), BreakerSignal::Ignore),
+            (recovery_failed(None), BreakerSignal::Ignore),
+            (ChunkOutcome::Unclaimed { lease }, BreakerSignal::Ignore),
+        ] {
+            assert_eq!(outcome.breaker_signal(), expected, "{outcome:?}");
+        }
     }
 
     #[test]

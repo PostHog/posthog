@@ -347,6 +347,23 @@ mod tests {
                 filter("purchase", &[&[("currency", &["EUR"])]]),
             ),
             (
+                "two event properties",
+                fold(
+                    AND,
+                    vec![
+                        event_is("purchase"),
+                        fold(
+                            AND,
+                            vec![property_is("currency", "EUR"), property_is("plan", "pro")],
+                        ),
+                    ],
+                ),
+                filter(
+                    "purchase",
+                    &[&[("currency", &["EUR"])], &[("plan", &["pro"])]],
+                ),
+            ),
+            (
                 "a disjunction across keys",
                 fold(
                     AND,

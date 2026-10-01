@@ -109,13 +109,10 @@ fn ends_early(error: &(dyn Error + 'static)) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::clickhouse::ScanError;
 
-    #[derive(Debug, thiserror::Error)]
-    #[error("streaming ClickHouse scan cursor")]
-    struct Wrapper(#[source] clickhouse::error::Error);
-
-    fn bad_response(message: &str) -> Wrapper {
-        Wrapper(clickhouse::error::Error::BadResponse(message.to_owned()))
+    fn bad_response(message: &str) -> ScanError {
+        ScanError::Cursor(clickhouse::error::Error::BadResponse(message.to_owned()))
     }
 
     #[test]
@@ -159,7 +156,7 @@ mod tests {
             );
         }
         assert_eq!(
-            ResourceError::classify(&Wrapper(clickhouse::error::Error::TimedOut)),
+            ResourceError::classify(&ScanError::Cursor(clickhouse::error::Error::TimedOut)),
             None
         );
         for (kind, expected) in [
@@ -171,7 +168,7 @@ mod tests {
         ] {
             let network = clickhouse::error::Error::Network(Box::new(io::Error::new(kind, "body")));
             assert_eq!(
-                ResourceError::classify(&Wrapper(network)),
+                ResourceError::classify(&ScanError::Cursor(network)),
                 expected,
                 "{kind:?}"
             );

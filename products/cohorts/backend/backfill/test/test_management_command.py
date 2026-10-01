@@ -10,6 +10,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.errors import InternalCHQueryError
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
+
 from products.cohorts.backend.backfill.sizing import (
     BehavioralScanEstimate,
     PersonSeedEstimate,
@@ -44,7 +52,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             "products.cohorts.backend.management.commands.create_cohort_backfill_run.estimate_behavioral_scan_events",
             side_effect=self._scan_estimate,
         )
-        patcher.start()
+        self.scan_estimate = patcher.start()
         self.addCleanup(patcher.stop)
 
     def _scan_estimate(
@@ -160,6 +168,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
             cohort_ids=[selected.id],
         )
 
+        self.assertEqual(self.scan_estimate.call_args.args[1], ["$pageview"])
         run = CohortBackfillRun.objects.for_team(self.team.id).get()
         self.assertEqual(
             list(
@@ -278,6 +287,23 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
                 run.preconditions.get("behavioral_scan_max_events_per_day"),
                 options["max_scan_events_per_day"] or None,
             )
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong()),
+            ("memory", ClickHouseQueryMemoryLimitExceeded()),
+            ("at_capacity", ClickHouseAtCapacity()),
+            ("other", InternalCHQueryError("boom", code=60)),
+        ]
+    )
+    def test_a_failed_scan_estimate_names_the_way_around_it(self, _name: str, raised: Exception) -> None:
+        self._cohort("$pageview")
+        self.scan_estimate.side_effect = raised
+
+        with self.assertRaisesMessage(CommandError, "Pass --max-scan-events-per-day 0"):
+            call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
+        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
 
     def test_behavioral_dry_run_names_every_refusal(self) -> None:
         eligible = self._cohort("$pageview")

@@ -29,7 +29,9 @@ use crate::store::{Claimant, MaxAttempts, RenderedError};
 
 use super::breaker::{BreakerEvent, RunBreakers};
 use super::completion::CompletionDriver;
-use super::execute::{execute_chunk, record_task_result, ChunkOutcome, ChunkTaskContext};
+use super::execute::{
+    execute_chunk, record_task_result, BreakerSignal, ChunkOutcome, ChunkTaskContext,
+};
 use super::person_execute::{execute_person_chunk, PersonChunkTaskContext};
 use super::person_plan::{plan_person_run, PersonPlanAttempt, PersonPlanRequest};
 use super::prepare::{refresh_runs, run_ids_of_kind, PreparedRun, RefreshOutcome};
@@ -52,19 +54,34 @@ pub struct PersonComponents {
     pub pacer: TilePacer,
 }
 
-/// The planning slot's bookkeeping: which runs a spawned task covers (keyed by task id, so a
-/// panicked task un-tracks only itself) and when each run's last attempt failed.
+/// Which run each spawned task works for. Keyed by task id, so a panicked task, whose result carries
+/// no run, still leaves the map, and un-tracks only itself.
+#[derive(Default)]
+struct InflightTasks(HashMap<tokio::task::Id, RunId>);
+
+impl InflightTasks {
+    fn insert(&mut self, task_id: tokio::task::Id, run_id: RunId) {
+        self.0.insert(task_id, run_id);
+    }
+
+    fn remove(&mut self, task_id: tokio::task::Id) {
+        self.0.remove(&task_id);
+    }
+
+    fn has_run(&self, run_id: RunId) -> bool {
+        self.0.values().any(|inflight| *inflight == run_id)
+    }
+}
+
+/// The planning slot's bookkeeping: which runs a spawned task covers and when each run's last
+/// attempt failed.
 #[derive(Default)]
 struct PlanningState {
-    inflight: HashMap<tokio::task::Id, RunId>,
+    inflight: InflightTasks,
     failed_at: HashMap<RunId, Instant>,
 }
 
 impl PlanningState {
-    fn is_inflight(&self, run_id: RunId) -> bool {
-        self.inflight.values().any(|inflight| *inflight == run_id)
-    }
-
     fn in_backoff(&self, run_id: RunId) -> bool {
         self.failed_at
             .get(&run_id)
@@ -81,18 +98,8 @@ impl PlanningState {
     }
 }
 
-/// Keyed by task id, so a panicked task, whose outcome carries no lease, still leaves the map.
-#[derive(Default)]
-struct InflightChunks(HashMap<tokio::task::Id, RunId>);
-
-impl InflightChunks {
-    fn has_run(&self, run_id: RunId) -> bool {
-        self.0.values().any(|inflight| *inflight == run_id)
-    }
-}
-
 struct ClaimState {
-    inflight: InflightChunks,
+    inflight: InflightTasks,
     breakers: RunBreakers,
 }
 
@@ -151,7 +158,7 @@ impl SeederOrchestrator {
         let mut planning: JoinSet<(RunId, PersonPlanAttempt)> = JoinSet::new();
         let mut planning_state = PlanningState::default();
         let mut claims = ClaimState {
-            inflight: InflightChunks::default(),
+            inflight: InflightTasks::default(),
             breakers: RunBreakers::new(self.settings.breaker),
         };
         let mut eligible_runs = HashMap::new();
@@ -190,13 +197,13 @@ impl SeederOrchestrator {
                 Some(result) = planning.join_next_with_id(), if !planning.is_empty() => {
                     match result {
                         Ok((task_id, (run_id, attempt))) => {
-                            planning_state.inflight.remove(&task_id);
+                            planning_state.inflight.remove(task_id);
                             if attempt == PersonPlanAttempt::Failed {
                                 planning_state.failed_at.insert(run_id, Instant::now());
                             }
                         }
                         Err(error) => {
-                            planning_state.inflight.remove(&error.id());
+                            planning_state.inflight.remove(error.id());
                             warn!(error = %error, "person planning task failed unexpectedly");
                         }
                     }
@@ -281,29 +288,20 @@ impl SeederOrchestrator {
             Ok((task_id, _)) => *task_id,
             Err(error) => error.id(),
         };
-        claims.inflight.0.remove(&task_id);
+        claims.inflight.remove(task_id);
         let result = result.map(|(_, outcome)| outcome);
         record_task_result(&result, kind);
         let Ok(outcome) = result else {
             return;
         };
         let run_id = outcome.run_id();
-        let resource = match outcome {
-            ChunkOutcome::Confirmed { .. } => {
+        let resource = match outcome.breaker_signal() {
+            BreakerSignal::Success => {
                 claims.breakers.record_success(run_id);
                 return;
             }
-            ChunkOutcome::Failed {
-                resource: Some(resource),
-                ..
-            }
-            | ChunkOutcome::RecoveryFailed {
-                resource: Some(resource),
-                ..
-            } => resource,
-            ChunkOutcome::Failed { resource: None, .. }
-            | ChunkOutcome::RecoveryFailed { resource: None, .. }
-            | ChunkOutcome::Unclaimed { .. } => return,
+            BreakerSignal::ResourceFailure(resource) => resource,
+            BreakerSignal::Ignore => return,
         };
         match claims
             .breakers
@@ -369,7 +367,7 @@ impl SeederOrchestrator {
                 return;
             }
             let run_id = request.run.run_id;
-            if state.is_inflight(run_id) || state.in_backoff(run_id) {
+            if state.inflight.has_run(run_id) || state.in_backoff(run_id) {
                 continue;
             }
             let handle = planning.spawn(plan_person_run(
@@ -529,7 +527,7 @@ impl SeederOrchestrator {
                     };
                     let shutdown = shutdown.clone();
                     let task = tasks.spawn(async move { execute_chunk(ctx, shutdown).await });
-                    claims.inflight.0.insert(task.id(), chunk_lease.run_id());
+                    claims.inflight.insert(task.id(), chunk_lease.run_id());
                 }
                 PreparedRun::Person(run) => {
                     // Unreachable while the gate is off: discovery never yields person runs then.
@@ -557,7 +555,7 @@ impl SeederOrchestrator {
                     let shutdown = shutdown.clone();
                     let task = person_tasks
                         .spawn(async move { execute_person_chunk(ctx, shutdown).await });
-                    claims.inflight.0.insert(task.id(), chunk_lease.run_id());
+                    claims.inflight.insert(task.id(), chunk_lease.run_id());
                 }
             }
         }

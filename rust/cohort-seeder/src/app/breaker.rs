@@ -9,19 +9,16 @@ use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::time::{Duration, Instant};
 
-use crate::domain::RunId;
-
-/// Keeps `Instant + cooldown` far from overflow.
-pub const MAX_BREAKER_COOLDOWN: Duration = Duration::from_secs(24 * 60 * 60);
+use crate::domain::backoff::MAX_RETRY_BACKOFF_CAP;
+use crate::domain::{AttemptCount, BackoffPolicyError, RetryBackoffPolicy, RunId};
 
 /// Not shorter than any cooldown, so an open breaker is never dropped before it would close.
-const IDLE_EXPIRY: Duration = MAX_BREAKER_COOLDOWN;
+const IDLE_EXPIRY: Duration = MAX_RETRY_BACKOFF_CAP;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BreakerPolicy {
     threshold: NonZeroU32,
-    cooldown_base: Duration,
-    cooldown_cap: Duration,
+    cooldown: RetryBackoffPolicy,
     max_trips: NonZeroU32,
 }
 
@@ -34,30 +31,16 @@ impl BreakerPolicy {
         cooldown_cap: Duration,
         max_trips: u32,
     ) -> Result<Self, BreakerPolicyError> {
-        let threshold = NonZeroU32::new(threshold).ok_or(BreakerPolicyError::ZeroThreshold)?;
-        let max_trips = NonZeroU32::new(max_trips).ok_or(BreakerPolicyError::ZeroMaxTrips)?;
-        if cooldown_base.is_zero() {
-            return Err(BreakerPolicyError::ZeroCooldown);
-        }
-        if cooldown_cap < cooldown_base {
-            return Err(BreakerPolicyError::CapBelowBase);
-        }
-        if cooldown_cap > MAX_BREAKER_COOLDOWN {
-            return Err(BreakerPolicyError::CapTooLarge);
-        }
         Ok(Self {
-            threshold,
-            cooldown_base,
-            cooldown_cap,
-            max_trips,
+            threshold: NonZeroU32::new(threshold).ok_or(BreakerPolicyError::ZeroThreshold)?,
+            cooldown: RetryBackoffPolicy::new(cooldown_base, cooldown_cap)
+                .map_err(BreakerPolicyError::Cooldown)?,
+            max_trips: NonZeroU32::new(max_trips).ok_or(BreakerPolicyError::ZeroMaxTrips)?,
         })
     }
 
     fn cooldown(self, trip: u32) -> Duration {
-        let doublings = trip.saturating_sub(1).min(u32::BITS - 1);
-        self.cooldown_base
-            .saturating_mul(1 << doublings)
-            .min(self.cooldown_cap)
+        self.cooldown.ceiling(AttemptCount::new(trip))
     }
 }
 
@@ -67,12 +50,8 @@ pub enum BreakerPolicyError {
     ZeroThreshold,
     #[error("the breaker trip limit must be greater than zero")]
     ZeroMaxTrips,
-    #[error("the breaker cooldown must be greater than zero")]
-    ZeroCooldown,
-    #[error("the breaker cooldown cap must be at least the base")]
-    CapBelowBase,
-    #[error("the breaker cooldown cap must be at most 24 hours")]
-    CapTooLarge,
+    #[error("invalid breaker cooldown: {0}")]
+    Cooldown(BackoffPolicyError),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,6 +306,25 @@ mod tests {
     }
 
     #[test]
+    fn a_confirmed_chunk_resets_the_failures_in_a_row() {
+        let mut breakers = breakers(3, 4);
+        let start = Instant::now();
+        breakers.record_resource_failure(run(), start);
+        breakers.record_resource_failure(run(), start);
+        breakers.record_success(run());
+
+        assert_eq!(
+            breakers.record_resource_failure(run(), start),
+            BreakerEvent::Unchanged
+        );
+        assert_eq!(
+            breakers.record_resource_failure(run(), start),
+            BreakerEvent::Unchanged
+        );
+        assert!(!breakers.is_open(run()));
+    }
+
+    #[test]
     fn a_confirmed_chunk_closes_the_breaker_and_resets_the_trip_count() {
         let mut breakers = breakers(1, 2);
         let start = Instant::now();
@@ -348,7 +346,7 @@ mod tests {
     #[test]
     fn an_open_breaker_outlives_the_idle_expiry_until_its_cooldown_ends() {
         let mut breakers = RunBreakers::new(
-            BreakerPolicy::new(1, MAX_BREAKER_COOLDOWN, MAX_BREAKER_COOLDOWN, 2).unwrap(),
+            BreakerPolicy::new(1, MAX_RETRY_BACKOFF_CAP, MAX_RETRY_BACKOFF_CAP, 2).unwrap(),
         );
         let start = Instant::now();
         breakers.record_resource_failure(run(), start);

@@ -35,7 +35,7 @@ impl ScanRowFilter {
             let Some(bucket) = filters.behavioral_by_event_name.get(event) else {
                 continue;
             };
-            let mut alternatives: Vec<ConditionConjuncts> = Vec::new();
+            let mut conditions: Vec<ConditionConjuncts> = Vec::new();
             let mut every_condition_filtered = true;
             for candidate in &bucket.conditions {
                 let Some(hash) = active.get(candidate) else {
@@ -43,8 +43,8 @@ impl ScanRowFilter {
                 };
                 match row_filters.get(&hash) {
                     Some(row_filter) if row_filter.event == *event => {
-                        if !alternatives.contains(&row_filter.conjuncts) {
-                            alternatives.push(row_filter.conjuncts.clone());
+                        if !conditions.contains(&row_filter.conjuncts) {
+                            conditions.push(row_filter.conjuncts.clone());
                         }
                     }
                     Some(_) | None => {
@@ -53,8 +53,8 @@ impl ScanRowFilter {
                     }
                 }
             }
-            if every_condition_filtered && !alternatives.is_empty() {
-                by_event.insert(event.clone(), alternatives);
+            if every_condition_filtered && !conditions.is_empty() {
+                by_event.insert(event.clone(), conditions);
             }
         }
         Self { by_event }
@@ -67,7 +67,7 @@ impl ScanRowFilter {
     pub fn events(&self) -> impl Iterator<Item = (&str, &[ConditionConjuncts])> {
         self.by_event
             .iter()
-            .map(|(event, alternatives)| (event.as_str(), alternatives.as_slice()))
+            .map(|(event, conditions)| (event.as_str(), conditions.as_slice()))
     }
 
     pub fn keys(&self) -> BTreeSet<&str> {
@@ -234,8 +234,8 @@ mod tests {
     fn an_event_is_filtered_only_when_every_active_condition_on_it_is() {
         let all = row_filter(&[FLAG_A, FLAG_B, PAGE_URL, PAGE_ANY, MISFILED]);
         assert_eq!(filtered_events(&all), vec!["$feature_flag_called"]);
-        let (_, alternatives) = all.events().next().unwrap();
-        assert_eq!(alternatives.len(), 2, "one alternative per flag condition");
+        let (_, conditions) = all.events().next().unwrap();
+        assert_eq!(conditions.len(), 2, "one entry per flag condition");
 
         let without_any = row_filter(&[FLAG_A, PAGE_URL]);
         assert_eq!(

@@ -547,6 +547,25 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn breaker_is_parsed_from_config_and_rejected_when_it_cannot_trip() {
+        let config = Config::init_from_hashmap(&HashMap::new()).unwrap();
+        let settings = OrchestratorSettings::try_from(&config).unwrap();
+        assert_eq!(
+            settings.breaker,
+            BreakerPolicy::new(3, Duration::from_secs(300), Duration::from_secs(1800), 4).unwrap()
+        );
+
+        let mut zero_threshold = config.clone();
+        zero_threshold.seeder_ch_breaker_threshold = 0;
+        assert!(matches!(
+            OrchestratorSettings::try_from(&zero_threshold),
+            Err(SettingsError::Orchestrator(
+                OrchestratorSettingsError::Breaker(BreakerPolicyError::ZeroThreshold)
+            ))
+        ));
+    }
+
     /// A backoff pair that cannot space retries must fail at startup. Accepting it would leave the
     /// claim gate stamping a zero or shrinking wait, which is the reclaim storm the policy exists
     /// to stop, and nothing downstream would report it.
