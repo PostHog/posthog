@@ -66,7 +66,10 @@ export function AlertAdvancedOptionsSection({
                                         step={1}
                                         value={alertForm.evaluation_delay_intervals ?? 0}
                                         onChange={(value) =>
-                                            onSetAlertFormValue('evaluation_delay_intervals', value ?? 0)
+                                            onSetAlertFormValue(
+                                                'evaluation_delay_intervals',
+                                                typeof value === 'number' && Number.isFinite(value) ? value : 0
+                                            )
                                         }
                                         className="w-24"
                                         data-attr="alert-evaluation-delay"
