@@ -13,9 +13,13 @@ import {
 } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
+import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
+import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
 
@@ -31,6 +35,8 @@ export function TodayRail(): JSX.Element {
     const { activePane, sidebarVisible } = useValues(todayShellLogic)
     const { pickPane, toggleSidebar } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { pendingInvites } = useValues(pendingInvitesLogic)
 
     return (
         <nav
@@ -63,6 +69,34 @@ export function TodayRail(): JSX.Element {
                 )
             })}
             <div className="mt-auto flex flex-col items-center gap-1">
+                {!sidebarVisible && (
+                    <NewAccountMenu
+                        side="right"
+                        align="end"
+                        renderTrigger={(props) => (
+                            <ButtonPrimitive
+                                {...props}
+                                iconOnly
+                                size="lg"
+                                aria-label="Account menu"
+                                tooltip="Account menu"
+                                tooltipPlacement="right"
+                                data-attr="new-account-menu-button"
+                                className="relative"
+                            >
+                                <UploadedLogo
+                                    name={currentOrganization?.name ?? '?'}
+                                    entityId={currentOrganization?.id ?? ''}
+                                    mediaId={currentOrganization?.logo_media_id ?? ''}
+                                    size="small"
+                                />
+                                {pendingInvites.length > 0 && (
+                                    <PendingInviteDot className="absolute top-1.5 right-1.5" />
+                                )}
+                            </ButtonPrimitive>
+                        )}
+                    />
+                )}
                 <ButtonPrimitive
                     iconOnly
                     size="lg"
@@ -87,7 +121,6 @@ export function TodayRail(): JSX.Element {
                 >
                     {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </ButtonPrimitive>
-                <NewAccountMenu isLayoutNavCollapsed />
             </div>
         </nav>
     )

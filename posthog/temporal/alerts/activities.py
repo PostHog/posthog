@@ -757,6 +757,10 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
+            if alert_evaluation_result is not None and alert_evaluation_result.skipped_reason is not None:
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert.state)
+                )
 
             investigation = decide_investigation(alert, alert_check)
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
@@ -888,6 +892,7 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "condition",
         "config",
         "detector_config",
+        "evaluation_delay_intervals",
         "threshold_id",
         "calculation_interval",
         "next_check_at",
