@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.html import strip_tags
 
 import requests
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup, NavigableString, PageElement, Tag
 
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
@@ -36,8 +36,9 @@ GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY = "gmail_pending_message_ids"
 GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 INITIAL_IMPORT_QUERY = "{in:inbox in:sent} newer_than:30d"
 INITIAL_IMPORT_LIMIT = 100
-_HTML_PARAGRAPH_TAGS = ["blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "ol", "p", "pre", "table", "ul"]
-_HTML_LINE_TAGS = ["div", "li", "tr"]
+_HTML_PARAGRAPH_TAGS = frozenset({"blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "ol", "p", "table", "ul"})
+_HTML_LINE_TAGS = frozenset({"div", "li", "tr"})
+_HTML_SKIPPED_TAGS = frozenset({"head", "script", "style", "title"})
 _HTML_WHITESPACE_RE = re.compile(r"\s+")
 _BLANK_LINES_RE = re.compile(r"\n{3,}")
 _PREFORMATTED_PLACEHOLDER_RE = re.compile(r"\x00(\d+)\x00")
@@ -474,27 +475,7 @@ def _html_to_text(html: str) -> str:
     """
     preformatted: list[str] = []
     try:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup(["head", "script", "style", "title"]):
-            tag.decompose()
-        for string in soup.find_all(string=True):
-            if type(string) is not NavigableString:
-                string.extract()
-            elif string.find_parent("pre") is None:
-                string.replace_with(_HTML_WHITESPACE_RE.sub(" ", string).replace("\0", ""))
-            elif "\0" in string:
-                string.replace_with(string.replace("\0", ""))
-        for br in soup.find_all("br"):
-            br.replace_with("\n")
-        for tag in soup.find_all(_HTML_PARAGRAPH_TAGS):
-            tag.insert_after("\n\n")
-        for tag in soup.find_all(_HTML_LINE_TAGS):
-            tag.insert_after("\n")
-        for pre in soup.find_all("pre"):
-            if pre.find_parent("pre") is None:
-                preformatted.append(pre.get_text().strip("\n"))
-                pre.replace_with(f"\0{len(preformatted) - 1}\0")
-        text = soup.get_text()
+        text = _flatten_html(BeautifulSoup(html, "html.parser"), preformatted)
     except Exception:  # noqa: BLE001 — a malformed HTML part must never fail the sync
         preformatted = []
         text = unescape(strip_tags(html))
@@ -502,6 +483,52 @@ def _html_to_text(html: str) -> str:
     text = _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
     # Preformatted blocks go back in after the cleanup, so their indentation survives.
     return _PREFORMATTED_PLACEHOLDER_RE.sub(lambda match: _get_preformatted_block(preformatted, match), text)
+
+
+@frozen
+class _HtmlSeparator:
+    text: str
+
+
+def _flatten_html(soup: BeautifulSoup, preformatted: list[str]) -> str:
+    """Emit the text of `soup` in one pass, replacing each top-level `<pre>` with a placeholder.
+
+    The walk reads the tree without modifying it, because BeautifulSoup locates a
+    node among its siblings with a linear scan on every insert or replace, which
+    makes per-node edits quadratic on an email with many sibling elements.
+    """
+    parts: list[str] = []
+    stack: list[PageElement | _HtmlSeparator] = list(reversed(soup.contents))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, _HtmlSeparator):
+            parts.append(node.text)
+        elif isinstance(node, NavigableString):
+            if type(node) is NavigableString:
+                parts.append(_HTML_WHITESPACE_RE.sub(" ", node).replace("\0", ""))
+        elif isinstance(node, Tag) and node.name not in _HTML_SKIPPED_TAGS:
+            if node.name == "br":
+                parts.append("\n")
+            elif node.name == "pre":
+                preformatted.append(_preformatted_text(node))
+                parts.append(f"\0{len(preformatted) - 1}\0\n\n")
+            else:
+                if node.name in _HTML_PARAGRAPH_TAGS:
+                    stack.append(_HtmlSeparator(text="\n\n"))
+                elif node.name in _HTML_LINE_TAGS:
+                    stack.append(_HtmlSeparator(text="\n"))
+                stack.extend(reversed(node.contents))
+    return "".join(parts)
+
+
+def _preformatted_text(pre: Tag) -> str:
+    parts: list[str] = []
+    for node in pre.descendants:
+        if type(node) is NavigableString:
+            parts.append(node.replace("\0", ""))
+        elif isinstance(node, Tag) and node.name == "br":
+            parts.append("\n")
+    return "".join(parts).strip("\n")
 
 
 def _get_preformatted_block(preformatted: list[str], match: re.Match[str]) -> str:

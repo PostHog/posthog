@@ -431,3 +431,8 @@ class TestGmailSync(BaseTest):
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
 
         assert not EmailThread.objects.for_team(self.team.id).exists()
+
+
+class TestHtmlToText:
+    def test_many_sibling_paragraphs_flatten_in_one_pass(self) -> None:
+        assert gmail_sync._html_to_text("<p>x</p>" * 20_000) == "\n\n".join(["x"] * 20_000)

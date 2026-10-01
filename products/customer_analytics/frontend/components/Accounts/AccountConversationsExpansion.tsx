@@ -253,7 +253,7 @@ function ConversationMessageContent({ content }: { content: string }): JSX.Eleme
         <LemonMarkdown
             className="break-words text-sm"
             lowKeyHeadings
-            disableImages
+            disableImages="all"
             disableDocsRedirect
             disableMentions
             wrapCode
