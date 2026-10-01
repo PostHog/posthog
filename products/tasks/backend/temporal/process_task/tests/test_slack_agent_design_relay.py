@@ -219,6 +219,9 @@ class TestSlackAgentDesignRelay:
         )
 
         assert ("Thinking", "in_progress") in [(c.title, c.status) for c in calls.sent_chunks()]
+        # A collapsed plan shows only its title, so the title must say what happens now.
+        assert [s.plan_title for s in calls.starts] == ["Setting up sandbox"]
+        assert "Thinking" in [a.plan_title for a in calls.appends]
         assert list(calls.final_lines().values()) == [
             ("Sandbox ready", None, "complete"),
             ("Agent ready", None, "complete"),

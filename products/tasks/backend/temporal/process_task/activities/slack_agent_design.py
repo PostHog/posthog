@@ -49,6 +49,7 @@ class AppendSlackAgentDesignStepsInput:
     ts: str
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     markdown_text: Optional[str] = None
+    plan_title: Optional[str] = None
 
 
 @frozen
@@ -120,6 +121,7 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
             markdown_text=_rewrite_object_tags(input.markdown_text, handler.project_url),
+            plan_title=input.plan_title,
         )
     except Exception as e:
         logger.warning("slack_app_append_agent_design_steps_failed", error=str(e))

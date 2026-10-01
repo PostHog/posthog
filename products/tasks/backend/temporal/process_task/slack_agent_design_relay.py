@@ -13,7 +13,8 @@ Drives one chat.startStream message per turn:
   stay, because Slack cannot remove a line, and later tool calls add no line.
 - The agent's prose is not streamed while it works. Each tool call ends a burst of prose,
   and the last non-empty burst streams as the final answer when the turn completes.
-- The plan title reads "Working on it" while the turn runs and "Done in …" when it ends.
+- While the turn runs, the plan title says what happens now, the same as the open line, so
+  a collapsed plan still shows it. It reads "Done in …" when the turn ends.
 
 The first turn's relay starts before the sandbox exists, with a ``setup_title``. It opens
 the plan at once with that setup line, so the thread shows progress while the sandbox
@@ -98,6 +99,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._unsent_details: dict[str, list[str]] = {}
         self._keys_with_details: set[str] = set()
         self._last_description: dict[str, str] = {}
+        # The plan title Slack shows, and the description of the latest call, for the title.
+        self._plan_title: Optional[str] = None
+        self._latest_description: Optional[str] = None
         # The spinning line shown while no step is open, until the next line takes over its id.
         self._placeholder: Optional[TaskUpdateChunk] = None
         # Sandbox setup lines by progress step, in the order they appeared, and the steps
@@ -153,6 +157,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         key = phase.key
         self._phases[key] = phase
         description = payload.get("activity") or intent
+        self._latest_description = description if isinstance(description, str) and description else None
         if isinstance(description, str) and description and description != self._last_description.get(key):
             self._last_description[key] = description
             self._unsent_details.setdefault(key, []).append(description)
@@ -275,6 +280,24 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             chunks.append(self._placeholder)
         return chunks
 
+    def _current_plan_title(self) -> str:
+        """What happens now: the open line, or the description of the call it runs."""
+        if self._agent_plan:
+            open_step = next((line for line in self._agent_plan if line.status == "in_progress"), None)
+            return open_step.title if open_step else PLAN_TITLE_WORKING
+        if self._current_key is not None:
+            return self._latest_description or self._phases[self._current_key].title
+        open_line = self._open_line()
+        return open_line.title if open_line else PLAN_TITLE_WORKING
+
+    def _plan_title_update(self) -> Optional[str]:
+        """The plan title to send with the next lines, when it changed."""
+        title = self._current_plan_title()
+        if title == self._plan_title:
+            return None
+        self._plan_title = title
+        return title
+
     def _has_pending(self) -> bool:
         return bool(self._new_keys or self._changed_keys or self._agent_plan_changed or self._changed_setup_steps)
 
@@ -299,7 +322,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             retry_policy=_ACTIVITY_RETRY,
         )
 
-    async def _append(self, input: SlackAgentDesignRelayInput, chunks: list[TaskUpdateChunk]) -> None:
+    async def _append(
+        self, input: SlackAgentDesignRelayInput, chunks: list[TaskUpdateChunk], plan_title: Optional[str] = None
+    ) -> None:
         assert self._stream is not None
         await workflow.execute_activity(
             append_slack_agent_design_steps,
@@ -307,6 +332,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 slack_thread_context=input.slack_thread_context,
                 ts=self._stream.ts,
                 task_updates=chunks,
+                plan_title=plan_title,
             ),
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
@@ -320,7 +346,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             if input.setup_title:
                 setup_line = TaskUpdateChunk(id=str(workflow.uuid4()), title=input.setup_title, status="in_progress")
                 self._setup_lines[input.setup_step] = setup_line
-                self._stream = await self._start_stream(input, task_updates=[setup_line], plan_title=PLAN_TITLE_WORKING)
+                self._plan_title = input.setup_title
+                self._stream = await self._start_stream(input, task_updates=[setup_line], plan_title=input.setup_title)
                 if self._stream is None:
                     return
 
@@ -355,12 +382,15 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                     continue
                 self._last_dispatched_at = workflow.now().timestamp()
 
+                plan_title = self._plan_title_update()
                 if self._stream is None:
-                    self._stream = await self._start_stream(input, task_updates=chunks, plan_title=PLAN_TITLE_WORKING)
+                    self._stream = await self._start_stream(
+                        input, task_updates=chunks, plan_title=plan_title or self._plan_title
+                    )
                     if self._stream is None:
                         return
                     continue
-                await self._append(input, chunks)
+                await self._append(input, chunks, plan_title)
         finally:
             await self._close_stream(input)
 
