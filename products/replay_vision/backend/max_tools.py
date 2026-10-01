@@ -310,8 +310,12 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             )
 
         observations = (
-            ReplayObservation.objects.filter(
-                team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+            accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id, scanner_id=scanner_id, status=ObservationStatus.SUCCEEDED
+                ),
             )
             .order_by("-created_at")
             .values_list("scanner_result", "created_at")[:MAX_SUMMARIES]
