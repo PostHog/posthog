@@ -138,6 +138,26 @@ class TestDestinationTemplateContract:
 
         assert DESTINATION_SPECS[destination_type].read(stored_inputs) == data
 
+    @pytest.mark.parametrize(
+        "webhook_url",
+        [
+            "https://hooks.example.com/services/T000/B000/s3cr3t",
+            "https://user:s3cr3t@hooks.example.com:8443/hook?token=s3cr3t#s3cr3t",
+            "not a url s3cr3t",
+        ],
+    )
+    def test_webhook_name_never_stores_the_url_path_query_or_credentials(self, webhook_url: str) -> None:
+        config = build_alert_destination_config(
+            spec=DEFAULT_SPEC,
+            alert_id="alert-1",
+            alert_name="Signups",
+            data={"type": DestinationType.WEBHOOK, "webhook_url": webhook_url},
+            slack_context_elements=(),
+        )
+
+        assert "s3cr3t" not in config.payload["name"]
+        assert config.payload["inputs"]["url"] == {"value": webhook_url}
+
     def test_slack_channel_name_shapes_the_hog_function_name_and_is_never_stored_in_inputs(self) -> None:
         data: AlertDestinationData = {
             "type": DestinationType.SLACK,

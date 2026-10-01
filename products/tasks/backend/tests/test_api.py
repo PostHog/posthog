@@ -22,7 +22,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 import jwt
-import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -52,7 +51,6 @@ from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskAr
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
-    _gateway_usage_url,
     code_access_required_response,
     get_posthog_code_usage,
     usage_limit_response,
@@ -105,6 +103,8 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+
+from ee.billing.quota_limiting import QuotaResource
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
@@ -228,6 +228,35 @@ class BaseTaskAPITest(TestCase):
         if hasattr(self, "desktop_access_patcher"):
             self.desktop_access_patcher.stop()
         super().tearDown()
+
+    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Task API client",
+            client_id=client_id,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=scope,
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"phr_task_{uuid.uuid4().hex}",
+            access_token=access_token,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
 
     def set_tasks_feature_flag(self, enabled=True):
         self._desktop_access_enabled = enabled
@@ -1034,35 +1063,6 @@ class TestTaskVisibilityInternalDebugRegionGate(BaseTaskAPITest):
 
 
 class TestTaskAPI(BaseTaskAPITest):
-    def _oauth_client(self, client_id: str, *, scope: str = "task:read task:write") -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Task API client",
-            client_id=client_id,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_task_{uuid.uuid4().hex}",
-            expires=django_timezone.now() + timedelta(hours=1),
-            scope=scope,
-            scoped_teams=[self.team.id],
-        )
-        OAuthRefreshToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"phr_task_{uuid.uuid4().hex}",
-            access_token=access_token,
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
-
     @patch("products.tasks.backend.presentation.views.api.get_task_usage")
     def test_usage_returns_task_cost_breakdown(self, mock_get_task_usage: MagicMock) -> None:
         task = self.create_task()
@@ -1606,6 +1606,8 @@ class TestTaskAPI(BaseTaskAPITest):
 
         assert response.status_code == (201 if combined_create else 200), response.json()
         assert "run_error" not in response.json()
+        if not combined_create:
+            assert response.json()["run"]["id"] == response.json()["latest_run"]["id"]
         run = TaskRun.objects.get(id=response.json()["latest_run"]["id"])
         assert run.status == TaskRun.Status.NOT_STARTED
         assert run.queued_at is None
@@ -1873,6 +1875,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED if combined_create else status.HTTP_200_OK)
         run = Task.objects.get(id=response.json()["id"]).runs.get()
         self.assertEqual(response.json()["latest_run"]["id"], str(run.id))
+        if not combined_create:
+            self.assertEqual(response.json()["run"]["id"], str(run.id))
         self.assertNotIn("run_error", response.json())
         mock_workflow.assert_called_once()
 
@@ -2253,6 +2257,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.REVIEW_HOG,),
             (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.SPACE_SETUP,),
+            (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -3235,6 +3240,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["id"], str(task.id))
         self.assertIn("latest_run", data)
         self.assertIsNotNone(data["latest_run"])
+        self.assertEqual(data["run"], data["latest_run"])
 
         latest_run = data["latest_run"]
         run_id = latest_run["id"]
@@ -6349,8 +6355,9 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
             team=self.team,
             task=task,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"task_summary": "Private workflow context"},
+            state={"task_summary": "Private workflow context", "task_tags": ["private-tag"]},
         )
+        expected_tags = ["private-tag"] if is_owner else []
 
         summaries_response = self.post_summaries([str(task.id)])
         detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
@@ -6360,6 +6367,16 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(payload["latest_run"]["task_summary"], expected_summary)
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_response.json()["task_summary"], expected_summary)
+        self.assertEqual(detail_response.json()["task_tags"], expected_tags)
+
+        set_output_response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"note": "done"}},
+            format="json",
+        )
+        self.assertEqual(set_output_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(set_output_response.json()["task_summary"], expected_summary)
+        self.assertEqual(set_output_response.json()["task_tags"], expected_tags)
 
         for basic in ("true", "false"):
             with self.subTest(basic=basic):
@@ -6486,21 +6503,40 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"prior_run_summary": "Reading the existing code"},
+            state={"prior_run_summary": "Reading the existing code", "prior_run_tags": ["research"]},
         )
         client = self._sandbox_oauth_client(task.id)
 
         initial = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
         updated = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
-            {"summary": "Writing the fix"},
+            {"summary": "Writing the fix", "tags": ["bug-fix", "feature-flags", "bug-fix"]},
+            format="json",
+        )
+        summary_only = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Opening the PR"},
             format="json",
         )
 
         self.assertEqual(initial.status_code, status.HTTP_200_OK)
         self.assertEqual(initial.json()["task_summary"], "Reading the existing code")
+        self.assertEqual(initial.json()["task_tags"], ["research"])
         self.assertEqual(updated.status_code, status.HTTP_200_OK)
         self.assertEqual(updated.json()["task_summary"], "Writing the fix")
+        self.assertEqual(updated.json()["task_tags"], ["bug-fix", "feature-flags"])
+        self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
+        self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+
+        cleared = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Opening the PR", "tags": []},
+            format="json",
+        )
+
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["task_tags"], [])
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -6511,6 +6547,26 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_only_the_task_bound_sandbox_reads_a_product_private_task(self):
+        private_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Question",
+            description="Answer from business knowledge",
+            origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE,
+        )
+        other_task = self.create_task()
+        own_sandbox = self._sandbox_oauth_client(private_task.id)
+        other_sandbox = self._sandbox_oauth_client(other_task.id, client_id=POSTHOG_AI_APP_CLIENT_ID_DEV)
+        url = f"/api/projects/@current/tasks/{private_task.id}/"
+
+        own = own_sandbox.get(url)
+
+        self.assertEqual(own.status_code, status.HTTP_200_OK)
+        self.assertEqual(own.json()["description"], "Answer from business knowledge")
+        self.assertEqual(other_sandbox.get(url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
 
     @parameterized.expand(
         [
@@ -6799,6 +6855,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "task_management_ci_idle_skips": 1,
+                "task_management_ci_wait_checks": 10,
+                "pending_external_followups_checkpoint": {"generation": 8},
                 "sandbox_gone": False,
                 "ai_stage": "research",
                 "ai_agent_name": "signals-scout-errors",
@@ -6817,6 +6876,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "analysis_target_custom_image_name": "real-image",
                 "task_summary": "Current summary",
                 "prior_run_summary": "Prior summary",
+                "task_tags": ["current-tag"],
+                "prior_run_tags": ["prior-tag"],
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
                 "run_source": "manual",
@@ -6877,6 +6938,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    "task_management_ci_idle_skips": 0,
+                    "task_management_ci_wait_checks": 0,
+                    "pending_external_followups_checkpoint": {"generation": 99},
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
@@ -6903,6 +6967,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_custom_image_name": "attacker-image",
                     "task_summary": "Forged summary",
                     "prior_run_summary": "Forged prior summary",
+                    "task_tags": ["forged-tag"],
+                    "prior_run_tags": ["forged-prior-tag"],
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
                     "run_source": "signal_report",
@@ -6947,6 +7013,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
@@ -6966,6 +7035,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
+        assert run.state["task_tags"] == ["current-tag"]
+        assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
@@ -7002,6 +7073,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_dispatch",
                     "pending_external_followups",
                     "pending_external_followups_generation",
+                    "task_management_ci_idle_skips",
+                    "task_management_ci_wait_checks",
+                    "pending_external_followups_checkpoint",
                     "sandbox_gone",
                     "runtime_adapter",
                     "provider",
@@ -7017,6 +7091,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_custom_image_name",
                     "task_summary",
                     "prior_run_summary",
+                    "task_tags",
+                    "prior_run_tags",
                     "interaction_origin",
                     "slack_actor_user_id",
                     "run_source",
@@ -7050,6 +7126,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert run.state["sandbox_gone"] is False  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
@@ -7067,6 +7146,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
+        assert run.state["task_tags"] == ["current-tag"]
+        assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
@@ -7075,13 +7156,24 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state_append": {"systemPrompt": "Caller-controlled instructions", "scratch": "ok"}},
+            {
+                "state_append": {
+                    "systemPrompt": "Caller-controlled instructions",
+                    "task_management_ci_idle_skips": 0,
+                    "task_management_ci_wait_checks": 0,
+                    "pending_external_followups_checkpoint": {"generation": 99},
+                    "scratch": "ok",
+                }
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
         assert run.state["scratch"] == ["ok"]
+        assert run.state["task_management_ci_idle_skips"] == 1
+        assert run.state["task_management_ci_wait_checks"] == 10
+        assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
@@ -7536,23 +7628,32 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("over_the_cap", "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)),
-            ("not_a_string", {"state": "halfway"}),
+            ("over_the_cap", {"summary": "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)}),
+            ("not_a_string", {"summary": {"state": "halfway"}}),
+            ("tag_not_a_slug", {"summary": "Reading", "tags": ["Feature Flags"]}),
+            ("tag_with_padding", {"summary": "Reading", "tags": [" bug-fix "]}),
+            ("tag_with_trailing_newline", {"summary": "Reading", "tags": ["bug-fix\n"]}),
+            ("tag_over_the_cap", {"summary": "Reading", "tags": ["x" * (tasks_facade.TASK_RUN_TAG_MAX_CHARS + 1)]}),
+            (
+                "too_many_tags",
+                {"summary": "Reading", "tags": [f"tag-{i}" for i in range(tasks_facade.TASK_RUN_TAGS_MAX_COUNT + 1)]},
+            ),
         ]
     )
-    def test_set_summary_rejects_an_unusable_summary(self, _name, summary):
+    def test_set_summary_rejects_an_unusable_summary(self, _name, payload):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
-            {"summary": summary},
+            payload,
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         run.refresh_from_db()
         self.assertIsNone(run.task_summary)
+        self.assertEqual(run.task_tags, [])
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_task_summary_does_not_collide_with_structured_summary_output(self, mock_signal_workflow_completion):
@@ -11440,7 +11541,7 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
 
         for url, method in endpoints:
             response = getattr(self.client, method.lower())(url)
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, f"Failed for {method} {url}")
 
     def test_cross_team_task_access_forbidden(self):
         # Create task in other team
@@ -13704,7 +13805,65 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.headers.get("Retry-After"), "2")
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "runtime_unavailable",
+                "code": "sandbox_not_ready",
+                "error": "No active sandbox for this task run",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("completed", TaskRun.Status.COMPLETED),
+            ("failed", TaskRun.Status.FAILED),
+            ("cancelled", TaskRun.Status.CANCELLED),
+        ]
+    )
+    def test_command_on_ended_run_without_sandbox_is_final(self, _name, run_status):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=run_status, state={})
+
+        response = self.client.post(self._command_url(task, run), self._make_cancel(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIsNone(response.headers.get("Retry-After"))
+        self.assertEqual(
+            response.json(),
+            {"code": "run_ended", "error": "This task run has ended and its sandbox is gone"},
+        )
+
+    @parameterized.expand(
+        [
+            ("cancel", {"jsonrpc": "2.0", "method": "cancel", "id": "req-1"}, status.HTTP_400_BAD_REQUEST),
+            (
+                "credential_response",
+                {
+                    "jsonrpc": "2.0",
+                    "method": "credential_response",
+                    "params": {"requestId": "cred-1", "credential": "claude_subscription_token", "error": "no_token"},
+                    "id": "req-1",
+                },
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+        ]
+    )
+    def test_command_without_sandbox_for_desktop_grant(self, _name, body, expected_status):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"claude_subscription_user_id": self.user.id},
+        )
+
+        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+        response = client.post(self._command_url(task, run), body, format="json")
+
+        self.assertEqual(response.status_code, expected_status)
         self.assertEqual(
             response.json(),
             {
@@ -14290,6 +14449,80 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
+        HOGLAND_API_URL="https://hogland.prod-us.posthog.dev",
+    )
+    @patch("products.tasks.backend.presentation.views.api.internal_requests_session")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_to_hogland_sandbox_bypasses_egress_proxy(self, mock_post, mock_session_factory):
+        # A hogland box-proxy URL resolves in-cluster to a private address the egress
+        # proxy refuses (407), so the command must ride the proxy-bypassing session —
+        # never the env-proxied module-level post.
+        reset_sandbox_jwt_key_cache()
+        session = mock_session_factory.return_value.__enter__.return_value
+        self._mock_agent_response(session.post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task, sandbox_url="https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080"
+        )
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_cancel(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_post.assert_not_called()
+        session.post.assert_called_once()
+        self.assertEqual(
+            session.post.call_args[0][0],
+            "https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080/command",
+        )
+
+    def test_command_blocks_hogland_sandbox_url_when_unconfigured(self):
+        # Regression: on a pod without HOGLAND_API_URL, a hogland box-proxy URL matches
+        # no allowlist entry, so the command must be refused instead of proxied. This is
+        # the exact failure that killed every own-subscription run on hogland sandboxes
+        # (the credential_response died here with "Invalid sandbox URL").
+        task = self.create_task()
+        run = self._create_run_with_sandbox(
+            task, sandbox_url="https://hogland.prod-us.posthog.dev/v1/hogboxes/box-1/proxy/8080"
+        )
+
+        with override_settings(HOGLAND_API_URL=None):
+            response = self.client.post(
+                self._command_url(task, run),
+                self._make_cancel(),
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Invalid sandbox URL", response.json()["error"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.presentation.views.api.internal_requests_session")
+    @patch("products.tasks.backend.presentation.views.api.http_requests.post")
+    def test_command_to_modal_sandbox_keeps_env_proxied_post(self, mock_post, mock_session_factory):
+        # Modal tunnel hosts are public: they keep the default (env-proxied) transport.
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task, sandbox_url="https://sb-abc123.modal.run")
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_cancel(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_session_factory.assert_not_called()
+        mock_post.assert_called_once()
+
     def test_command_with_empty_state(self):
         task = self.create_task()
         run = TaskRun.objects.create(
@@ -14304,7 +14537,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertIn("No active sandbox", response.json()["error"])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
@@ -15353,79 +15586,42 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
 
 class TestGetPosthogCodeUsage(TestCase):
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_parses_rate_limited_usage(self, mock_token, mock_get):
-        mock_token.return_value = "tok"
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "is_rate_limited": True,
-                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
-                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
-                "is_pro": True,
-            },
-        )
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Usage Org")
+        self.team = Team.objects.create(organization=self.organization, name="Usage Team")
 
-        usage = get_posthog_code_usage(MagicMock(), 1)
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True)
+    def test_exhausted_bucket_is_rate_limited_until_the_period_end(self, mock_over):
+        self.organization.usage = {"period": ["2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z"]}
+        self.organization.save()
+
+        usage = get_posthog_code_usage(self.team.id)
+
+        assert usage == CodeUsageStatus(
+            is_rate_limited=True, limit_type=None, reset_at="2026-10-01T00:00:00+00:00", is_pro=False
+        )
+        mock_over.assert_called_once_with(self.team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True)
+    def test_unknown_period_leaves_reset_unset(self, _mock_over):
+        usage = get_posthog_code_usage(self.team.id)
 
         assert usage is not None
         self.assertTrue(usage.is_rate_limited)
-        self.assertEqual(usage.limit_type, "burst")
-        self.assertEqual(usage.reset_at, "2026-06-09T00:00:00Z")
-        self.assertTrue(usage.is_pro)
-        self.assertEqual(mock_get.call_args.args[0], "https://gateway.us.posthog.com/v1/usage/posthog_code")
+        self.assertIsNone(usage.reset_at)
 
-    @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None)
-    def test_local_uses_localhost_gateway(self):
-        self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=False)
+    def test_open_bucket_is_not_rate_limited(self, _mock_over):
+        usage = get_posthog_code_usage(self.team.id)
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.OAuthAccessToken")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_token_cleanup_error_does_not_break_fail_open(self, mock_token, mock_get, mock_oauth_model):
-        mock_token.return_value = "tok"
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "is_rate_limited": True,
-                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
-                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
-                "is_pro": False,
-            },
-        )
-        mock_oauth_model.objects.filter.return_value.delete.side_effect = Exception("db down")
+        assert usage == CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)
 
-        usage = get_posthog_code_usage(MagicMock(), 1)
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", side_effect=Exception("redis down"))
+    def test_fails_open_on_lookup_error(self, _mock_over):
+        self.assertIsNone(get_posthog_code_usage(self.team.id))
 
-        assert usage is not None
-        self.assertTrue(usage.is_rate_limited)
-
-    @parameterized.expand(
-        [
-            ("non_200", 500, None),
-            ("network_error", None, None),
-        ]
-    )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_fails_open_on_gateway_error(self, _name, status_code, _unused, mock_token, mock_get):
-        mock_token.return_value = "tok"
-        if status_code is None:
-            mock_get.side_effect = requests.RequestException("boom")
-        else:
-            mock_get.return_value = MagicMock(status_code=status_code)
-
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
-
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_fails_open_when_no_gateway_url(self, mock_token):
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
-        mock_token.assert_not_called()
+    def test_fails_open_for_an_unknown_team(self):
+        self.assertIsNone(get_posthog_code_usage(self.team.id + 10_000))
 
 
 class TestUsageLimitResponse(TestCase):
@@ -17119,7 +17315,7 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
 
         response = self.client.get(self._preview_url(task, run))
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_run_detail_reports_whether_a_preview_is_available(self):
         task = self.create_task()

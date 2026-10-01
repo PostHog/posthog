@@ -646,6 +646,9 @@ class TestGetPrimaryKeysForTable:
                 "Table 'DB.PUBLIC.T' does not exist or not authorized.",
                 False,
             ),
+            # Snowflake's backend was briefly unavailable — a self-recovering blip already
+            # classified as retryable elsewhere; not worth reporting as a bug.
+            ("290503: 290503: HTTP 503: Service Unavailable", False),
             # Anything else is unexpected and should still be surfaced.
             ("some other driver failure", True),
         ],
@@ -1186,6 +1189,14 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Mid-stream connection-reset error should be classified retryable: {error_msg}"
+
+    def test_service_unavailable_is_retryable(self, source):
+        # The real shape from production: the connector re-raised after exhausting its own
+        # internal `RetryRequest` budget against a briefly-unavailable Snowflake backend.
+        error_msg = "290503: 290503: HTTP 503: Service Unavailable"
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Backend service-unavailable error should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:

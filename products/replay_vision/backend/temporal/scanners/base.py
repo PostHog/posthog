@@ -77,7 +77,11 @@ class SignalFinding(BaseModel, frozen=True):
         ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
-        description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
+        description=(
+            "The page the issue happened on: the navigation timeline's URL for that window at that moment, or the "
+            "`URL:` in the video footer when the timeline has none (the footer drops the query string and cuts long "
+            "URLs short)."
+        )
     )
     description: str = Field(
         description=(
@@ -193,6 +197,21 @@ def thumbnail_field() -> Any:
     return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
 
 
+_KEY_MOMENT_DESCRIPTION = (
+    "The single moment your answer rests on most, in whole seconds of video time counted from the start of "
+    "the video file, the same scale you cite moments in, not the footer's `REC_T`."
+)
+
+
+def key_moment_field() -> Any:
+    """`key_moment_t` field for LLM-response schemas, declared after the answer so the pick never precedes it.
+
+    Optional for the same reason as `thumbnail_t`: a skipped pick must not fail a paid-for scan. Readers open the
+    recording from its start when absent.
+    """
+    return Field(default=None, ge=0, description=_KEY_MOMENT_DESCRIPTION)
+
+
 def notability_field() -> Any:
     """`notability` field for LLM-response schemas.
 
@@ -220,6 +239,9 @@ class BaseScannerOutput(BaseModel, frozen=True):
     # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
     notability: float | None = notability_field()
     notability_reason: str | None = notability_reason_field()
+    # Session-clock offset of `key_moment_t`, stamped after the scan. None when the model skipped the pick or
+    # named a time past the video, and on observations scanned before key moments shipped.
+    key_moment_ms: int | None = Field(default=None, ge=0)
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""

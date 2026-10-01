@@ -84,3 +84,10 @@ class TestCloseSource:
             "'api.close.com', port=443): Read timed out. (read timeout=60)\"))"
         )
         assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())
+
+    def test_retryable_errors_match_organization_fetch_server_error(self) -> None:
+        error_msg = (
+            "500 Server Error: Internal Server Error for url: "
+            "https://api.close.com/api/v1/organization/orga_test1234567890/"
+        )
+        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors())

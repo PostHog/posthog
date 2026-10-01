@@ -97,12 +97,24 @@ export default meta
 
 export const RepositoriesList: StoryObj = {}
 
-// Expands the label-triggered row, the only one that shows the trigger label input.
+async function expandLabelRow(canvasElement: HTMLElement): Promise<void> {
+    const labelRow = (await within(canvasElement).findByText('posthog-js', {}, { timeout: 15000 })).closest('tr')
+    await userEvent.click(within(labelRow!).getByTitle('Show more'))
+    await within(canvasElement).findByText('Daily digest')
+}
+
+// Expands the label-triggered row, the only one that shows the trigger label.
 export const RepositoryExpanded: StoryObj = {
     play: async ({ canvasElement }) => {
-        const labelRow = (await within(canvasElement).findByText('posthog-js', {}, { timeout: 15000 })).closest('tr')
-        await userEvent.click(within(labelRow!).getByTitle('Show more'))
-        await within(canvasElement).findByText('Daily digest')
+        await expandLabelRow(canvasElement)
+    },
+}
+
+export const TriggerLabelEditing: StoryObj = {
+    play: async ({ canvasElement }) => {
+        await expandLabelRow(canvasElement)
+        await userEvent.click(within(canvasElement).getByTitle('Edit'))
+        await within(canvasElement).findByText('Save')
     },
 }
 

@@ -199,6 +199,26 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Resuming operational scouts the setup flow paused
+
+An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
+Those rows look like a person's pause, so the coordinator's reconcile leaves them alone.
+The setup flow paused them over MCP on the user's own session, so `status_changed_by` holds the user and cannot tell the two apart.
+`resume_setup_paused_operational_scouts` resumes only operational rows whose pause has an `mcp` activity log entry within a few seconds of `status_changed_at`.
+It leaves pauses from the UI, the system, a scout, or with no log entry alone, and prints how many paused rows each source holds.
+Pass `--max-gap-seconds` to also require that the pause landed soon after creation. It is off by default.
+It skips withheld scouts and does not go past the enabled-scout cap.
+
+```bash
+# Dry run (the default): counts per scout and the first team ids
+uv run manage.py resume_setup_paused_operational_scouts
+
+# Write, optionally for one team
+uv run manage.py resume_setup_paused_operational_scouts --apply --team-id 1
+```
+
+Idempotent. A resumed row no longer matches.
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

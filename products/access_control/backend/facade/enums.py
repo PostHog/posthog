@@ -14,6 +14,10 @@ should stay in the implementation (logic.py, models.py).
 
 from typing import Literal, get_args
 
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN
+
+from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS
+
 ResolvedAccessSourceValue = Literal[
     "object",
     "parent_object",
@@ -30,3 +34,11 @@ ResolvedAccessSourceSubjectValue = Literal["member", "role", "default"]
 # ENUM_NAME_OVERRIDES in posthog/settings/web.py, because no Choices class carries these values.
 RESOLVED_ACCESS_SOURCE_CHOICES: list[str] = list(get_args(ResolvedAccessSourceValue))
 RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES: list[str] = list(get_args(ResolvedAccessSourceSubjectValue))
+
+# The scope objects a rule can name. The schema names the enum component ScopeObjectEnum through
+# ENUM_NAME_OVERRIDES, and the frontend derives its APIScopeObject type from that enum.
+# Keep every grantable scope object here. The scope pickers get their type from this enum, so a
+# narrower list would remove objects from the OAuth consent screen and the key picker.
+SCOPE_OBJECT_CHOICES: list[str] = list(GRANTABLE_API_SCOPE_OBJECTS)
+
+AI_EVENT_PROPERTY_CHOICES: list[str] = list(AI_PROPERTY_TO_COLUMN)

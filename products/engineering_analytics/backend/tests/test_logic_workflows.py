@@ -24,6 +24,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
+    _depot_attempt_row,
     _issue_event_row,
     _pr_row,
     _run_row,
@@ -1175,6 +1176,41 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # github-hosted runner isn't billable → no cost estimate, and the provider reads as github_hosted.
         e2e = next(j for j in jobs if j.name == "e2e")
         assert e2e.runner_provider == "github_hosted" and e2e.estimated_cost_usd is None
+
+    def test_job_aggregates_branch_filter_matches_depot_jobs_through_their_run(self) -> None:
+        started, completed = _ago_with_duration(1, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    ref="refs/pull/65/merge",
+                    head_sha="sha65",
+                    workflow_name="CI",
+                    workflow_status="finished",
+                    workflow_created_at=started,
+                    workflow_started_at=started,
+                    workflow_finished_at=completed,
+                    job_key="ci.yml:lint",
+                    attempt_status="finished",
+                    attempt_started_at=started,
+                    attempt_finished_at=completed,
+                )
+            ]
+        )
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [_pr_row(65, "alice", "open", 0, _ago(1), head_sha="sha65", head_ref="feature/depot")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9800, "CI", "sha-main", "completed", "success", _ago(1), _ago(1), head_branch="main")],
+        )
+        self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(98000, 9800, "build", "success")])
+
+        aggregates = api.list_job_aggregates(team=self.team, workflow_name="CI", branch="feature/depot")
+
+        assert [aggregate.job_name for aggregate in aggregates] == ["ci.yml:lint"]
 
     def test_job_aggregates_rate_and_queue_time_use_verdicts(self) -> None:
         self._create_table(

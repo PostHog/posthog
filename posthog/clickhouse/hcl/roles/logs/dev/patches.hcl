@@ -38,6 +38,9 @@ database "posthog" {
   }
 
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -50,13 +53,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
 SQL
 
     }

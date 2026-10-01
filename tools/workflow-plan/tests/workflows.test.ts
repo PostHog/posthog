@@ -466,19 +466,40 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
-    { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
-    { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    {
-        file,
-        job: 'changes',
-        step: 'app-token',
-        scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
-        runs: false,
+const E2E_DISPATCH: Scenario = {
+    name: 'manual dispatch',
+    github: workflowDispatch('feat/example'),
+    steps: {
+        changes: {
+            decide: { outputs: { shouldRun: 'true' } },
+            'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+        },
     },
-])
+}
+
+const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...PINNED_WORKFLOWS.flatMap((file) => [
+        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'hourly schedule', github: schedule() },
+            runs: false,
+        },
+        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
+    { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+]
 
 const namedJobs = (file: string): Set<string> =>
     new Set(
@@ -520,6 +541,20 @@ describe('.github/workflows run plans', () => {
     it('Phrocs executes tests even when setup-go restores a warm build cache', () => {
         const testStep = workflow('ci-phrocs.yml').jobs.test.steps?.find((step) => step.name === 'Run tests')
         expect(testStep?.run).toMatch(/\bgo test\s+-count=1\b/)
+    })
+
+    it('Backend CI runs once every hour and keeps the events_json leg on one of its crons', () => {
+        const backend = workflow('ci-backend.yml')
+        const crons = (backend.on as { schedule: { cron: string }[] }).schedule.map((entry) => entry.cron)
+        const cronHours = (field: string): number[] =>
+            field.startsWith('*/')
+                ? [...Array(24).keys()].filter((hour) => hour % Number(field.slice(2)) === 0)
+                : field.split(',').map(Number)
+
+        expect(crons).toContain(backend.env?.EVENTS_JSON_SCHEDULE)
+        expect(crons.flatMap((cron) => cronHours(cron.split(' ')[1])).sort((a, b) => a - b)).toEqual([
+            ...Array(24).keys(),
+        ])
     })
 
     it.each([
