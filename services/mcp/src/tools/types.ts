@@ -107,6 +107,7 @@ export type Env = {
     POSTHOG_ANALYTICS_HOST: string | undefined
     /** Override the published product skills archive, primarily for local development. */
     POSTHOG_MCP_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
