@@ -20,6 +20,7 @@ from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
     _roll_out_variant,
     archive_flag,
+    clear_feature_enrollment,
     create_flag,
     flag_disable_requires_approval,
     set_flag_active,
@@ -1158,3 +1159,13 @@ class TestFilterTransformsRequireV1:
         with pytest.raises(ConfigFormatError):
             transform(filters)
         assert filters == pristine
+
+
+class TestClearFeatureEnrollmentRequiresV1(APIBaseTest):
+    @parameterized.expand(UNSUPPORTED_DOCUMENTS)
+    def test_refuses_before_either_write(self, _name, filters):
+        flag = FeatureFlag.objects.create(team=self.team, key="other-format", filters=filters, version=2)
+        with pytest.raises(ConfigFormatError):
+            clear_feature_enrollment(flag.id, team=self.team)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (filters, 2)
