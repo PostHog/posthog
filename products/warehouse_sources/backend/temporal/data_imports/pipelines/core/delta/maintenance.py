@@ -1,6 +1,9 @@
+import os
 import json
+import time
 import asyncio
 import datetime as dt
+import resource
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_offset_overflow_compaction_error,
     is_transient_maintenance_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
@@ -68,6 +72,75 @@ DEFAULT_COMPACT_TARGET_SIZE_BYTES = 100 * 1024 * 1024
 # shrinks how many files get concatenated into one Arrow batch. Bounded so a table whose overflow
 # can't be avoided at any reasonable bin size still surfaces to error tracking instead of looping.
 COMPACT_OFFSET_OVERFLOW_RETRIES = 3
+
+# delta-rs bins files by their compressed size but holds each bin decoded while it rewrites it, so a
+# bin of highly compressible text (JSON documents, say) can decode to many times its target size.
+# Keep one bin's decoded bytes at half the 2 GiB Arrow offset limit, and inside the load slot the
+# compaction runs in. A running task holds its bin's decoded batches plus the writer's buffers for
+# the file it produces, so it is budgeted at twice the decoded bin.
+COMPACT_MAX_DECODED_BIN_BYTES = 1024 * 1024 * 1024
+COMPACT_MIN_TARGET_SIZE_BYTES = 8 * 1024 * 1024
+_COMPACT_TASK_MEMORY_FACTOR = 2
+# Footers of the largest files only: compacted files are the largest, and they set the worst case.
+_COMPACT_RATIO_SAMPLE_FILES = 2
+
+
+@frozen
+class CompactionPlan:
+    target_size: int
+    max_concurrent_tasks: int | None
+    compression_ratio: float | None
+    slot_budget_mb: float | None
+
+
+def plan_compaction(compression_ratio: float | None, slot_budget_mb: float | None) -> CompactionPlan:
+    """Bin size and parallelism that keep one compaction inside its memory slot.
+
+    With no readable memory limit, only the decoded bin size is capped and delta-rs picks the
+    parallelism, as it did before.
+    """
+    ratio = max(compression_ratio or 1.0, 1.0)
+    decoded_cap = float(COMPACT_MAX_DECODED_BIN_BYTES)
+    slot_budget_bytes = slot_budget_mb * 1024 * 1024 if slot_budget_mb else None
+    if slot_budget_bytes:
+        decoded_cap = min(decoded_cap, slot_budget_bytes / _COMPACT_TASK_MEMORY_FACTOR)
+    target_size = int(min(DEFAULT_COMPACT_TARGET_SIZE_BYTES, max(COMPACT_MIN_TARGET_SIZE_BYTES, decoded_cap / ratio)))
+    max_concurrent_tasks = None
+    if slot_budget_bytes:
+        per_task_bytes = target_size * ratio * _COMPACT_TASK_MEMORY_FACTOR
+        max_concurrent_tasks = max(1, min(os.cpu_count() or 1, int(slot_budget_bytes // per_task_bytes)))
+    return CompactionPlan(
+        target_size=target_size,
+        max_concurrent_tasks=max_concurrent_tasks,
+        compression_ratio=round(compression_ratio, 2) if compression_ratio else None,
+        slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb else None,
+    )
+
+
+def _sample_compression_ratio(table: deltalake.DeltaTable) -> float | None:
+    """Decoded bytes per stored byte, from the footers of the table's largest files, or None if unreadable."""
+    sizes = table._table.get_add_file_sizes()
+    by_size = sorted(sizes.items(), key=lambda item: -(item[1] or 0))[:_COMPACT_RATIO_SAMPLE_FILES]
+    largest = {path.rpartition("/")[2] for path, _ in by_size}
+    decoded = stored = sampled = 0
+    for fragment in table.to_pyarrow_dataset().get_fragments():
+        if sampled >= _COMPACT_RATIO_SAMPLE_FILES:
+            break
+        if fragment.path.rpartition("/")[2] not in largest:
+            continue
+        metadata = fragment.metadata
+        for index in range(metadata.num_row_groups):
+            row_group = metadata.row_group(index)
+            decoded += row_group.total_byte_size
+            stored += sum(row_group.column(column).total_compressed_size for column in range(row_group.num_columns))
+        sampled += 1
+    return decoded / stored if stored else None
+
+
+def _peak_rss_mb() -> float:
+    # ru_maxrss is KiB on Linux, the platform this runs on.
+    return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+
 
 # How long a tombstoned file survives before vacuum may delete it. Readers that pin an older
 # table version must stay inside this window — see MAX_SNAPSHOT_ROLLBACK in the fan-out
@@ -140,14 +213,34 @@ class DeltaMaintenance:
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
+    async def _plan_compaction(self, table: deltalake.DeltaTable) -> CompactionPlan:
+        try:
+            ratio = await asyncio.to_thread(_sample_compression_ratio, table)
+        except Exception as e:
+            await self._logger.awarning(f"compact: could not sample the compression ratio: {e}")
+            ratio = None
+        return plan_compaction(ratio, get_governor().slot_budget_mb())
+
     async def _compact(self, table: deltalake.DeltaTable) -> None:
-        await self._logger.adebug("Compacting table...")
-        target_size = DEFAULT_COMPACT_TARGET_SIZE_BYTES
+        plan = await self._plan_compaction(table)
+        target_size = plan.target_size
+        max_concurrent_tasks = plan.max_concurrent_tasks
+        pod_mb_before = get_governor().pod.current_mb()
+        started = time.monotonic()
+        await self._logger.ainfo(
+            "Compacting table...",
+            compact_target_size=target_size,
+            compact_max_concurrent_tasks=max_concurrent_tasks,
+            compact_compression_ratio=plan.compression_ratio,
+            compact_slot_budget_mb=plan.slot_budget_mb,
+            pod_memory_mb=pod_mb_before,
+            peak_rss_mb=_peak_rss_mb(),
+        )
         attempt = 0
         while True:
 
-            def _compact_op(size: int = target_size) -> dict[str, Any]:
-                return table.optimize.compact(target_size=size)
+            def _compact_op(size: int = target_size, tasks: int | None = max_concurrent_tasks) -> dict[str, Any]:
+                return table.optimize.compact(target_size=size, max_concurrent_tasks=tasks)
 
             try:
                 compact_stats = await execute_with_conflict_retry(
@@ -162,10 +255,22 @@ class DeltaMaintenance:
                     raise
                 attempt += 1
                 target_size //= 2
+                # The failed attempt's memory may not be freed yet, so the retry runs one bin at a time.
+                max_concurrent_tasks = 1
                 await self._logger.awarning(
                     f"compact: byte array offset overflow, retrying with smaller "
-                    f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})"
+                    f"target_size={target_size} (attempt {attempt}/{COMPACT_OFFSET_OVERFLOW_RETRIES})",
+                    pod_memory_mb=get_governor().pod.current_mb(),
+                    peak_rss_mb=_peak_rss_mb(),
                 )
+        await self._logger.ainfo(
+            "compact: done",
+            compact_duration_s=round(time.monotonic() - started, 1),
+            compact_files_added=compact_stats.get("numFilesAdded"),
+            compact_files_removed=compact_stats.get("numFilesRemoved"),
+            pod_memory_mb=get_governor().pod.current_mb(),
+            peak_rss_mb=_peak_rss_mb(),
+        )
         await self._logger.adebug(json.dumps(compact_stats))
 
     async def _vacuum_due(self, last_vacuum_version: int | None, commit_threshold: int) -> bool:
