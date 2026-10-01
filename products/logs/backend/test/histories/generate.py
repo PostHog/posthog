@@ -1,15 +1,15 @@
 """Record LogsAlertCheckWorkflow histories for test_logs_alerting_replay.py.
 
-Run from the repo root to refresh a fixture after an intended workflow change:
+Run from the repo root through the Django shell so activity imports have initialized apps.
+Test mode skips startup services because recording uses fake activities:
 
-    python products/logs/backend/test/histories/generate.py bounded_cap_2
-    python products/logs/backend/test/histories/generate.py unbounded_before_patch path/to/old_workflow.py
+    TEST=1 python manage.py shell -c "from products.logs.backend.test.histories.generate import main; main('bounded_cap_2')"
+    TEST=1 python manage.py shell -c "from products.logs.backend.test.histories.generate import main; main('unbounded_before_patch', 'path/to/old_workflow.py')"
 
 `unbounded_before_patch` must be recorded with the workflow code from before
 `logs-alerting-bounded-batch-fanout`, for example `git show <sha>:products/logs/backend/temporal/workflow.py`.
 """
 
-import sys
 import json
 import uuid
 import asyncio
@@ -101,10 +101,11 @@ def _normalize_identity(node: object) -> None:
             _normalize_identity(item)
 
 
-def main() -> None:
-    name = sys.argv[1]
+def main(name: str, old_workflow_path: str | None = None) -> None:
     if name == "unbounded_before_patch":
-        spec = importlib.util.spec_from_file_location("old_workflow", sys.argv[2])
+        if old_workflow_path is None:
+            raise ValueError("Provide the pre-patch workflow file path to record unbounded_before_patch")
+        spec = importlib.util.spec_from_file_location("old_workflow", old_workflow_path)
         assert spec and spec.loader
         old = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(old)
@@ -115,7 +116,3 @@ def main() -> None:
         asyncio.run(_record(name, LogsAlertCheckWorkflow, _DiscoveryWithCap(MANIFESTS, 3, 2)))
     else:
         raise SystemExit(f"unknown history {name}")
-
-
-if __name__ == "__main__":
-    main()
