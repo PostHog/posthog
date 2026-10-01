@@ -62,6 +62,7 @@ export default function SelfDrivingScreen() {
     [reports.data, handled],
   );
   const rows = filter === "attention" ? all : (listed.data ?? []);
+  const listFailed = listed.isError && !listed.data;
   const unseen = useMemo(
     () => all.filter((report) => !seen.has(report.id)),
     [all, seen],
@@ -191,7 +192,14 @@ export default function SelfDrivingScreen() {
             </Picker>
           </Host>
           {listed.isLoading ? <Text style={styles.muted}>Loading</Text> : null}
-          {rows.length === 0 && !listed.isLoading ? (
+          {listFailed ? (
+            <Pressable onPress={() => listed.refetch()}>
+              <Text style={styles.muted}>
+                Could not load reports. Tap to try again.
+              </Text>
+            </Pressable>
+          ) : null}
+          {rows.length === 0 && !listed.isLoading && !listFailed ? (
             <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
           ) : null}
           {rows.map((report) => (

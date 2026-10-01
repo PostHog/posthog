@@ -20,7 +20,11 @@ import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
-import { type ReportFilter, reportFilterParams } from "@/lib/reportFilters";
+import {
+  hasOpenImplementationPr,
+  type ReportFilter,
+  reportFilterParams,
+} from "@/lib/reportFilters";
 import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
 import { useSessions } from "@/lib/session";
 
@@ -47,10 +51,17 @@ export function useReports(search = "", filter: ReportFilter = "attention") {
       }),
     enabled: !!session,
     refetchInterval: 60_000,
-    select: (page) =>
-      filter === "attention"
-        ? page.results.filter((report) => canCreateImplementationPr(report))
-        : page.results,
+    select: (page) => {
+      if (filter === "attention") {
+        return page.results.filter((report) =>
+          canCreateImplementationPr(report),
+        );
+      }
+      if (filter === "pull-requests") {
+        return page.results.filter(hasOpenImplementationPr);
+      }
+      return page.results;
+    },
   });
 }
 

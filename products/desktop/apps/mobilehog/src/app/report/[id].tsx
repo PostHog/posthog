@@ -3,10 +3,21 @@ import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { CardButton, ReportDetail } from "@/components/ReportCard";
+import {
+  hasOpenImplementationPr,
+  openPullRequestUrl,
+} from "@/lib/reportFilters";
 import {
   useDismissReport,
   useHasLiveImplementationTask,
@@ -53,11 +64,27 @@ export default function ReportScreen() {
   const taskCheckFailed = liveTask.isError && canCreateImplementationPr(report);
   // A report with an open PR cannot start another task, so the PR takes that
   // slot.
-  const prUrl = canStart ? null : report.implementation_pr_url;
+  const prUrl = canStart ? null : openPullRequestUrl(report);
 
-  const onDismiss = (): void => {
+  const runDismiss = (): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
     dismiss.mutate(report.id, { onSuccess: () => router.back() });
+  };
+
+  // Dismissing a report also closes its open PR on GitHub.
+  const onDismiss = (): void => {
+    if (!hasOpenImplementationPr(report)) {
+      runDismiss();
+      return;
+    }
+    Alert.alert(
+      "Dismiss and close the PR?",
+      "The open pull request for this report will be closed.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Dismiss", style: "destructive", onPress: runDismiss },
+      ],
+    );
   };
 
   // Pop back to the drawer and open the task there, so the report does not
