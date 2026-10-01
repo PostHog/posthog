@@ -664,6 +664,11 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
+        # The token replaces the team that the route identifies. A route that identifies no team
+        # must stay without one, because permission classes treat a resolved `team` as the target.
+        if not (self._is_team_view or self._is_project_view):
+            return None
+
         team_found = None
         token = get_token(None, self.request)
 
