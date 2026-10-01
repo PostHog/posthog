@@ -637,6 +637,48 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     assert sleep.call_count == sleeps
 
 
+# The second reading comes after the wait for squash and deletes runs returns.
+@pytest.mark.parametrize(
+    "readings, overrides, copies",
+    [
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE],
+            {},
+            1,
+            id="mover_frees_the_disk_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
+            {"disk_check_max_wait_seconds": 0},
+            0,
+            id="disk_still_full_after_the_blocking_wait",
+        ),
+    ],
+)
+def test_backfill_checks_the_disk_again_after_waiting_for_blocking_runs(
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], copies: int
+) -> None:
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides})
+    )
+    host = MagicMock()
+    host.connection_info.host = "replica-1"
+    backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+
+    with (
+        patch("posthog.dags.flag_evaluations_backfill.time.sleep"),
+        patch.object(ShardBackfill, "check_consumer_lag"),
+        patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
+    ):
+        if copies:
+            backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
+        else:
+            with pytest.raises(dagster.Failure, match="still moving parts"):
+                backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
+
+    assert copy_day.call_count == copies
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

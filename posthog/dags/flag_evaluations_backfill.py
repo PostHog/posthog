@@ -315,10 +315,7 @@ class ShardBackfill:
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             self.wait_for_parts_to_merge(day)
-            self.wait_for_disk_headroom()
-            # The post-copy check counts every blocking run that starts after this wait returns. A long wait
-            # between this one and the copy would make it flag runs that never overlapped the copy.
-            blocking_run_check = self.wait_for_blocking_runs()
+            blocking_run_check = self._wait_for_disk_and_blocking_runs()
             self.check_consumer_lag()
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
@@ -333,6 +330,15 @@ class ShardBackfill:
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
         return ShardBackfillTotals(days=copied_days, rows=total_rows)
+
+    def _wait_for_disk_and_blocking_runs(self) -> BlockingRunCheck:
+        # The post-copy check counts every blocking run that starts after wait_for_blocking_runs returns.
+        # That wait therefore comes last. A squash can keep it waiting for hours. The disk can fill in that time.
+        while True:
+            self.wait_for_disk_headroom()
+            blocking_run_check = self.wait_for_blocking_runs()
+            if not self._hosts_moving_parts():
+                return blocking_run_check
 
     def _reached_expired_day(self, day: date, *, uncopied_days: int) -> bool:
         if day >= earliest_backfill_day(datetime.now(UTC).date()):
