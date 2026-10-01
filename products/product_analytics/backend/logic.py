@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Case, Max, OuterRef, Q, QuerySet, Subquery, When
+from django.db.models import Case, OuterRef, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Greatest
 from django.utils.timezone import now
 
@@ -72,17 +72,22 @@ def _record_insight_views(
             ],
             ignore_conflicts=True,
         )
-        InsightViewed.objects.filter(
-            Q(team_id__isnull=True) if team_id is None else Q(team_id=team_id),
-            Q(user_id__isnull=True) if user_id is None else Q(user_id=user_id),
-            insight_id__in=last_viewed_at_by_insight_id,
-            source="",
-            dashboard_id__isnull=True,
-        ).update(
-            last_viewed_at=Greatest(
-                "last_viewed_at", Case(*[When(insight_id=insight_id, then=viewed_at) for insight_id, viewed_at in rows])
+        # Shared timestamps need no CASE; bound CASE size for per-insight timestamps.
+        batch_size = len(rows) if len(set(last_viewed_at_by_insight_id.values())) == 1 else 100
+        for start in range(0, len(rows), batch_size):
+            batch = rows[start : start + batch_size]
+            timestamp = (
+                Value(batch[0][1])
+                if all(viewed_at == batch[0][1] for _, viewed_at in batch)
+                else Case(*[When(insight_id=insight_id, then=viewed_at) for insight_id, viewed_at in batch])
             )
-        )
+            InsightViewed.objects.filter(
+                Q(team_id__isnull=True) if team_id is None else Q(team_id=team_id),
+                Q(user_id__isnull=True) if user_id is None else Q(user_id=user_id),
+                insight_id__in=[insight_id for insight_id, _ in batch],
+                source="",
+                dashboard_id__isnull=True,
+            ).update(last_viewed_at=Greatest("last_viewed_at", timestamp))
 
 
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
@@ -93,12 +98,29 @@ def with_last_viewed_at(insights: QuerySet) -> QuerySet:
 
 
 def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[Insight]:
-    return list(
-        Insight.objects.filter(insightviewed__team_id=team_id, insightviewed__user_id=user_id)
-        .exclude(deleted=True)
-        .annotate(last_viewed_at=Max("insightviewed__last_viewed_at"))
-        .order_by("-last_viewed_at", "-pk")[:limit]
+    views = (
+        InsightViewed.objects.filter(team_id=team_id, user_id=user_id)
+        .select_related("insight")
+        .exclude(insight__deleted=True)
+        .only("insight", "last_viewed_at")
+        .order_by("-last_viewed_at", "-insight_id", "-pk")
     )
+    recent: list[Insight] = []
+    seen: set[int] = set()
+    while len(recent) < limit:
+        # Skip collected insights so repeated contexts cannot fill every page.
+        page = list(views.exclude(insight_id__in=seen)[:50])
+        if not page:
+            break
+        for view in page:
+            if view.insight_id not in seen:
+                seen.add(view.insight_id)
+                insight = view.insight
+                insight.last_viewed_at = view.last_viewed_at
+                recent.append(insight)
+                if len(recent) == limit:
+                    return recent
+    return recent
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:

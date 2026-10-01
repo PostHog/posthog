@@ -71,24 +71,29 @@ class TestRecordInsightView(BaseTest):
 
 
 class TestInsightViewedCompatibility(APIBaseTest):
-    def test_context_fields_default_to_unattributed_and_history_writes_are_monotonic(self) -> None:
+    @parameterized.expand([("same_timestamp", 0, 2), ("different_timestamps", 1, 2), ("multiple_batches", 1, 101)])
+    def test_context_fields_default_to_unattributed_and_history_writes_are_monotonic(
+        self, _name: str, offset_hours: int, count: int
+    ) -> None:
         from products.product_analytics.backend.facade.api import record_insight_views
 
-        insight = Insight.objects.create(team=self.team)
-        other = Insight.objects.create(team=self.team)
+        insights = Insight.objects.bulk_create([Insight(team=self.team) for _ in range(count)])
         latest = now()
-        for at in [latest, latest - timedelta(days=1)]:
+        expected = {insight.pk: latest - timedelta(hours=i * offset_hours) for i, insight in enumerate(insights)}
+        for age in [timedelta(), timedelta(days=1)]:
             record_insight_views(
                 team_id=self.team.pk,
                 user_id=self.user.pk,
-                last_viewed_at_by_insight_id={insight.pk: at, other.pk: at - timedelta(hours=1)},
+                last_viewed_at_by_insight_id={pk: at - age for pk, at in expected.items()},
             )
-        row = InsightViewed.objects.get(insight=insight)
-        assert row.source == "" and row.dashboard_id is None
-        assert row.last_viewed_at == latest
-        assert InsightViewed.objects.get(insight=other).last_viewed_at == latest - timedelta(hours=1)
+        rows = InsightViewed.objects.filter(insight_id__in=expected)
+        assert all(row.source == "" and row.dashboard_id is None for row in rows)
+        assert {row.insight_id: row.last_viewed_at for row in rows} == expected
 
-    def test_readers_deduplicate_future_contexts_and_legacy_writes_do_not_renew_them(self) -> None:
+    @parameterized.expand([("one_context", 1), ("more_than_one_page", 60)])
+    def test_readers_deduplicate_future_contexts_and_legacy_writes_do_not_renew_them(
+        self, _name: str, context_count: int
+    ) -> None:
         from products.product_analytics.backend.facade.api import (
             recent_viewers_by_insight,
             recently_viewed_insights,
@@ -96,9 +101,13 @@ class TestInsightViewedCompatibility(APIBaseTest):
         )
 
         insight = Insight.objects.create(team=self.team)
+        other = Insight.objects.create(team=self.team)
         earlier = now() - timedelta(days=1)
+        oldest = earlier - timedelta(hours=1)
         record_insight_views(
-            team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: earlier}
+            team_id=self.team.pk,
+            user_id=self.user.pk,
+            last_viewed_at_by_insight_id={insight.pk: earlier, other.pk: oldest},
         )
         # Emulate the later constraint migration inside a rollback-only test transaction.
         with transaction.atomic():
@@ -113,6 +122,14 @@ class TestInsightViewedCompatibility(APIBaseTest):
             context = InsightViewed.objects.create(
                 team=self.team, user=self.user, insight=insight, source="mcp", last_viewed_at=earlier
             )
+            InsightViewed.objects.bulk_create(
+                [
+                    InsightViewed(
+                        team=self.team, user=self.user, insight=insight, source=f"context_{i}", last_viewed_at=earlier
+                    )
+                    for i in range(context_count - 1)
+                ]
+            )
             latest = now()
             record_insight_views(
                 team_id=self.team.pk, user_id=self.user.pk, last_viewed_at_by_insight_id={insight.pk: latest}
@@ -120,9 +137,11 @@ class TestInsightViewedCompatibility(APIBaseTest):
             assert InsightViewed.objects.filter(insight=insight, source="").count() == 1
             context.refresh_from_db()
             assert context.last_viewed_at == earlier
-            recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=1)
-            assert [item.pk for item in recent] == [insight.pk]
-            assert vars(recent[0])["last_viewed_at"] == latest
+            recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=2)
+            assert [(item.pk, vars(item)["last_viewed_at"]) for item in recent] == [
+                (insight.pk, latest),
+                (other.pk, oldest),
+            ]
             assert recent_viewers_by_insight(
                 team_id=self.team.pk, insight_ids=[insight.pk], since=earlier, max_per_insight=5
             ) == {insight.pk: [self.user]}
@@ -137,6 +156,35 @@ class TestInsightViewedCompatibility(APIBaseTest):
 
 
 class TestInsightReads(BaseTest):
+    @parameterized.expand([(0,), (1,), (2,), (5,)])
+    def test_recent_views_preserve_ties_scope_and_limits(self, limit: int) -> None:
+        from products.product_analytics.backend.facade.api import recently_viewed_insights
+
+        first, second, deleted = Insight.objects.bulk_create(
+            [Insight(team=self.team), Insight(team=self.team), Insight(team=self.team, deleted=True)]
+        )
+        viewed_at = now()
+        InsightViewed.objects.bulk_create(
+            [
+                InsightViewed(team=self.team, user=self.user, insight=insight, last_viewed_at=viewed_at)
+                for insight in [first, second, deleted]
+            ]
+        )
+        other_team = Team.objects.create(organization=self.organization)
+        InsightViewed.objects.create(
+            team=other_team, user=self.user, insight=first, last_viewed_at=viewed_at + timedelta(days=1)
+        )
+        InsightViewed.objects.create(
+            team=self.team, user=None, insight=first, last_viewed_at=viewed_at + timedelta(days=1)
+        )
+
+        recent = recently_viewed_insights(team_id=self.team.pk, user_id=self.user.pk, limit=limit)
+
+        assert [(item.pk, vars(item)["last_viewed_at"]) for item in recent] == [
+            (second.pk, viewed_at),
+            (first.pk, viewed_at),
+        ][:limit]
+
     def test_including_soft_deleted_insights_stays_scoped_to_the_team(self) -> None:
         deleted_insight = Insight.objects.create(team=self.team, name="Deleted", deleted=True)
         live_insight = Insight.objects.create(team=self.team, name="Live")
