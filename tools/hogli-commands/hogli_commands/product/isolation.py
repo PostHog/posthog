@@ -26,6 +26,7 @@ import tomllib
 import functools
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 from .ast_helpers import (
@@ -148,8 +149,9 @@ def names_from_pattern(pattern: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def is_isolated_product(backend_dir: Path) -> bool:
-    """A product is in the strict isolation regime once it has a contracts module."""
+def has_contracts_module(backend_dir: Path) -> bool:
+    """The Strict rung: a contracts module turns on the strict lint. The file alone is no evidence of
+    isolation, because an empty contracts.py satisfies it."""
     return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
 
 
@@ -1629,10 +1631,19 @@ def facade_shape_findings(backend_dir: Path, name: str) -> list[FacadeShapeFindi
 # ---------------------------------------------------------------------------
 
 
+class IsolationRung(StrEnum):
+    """The isolation ladder. Each rung includes the one before it."""
+
+    LENIENT = "Lenient"
+    STRICT = "Strict"
+    SEALED = "Sealed"
+    ISOLATED = "Isolated"
+
+
 @dataclass(frozen=True)
 class IsolationStatus:
     name: str
-    is_isolated: bool  # has facade/contracts.py — in the strict regime
+    has_facade_contracts: bool  # has facade/contracts.py, which puts the product on the Strict rung
     has_real_facade: bool
     has_tach_interface: bool
     has_legacy_leaks: bool
@@ -1676,21 +1687,33 @@ class IsolationStatus:
     @property
     def internally_sealed(self) -> bool:
         """Presentation reaches internals only through the facade — no open bypasses."""
-        return self.is_isolated and self.deferred_count == 0
+        return self.has_facade_contracts and self.deferred_count == 0
 
     @property
-    def eligible_for_isolated_tests(self) -> bool:
-        """Prerequisites for the contract-check skip, mirroring the lint gate's package.json
-        check exactly. Deliberately does NOT include `has_tach_interface` — the external
-        boundary is required too, but it's enforced separately (TachCheck demands the
-        interface; IsolationChainCheck blocks a script without it). Callers that gate a
-        "ready" *display* should additionally require `externally_sealed`."""
-        return self.is_isolated and self.has_real_facade and not self.has_legacy_leaks and self.deferred_count == 0
+    def is_sealed(self) -> bool:
+        """The Sealed rung: both seals hold and facade/api.py defines real functions."""
+        return self.externally_sealed and self.internally_sealed and self.has_real_facade
 
     @property
-    def isolated_tests_enabled(self) -> bool:
+    def test_skip_configured(self) -> bool:
         """The skip is physically wired up right now (script present + turbo narrowed)."""
         return self.has_contract_check_script and self.has_narrowed_turbo
+
+    @property
+    def isolation_enabled(self) -> bool:
+        """The Isolated rung: a sealed product whose test skip is configured. A configured skip on an
+        unsealed product does not count, because the lint rejects that state."""
+        return self.is_sealed and self.test_skip_configured
+
+    @property
+    def rung(self) -> IsolationRung:
+        if self.isolation_enabled:
+            return IsolationRung.ISOLATED
+        if self.is_sealed:
+            return IsolationRung.SEALED
+        if self.has_facade_contracts:
+            return IsolationRung.STRICT
+        return IsolationRung.LENIENT
 
 
 def compute_isolation_status(
@@ -1698,7 +1721,7 @@ def compute_isolation_status(
     product_dir: Path,
     backend_dir: Path,
     *,
-    is_isolated: bool | None = None,
+    has_facade_contracts: bool | None = None,
     tach_content: str | None = None,
     pyproject_text: str | None = None,
     repo_root: Path | None = None,
@@ -1708,8 +1731,8 @@ def compute_isolation_status(
 
     `driven_wiring_locations` is the evidence `unwatched_garages` reads. Without it, every present wiring
     location must stay watched."""
-    if is_isolated is None:
-        is_isolated = is_isolated_product(backend_dir)
+    if has_facade_contracts is None:
+        has_facade_contracts = has_contracts_module(backend_dir)
     if tach_content is None:
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
     if repo_root is None:
@@ -1720,7 +1743,7 @@ def compute_isolation_status(
     carveout_modules = reexports.carveout_modules
     return IsolationStatus(
         name=name,
-        is_isolated=is_isolated,
+        has_facade_contracts=has_facade_contracts,
         has_real_facade=has_real_facade(backend_dir),
         has_tach_interface=has_tach_interface(name, tach_content),
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),

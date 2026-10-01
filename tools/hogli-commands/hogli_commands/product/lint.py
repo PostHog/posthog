@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from .baseline import check_baseline
-from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, is_isolated_product, validate_tach_toml
+from .checks import CHECKS, CheckContext, ProductYamlOwnersCheck, has_contracts_module, validate_tach_toml
 from .paths import ISOLATION_BASELINE, PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs, load_structure
 
 _IN_GH_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
@@ -25,8 +25,10 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     Lint a product's structure. Returns list of issues found.
 
     Runs in two modes based on whether the product has backend/facade/contracts.py:
-      strict  — isolated product, all structure rules enforced
-      lenient — legacy product, subset of rules enforced (see product_structure.yaml)
+      strict  — the Strict rung or above, all structure rules enforced
+      lenient — the Lenient rung, subset of rules enforced (see product_structure.yaml)
+
+    The detailed output also prints the product's isolation rung (Lenient, Strict, Sealed, Isolated).
 
     Set detailed=True (single-product run) for richer isolation progress output.
     Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
@@ -37,20 +39,26 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False, struct
     if not product_dir.exists():
         raise click.ClickException(f"Product '{name}' not found at {product_dir}")
 
-    isolated = is_isolated_product(backend_dir)
-    mode = "strict" if isolated else "lenient"
+    strict = has_contracts_module(backend_dir)
+    mode = "strict" if strict else "lenient"
 
     if verbose:
-        click.echo(f"  mode: {mode}" + (" (has backend/facade/contracts.py)" if isolated else " (legacy)"))
+        click.echo(
+            f"  mode: {mode}"
+            + (" (has backend/facade/contracts.py)" if strict else " (no backend/facade/contracts.py)")
+        )
 
     ctx = CheckContext(
         name=name,
         product_dir=product_dir,
         backend_dir=backend_dir,
-        is_isolated=isolated,
+        has_facade_contracts=strict,
         structure=structure or load_structure(),
         detailed=detailed,
     )
+    # The checks below read the same memoized status, so printing the rung costs no extra scan.
+    if verbose and backend_dir.is_dir():
+        click.echo(f"  rung: {ctx.isolation_status().rung}")
 
     issues: list[str] = []
     for check in CHECKS:
@@ -86,8 +94,8 @@ def _lint_tach_toml() -> list[str]:
 def lint_all_products() -> None:
     product_dirs = backend_product_dirs()
 
-    strict = [d.name for d in product_dirs if is_isolated_product(d / "backend")]
-    lenient = [d.name for d in product_dirs if not is_isolated_product(d / "backend")]
+    strict = [d.name for d in product_dirs if has_contracts_module(d / "backend")]
+    lenient = [d.name for d in product_dirs if not has_contracts_module(d / "backend")]
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
@@ -185,7 +193,7 @@ def lint_owners(names: list[str] | None = None) -> None:
             name=product_dir.name,
             product_dir=product_dir,
             backend_dir=product_dir / "backend",
-            is_isolated=is_isolated_product(product_dir / "backend"),
+            has_facade_contracts=has_contracts_module(product_dir / "backend"),
             structure=structure,
             detailed=False,
         )

@@ -24,11 +24,11 @@ from .isolation import (
     IsolationStatus,
     compute_isolation_status,
     facade_shape_findings,
+    has_contracts_module,
     has_legacy_interface_leaks,
     has_routes_module,
     has_tach_interface,
     ignored_import_edges,
-    is_isolated_product,
     iter_interface_blocks as _iter_interface_blocks,
     location_input_glob,
     names_from_pattern as _names_from_pattern,
@@ -106,10 +106,10 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
-         backend/facade/contracts.py (be isolated).
+         backend/facade/contracts.py (the Strict rung or above).
       3. Names in alternation regexes must be sorted alphabetically.
 
-    The inverse direction ("every isolated product must be listed") is not
+    The inverse direction ("every Strict product must be listed") is not
     enforced — having `facade/contracts.py` is just scaffolding and doesn't
     mean the product is ready for canonical exposure.
     """
@@ -147,7 +147,7 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 "remove the stale entry from tach.toml"
             )
             continue
-        if not is_isolated_product(product_dir / "backend"):
+        if not has_contracts_module(product_dir / "backend"):
             issues.append(
                 f"canonical facade alternation lists '{name}' but products/{name}/backend/facade/contracts.py "
                 "is missing — either add contracts.py or remove the entry from tach.toml"
@@ -254,7 +254,7 @@ class CheckContext:
     name: str
     product_dir: Path
     backend_dir: Path
-    is_isolated: bool
+    has_facade_contracts: bool
     structure: dict
     detailed: bool  # True = single-product run, False = --all
     _isolation: IsolationStatus | None = field(default=None, repr=False, compare=False)
@@ -270,7 +270,7 @@ class CheckContext:
                 self.name,
                 self.product_dir,
                 self.backend_dir,
-                is_isolated=self.is_isolated,
+                has_facade_contracts=self.has_facade_contracts,
                 driven_wiring_locations=driven_wiring_locations(self.name),
             )
         return self._isolation
@@ -287,13 +287,13 @@ class CheckResult:
 
 class ProductCheck(ABC):
     label: str
-    for_isolated: bool = True
+    for_strict: bool = True
     for_lenient: bool = True
 
     def should_run(self, ctx: CheckContext) -> bool:
-        if ctx.is_isolated and not self.for_isolated:
+        if ctx.has_facade_contracts and not self.for_strict:
             return False
-        if not ctx.is_isolated and not self.for_lenient:
+        if not ctx.has_facade_contracts and not self.for_lenient:
             return False
         return True
 
@@ -310,7 +310,7 @@ class RequiredRootFilesCheck(ProductCheck):
     label = "required root files"
 
     def run(self, ctx: CheckContext) -> CheckResult:
-        required_key = "required" if ctx.is_isolated else "required_lenient"
+        required_key = "required" if ctx.has_facade_contracts else "required_lenient"
         missing = [
             filename
             for filename, config in ctx.structure.get("root_files", {}).items()
@@ -469,7 +469,7 @@ class ImportSurfaceCheck(ProductCheck):
     def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
         """A product that is not sealed yet has no routes/presentation contract to hold, so
         only its ingress entry point is checked."""
-        return self.SURFACES if ctx.is_isolated else (self.WEBHOOK_CONSUMERS_SURFACE,)
+        return self.SURFACES if ctx.has_facade_contracts else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
         root = ctx.backend_dir / source
@@ -539,7 +539,10 @@ class PackageJsonScriptsCheck(ProductCheck):
         # change flowing to HTTP through such a view would be hidden. The skip is the
         # reward for finishing — it can't be enabled until the wave empties them.
         status = ctx.isolation_status()
-        needs_contract_check = status.eligible_for_isolated_tests
+        # This gate leaves out the tach interface on purpose. The external boundary is required too,
+        # but TachCheck demands the interface and IsolationChainCheck blocks a script without it, so
+        # this gate does not report the same gap a third time.
+        needs_contract_check = status.internally_sealed and status.has_real_facade and not status.has_legacy_leaks
         # The wiring gate also withholds the skip script: a facade that still hands out unsanctioned
         # classes can't soundly narrow, so don't nag it to carry 'backend:contract-check' (the script
         # would be inert, and IsolationChainCheck blocks the narrowing that would make it bite). The
@@ -578,7 +581,7 @@ class PackageJsonScriptsCheck(ProductCheck):
         # --- surface the withholding decision (single-product view only; keep the CI sweep quiet) ---
         if (
             ctx.detailed
-            and ctx.is_isolated
+            and ctx.has_facade_contracts
             and not require_contract_check_script
             and "backend:contract-check" not in scripts
         ):
@@ -721,7 +724,7 @@ class TachCheck(ProductCheck):
             )
 
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        if ctx.is_isolated and not has_tach_interface(ctx.name, tach_content):
+        if ctx.has_facade_contracts and not has_tach_interface(ctx.name, tach_content):
             return CheckResult(
                 lines=["✗ missing interfaces declaration"],
                 issues=[
@@ -742,7 +745,7 @@ class IsolationChainCheck(ProductCheck):
     The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
     Each step requires the previous one, so a product can't claim a CI benefit it hasn't
     earned (the Django suite skipped on changes). The final step also can't be left
-    half-wired: once a product is fully sealed and eligible, it must actually turn the skip
+    half-wired: once a product is Sealed, it must actually turn the skip
     on by narrowing turbo.json inputs — otherwise the contract-check script is inert
     (inputs default to all of backend/, so every change still re-runs the Django suite).
     """
@@ -849,7 +852,7 @@ class IsolationChainCheck(ProductCheck):
                 f"suite. Add the matching input(s) ({surface_globs})"
             )
 
-        # Earned but not turned on: a fully sealed, eligible product that already carries
+        # Earned but not turned on: a Sealed product that already carries
         # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
         # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
         # script inherits the root task's all-of-backend inputs, so every internal change still
@@ -858,16 +861,10 @@ class IsolationChainCheck(ProductCheck):
         # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
         # Suppressed when the facade still hands out unsanctioned classes: narrowing would be
         # rejected by the gate above, so nagging toward it is counterproductive — say what blocks it.
-        needs_turn_on = (
-            has_script
-            and status.eligible_for_isolated_tests
-            and status.externally_sealed
-            and not has_narrowed
-            and not facade_violations
-        )
+        needs_turn_on = has_script and status.is_sealed and not has_narrowed and not facade_violations
         if needs_turn_on:
             result.issues.append(
-                "product is fully sealed and eligible for isolated tests and carries "
+                "product is Sealed and carries "
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
