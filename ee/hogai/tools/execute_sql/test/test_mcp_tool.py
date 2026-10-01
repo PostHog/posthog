@@ -108,6 +108,16 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
             ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
             ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
+            (
+                "virtual_property_through_subquery",
+                "SELECT count() FROM (SELECT * FROM events) WHERE properties.$virt_is_bot",
+                "properties.$virt_is_bot AS virt_is_bot",
+            ),
+            (
+                "virtual_property_on_session_join",
+                "SELECT count() FROM events WHERE session.properties.$virt_traffic_type = 'Bot'",
+                "only on the `events` table",
+            ),
         ]
     )
     async def test_compatibility_rejection_carries_an_accepted_rewrite(
@@ -131,6 +141,14 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         result = await self.tool.execute(
             ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, {name}(2, 3)) AS x FROM events")
+        )
+        self.assertIsNotNone(result.content)
+
+    async def test_virtual_property_subquery_rewrite_is_actually_accepted(self) -> None:
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT count() FROM (SELECT properties.$virt_is_bot AS virt_is_bot FROM events) WHERE virt_is_bot"
+            )
         )
         self.assertIsNotNone(result.content)
 

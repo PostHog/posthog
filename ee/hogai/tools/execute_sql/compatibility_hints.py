@@ -9,6 +9,8 @@ instead. Each rule below adds the one accepted rewrite for a failure we see repe
 
 import re
 
+from posthog.taxonomy.taxonomy import virtual_property_names
+
 # ClickHouse takes any number of arguments for these; HogQL caps both at 2, and nesting is exact
 # rather than approximate because both are associative. `test_nesting_rewrite_is_actually_accepted`
 # pins the cap against the validator, so lifting it in `mapping.py` fails a test rather than leaving
@@ -45,6 +47,12 @@ _CAST_WIDTH_RE = re.compile(r"^u?(.+?)\d*$")
 _TOO_MANY_ARGS_RE = re.compile(r"Function '(\w+)' expects (\d+) arguments?, found (\d+)")
 _BAD_ESCAPE_RE = re.compile(r"unrecognised escape '\\(.)'")
 _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
+_UNRESOLVED_FIELD_RE = re.compile(r"(?:Unable to resolve field|Field not found): (\$virt_\w+)")
+
+# The schema lists these as event properties, but HogQL computes them only as fields of the `events`
+# table. `SELECT *` skips them, so an outer query over a subquery or CTE cannot read them, and the
+# `persons`, `sessions` and `poe` tables do not have them.
+VIRTUAL_EVENT_PROPERTY_NAMES = virtual_property_names("event_properties")
 
 
 def _nested_call(name: str, arity: int) -> str:
@@ -75,7 +83,7 @@ def suggest_cast_type(type_name: str) -> str | None:
 
 def build_compatibility_hint(error_message: str) -> str | None:
     """Build an additive hint naming the accepted rewrite, or None if no rule matches."""
-    for rule in (_arity_rewrite, _escape_rewrite, _cast_rewrite):
+    for rule in (_arity_rewrite, _escape_rewrite, _cast_rewrite, _virtual_property_rewrite):
         rewrite = rule(error_message)
         if rewrite is not None:
             return f"<hogql_compatibility_hint>\n{rewrite}\n</hogql_compatibility_hint>"
@@ -123,3 +131,18 @@ def _cast_rewrite(error_message: str) -> str | None:
         )
     suggestion = suggest_cast_type(type_name)
     return f"{lead} Use `CAST(x AS {suggestion})` or `to{suggestion}(x)`." if suggestion else lead
+
+
+def _virtual_property_rewrite(error_message: str) -> str | None:
+    match = _UNRESOLVED_FIELD_RE.search(error_message)
+    if match is None or match.group(1) not in VIRTUAL_EVENT_PROPERTY_NAMES:
+        return None
+    name = match.group(1)
+    alias = name.removeprefix("$")
+    return (
+        f"`{name}` is computed at query time and exists only on the `events` table. Read it as "
+        f"`properties.{name}` in a query whose FROM clause is `events`. `SELECT *` does not include it, "
+        f"so in a subquery or CTE select it explicitly, for example `properties.{name} AS {alias}`, "
+        f"and use `{alias}` in the outer query. The `persons` and `sessions` tables, and the `person.`, "
+        "`session.` and `poe.` joins, do not have it."
+    )
