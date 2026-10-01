@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.services.destination_mapping_secrets import find_mapping_secret_keys, move_mapping_secrets
 
@@ -22,8 +24,11 @@ class TestDestinationMappingSecrets(BaseTest):
         HogFunction.objects.filter(pk=hog_function.pk).update(inputs_schema=inputs_schema, inputs={}, mappings=mappings)
         return HogFunction.objects.get(pk=hog_function.pk)
 
-    def test_moves_a_shared_secret_into_encrypted_inputs(self) -> None:
-        hog_function = self._destination([], [_mapping("a", "key-1"), _mapping("b", "key-1")])
+    @parameterized.expand([("all_secret", True), ("first_mapping_not_secret", False)])
+    def test_moves_a_shared_secret_into_encrypted_inputs(self, _name: str, first_secret: bool) -> None:
+        first = _mapping("a", "key-1")
+        first["inputs_schema"] = [URL_SCHEMA, {**SECRET_SCHEMA, "secret": first_secret}]
+        hog_function = self._destination([], [first, _mapping("b", "key-1")])
 
         keys = find_mapping_secret_keys(self.team.pk)
         assert [(k.function_id, k.key, k.movable) for k in keys] == [(str(hog_function.pk), "api_key", True)]
@@ -52,3 +57,15 @@ class TestDestinationMappingSecrets(BaseTest):
         }
         assert move_mapping_secrets(keys) == 0
         assert {h.pk: (h.inputs_schema, h.mappings) for h in HogFunction.objects.filter(pk__in=stored)} == stored
+
+    def test_rechecks_keys_on_the_locked_row(self) -> None:
+        hog_function = self._destination([], [_mapping("a", "key-1"), _mapping("b", "key-1")])
+        keys = find_mapping_secret_keys(self.team.pk)
+        changed = [_mapping("a", "key-1"), _mapping("b", "key-2")]
+        HogFunction.objects.filter(pk=hog_function.pk).update(mappings=changed)
+
+        assert move_mapping_secrets(keys) == 0
+
+        hog_function.refresh_from_db()
+        assert hog_function.mappings == changed
+        assert not hog_function.encrypted_inputs

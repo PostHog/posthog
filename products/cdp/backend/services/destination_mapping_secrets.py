@@ -87,8 +87,12 @@ def _move_keys(hog_function: HogFunction, keys: list[str]) -> None:
     inputs = dict(hog_function.inputs or {})
     mappings: list[Any] = copy.deepcopy(hog_function.mappings or [])
     for key in keys:
+        # A key can be secret in one mapping and not in another; the moved schema must stay secret.
         schema = next(
-            schema for mapping in mappings for schema in mapping.get("inputs_schema") or [] if schema.get("key") == key
+            schema
+            for mapping in mappings
+            for schema in mapping.get("inputs_schema") or []
+            if schema.get("key") == key and schema.get("secret")
         )
         inputs_schema.append(schema)
         values = _stored_values(mappings, key)
@@ -109,8 +113,14 @@ def move_mapping_secrets(keys: list[MappingSecretKey]) -> int:
     for secret_key in keys:
         if secret_key.movable:
             keys_by_function.setdefault((secret_key.team_id, secret_key.function_id), []).append(secret_key.key)
+    moved = 0
     for (team_id, function_id), function_keys in keys_by_function.items():
         with transaction.atomic():
             hog_function = HogFunction.objects.select_for_update().get(team_id=team_id, id=function_id)
-            _move_keys(hog_function, function_keys)
-    return len(keys_by_function)
+            # The row can change between the scan and the lock, so check each key again on the locked row.
+            current_keys = _secret_mapping_keys(hog_function.mappings or [])
+            eligible = [key for key in function_keys if key in current_keys and _skip_reason(hog_function, key) is None]
+            if eligible:
+                _move_keys(hog_function, eligible)
+                moved += 1
+    return moved
