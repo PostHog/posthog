@@ -56,7 +56,7 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
-## SQL-first MCP
+## SQL-first data retrieval
 
 The MCP server instructs the agent to read data through a unified HogQL interface
 (list and get tools are generally excluded),

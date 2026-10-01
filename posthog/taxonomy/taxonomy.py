@@ -3274,12 +3274,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "exec_search_query": {
             "label": "MCP exec search query",
-            "description": "The raw query an agent passed to the exec `search` verb, or to `learn -s` and a skill load with `-s`. Capped in length. A search that matched nothing has no other record, so this shows which capabilities agents look for and do not find.",
+            "description": "The raw query an agent passed to the exec `search` verb, or to `learn -s` and a skill load with `-s`. Capped in length.",
             "examples": ["feature flag rollout", "session recordings"],
         },
         "exec_learn_target": {
             "label": "MCP exec learn target",
-            "description": "The qualified skill name an exec `learn` call loaded. Only set when `exec_learn_kind` is load.",
+            "description": "The qualified skill name an exec `learn` call asked to load. Only set when `exec_learn_kind` is load.",
             "examples": ["posthog:building-a-dashboard", "posthog:retention-analysis"],
         },
         "mcp_result_empty": {
@@ -3289,7 +3289,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "mcp_discovery_hint": {
             "label": "MCP discovery hint",
-            "description": "Which hint PostHog's MCP server added to the end of a tool result: empty_state (the result was empty and the hint suggests what to try next) or related_capability (the hint points at a related tool). Absent when no hint was added.",
+            "description": "Which hint PostHog's MCP server added to the end of a tool result: empty_state (the result was empty and the hint suggests what to try next) or related_capability (the hint suggests a related skill). Absent when no hint was added.",
             "examples": ["empty_state", "related_capability"],
         },
         # Replay Vision properties, all on `$recording_observed`. This group labels a property name
