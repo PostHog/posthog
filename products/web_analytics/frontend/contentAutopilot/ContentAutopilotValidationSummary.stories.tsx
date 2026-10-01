@@ -56,7 +56,7 @@ export const NeedsFixes: StoryFn<typeof ContentAutopilotValidationSummary> = () 
                         label: 'Sourced facts',
                         passed: false,
                         blocking: true,
-                        message: "These claims aren't backed by a source: `Matomo is free to self-host`.",
+                        message: "These claims aren't backed by a source: `Every plan includes unlimited events`.",
                     },
                     {
                         check_key: 'length',
