@@ -402,6 +402,10 @@ def advance_schedule(
 
     A calendar unit cannot be reached by adding minutes: a month is not a fixed number of them,
     and a daylight saving change moves the boundary a local instant sits on.
+
+    `shard_offset_seconds` applies to the minute recurrence only. A calendar recurrence lands on
+    the instant its anchor names, so every configuration that shares an anchor and a timezone is
+    due in the same minute slot. Spreading those would move a time the user chose.
     """
     if recurrence_unit is None:
         return advance_next_check_at(
