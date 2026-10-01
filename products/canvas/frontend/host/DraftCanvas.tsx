@@ -1,13 +1,14 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
+import { CanvasDocumentBridge } from './canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
 import { CANVAS_CHANNEL, CanvasTheme, HostToCanvasMessage, canvasToHostMessageSchema } from './canvasProtocol'
 
 export interface DraftCanvasProps extends CanvasHostCallbacks {
     /** The sandbox bootstrap document on the artifact origin. */
     documentUrl: string
-    /** The single-file React source to render. */
-    code: string
+    files: Record<string, string>
+    entry: string
     theme: CanvasTheme
     hasUserActivation: () => boolean
     onOpenExternal: (url: string) => void
@@ -16,32 +17,38 @@ export interface DraftCanvasProps extends CanvasHostCallbacks {
 /**
  * Renders unbuilt source in the sandbox document, which transpiles it in the browser.
  * The document loads by URL, not as srcdoc, because a srcdoc frame inherits the web
- * app's CSP. The source arrives by postMessage once the document says it is ready.
+ * app's CSP. The source arrives over a document-bound port after the first load.
  * This tier is ungated by design: it only runs a canvas's own head source.
  */
 export function DraftCanvas({
     documentUrl,
-    code,
+    files,
+    entry,
     theme,
     hasUserActivation,
     onOpenExternal,
     ...callbacks
 }: DraftCanvasProps): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
+    const bridgeRef = useRef<CanvasDocumentBridge | null>(null)
     const readyRef = useRef(false)
-    const latest = useRef({ code, theme, callbacks, hasUserActivation, onOpenExternal })
-    latest.current = { code, theme, callbacks, hasUserActivation, onOpenExternal }
+    const latest = useRef({ files, entry, theme, callbacks, hasUserActivation, onOpenExternal })
+    latest.current = { files, entry, theme, callbacks, hasUserActivation, onOpenExternal }
 
     const post = (message: HostToCanvasMessage): void => {
-        // The sandbox has an opaque origin, so no narrower target origin matches it.
-        iframeRef.current?.contentWindow?.postMessage(message, '*')
+        bridgeRef.current?.post(message)
     }
     const postInit = (): void => {
-        post({ channel: CANVAS_CHANNEL, type: 'init', code: latest.current.code, theme: latest.current.theme })
+        post({
+            channel: CANVAS_CHANNEL,
+            type: 'init',
+            files: latest.current.files,
+            entry: latest.current.entry,
+            theme: latest.current.theme,
+        })
     }
 
-    // A layout effect attaches the listener during commit, before the frame's one-shot
-    // "ready" can arrive and be lost.
+    // Attach before load so the port connects before any canvas source runs.
     useLayoutEffect(() => {
         readyRef.current = false
         const route = createCanvasHostMessageRouter({
@@ -49,6 +56,9 @@ export function DraftCanvas({
             callbacks: () => ({
                 ...latest.current.callbacks,
                 onReady: () => {
+                    if (readyRef.current) {
+                        return
+                    }
                     readyRef.current = true
                     postInit()
                     latest.current.callbacks.onReady?.()
@@ -57,18 +67,22 @@ export function DraftCanvas({
             hasUserActivation: () => latest.current.hasUserActivation(),
             openExternal: (url) => latest.current.onOpenExternal(url),
         })
-        const onMessage = (event: MessageEvent): void => {
-            // An opaque origin cannot be checked, so the frame is identified by its window.
-            if (event.source !== iframeRef.current?.contentWindow) {
-                return
-            }
-            const parsed = canvasToHostMessageSchema.safeParse(event.data)
-            if (parsed.success) {
-                void route(parsed.data)
-            }
+        const bridge = new CanvasDocumentBridge(
+            iframeRef.current!,
+            (data) => {
+                const parsed = canvasToHostMessageSchema.safeParse(data)
+                if (parsed.success) {
+                    void route(parsed.data)
+                }
+            },
+            () => {}
+        )
+        bridgeRef.current = bridge
+        return () => {
+            readyRef.current = false
+            bridge.close()
+            bridgeRef.current = null
         }
-        window.addEventListener('message', onMessage)
-        return () => window.removeEventListener('message', onMessage)
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- a new document needs a fresh listener and ready flag
     }, [documentUrl])
 
@@ -78,7 +92,7 @@ export function DraftCanvas({
             postInit()
         }
         // oxlint-disable-next-line react-hooks/exhaustive-deps -- postInit reads the latest code through a ref
-    }, [code])
+    }, [files, entry])
 
     useEffect(() => {
         if (readyRef.current) {
@@ -89,18 +103,14 @@ export function DraftCanvas({
 
     return (
         <iframe
+            key={documentUrl}
             ref={iframeRef}
             title="Canvas draft"
             // allow-scripts without allow-same-origin keeps the sandbox in an opaque origin.
             // Do not add allow-popups or allow-same-origin.
             sandbox="allow-scripts"
-            src={documentUrl}
+            src={`${documentUrl}#bridge=port`}
             referrerPolicy="no-referrer"
-            // By load the document's bootstrap has run, so init reaches it even if "ready" was missed.
-            onLoad={() => {
-                readyRef.current = true
-                postInit()
-            }}
             // Without a matching color-scheme the browser paints the frame white before init lands.
             style={{ colorScheme: theme }}
             className="h-full w-full border-0 bg-background"

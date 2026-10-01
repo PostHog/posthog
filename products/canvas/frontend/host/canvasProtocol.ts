@@ -151,7 +151,14 @@ export const canvasToHostMessageSchema = z.discriminatedUnion('type', [
 export type CanvasToHostMessage = z.infer<typeof canvasToHostMessageSchema>
 
 export type HostToCanvasMessage =
-    | { channel: typeof CANVAS_CHANNEL; type: 'init'; code: string; theme?: CanvasTheme; highlights?: unknown[] }
+    | {
+          channel: typeof CANVAS_CHANNEL
+          type: 'init'
+          files: Record<string, string>
+          entry: string
+          theme?: CanvasTheme
+          highlights?: unknown[]
+      }
     | { channel: typeof CANVAS_CHANNEL; type: 'set-theme'; theme: CanvasTheme }
     | { channel: typeof CANVAS_CHANNEL; type: 'set-comment-highlights'; highlights: unknown[] }
     | { channel: typeof CANVAS_CHANNEL; type: 'clear-text-selection' }

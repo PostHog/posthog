@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -228,6 +228,10 @@ export const libraryLogic = kea<libraryLogicType>([
         const openType = (objectType: string): void => {
             // The Library scene renders nothing without the flag, so it must not load anything either.
             if (!values.featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]) {
+                return
+            }
+            if (objectType && !isLibraryType(objectType)) {
+                router.actions.replace(urls.views())
                 return
             }
             if (objectType !== values.objectType || !cache.loaded) {

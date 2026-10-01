@@ -12,7 +12,10 @@ from parameterized import parameterized
 from products.canvas.backend.artifacts import (
     ARTIFACT_TOKEN_SALT,
     SANDBOX_DOCUMENT_PATH,
+    _parse_sandbox_document,
+    _publish_sandbox_document,
     _read_token,
+    _sandbox_document,
     canvas_artifact,
     create_canvas_artifact_token,
     create_canvas_artifact_url,
@@ -33,6 +36,12 @@ def _claims(**overrides):
 
 
 class TestCanvasArtifactTokens(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.write = patch("products.canvas.backend.artifacts.object_storage.write").start()
+        self.addCleanup(patch.stopall)
+        _publish_sandbox_document.cache_clear()
+
     @override_settings(
         CANVAS_ARTIFACT_SIGNING_KEYS=["new-key-at-least-32-bytes-long", "old-key-at-least-32-bytes-long"]
     )
@@ -230,6 +239,30 @@ class TestCanvasArtifactTokens(SimpleTestCase):
     SITE_URL="https://app.example",
 )
 class TestCanvasSandboxDocument(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.objects: dict[str, bytes] = {}
+        writer = patch("products.canvas.backend.artifacts.object_storage.write", side_effect=self.objects.__setitem__)
+        reader = patch(
+            "products.canvas.backend.artifacts.object_storage.read_bytes",
+            side_effect=lambda key, **kwargs: self.objects.get(key),
+        )
+        writer.start()
+        reader.start()
+        self.addCleanup(writer.stop)
+        self.addCleanup(reader.stop)
+        _publish_sandbox_document.cache_clear()
+        self.addCleanup(_publish_sandbox_document.cache_clear)
+
+    def test_serves_an_advertised_document_after_the_process_changes_version(self) -> None:
+        path = self._path()
+        original = _sandbox_document().content
+        replacement = _parse_sandbox_document(original + b"\n")
+        with patch("products.canvas.backend.artifacts._sandbox_document", return_value=replacement):
+            response = self.client.get(path, HTTP_HOST="usercontent.example")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, original)
+
     def _path(self) -> str:
         url = create_canvas_sandbox_document_url()
         assert url is not None

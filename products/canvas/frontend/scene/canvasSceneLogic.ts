@@ -403,7 +403,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 if (!task || task.id !== taskId) {
                     return taskLoading || !task
                 }
-                return !isTerminalRunStatus(task.latest_run?.status)
+                return !!task.latest_run && !isTerminalRunStatus(task.latest_run.status)
             },
         ],
         bodyState: [

@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { CANVAS_EVENTS, CanvasSurface } from './canvasAnalytics'
-import { CanvasGenerationTask, createCanvasGenerationTask } from './canvasTasksApi'
+import { CanvasGenerationTask, createCanvasGenerationTask, startCanvasGenerationRun } from './canvasTasksApi'
 import { isPlaceholderCanvasName } from './canvasTemplates'
 import { canvasesPartialUpdate } from './generated/api'
 import type { CanvasApi } from './generated/api.schemas'
@@ -23,7 +23,7 @@ export interface StartedCanvasGeneration {
 }
 
 /**
- * Starts the agent task that builds a canvas, then links the task to the canvas.
+ * Links the agent task to the canvas before starting its run.
  * A placeholder name takes the task's title. Throws when the task does not start.
  */
 export async function startCanvasGeneration({
@@ -51,11 +51,12 @@ export async function startCanvasGeneration({
         }),
         namingSource: trimmed,
         spaceId: canvas.channel,
+        startRun: false,
     })
     const autoName = isPlaceholderCanvasName(canvas.name) && task.title?.trim()
     const updated = await canvasesPartialUpdate(projectId, canvas.id, {
         generation_task_id: task.id,
         ...(autoName ? { name: task.title.trim() } : {}),
     })
-    return { canvas: updated, task }
+    return { canvas: updated, task: await startCanvasGenerationRun(projectId, task.id) }
 }

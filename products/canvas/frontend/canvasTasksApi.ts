@@ -62,7 +62,7 @@ export function canvasSpaceLabel(space: Pick<CanvasSpace, 'name' | 'system_role'
  */
 export async function createCanvasGenerationTask(
     projectId: string,
-    input: { description: string; namingSource: string; spaceId: string }
+    input: { description: string; namingSource: string; spaceId: string; startRun?: boolean }
 ): Promise<CanvasGenerationTask> {
     return api.create<CanvasGenerationTask>(`api/projects/${projectId}/tasks/`, {
         description: input.description,
@@ -70,11 +70,19 @@ export async function createCanvasGenerationTask(
         naming_source: input.namingSource,
         origin_product: 'user_created',
         channel: input.spaceId,
-        start_run: true,
+        start_run: input.startRun ?? true,
         initial_permission_mode: 'bypassPermissions',
     })
 }
 
 export async function loadCanvasGenerationTask(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
     return api.get<CanvasGenerationTask>(`api/projects/${projectId}/tasks/${taskId}/`)
+}
+
+export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
+    return api.create<CanvasGenerationTask>(`api/projects/${projectId}/tasks/${taskId}/run/`, {
+        mode: 'background',
+        run_source: 'agent',
+        initial_permission_mode: 'bypassPermissions',
+    })
 }

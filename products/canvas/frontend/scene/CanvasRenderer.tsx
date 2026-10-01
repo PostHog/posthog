@@ -3,7 +3,7 @@ import { useCallback } from 'react'
 
 import { themeLogic } from 'lib/logic/themeLogic'
 
-import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
+import type { CanvasCapabilitiesApi, CanvasSourceProjectApi } from '../generated/api.schemas'
 import { BuiltCanvas } from '../host/BuiltCanvas'
 import {
     CanvasHostLogicProps,
@@ -17,7 +17,7 @@ import { canvasSceneLogic } from './canvasSceneLogic'
 
 /** Renders the live build when there is one, else the head source in the draft sandbox. */
 export function CanvasRenderer(): JSX.Element | null {
-    const { canvas, liveBuild, draftCode, sandboxDocumentUrl, view } = useValues(canvasSceneLogic)
+    const { canvas, liveBuild, sandboxDocumentUrl, view } = useValues(canvasSceneLogic)
     if (!canvas) {
         return null
     }
@@ -33,7 +33,7 @@ export function CanvasRenderer(): JSX.Element | null {
                 artifactUrl={liveBuild?.artifact_url ?? null}
                 capabilities={(liveBuild?.manifest?.capabilities as CanvasCapabilitiesApi | undefined) ?? null}
                 buildId={liveBuild?.id ?? null}
-                draftCode={draftCode}
+                draftSource={view?.source ?? null}
                 sandboxDocumentUrl={sandboxDocumentUrl}
             />
             <CanvasHostPromptDialog />
@@ -46,14 +46,14 @@ function CanvasHostFrame({
     artifactUrl,
     capabilities,
     buildId,
-    draftCode,
+    draftSource,
     sandboxDocumentUrl,
 }: {
     hostProps: CanvasHostLogicProps
     artifactUrl: string | null
     capabilities: CanvasCapabilitiesApi | null
     buildId: string | null
-    draftCode: string | null
+    draftSource: CanvasSourceProjectApi | null
     sandboxDocumentUrl: string | null
 }): JSX.Element | null {
     const hostLogic = useMountedLogic(canvasHostLogic(hostProps))
@@ -85,8 +85,15 @@ function CanvasHostFrame({
             />
         )
     }
-    if (draftCode && sandboxDocumentUrl) {
-        return <DraftCanvas documentUrl={sandboxDocumentUrl} code={draftCode} {...shared} />
+    if (draftSource?.files['src/canvas.tsx'] && sandboxDocumentUrl) {
+        return (
+            <DraftCanvas
+                documentUrl={sandboxDocumentUrl}
+                files={draftSource.files}
+                entry="src/canvas.tsx"
+                {...shared}
+            />
+        )
     }
     return null
 }

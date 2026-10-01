@@ -10,9 +10,7 @@ import type { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schema
 
 import { LISTED_CANVAS_KINDS, ViewItem, ViewType, mergeViews } from './viewsUtils'
 
-// Each type loads up to this many views. The dashboards endpoint sorts by name rather than by recency, so this
-// also bounds how far back the dashboards reach.
-const VIEWS_PER_TYPE = 100
+const VIEWS_PAGE_SIZE = 100
 
 export interface ViewItemsPage {
     items: ViewItem[]
@@ -20,9 +18,25 @@ export interface ViewItemsPage {
     failedTypes: ViewType[]
 }
 
+async function fetchAllPages<T>(
+    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
+): Promise<T[]> {
+    const results: T[] = []
+    let page
+    do {
+        page = await fetchPage(results.length)
+        results.push(...page.results)
+    } while (page.next && page.results.length > 0)
+    return results
+}
+
 async function fetchCanvases(projectId: string, search: string | undefined, limit: number): Promise<CanvasApi[]> {
-    const pages = await Promise.all(LISTED_CANVAS_KINDS.map((kind) => canvasesList(projectId, { kind, search, limit })))
-    return pages.flatMap((page) => page.results)
+    const pages = await Promise.all(
+        LISTED_CANVAS_KINDS.map((kind) =>
+            fetchAllPages((offset) => canvasesList(projectId, { kind, search, limit, offset }))
+        )
+    )
+    return pages.flat()
 }
 
 async function fetchSpaceNames(projectId: string): Promise<Record<string, string>> {
@@ -34,14 +48,14 @@ async function fetchSpaceNames(projectId: string): Promise<Record<string, string
 
 /** Canvases, notebooks and dashboards in one list. A type that fails to load leaves the others in place. */
 export async function fetchViewItems(projectId: string, search: string): Promise<ViewItemsPage> {
-    const limit = VIEWS_PER_TYPE
+    const limit = VIEWS_PAGE_SIZE
     const query = search.trim() || undefined
     // The notebooks endpoint filters on `search`, but its schema does not declare the parameter.
     const notebookParams: NotebooksListParams & { search?: string } = { limit, search: query }
     const [canvases, notebooks, dashboards, spaceNames] = await Promise.allSettled([
         fetchCanvases(projectId, query, limit),
-        notebooksList(projectId, notebookParams),
-        dashboardsList(projectId, { search: query, limit }),
+        fetchAllPages((offset) => notebooksList(projectId, { ...notebookParams, offset })),
+        fetchAllPages((offset) => dashboardsList(projectId, { search: query, limit, offset })),
         fetchSpaceNames(projectId),
     ])
     const failedTypes: ViewType[] = [
@@ -55,8 +69,8 @@ export async function fetchViewItems(projectId: string, search: string): Promise
     return {
         items: mergeViews({
             canvases: canvases.status === 'fulfilled' ? canvases.value : [],
-            notebooks: notebooks.status === 'fulfilled' ? notebooks.value.results : [],
-            dashboards: dashboards.status === 'fulfilled' ? dashboards.value.results : [],
+            notebooks: notebooks.status === 'fulfilled' ? notebooks.value : [],
+            dashboards: dashboards.status === 'fulfilled' ? dashboards.value : [],
             // Without space names, canvas rows still show. They only lose the space label.
             spaceNames: spaceNames.status === 'fulfilled' ? spaceNames.value : {},
         }),

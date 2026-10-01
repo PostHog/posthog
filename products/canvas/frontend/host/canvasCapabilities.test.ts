@@ -23,7 +23,7 @@ describe('assertCanvasCapability', () => {
         ['capture', { event: '$pageview' }, 'Event capture is not allowed by this canvas'],
         ['stateGet', { key: 'k', scope: 'user' }, null],
         ['stateSet', { key: 'k', scope: 'shared' }, 'State scope "shared" is not allowed by this canvas'],
-        ['stateList', {}, null],
+        ['stateList', {}, 'State scope "any" is not allowed by this canvas'],
         ['actionInvoke', { verb: 'annotations.create' }, null],
         ['actionInvoke', { verb: 'flags.delete' }, 'Action "flags.delete" is not allowed by this canvas'],
         ['agentRequest', { prompt: 'x' }, 'Agent requests are not allowed by this canvas'],
@@ -41,6 +41,16 @@ describe('assertCanvasCapability', () => {
         } else {
             expect(check).not.toThrow()
         }
+    })
+
+    test.each(['stateGet', 'stateSet'])('defaults %s to user scope', (method) => {
+        expect(() =>
+            assertCanvasCapability(
+                { ...capabilities, posthog: { ...capabilities.posthog, state: ['shared'] } },
+                method,
+                {}
+            )
+        ).toThrow('State scope "user" is not allowed')
     })
 
     test('a build without a manifest denies everything', () => {

@@ -34,10 +34,17 @@ export function assertCanvasCapability(
         case 'stateGet':
         case 'stateSet':
         case 'stateList': {
-            const scope = input.scope as 'user' | 'shared' | undefined
+            const scope = (input.scope ?? (method === 'stateList' ? undefined : 'user')) as
+                | 'user'
+                | 'shared'
+                | undefined
             const declared = capabilities.posthog.state ?? []
-            // A scopeless list reads everything the canvas declared, so any declaration admits it.
-            if (declared.length === 0 || (scope && !declared.includes(scope))) {
+            // The backend uses the current head's scopes, which can exceed this build's scopes.
+            if (
+                scope
+                    ? !declared.includes(scope)
+                    : !['user', 'shared'].every((value) => declared.includes(value as 'user' | 'shared'))
+            ) {
                 throw new Error(`State scope "${scope ?? 'any'}" is not allowed by this canvas`)
             }
             return

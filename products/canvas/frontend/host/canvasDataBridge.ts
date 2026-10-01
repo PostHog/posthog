@@ -166,6 +166,9 @@ export class CanvasDataBridge {
         if (!typed && !hogql) {
             throw new Error('ph.query requires a typed query node or a HogQL string')
         }
+        if (input.params != null && (typeof input.params !== 'object' || Object.keys(input.params).length > 0)) {
+            throw new Error('ph.query parameters are not supported. Use a typed query with variables instead.')
+        }
         const refresh = refreshSeconds(input.refresh)
         const node = typed ? (input.query as Record<string, unknown>) : { kind: 'HogQLQuery', query: hogql }
         return this.cache.read(

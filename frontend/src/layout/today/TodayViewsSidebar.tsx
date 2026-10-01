@@ -69,7 +69,7 @@ export function TodayViewsSidebar(): JSX.Element {
                                 <Spinner />
                             </div>
                         )
-                    ) : !recentItems.length && !failedTypes.length ? (
+                    ) : !recentItems.length && !failedTypes.length && !recentUnavailable ? (
                         <div className="TodayPane__state">
                             Canvases, notebooks and dashboards you create show up here.
                         </div>

@@ -17,10 +17,14 @@ describe('canvasNewLogic', () => {
     let createdCanvas: Record<string, unknown> | null = null
     let createCount = 0
     let taskStatus = 201
+    let linkStatus = 200
+    let runCount = 0
 
     beforeEach(() => {
         createdCanvas = null
         createCount = 0
+        linkStatus = 200
+        runCount = 0
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [
@@ -43,6 +47,10 @@ describe('canvasNewLogic', () => {
                 '/api/projects/:team_id/task_channels/:id/': { id: 'space-growth', name: 'growth', system_role: null },
             },
             post: {
+                '/api/projects/:team_id/tasks/:id/run/': () => {
+                    runCount++
+                    return [201, { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } }]
+                },
                 '/api/projects/:team_id/canvases/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, string>
                     createCount += 1
@@ -57,13 +65,19 @@ describe('canvasNewLogic', () => {
                     }
                     return [201, createdCanvas]
                 },
-                '/api/projects/:team_id/tasks/': () =>
-                    taskStatus === 201
-                        ? [201, { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } }]
-                        : [403, { error: 'Agent-started task runs are not available for this project' }],
+                '/api/projects/:team_id/tasks/': async ({ request }) => {
+                    expect(await request.json()).toMatchObject({ start_run: false })
+                    return taskStatus === 201
+                        ? [201, { id: 'task-1', title: 'Daily signups', latest_run: null }]
+                        : [403, { error: 'Agent-started task runs are not available for this project' }]
+                },
             },
             patch: {
                 '/api/projects/:team_id/canvases/:id/': async ({ request }) => {
+                    if (linkStatus !== 200) {
+                        return [linkStatus, { detail: 'Link failed' }]
+                    }
+
                     createdCanvas = { ...createdCanvas, ...((await request.json()) as Record<string, unknown>) }
                     return [200, createdCanvas]
                 },
@@ -73,12 +87,14 @@ describe('canvasNewLogic', () => {
     })
 
     test.each([
-        ['the build starts', 201, ''],
-        ['the build fails to start', 403, PROMPT],
+        ['the build starts', 201, 200, ''],
+        ['the build fails to start', 403, 200, PROMPT],
+        ['the task link fails', 201, 503, PROMPT],
     ])(
         'creates the canvas only on send and replaces the start page with it when %s',
-        async (_, status, composerText) => {
+        async (_, status, patchStatus, composerText) => {
             taskStatus = status
+            linkStatus = patchStatus
             const logic = canvasNewLogic()
             logic.mount()
             router.actions.push(urls.canvasNew('space-growth'))
@@ -91,6 +107,7 @@ describe('canvasNewLogic', () => {
             logic.actions.send()
             await expectLogic(logic).toDispatchActions(['sendFinished'])
 
+            expect(runCount).toBe(composerText ? 0 : 1)
             expect(createCount).toEqual(1)
             expect(createdCanvas).toMatchObject({ id: CANVAS_ID, channel: 'space-growth' })
             expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.canvasDetail(CANVAS_ID))

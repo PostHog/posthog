@@ -37,6 +37,10 @@ describe('canvasSceneLogic', () => {
                 '/api/projects/:team_id/task_channels/:id/': { id: 'space-1', name: 'me', system_role: 'personal' },
             },
             post: {
+                '/api/projects/:team_id/tasks/:id/run/': [
+                    201,
+                    { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } },
+                ],
                 '/api/projects/:team_id/tasks/': async () => {
                     await taskRequestReleased
                     return [403, { error: 'Agent-started task runs are not available for this project' }]

@@ -36,7 +36,7 @@ const dashboard = (overrides: Partial<DashboardBasicApi>): DashboardBasicApi =>
 const summary = (items: ViewItem[]): string[] => items.map((item) => `${item.type}:${item.id}`)
 
 describe('viewsUtils', () => {
-    it('merges every type into one list, most recent first, and leaves out component canvases and deleted views', () => {
+    it('merges every type into one list, most recent first, and leaves out unsupported canvases and deleted views', () => {
         const items = mergeViews({
             canvases: [
                 canvas({ id: 'grid', kind: 'grid', updated_at: '2026-09-20T00:00:00Z' }),
@@ -54,7 +54,7 @@ describe('viewsUtils', () => {
             spaceNames: {},
         })
 
-        expect(summary(items)).toEqual(['notebook:notes', 'canvas:grid', 'dashboard:8', 'dashboard:7', 'canvas:board'])
+        expect(summary(items)).toEqual(['notebook:notes', 'dashboard:8', 'dashboard:7', 'canvas:board'])
         expect(filterViews(items, 'dashboard').map((item) => item.timestampLabel)).toEqual(['Created', 'Viewed'])
     })
 

@@ -43,7 +43,12 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {
         return 'spaces'
     }
-    if (isUnder(path, urls.views()) || isUnder(path, '/canvases') || isUnder(path, urls.notebooks()) || isUnder(path, urls.dashboards())) {
+    if (
+        isUnder(path, urls.views()) ||
+        isUnder(path, '/canvases') ||
+        isUnder(path, urls.notebooks()) ||
+        isUnder(path, urls.dashboards())
+    ) {
         return 'views'
     }
     if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {

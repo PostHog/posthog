@@ -79,7 +79,7 @@ export function libraryTypeForPath(path: string): string | null {
     if (!objectTypeByScene) {
         const scenes = new Map<string, string>()
         const addPage = (type: string, href: string | undefined): void => {
-            const scene = href && !TOOL_FILE_SYSTEM_TYPES.has(type) ? sceneForPath(href) : null
+            const scene = href && isLibraryType(type) ? sceneForPath(href) : null
             if (scene && !scenes.has(scene)) {
                 scenes.set(scene, type)
             }
