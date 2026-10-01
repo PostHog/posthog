@@ -154,8 +154,8 @@ def _display_model_for_known_resource(resource: str) -> DisplayModel | None:
 def resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, ResolvedObjectName]:
     """Map {resource_id -> display info} for one resource type, empty when we can't name its objects.
 
-    Queries through _base_manager so rules pointing at soft-deleted objects still resolve: those are
-    exactly the rows someone opens this page to clean up. Tenant isolation holds via team_id.
+    Queries through _base_manager so a rule on a soft-deleted object still gets a name instead of a
+    bare id. Tenant isolation holds via team_id.
     """
     display = display_model(resource) if resource_ids else None
     if display is None:

@@ -126,6 +126,15 @@ def _resource_entry(subject: SubjectAccessControl, resource: APIScopeObject) -> 
     }
 
 
+def _soft_deleted_ids(resource: str, resource_ids: list[str], team_id: int) -> set[str]:
+    """The ids among `resource_ids` whose object has `deleted=True`. Empty for models without the flag."""
+    display = display_model(resource)
+    if display is None or not model_has_field(display.model, "deleted"):
+        return set()
+    rows = display.model._base_manager.filter(team_id=team_id, pk__in=resource_ids, deleted=True)
+    return {str(pk) for pk in rows.values_list("pk", flat=True)}
+
+
 @dataclass(frozen=True, kw_only=True)
 class _ObjectRuleValidationContext:
     """Duck-typed stand-in for the view in AccessControlSerializer's context, so the generic
@@ -511,6 +520,12 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
             ids_by_resource[ac.resource].append(ac.resource_id)
+        # A rule on a soft-deleted object stays in the database: it still gates the restore of the
+        # object and the subscriptions that point at it. It is hidden here because the object is
+        # not reachable, so the rule has nothing to configure
+        hidden_by_resource = {
+            resource: _soft_deleted_ids(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+        }
         # Names resolve for every rule, including objects the caller cannot access themselves:
         # rules lists show what is configured, while the picker search and the rule write are the
         # surfaces that hide inaccessible objects
@@ -520,6 +535,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         results = []
         for ac in rows:
+            if str(ac.resource_id) in hidden_by_resource.get(ac.resource, set()):
+                continue
             resolved = names_by_resource.get(ac.resource, {}).get(str(ac.resource_id))
             results.append(
                 {
@@ -754,8 +771,8 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         display = display_model(resource)
         if display is None:
             raise exceptions.ValidationError("resource does not support object access rules")
-        # _base_manager, not the default one: a rule left on a soft-deleted object still shows in
-        # the rules list, and this is the only way to clear it
+        # _base_manager, not the default one: a rule on a soft-deleted object is hidden from the
+        # rules list, and the write with access_level None is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
             display.model._base_manager.filter(team_id=team.id),
             include_all_if_admin=True,
