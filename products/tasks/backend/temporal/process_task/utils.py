@@ -831,13 +831,10 @@ def get_sandbox_ph_mcp_configs(
     (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
     `exec` from advertising gateway tools to runs that mount those servers directly.
 
-    Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
-    - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
-    - eu.posthog.com → https://mcp-eu.posthog.com/mcp
-    - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
-    - Other hosts → empty list (MCP not available)
+    Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
+    neither is set, because the instance has no MCP server.
     """
-    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)

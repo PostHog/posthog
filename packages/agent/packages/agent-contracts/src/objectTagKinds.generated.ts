@@ -3,4 +3,5 @@
 // run `hogli build:projections` and commit the result.
 
 /** The kind list the rich-output prompt teaches agents. */
-export const OBJECT_TAG_PROMPT_KIND_LIST = "insight, dashboard, error, replay, flag, experiment, survey, ticket, report, trace, eval, event, cohort, action, person";
+export const OBJECT_TAG_PROMPT_KIND_LIST =
+  "insight, dashboard, error, replay, flag, experiment, survey, ticket, report, trace, eval, event, cohort, action, person";
