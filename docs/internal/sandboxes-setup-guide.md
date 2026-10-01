@@ -112,6 +112,10 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
+ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
+ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
+
 Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
 Other refresh failures retry on the default cadence.
 
@@ -296,6 +300,8 @@ An active turn keeps its settings snapshot, and an existing report's status comm
 If a review fails, the next attempt keeps cached reviewer results for the same commit, model, and reasoning effort.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.
+Long-running review activities refresh the active report every minute so it remains visible in Code review while an agent works without new results.
+The refresh stops when the activity exits; a report with no new activity still expires from the running list after 30 minutes.
 Review-started, completed, and failed event IDs distinguish Full and Flash retries while preserving the legacy Full IDs.
 When calculating completion rates, match report, turn, and mode, treating an absent mode as Full for legacy events.
 Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
