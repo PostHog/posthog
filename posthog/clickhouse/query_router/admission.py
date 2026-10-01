@@ -74,6 +74,11 @@ _ERROR_LOG_INTERVAL_SECONDS = 60
 # holding each query for the default socket timeout.
 _REDIS_TIMEOUT_SECONDS = 1.0
 
+# The router drops a query before it reaches ClickHouse, so a retry costs one Redis call and the pool
+# can have room again within seconds. The error's default wait is longer because it covers a
+# ClickHouse node that is over its own limit.
+_RETRY_AFTER_SECONDS = (3, 8)
+
 # KEYS[1] to KEYS[4] are the running sets in class order, so KEYS[my_class] is the caller's own set.
 # KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is the limit, KEYS[8] is released and KEYS[9]
 # is arrivals. A rank arrives as a string and goes to Redis unchanged, and the script builds rank
@@ -423,7 +428,7 @@ class QueryRouter:
                 waited_ms / 1000
             )
         if decision.outcome in _DROPPED_OUTCOMES:
-            raise ClickHouseAtCapacity()
+            raise ClickHouseAtCapacity(wait=random.randint(*_RETRY_AFTER_SECONDS))
         return Admission(
             outcome=decision.outcome,
             waited_ms=waited_ms,

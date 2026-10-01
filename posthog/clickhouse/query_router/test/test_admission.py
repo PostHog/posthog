@@ -206,13 +206,14 @@ class TestQueryRouterAdmission(SimpleTestCase):
         started_at = self.clock.now
         with ExitStack() as held:
             self._hold(held, 1)
-            with self.assertRaises(ClickHouseAtCapacity):
+            with self.assertRaises(ClickHouseAtCapacity) as dropped:
                 with self._admit(QueryClass.BACKGROUND):
                     pass
 
         self.assertAlmostEqual(
             self.clock.now - started_at, CLASS_POLICIES[QueryClass.BACKGROUND].max_wait_seconds, places=3
         )
+        assert 3 <= dropped.exception.wait <= 8
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
