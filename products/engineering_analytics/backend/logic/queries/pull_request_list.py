@@ -65,10 +65,11 @@ def _visible_prs_where(prefix: str, author: str | None, state: PRState | None, h
     return f"({state_clause}) {author_clause}"
 
 
+_ORDER_COLUMN_BY_STATE = {PRState.MERGED: "merged_at", PRState.CLOSED: "closed_at"}
+
+
 def _order_by(state: PRState | None) -> str:
-    timestamp = (
-        {PRState.MERGED: "merged_at", PRState.CLOSED: "closed_at"}.get(state, "created_at") if state else "created_at"
-    )
+    timestamp = _ORDER_COLUMN_BY_STATE.get(state, "created_at") if state else "created_at"
     return f"pr.{timestamp} DESC, pr.number DESC, pr.repo_owner, pr.repo_name"
 
 
