@@ -5,7 +5,14 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 export interface ScoutWriteScopeRow {
     scope: string
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
-    group: 'Analytics' | 'Monitoring' | 'Customer analytics' | 'Scouts and skills' | 'Data' | 'Replay vision' | 'Workflows'
+    group:
+        | 'Analytics'
+        | 'Monitoring'
+        | 'Customer analytics'
+        | 'Scouts and skills'
+        | 'Data'
+        | 'Replay vision'
+        | 'Workflows'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
