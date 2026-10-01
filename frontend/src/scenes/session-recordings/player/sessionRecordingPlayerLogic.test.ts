@@ -1,5 +1,5 @@
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
+import { delay, expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
@@ -444,6 +444,35 @@ describe('sessionRecordingPlayerLogic', () => {
             // The analyzed mark also feeds the replay vision analysis nudge counter.
             await expectLogic(nudgeLogic).toDispatchActions(['recordingAnalyzed'])
             expect(nudgeLogic.values.analyzedRecordingIds).toContain('2')
+
+            nudgeLogic.unmount()
+            resumeKeaLoadersErrors()
+        })
+
+        it('tolerates the recording being gone when marking it viewed', async () => {
+            logic.unmount()
+            let patchCount = 0
+            overrideSessionRecordingMocks({
+                patchMocks: {
+                    '/api/environments/:team_id/session_recordings/:id': () => {
+                        patchCount += 1
+                        return [404, { detail: 'Not found.' }]
+                    },
+                },
+            })
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', autoPlay: true })
+            logic.mount()
+            const nudgeLogic = analysisNudgeLogic.build()
+            nudgeLogic.mount()
+
+            silenceKeaLoadersErrors()
+
+            await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
+            await delay(200)
+
+            // The viewed mark 404s, so the analyzed mark never goes out.
+            expect(patchCount).toBe(1)
+            expect(nudgeLogic.values.analyzedRecordingIds).not.toContain('2')
 
             nudgeLogic.unmount()
             resumeKeaLoadersErrors()
