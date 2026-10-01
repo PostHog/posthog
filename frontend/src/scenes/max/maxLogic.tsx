@@ -965,6 +965,11 @@ export const maxLogic = kea<maxLogicType>([
             if (search.task) {
                 return
             }
+            // In the new view `phaiAiComposerSeedLogic` sends the prompt. A legacy `askMax` here would also
+            // start a chat, and its `?chat=` URL would switch the scene back to the legacy view.
+            if (search.ask && !search.chat && values.effectivePhaiView === 'new') {
+                return
+            }
             if (search.ask && !search.chat && !values.question) {
                 // Clear any existing conversation so the tab title updates
                 if (values.conversationId && values.activeStreamingThreads === 0) {
