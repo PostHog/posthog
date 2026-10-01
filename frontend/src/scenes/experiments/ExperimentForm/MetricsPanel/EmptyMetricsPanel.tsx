@@ -11,7 +11,12 @@ import { metricSourceModalLogic } from 'products/experiments/frontend/modals/Met
 export const EmptyMetricsPanel = ({
     helpText,
     isLaunched,
-}: { helpText?: string; isLaunched?: boolean } = {}): JSX.Element => {
+    showHelpText = true,
+}: {
+    helpText?: string
+    isLaunched?: boolean
+    showHelpText?: boolean
+} = {}): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
     return (
@@ -27,13 +32,14 @@ export const EmptyMetricsPanel = ({
                     </div>
                 </LemonBanner>
             )}
-            <div className="border border-dashed rounded p-8 flex flex-col items-center gap-4">
-                <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start w-full sm:w-auto">
+            {/* Sized off its own width rather than the screen's, so the two buttons stack in a narrow column */}
+            <div className="@container border border-dashed rounded p-8 flex flex-col items-center gap-4">
+                <div className="flex flex-col @xl:flex-row gap-3 items-stretch @xl:items-start w-full @xl:w-auto">
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
                         onClick={() => openMetricSourceModal(METRIC_CONTEXTS.primary)}
-                        className="!h-[80px] flex-1 sm:w-[280px] sm:flex-none"
+                        className="!h-[80px] flex-1 @xl:w-[280px] @xl:flex-none"
                     >
                         <div className="flex flex-col gap-0.5 text-left">
                             <span className="font-medium text-sm">Add primary metric</span>
@@ -44,7 +50,7 @@ export const EmptyMetricsPanel = ({
                         type="secondary"
                         icon={<IconPlus />}
                         onClick={() => openMetricSourceModal(METRIC_CONTEXTS.secondary)}
-                        className="!h-[80px] flex-1 sm:w-[280px] sm:flex-none"
+                        className="!h-[80px] flex-1 @xl:w-[280px] @xl:flex-none"
                     >
                         <div className="flex flex-col gap-0.5 text-left">
                             <span className="font-medium text-sm">Add secondary metric</span>
@@ -54,7 +60,7 @@ export const EmptyMetricsPanel = ({
                         </div>
                     </LemonButton>
                 </div>
-                {!isLaunched && (
+                {!isLaunched && showHelpText && (
                     <div className="max-w-md">
                         <p className="text-xs text-muted">
                             {helpText ??

@@ -603,7 +603,9 @@ export const ErrorTrackingQueryIssueCreateBody = /* @__PURE__ */ zod.object({
         .min(errorTrackingQueryIssueCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssueCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssueCreateBodyVolumeResolutionDefault)
-        .describe('Volume buckets. Maximum 200.'),
+        .describe(
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true."
+        ),
     includeSparkline: zod
         .boolean()
         .default(errorTrackingQueryIssueCreateBodyIncludeSparklineDefault)
@@ -997,7 +999,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
         .describe(
-            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+            "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets."
         ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
