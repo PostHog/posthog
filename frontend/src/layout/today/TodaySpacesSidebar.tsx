@@ -15,6 +15,7 @@ import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
+import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { selectionClick } from './todaySessionSelection'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
@@ -335,6 +336,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </TodayPaneSection>
                 </div>
+                <TodaySessionBulkBar />
             </div>
         </TooltipProvider>
     )

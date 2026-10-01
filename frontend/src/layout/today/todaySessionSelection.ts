@@ -9,6 +9,16 @@ export interface TodaySessionSelection {
 
 export type TodaySelectionClick = 'toggle' | 'range' | 'open'
 
+export type TodayBulkVerb = 'pin' | 'unpin' | 'file' | 'archive' | 'restore'
+
+const PAST_TENSE: Record<TodayBulkVerb, string> = {
+    pin: 'pinned',
+    unpin: 'unpinned',
+    file: 'filed',
+    archive: 'archived',
+    restore: 'restored',
+}
+
 export const EMPTY_SELECTION: TodaySessionSelection = { ids: [], anchorId: null }
 
 export function selectionClick(event: Pick<MouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>): TodaySelectionClick {
@@ -55,4 +65,40 @@ export function computeRangeSelection(
 export function pruneToVisible(ids: string[], visibleIds: string[]): string[] {
     const visible = new Set(visibleIds)
     return ids.filter((id) => visible.has(id))
+}
+
+/** Pinning wins a mixed selection, so the group ends up in one section instead of split across two. */
+export function computeBulkPinDirection(ids: string[], pinnedIds: ReadonlySet<string>): 'pin' | 'unpin' {
+    return ids.length > 0 && ids.every((id) => pinnedIds.has(id)) ? 'unpin' : 'pin'
+}
+
+export function sessionsLabel(count: number): string {
+    return `${count} ${count === 1 ? 'session' : 'sessions'}`
+}
+
+export function bulkArchiveWarning(count: number, running: number): string {
+    const who =
+        running === count
+            ? `${count === 1 ? 'This session is' : `These ${count} sessions are`} still running.`
+            : `${running} of these ${count} sessions ${running === 1 ? 'is' : 'are'} still running.`
+    const what =
+        running === 1
+            ? 'Archiving it will stop its cloud run and shut down the sandbox.'
+            : 'Archiving them will stop their cloud runs and shut down the sandboxes.'
+    return `${who} ${what} You can unarchive them later.`
+}
+
+export function bulkResultToast(
+    verb: TodayBulkVerb,
+    succeeded: number,
+    failed: number
+): { kind: 'success' | 'error'; title: string; description?: string } {
+    if (failed === 0) {
+        return { kind: 'success', title: `${sessionsLabel(succeeded)} ${PAST_TENSE[verb]}` }
+    }
+    return {
+        kind: 'error',
+        title: `Couldn’t ${verb} ${failed} of ${sessionsLabel(succeeded + failed)}`,
+        description: verb === 'restore' ? 'Try again.' : 'They’re still selected, so you can try again.',
+    }
 }

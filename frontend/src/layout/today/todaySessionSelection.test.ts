@@ -1,5 +1,7 @@
 import {
     TodaySessionSelection,
+    bulkArchiveWarning,
+    computeBulkPinDirection,
     computeRangeSelection,
     orderedVisibleSessionIds,
     toggleSelection,
@@ -45,5 +47,28 @@ describe('todaySessionSelection', () => {
     ])('visible order %s', (_, collapsed, expected) => {
         const recent = [item('r1'), item('chat', 'chat'), item('r2')]
         expect(orderedVisibleSessionIds([item('p1')], recent, collapsed)).toEqual(expected)
+    })
+
+    it.each<[string, string[], 'pin' | 'unpin']>([
+        ['pins when nothing is pinned', ['t1', 't2'], 'pin'],
+        ['pins a mixed selection', ['t1', 'p1'], 'pin'],
+        ['unpins when all are pinned', ['p1', 'p2'], 'unpin'],
+    ])('bulk pin %s', (_, ids, expected) => {
+        expect(computeBulkPinDirection(ids, new Set(['p1', 'p2']))).toEqual(expected)
+    })
+
+    it.each([
+        [
+            3,
+            1,
+            '1 of these 3 sessions is still running. Archiving it will stop its cloud run and shut down the sandbox. You can unarchive them later.',
+        ],
+        [
+            2,
+            2,
+            'These 2 sessions are still running. Archiving them will stop their cloud runs and shut down the sandboxes. You can unarchive them later.',
+        ],
+    ])('names the count when archiving %i sessions with %i running', (count, running, expected) => {
+        expect(bulkArchiveWarning(count, running)).toEqual(expected)
     })
 })
