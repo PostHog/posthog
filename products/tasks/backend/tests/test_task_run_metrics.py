@@ -37,14 +37,10 @@ class TestCustomImageBuildMetrics:
 
 class TestSandboxDeadlineMetrics:
     def test_turn_open_reason_is_preserved(self) -> None:
-        labels: dict[str, object] = {
-            "outcome": "snapshot_only",
-            "reason": "turn_open",
-            "origin_product": "workflow",
-        }
+        labels = {"outcome": "snapshot_only", "reason": "turn_open", "origin_product": "workflow"}
         before = _sample_value("posthog_tasks_sandbox_deadline_total", labels)
 
-        observe_sandbox_deadline(labels)
+        observe_sandbox_deadline(dict[str, object](labels))
 
         assert _sample_value("posthog_tasks_sandbox_deadline_total", labels) == before + 1
 
