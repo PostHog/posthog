@@ -113,6 +113,8 @@ _READ_COMMAND = re.compile(
     r"^\s*(cd\s+\S+\s*(&&|;)\s*)?(grep|rg|cat|ls|find|head|tail|wc|tree|jq|less|sed\s+-n|awk|"
     r"git\s+(log|show|diff|status|blame|grep|ls-files))\b"
 )
+# Output redirection to a file, such as `cat > out.csv`. A `2>` or `>&` redirect only moves a stream.
+_WRITE_REDIRECT = re.compile(r"(?<![0-9&>])>>?(?![&>])")
 _ACTIVITY_LIMIT = 80
 _MAX_AGENT_PLAN_STEPS = 10
 _PLAN_STATUSES = {"pending": "pending", "in_progress": "in_progress", "completed": "complete"}
@@ -165,7 +167,7 @@ def _phase_for_command(command: str) -> ProgressPhase:
         return OPENING_PR
     if _CHECK_COMMAND.search(command):
         return RUNNING_CHECKS
-    if _READ_COMMAND.match(command):
+    if _READ_COMMAND.match(command) and not _WRITE_REDIRECT.search(command):
         return READING_CODE
     return RUNNING_COMMANDS
 

@@ -56,7 +56,17 @@ class TestPhaseForToolCall:
             # Looking up what the server offers is not work on the user's data.
             ("posthog_search", _claude("mcp__posthog__exec", {"command": "search error issues"}), None),
             ("read", _claude("Read", {"file_path": "/repo/a.py"}, kind="read"), "reading_code"),
-            ("grep_command", _claude("Bash", {"command": "grep -rn foo src"}, kind="execute"), "reading_code"),
+            (
+                "grep_command",
+                _claude("Bash", {"command": "grep -rn foo src 2>/dev/null"}, kind="execute"),
+                "reading_code",
+            ),
+            # Writing a file with a read command is not reading.
+            (
+                "write_redirect",
+                _claude("Bash", {"command": "cat > dau.csv <<'EOF'"}, kind="execute"),
+                "running_commands",
+            ),
             ("codex_read_command", _codex_command("cat README.md", "read"), "reading_code"),
             ("edit", _claude("Edit", {"file_path": "/repo/a.py"}, kind="edit"), "making_changes"),
             ("tests", _claude("Bash", {"command": "cd repo && pytest tests/"}, kind="execute"), "running_checks"),
