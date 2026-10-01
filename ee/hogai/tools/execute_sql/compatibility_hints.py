@@ -9,7 +9,7 @@ instead. Each rule below adds the one accepted rewrite for a failure we see repe
 
 import re
 
-from posthog.taxonomy.taxonomy import virtual_property_names
+from posthog.hogql.taxonomy_validation import VIRTUAL_EVENT_PROPERTY_NAMES
 
 # ClickHouse takes any number of arguments for these; HogQL caps both at 2, and nesting is exact
 # rather than approximate because both are associative. `test_nesting_rewrite_is_actually_accepted`
@@ -48,11 +48,6 @@ _TOO_MANY_ARGS_RE = re.compile(r"Function '(\w+)' expects (\d+) arguments?, foun
 _BAD_ESCAPE_RE = re.compile(r"unrecognised escape '\\(.)'")
 _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
 _UNRESOLVED_FIELD_RE = re.compile(r"(?:Unable to resolve field|Field not found): (\$virt_\w+)")
-
-# The schema lists these as event properties, but HogQL computes them only as fields of the `events`
-# table. `SELECT *` skips them, so an outer query over a subquery or CTE cannot read them, and the
-# `persons`, `sessions` and `poe` tables do not have them.
-VIRTUAL_EVENT_PROPERTY_NAMES = virtual_property_names("event_properties")
 
 
 def _nested_call(name: str, arity: int) -> str:

@@ -2,10 +2,11 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.hogql.taxonomy_validation import VIRTUAL_EVENT_PROPERTY_NAMES
+
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 from posthog.taxonomy.dynamic_properties import PropertyScope, dynamic_property_patterns, format_dynamic_property_lines
-from posthog.taxonomy.taxonomy import virtual_property_names
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.chat_agent.taxonomy.entities import resolve_entity_name
@@ -106,8 +107,6 @@ def _dynamic_properties_hint(scope: PropertyScope) -> str:
 DYNAMIC_PERSON_PROPERTIES_HINT = _dynamic_properties_hint("person")
 
 DYNAMIC_EVENT_PROPERTIES_HINT = _dynamic_properties_hint("event")
-
-VIRTUAL_EVENT_PROPERTY_NAMES = virtual_property_names("event_properties")
 
 # The list shows virtual properties for every event, but HogQL computes them only on the `events` table.
 # Without this note, callers query them through a subquery or another table and get a resolution error.
