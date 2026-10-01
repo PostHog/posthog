@@ -1,6 +1,13 @@
 import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { artifactPreviewKind, collectRunArtifacts, parseCsv, visibleRunArtifacts } from './taskRunArtifacts'
+import {
+    RunArtifact,
+    artifactPreviewKind,
+    collectRunArtifacts,
+    groupArtifactVersions,
+    parseCsv,
+    visibleRunArtifacts,
+} from './taskRunArtifacts'
 
 function artifact(overrides: Partial<TaskRunArtifactResponseApi>): TaskRunArtifactResponseApi {
     return {
@@ -82,5 +89,41 @@ describe('taskRunArtifacts', () => {
             { id: 'chart', runId: 'run-3', uploaded_at: '2026-09-30T19:00:00Z' },
             { id: 'report', runId: 'run-1', uploaded_at: '2026-09-30T17:00:00Z' },
         ])
+    })
+
+    test.each([
+        [
+            'merges one name across runs, newest first',
+            [
+                { id: 'report-1', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T17:00:00Z' },
+                { id: 'report-3', runId: 'run-2', name: 'report.md', uploaded_at: '2026-09-30T19:00:00Z' },
+                { id: 'report-2', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T18:00:00Z' },
+            ],
+            [{ name: 'report.md', versionIds: ['report-3', 'report-2', 'report-1'], latestId: 'report-3' }],
+        ],
+        [
+            'keeps different names apart, by latest upload',
+            [
+                { id: 'chart-1', runId: 'run-1', name: 'chart.svg', uploaded_at: '2026-09-30T18:30:00Z' },
+                { id: 'report-2', runId: 'run-2', name: 'report.md', uploaded_at: '2026-09-30T19:00:00Z' },
+                { id: 'report-1', runId: 'run-1', name: 'report.md', uploaded_at: '2026-09-30T17:00:00Z' },
+            ],
+            [
+                { name: 'report.md', versionIds: ['report-2', 'report-1'], latestId: 'report-2' },
+                { name: 'chart.svg', versionIds: ['chart-1'], latestId: 'chart-1' },
+            ],
+        ],
+    ])('groupArtifactVersions %s', (_, versions, expected) => {
+        const artifacts: RunArtifact[] = versions.map(({ runId, ...overrides }) => ({
+            ...artifact(overrides),
+            runId,
+        }))
+        expect(
+            groupArtifactVersions(artifacts).map((file) => ({
+                name: file.name,
+                versionIds: file.versions.map(({ id }) => id),
+                latestId: file.latest.id,
+            }))
+        ).toEqual(expected)
     })
 })
