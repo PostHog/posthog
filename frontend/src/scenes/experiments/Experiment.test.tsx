@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -176,15 +177,24 @@ describe('Experiment component', () => {
                 .filter(([event]) => event === 'experiment health finding shown')
                 .map(([, properties]) => properties?.finding_code)
 
+            await userEvent.click(screen.getAllByText('Add secondary metric')[0])
+            await userEvent.click(screen.getAllByText('Add primary metric')[0])
+            const actedOn = captureSpy.mock.calls
+                .filter(([event]) => event === 'experiment health finding acted on')
+                .map(([, properties]) => [properties?.finding_code, properties?.action_kind])
+
             if (expectWarningBanner) {
                 expect(screen.getByText('No metrics defined')).toBeInTheDocument()
                 // The fixture has no feature flag, so the flag-state banner renders too.
-                expect(shownFindingCodes).toEqual(
-                    expect.arrayContaining(['no_primary_metric', 'flag_off_while_running'])
-                )
+                expect(shownFindingCodes).toEqual(expect.arrayContaining(['no_metric', 'flag_off_while_running']))
+                expect(actedOn).toEqual([
+                    ['no_metric', 'add_secondary_metric'],
+                    ['no_metric', 'add_primary_metric'],
+                ])
             } else {
                 expect(screen.queryByText('No metrics defined')).not.toBeInTheDocument()
                 expect(shownFindingCodes).toEqual([])
+                expect(actedOn).toEqual([])
             }
 
             cleanupKea(sceneLogic)

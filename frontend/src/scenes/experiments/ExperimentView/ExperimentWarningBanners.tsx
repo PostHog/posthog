@@ -87,7 +87,7 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
-    const reportHealthFindingActedOn = useHealthFindingReporting(
+    const { reportActedOn } = useHealthFindingReporting(
         experimentWarning ? healthFindingForExperimentWarning(experimentWarning.key) : null
     )
 
@@ -105,7 +105,7 @@ export function ExperimentWarningBanner(): JSX.Element | null {
         <Link
             target="_blank"
             to={urls.featureFlag(experiment.feature_flag.id)}
-            onClick={() => reportHealthFindingActedOn('open_feature_flag')}
+            onClick={() => reportActedOn('open_feature_flag')}
         >
             {experiment.feature_flag.key}
         </Link>

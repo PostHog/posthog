@@ -29,7 +29,9 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
             posthog.capture('experiment bias warning shown', { ...getEventPropertiesForExperiment(experiment) })
         }
     }, [risk, experiment])
-    const reportHealthFindingActedOn = useHealthFindingReporting(risk ? { code: 'bias_risk_multiple_excluded' } : null)
+    const { reportOpened, reportActedOn } = useHealthFindingReporting(
+        risk ? { code: 'bias_risk_multiple_excluded' } : null
+    )
 
     if (!risk) {
         return null
@@ -52,6 +54,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                         <Link
                             to="https://posthog.com/docs/experiments/exposures#handling-multiple-exposures"
                             target="_blank"
+                            onClick={() => reportOpened('docs')}
                         >
                             <strong>First seen</strong>
                         </Link>{' '}
@@ -63,7 +66,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                         size="small"
                         type="secondary"
                         onClick={() => {
-                            reportHealthFindingActedOn('adjust_distribution')
+                            reportActedOn('adjust_distribution')
                             openDistributionModal()
                         }}
                     >
@@ -73,7 +76,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
                         size="small"
                         type="secondary"
                         onClick={() => {
-                            reportHealthFindingActedOn('use_first_seen_variant')
+                            reportActedOn('use_first_seen_variant')
                             openExposureCriteriaModal({
                                 ...exposureCriteria,
                                 multiple_variant_handling: 'first_seen',

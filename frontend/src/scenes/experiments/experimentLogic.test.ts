@@ -361,6 +361,55 @@ describe('experimentLogic', () => {
                 })
             }).toNotHaveDispatchedActions(['refreshExperimentResults'])
         })
+
+        it.each([
+            {
+                desc: 'no exposure answer',
+                exposures: null,
+                expected: { exposures_total: null, has_srm: null, has_bias_risk: null },
+            },
+            {
+                desc: 'an answer without exposures',
+                exposures: { timeseries: [], total_exposures: {} },
+                expected: { exposures_total: 0, has_srm: false, has_bias_risk: false },
+            },
+            {
+                desc: 'an uneven split with users in several variants',
+                exposures: {
+                    timeseries: [{ variant: 'control' }, { variant: 'test' }],
+                    total_exposures: { control: 600, test: 400 },
+                    sample_ratio_mismatch: { expected: { control: 500, test: 500 }, p_value: 0.0001 },
+                    bias_risk: { multiple_variant_percentage: 5 },
+                },
+                expected: { exposures_total: 1000, has_srm: true, has_bias_risk: true },
+            },
+        ])('reports the exposure state with the completed refresh: $desc', async ({ exposures, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
+            logic.actions.setExperiment(experiment)
+            if (exposures) {
+                logic.actions.loadExposuresSuccess(exposures)
+            }
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+
+            await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+            const refreshEvents = captureSpy.mock.calls.filter(
+                ([event]) => event === 'experiment results refresh completed'
+            )
+            expect(refreshEvents).toHaveLength(1)
+            expect(refreshEvents[0][1]).toMatchObject(expected)
+        })
     })
 
     describe('updateExperimentMetrics', () => {
@@ -2607,6 +2656,35 @@ describe('experimentLogic', () => {
                     },
                 ])
             )
+        })
+
+        it('reports a finding as shown before it reports the finding as opened', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const running = {
+                ...experiment,
+                id: 7,
+                status: ExperimentStatus.Running,
+                start_date: dayjs().subtract(3, 'day').toISOString(),
+            }
+            const properties = {
+                experiment_id: 7,
+                experiment_status: 'running',
+                experiment_days_since_start: 3,
+                finding_code: 'zero_exposures',
+                finding_variant: null,
+                surface: 'experiment_page',
+                source: 'web',
+            }
+
+            logic.actions.loadExperimentSuccess(running)
+            logic.actions.reportHealthFindingOpened({ code: 'zero_exposures' }, 'evidence')
+            logic.actions.reportHealthFindingOpened({ code: 'zero_exposures' }, 'evidence')
+
+            expect(findingEvents(captureSpy)).toEqual([
+                ['experiment health finding shown', properties],
+                ['experiment health finding opened', { ...properties, open_kind: 'evidence' }],
+                ['experiment health finding opened', { ...properties, open_kind: 'evidence' }],
+            ])
         })
     })
 

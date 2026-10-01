@@ -2,9 +2,11 @@ import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
 import type { ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
 
+import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import { getExperimentStatus } from '../experimentStatus'
+import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
 export type ExperimentHealthFindingCode =
@@ -15,7 +17,7 @@ export type ExperimentHealthFindingCode =
     | 'bias_risk_multiple_excluded'
     | 'srm'
     | 'zero_exposures'
-    | 'no_primary_metric'
+    | 'no_metric'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -23,12 +25,17 @@ export interface ExperimentHealthFinding {
     variant?: string
 }
 
+// pinned: `open_kind` property values, for the same reason as the codes above.
+export type ExperimentHealthFindingOpenKind = 'evidence' | 'docs'
+
 // pinned: `action_kind` property values, for the same reason as the codes above.
 export type ExperimentHealthFindingActionKind =
     | 'adjust_distribution'
     | 'use_first_seen_variant'
     | 'open_feature_flag'
     | 'edit_exposure_criteria'
+    | 'add_primary_metric'
+    | 'add_secondary_metric'
 
 const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentHealthFindingCode> = {
     running_but_flag_disabled: 'flag_off_while_running',
@@ -66,6 +73,18 @@ export function captureExperimentHealthFindingShown(experiment: Experiment, find
     posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding))
 }
 
+export function captureExperimentHealthFindingOpened(
+    experiment: Experiment,
+    finding: ExperimentHealthFinding,
+    openKind: ExperimentHealthFindingOpenKind
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health finding opened', {
+        ...healthFindingEventProperties(experiment, finding),
+        open_kind: openKind,
+    })
+}
+
 export function captureExperimentHealthFindingActedOn(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
@@ -78,4 +97,23 @@ export function captureExperimentHealthFindingActedOn(
         // A click starts the action. The save that completes it happens in a modal or on another page.
         action_step: 'started',
     })
+}
+
+/**
+ * The exposure warnings render on one tab only, so a "shown" event cannot give the exposure state of
+ * every load. `experiment results refresh completed` follows the exposure load on every tab.
+ */
+export function exposureHealthEventProperties(exposures: ExperimentExposureQueryResponse | null | undefined): {
+    exposures_total: number | null
+    has_srm: boolean | null
+    has_bias_risk: boolean | null
+} {
+    if (!exposures) {
+        return { exposures_total: null, has_srm: null, has_bias_risk: null }
+    }
+    return {
+        exposures_total: getTotalExposures(exposures),
+        has_srm: hasSampleRatioMismatch(exposures),
+        has_bias_risk: exposures.bias_risk != null,
+    }
 }

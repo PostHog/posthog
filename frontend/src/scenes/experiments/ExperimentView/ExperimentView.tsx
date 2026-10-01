@@ -54,7 +54,9 @@ const MetricsTab = (): JSX.Element => {
     const showRecalculationStatus = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION] && hasMetrics
 
     // The condition under which EmptyMetricsPanel renders its "No metrics defined" warning below.
-    useHealthFindingReporting(!hasMetrics && isExperimentLaunched ? { code: 'no_primary_metric' } : null)
+    const { reportActedOn: reportNoMetricActedOn } = useHealthFindingReporting(
+        !hasMetrics && isExperimentLaunched ? { code: 'no_metric' } : null
+    )
 
     return (
         <>
@@ -72,7 +74,12 @@ const MetricsTab = (): JSX.Element => {
 
             {/* Modern metrics view */}
             {!hasMetrics ? (
-                <EmptyMetricsPanel isLaunched={isExperimentLaunched} />
+                <EmptyMetricsPanel
+                    isLaunched={isExperimentLaunched}
+                    onAddMetric={(metricType) =>
+                        reportNoMetricActedOn(metricType === 'primary' ? 'add_primary_metric' : 'add_secondary_metric')
+                    }
+                />
             ) : (
                 <>
                     <Metrics isSecondary={false} />

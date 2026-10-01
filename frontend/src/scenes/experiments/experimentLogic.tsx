@@ -86,8 +86,11 @@ import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentSt
 import {
     type ExperimentHealthFinding,
     type ExperimentHealthFindingActionKind,
+    type ExperimentHealthFindingOpenKind,
     captureExperimentHealthFindingActedOn,
+    captureExperimentHealthFindingOpened,
     captureExperimentHealthFindingShown,
+    exposureHealthEventProperties,
 } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
     legacyExpectedRunningTime,
@@ -917,6 +920,13 @@ export interface experimentLogicActions {
         actionKind: ExperimentHealthFindingActionKind
         finding: ExperimentHealthFinding
     }
+    reportHealthFindingOpened: (
+        finding: ExperimentHealthFinding,
+        openKind: ExperimentHealthFindingOpenKind
+    ) => {
+        finding: ExperimentHealthFinding
+        openKind: ExperimentHealthFindingOpenKind
+    }
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
     }
@@ -1360,6 +1370,10 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         ) => ({ experiment, forceRefresh, context }),
         reportHealthFindingShown: (finding: ExperimentHealthFinding) => ({ finding }),
+        reportHealthFindingOpened: (finding: ExperimentHealthFinding, openKind: ExperimentHealthFindingOpenKind) => ({
+            finding,
+            openKind,
+        }),
         reportHealthFindingActedOn: (
             finding: ExperimentHealthFinding,
             actionKind: ExperimentHealthFindingActionKind
@@ -1601,8 +1615,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 toggleDebugPanel: (state) => !state,
             },
         ],
-        // `experiment viewed` fires once per successful load. A health finding is reported once per
-        // load too, so that a load without the finding's event means that the finding is gone.
+        // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
+        // without the finding's event does not mean that the finding is gone: only the flag-state
+        // banner renders on every tab. `experiment results refresh completed` holds the state per load.
         experimentLoadCount: [
             0,
             {
@@ -2242,6 +2257,12 @@ export const experimentLogic = kea<experimentLogicType>([
             cache.shownHealthFindingKeys.add(key)
             captureExperimentHealthFindingShown(values.experiment, finding)
         },
+        reportHealthFindingOpened: ({ finding, openKind }) => {
+            // Zero exposures has no sign in the collapsed panel, so the reader opens it before the
+            // page reports it. Report "shown" first to keep the order of the two events.
+            actions.reportHealthFindingShown(finding)
+            captureExperimentHealthFindingOpened(values.experiment, finding, openKind)
+        },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
         },
@@ -2559,6 +2580,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         experiment_status: values.experiment?.status ?? null,
                         total_metrics_count: primaryCount + secondaryCount,
                         execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        ...exposureHealthEventProperties(values.exposures),
                     })
 
                     const finalState: FinishedRefreshState = caughtError

@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -2793,6 +2794,12 @@ class TestExperimentService(APIBaseTest):
         kwargs.setdefault("allow_unknown_events", True)
         return self._service().create_experiment(name=name, feature_flag_key=feature_flag_key, **kwargs)
 
+    def _create_launchable_experiment_on_flag_of_age(self, age: timedelta, **kwargs: Any) -> Experiment:
+        experiment = self._create_launchable_experiment(**kwargs)
+        FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(created_at=timezone.now() - age)
+        experiment.feature_flag.refresh_from_db()
+        return experiment
+
     def _create_ended_experiment(
         self,
         name: str = "Ended",
@@ -3796,7 +3803,15 @@ class TestExperimentService(APIBaseTest):
                 "launch_endpoint",
                 lambda self: self._create_launchable_experiment(name="Path L", feature_flag_key="path-launch-flag"),
                 lambda service, experiment, request: service.launch_experiment(experiment, request=request),
-                [("launch_endpoint", 0)],
+                [("launch_endpoint", 0, 0)],
+            ),
+            (
+                "launch_endpoint_on_older_flag",
+                lambda self: self._create_launchable_experiment_on_flag_of_age(
+                    timedelta(days=3, hours=2), name="Path O", feature_flag_key="path-older-flag"
+                ),
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+                [("launch_endpoint", 3, 266400)],
             ),
             (
                 "create_with_start_date",
@@ -3807,7 +3822,7 @@ class TestExperimentService(APIBaseTest):
                     start_date=timezone.now(),
                     event_source=EventSource.API,
                 ),
-                [("create_request", 0)],
+                [("create_request", 0, 0)],
             ),
             (
                 "create_draft",
@@ -3823,7 +3838,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now()}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0)],
+                [("update_start_date", 0, 0)],
             ),
             (
                 "update_moves_start_date_of_running",
@@ -3837,16 +3852,49 @@ class TestExperimentService(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_experiment_launched_reported_once_per_launch(self, _name, build, act, expected, mock_report_user_action):
-        experiment = build(self)
-        mock_report_user_action.reset_mock()
+        with time_machine.travel(timezone.now(), tick=False):
+            experiment = build(self)
+            mock_report_user_action.reset_mock()
 
-        with self.captureOnCommitCallbacks(execute=True):
-            act(self._service(), experiment, self._make_request())
+            with self.captureOnCommitCallbacks(execute=True):
+                act(self._service(), experiment, self._make_request())
 
         launched = [
             call.args[2] for call in mock_report_user_action.call_args_list if call.args[1] == "experiment launched"
         ]
-        assert [(event["launch_path"], event["flag_age_days"]) for event in launched] == expected
+        assert [
+            (event["launch_path"], event["flag_age_days"], event["flag_age_seconds"]) for event in launched
+        ] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "launch_endpoint",
+                lambda service, experiment, request: service.launch_experiment(experiment, request=request),
+            ),
+            (
+                "update_sets_start_date_on_draft",
+                lambda service, experiment, request: service.update_experiment(
+                    experiment, {"start_date": timezone.now()}, event_source=EventSource.API
+                ),
+            ),
+        ]
+    )
+    def test_launch_is_saved_when_its_report_fails(self, _name, act):
+        def fail_launch_report(_user: Any, event: str, *_args: Any, **_kwargs: Any) -> None:
+            if event == "experiment launched":
+                raise RuntimeError("capture failed")
+
+        experiment = self._create_launchable_experiment(name="Path F", feature_flag_key="path-failed-report-flag")
+
+        with patch(
+            "products.experiments.backend.experiment_service.report_user_action", side_effect=fail_launch_report
+        ) as mock_report_user_action:
+            act(self._service(), experiment, self._make_request())
+
+        assert "experiment launched" in [call.args[1] for call in mock_report_user_action.call_args_list]
+        experiment.refresh_from_db()
+        assert experiment.start_date is not None
 
     # ------------------------------------------------------------------
     # Freeze exposure

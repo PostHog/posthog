@@ -1347,17 +1347,24 @@ class ExperimentService:
         request: Any | None = None,
         event_source: EventSource | None = None,
     ) -> None:
-        self._report_lifecycle_event(
-            experiment,
-            "experiment launched",
-            request=request,
-            event_source=event_source,
-            extra_metadata={
-                "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
-                "launch_path": launch_path,
-                "flag_age_days": (timezone.now() - experiment.feature_flag.created_at).days,
-            },
-        )
+        # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
+        try:
+            flag_age = timezone.now() - experiment.feature_flag.created_at
+            self._report_lifecycle_event(
+                experiment,
+                "experiment launched",
+                request=request,
+                event_source=event_source,
+                extra_metadata={
+                    "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    "launch_path": launch_path,
+                    "flag_age_days": flag_age.days,
+                    # Whole days read 0 both for a flag made by this request and for one made hours earlier.
+                    "flag_age_seconds": int(flag_age.total_seconds()),
+                },
+            )
+        except Exception:
+            logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
 
     def _ensure_feature_flag(
         self,

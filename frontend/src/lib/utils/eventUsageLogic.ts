@@ -1266,11 +1266,17 @@ export interface eventUsageLogicActions {
     reportExperimentsListAiBadgeClicked: () => {
         value: true
     }
-    reportExperimentsListViewed: (
-        experimentsShown: number,
-        statusFilter: string
-    ) => {
+    reportExperimentsListViewed: (listView: {
+        archived: boolean
         experimentsShown: number
+        hasSearch: boolean
+        page: number
+        statusFilter: string
+    }) => {
+        archived: boolean
+        experimentsShown: number
+        hasSearch: boolean
+        page: number
         statusFilter: string
     }
     reportFeatureFlagBulkCopy: (
@@ -1926,10 +1932,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentWizardStarted: true,
         reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
         reportExperimentsListAiBadgeClicked: true,
-        reportExperimentsListViewed: (experimentsShown: number, statusFilter: string) => ({
-            experimentsShown,
-            statusFilter,
-        }),
+        reportExperimentsListViewed: (listView: {
+            experimentsShown: number
+            statusFilter: string
+            page: number
+            hasSearch: boolean
+            archived: boolean
+        }) => listView,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2571,10 +2580,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentsListAiBadgeClicked: () => {
             posthog.capture('experiments list ai badge clicked')
         },
-        reportExperimentsListViewed: ({ experimentsShown, statusFilter }) => {
+        reportExperimentsListViewed: ({ experimentsShown, statusFilter, page, hasSearch, archived }) => {
             posthog.capture('experiments list viewed', {
                 experiments_shown: experimentsShown,
                 status_filter: statusFilter,
+                page,
+                has_search: hasSearch,
+                archived,
             })
         },
         reportExperimentViewed: ({ experiment, duration }) => {
