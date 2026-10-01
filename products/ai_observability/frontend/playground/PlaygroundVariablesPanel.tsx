@@ -52,7 +52,14 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                                 <code className="text-xs pt-2 whitespace-nowrap">{`{{${name}}}`}</code>
                                 {unfilledVariables.includes(name) && (
                                     <Tooltip title="No value set. The placeholder is sent as written.">
-                                        <IconWarning className="text-warning mt-2 shrink-0" />
+                                        <span
+                                            tabIndex={0}
+                                            role="img"
+                                            aria-label="No value set"
+                                            className="text-warning mt-2 shrink-0"
+                                        >
+                                            <IconWarning />
+                                        </span>
                                     </Tooltip>
                                 )}
                                 <LemonTextArea
