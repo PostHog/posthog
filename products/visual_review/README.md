@@ -222,6 +222,7 @@ Add `--tolerate-drift` to report the drift and still exit 0. Use it on the defau
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
 - **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes and merge-queue branches, where there's no PR to approve.
   The commit status never gates, but the exit code of `vr run complete` still does, and that is where a caller chooses. A merge-queue branch renders the tree about to land, so it lets drift fail the job. Master passes `--tolerate-drift` instead.
+  A merge-queue run does not heal its baseline file. When the file lacks an entry the merge-base has for a story the run still renders, the merge would delete that baseline from master, so the run fails with the missing identifiers. Restore the entries from master's baseline file and queue the PR again. `vr run complete` exits 1 for a failed run. Only an observe run under `--tolerate-drift` warns and exits 0 instead, so the failure gates the queue but not a master push.
 
 ### PR comments
 
@@ -257,6 +258,7 @@ The cap is measured against the committed baseline on every run, so absorbed shi
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
+A quarantine opened through MCP expires within `AGENT_QUARANTINE_MAX_DAYS`: an omitted or later expiry becomes that cap, because no agent comes back to lift it.
 A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
 This is how a quarantined story's entry keeps up with the story.
 The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.

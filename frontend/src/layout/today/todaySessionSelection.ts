@@ -21,6 +21,13 @@ const PAST_TENSE: Record<TodayBulkVerb, string> = {
 
 export const EMPTY_SELECTION: TodaySessionSelection = { ids: [], anchorId: null }
 
+export function isEditableTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    )
+}
+
 export function selectionClick(event: Pick<MouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>): TodaySelectionClick {
     return event.shiftKey ? 'range' : event.metaKey || event.ctrlKey ? 'toggle' : 'open'
 }

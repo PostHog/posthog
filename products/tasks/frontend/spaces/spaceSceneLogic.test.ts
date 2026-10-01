@@ -11,11 +11,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { AutoArchiveSelection, SpaceFeedStatus, spaceSceneLogic } from './spaceSceneLogic'
+import { AutoArchiveSelection, SpaceFeedStatus, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
     let sessionSpace = 'space-a'
@@ -477,6 +478,22 @@ describe('spaceSceneLogic', () => {
         router.actions.push(urls.taskSpace('space-a'))
         expect(logic.values.composerFocusRequest).toBe(1)
         expect(other.values.composerFocusRequest).toBe(0)
+    })
+
+    it('fills this space’s composer with a suggestion without sending it', async () => {
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        spaceSceneLogic({ id: 'space-b' }).mount()
+
+        logic.actions.applySuggestion('Fix the flaky test')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(composerSeedLogic({ panelId: spaceComposerPanelId('space-a') }).values.seed).toEqual({
+            prompt: 'Fix the flaky test',
+            autoSubmit: false,
+        })
+        expect(composerSeedLogic({ panelId: spaceComposerPanelId('space-b') }).values.seed).toBeNull()
+        expect(logic.values.composerFocusRequest).toBe(1)
     })
 
     it.each([
