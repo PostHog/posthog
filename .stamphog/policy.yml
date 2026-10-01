@@ -152,9 +152,10 @@ deny:
                 - '^posthog/product_urls\.py$'
                 - '^posthog/settings/nextgensquash\.py$'
                 - '^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\.txt|setup_import_baseline\.txt)$'
-                - '^posthog/test/repo_invariants/test_(dataclass_secret_fields|generated_files_are_registered|model_crossing_uses|model_enum_defaults|startup_import_budget)\.py$'
+                - '^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\.py$'
                 - '^products/(architecture\.md|isolation_baseline\.txt)$'
                 - '^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\.py$'
+                - '^tools/hogli-commands/hogli_commands/product_structure\.yaml$'
                 - '^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|reverse_accessors)\.py$'
 allow:
     path_patterns:
