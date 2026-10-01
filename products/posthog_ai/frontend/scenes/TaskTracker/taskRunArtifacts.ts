@@ -149,6 +149,28 @@ export function parseCsv(text: string): string[][] {
     return rows.filter((cells) => cells.some((cell) => cell !== ''))
 }
 
+/**
+ * The option a listbox key moves to, or null for a key the list does not handle.
+ * The arrows stop at the ends and do not wrap, as in the WAI-ARIA listbox pattern.
+ */
+export function listboxKeyTarget(key: string, current: number, count: number): number | null {
+    if (count === 0) {
+        return null
+    }
+    switch (key) {
+        case 'ArrowUp':
+            return Math.max(0, current - 1)
+        case 'ArrowDown':
+            return Math.min(count - 1, current + 1)
+        case 'Home':
+            return 0
+        case 'End':
+            return count - 1
+        default:
+            return null
+    }
+}
+
 /** A file the agent wrote, with the run that holds it. Downloads must name that run, not the open one. */
 export interface RunArtifact extends TaskRunArtifactResponseApi {
     runId: string
