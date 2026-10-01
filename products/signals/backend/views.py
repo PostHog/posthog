@@ -1913,9 +1913,8 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # Unscored reports sort after every scored report, in both directions.
-                expression = F(name)
                 order_by.append(
-                    expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
+                    F(name).desc(nulls_last=True) if clause.startswith("-") else F(name).asc(nulls_last=True)
                 )
             else:
                 order_by.append(clause)

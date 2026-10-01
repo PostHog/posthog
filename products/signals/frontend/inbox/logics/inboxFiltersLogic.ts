@@ -50,11 +50,6 @@ export type InboxCreatedWindow = '24h' | '3d' | '7d' | '14d'
 /** The window a model sort picks when none is set: the ranking sweep only scores reports from the last 7 days. */
 const MODEL_SORT_DEFAULT_WINDOW: InboxCreatedWindow = '7d'
 
-/** Model sorts are staff only, the same rule as the `ranking` field the backend returns. */
-export function isModelSortAvailable(featureFlags: FeatureFlagsSet, user: UserType | null): boolean {
-    return !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff
-}
-
 const DEFAULT_SORT_FIELD: InboxSortField = 'priority'
 const DEFAULT_SORT_DIRECTION: InboxSortDirection = 'asc'
 
@@ -266,7 +261,6 @@ function currentUrlWithFilters(values: InboxFilterState): [string, Record<string
  * matching desktop fix #2699.
  */
 export function buildSignalReportListOrdering(field: InboxSortField, direction: InboxSortDirection): string {
-    // Model sorts send the field the same way, e.g. `-ranking_pr_merged,status,-updated_at`.
     const fieldKey = direction === 'desc' ? `-${field}` : field
     return field === 'updated_at' ? `${fieldKey},status` : `${fieldKey},status,-updated_at`
 }
@@ -682,9 +676,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
         ],
+        // Staff only, the same rule as the `ranking` field the backend returns.
         modelSortAvailable: [
             (s) => [s.featureFlags, s.user],
-            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean => isModelSortAvailable(featureFlags, user),
+            (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
+                !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff,
         ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],
