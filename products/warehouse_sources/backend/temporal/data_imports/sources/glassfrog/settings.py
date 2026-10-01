@@ -4,7 +4,7 @@ from typing import Any
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class GlassfrogEndpointConfig:
     name: str
     path: str
