@@ -108,7 +108,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                     <Fragment key={section.key}>
                         {section.label !== null &&
                             (listRows ? (
-                                <div className="sticky top-0 z-10 bg-(--scene-layout-background) px-2 pt-3 pb-1 text-[11px] font-medium tracking-wider text-muted-foreground uppercase @2xl/main-content:top-[34px]">
+                                <div className="sticky top-0 z-10 bg-(--scene-layout-background) px-2 pt-3 pb-1 text-xxs font-medium tracking-wider text-muted-foreground uppercase @2xl/main-content:top-8.5">
                                     {section.label}
                                 </div>
                             ) : (
@@ -130,7 +130,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             // List rows are ruled apart, like PostHog Desktop's.
                             const rowClassName = cn(
                                 index < entries.length - 1 && 'border-b border-border/60',
-                                index % 2 === 1 && 'bg-[color-mix(in_oklab,var(--foreground)_2%,transparent)]'
+                                index % 2 === 1 && 'bg-fill-hover'
                             )
                             if (entry.kind === 'canvas') {
                                 const row = (
