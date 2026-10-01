@@ -22,6 +22,7 @@ export interface TodayReportLogicProps {
 export interface todayReportLogicValues {
     reports: SignalReport[] // todayLogic
     chartPlacements: ChartPlacements
+    chartsById: Map<string, ReportChartApi>
     currentReport: SignalReport | null
     fullReport: SignalReport | null
     fullReportLoading: boolean
@@ -77,6 +78,7 @@ export interface todayReportLogicMeta {
             reportFailed: boolean
         ) => SignalReport | null
         chartPlacements: (currentReport: SignalReport | null) => ChartPlacements
+        chartsById: (currentReport: SignalReport | null) => Map<string, ReportChartApi>
         trailingCharts: (currentReport: SignalReport | null, chartPlacements: ChartPlacements) => ReportChartApi[]
         signals: (reportSignals: SignalNodeApi[] | null) => SignalNodeApi[]
     }
@@ -145,6 +147,11 @@ export const todayReportLogic = kea<todayReportLogicType>([
                     currentReport?.summary,
                     (currentReport?.charts ?? []).map((chart) => chart.chart_id)
                 ),
+        ],
+        chartsById: [
+            (s) => [s.currentReport],
+            (currentReport: SignalReport | null): Map<string, ReportChartApi> =>
+                new Map((currentReport?.charts ?? []).map((chart) => [chart.chart_id, chart])),
         ],
         trailingCharts: [
             (s) => [s.currentReport, s.chartPlacements],

@@ -1814,6 +1814,28 @@ export interface TeamMarketingAnalyticsConfigApi {
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
 }
 
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
+
+export const AccountPropertyPinKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
+    /** Definition type for this default pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: AccountPropertyPinKindEnumApi
+    /** Project-scoped custom property or relationship definition UUID. */
+    id: string
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1830,6 +1852,8 @@ export interface TeamCustomerAnalyticsConfigApi {
      * @nullable
      */
     account_group_type_index?: number | null
+    /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+    default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
 }
 
 /**
@@ -3893,6 +3917,20 @@ export interface EmojiSearchResponseApi {
     suggestions: EmojiSuggestionApi[]
 }
 
+export interface EventPropertyValueApi {
+    /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+    name: string
+    /** How many times the value occurs, when the lookup counts values. */
+    count?: number
+}
+
+export interface EventPropertyValuesResponseApi {
+    /** Values of the property that match the request. */
+    results: EventPropertyValueApi[]
+    /** True when these results come from a stale cache and a refresh runs in the background. */
+    refreshing: boolean
+}
+
 /**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
@@ -5724,6 +5762,33 @@ export type EmojiSearchSuggestRetrieveParams = {
      */
     query: string
 }
+
+export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[]
+    format?: EventsValuesRetrieveFormat
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean
+    /**
+     * The property to list values for.
+     */
+    key: string
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string
+}
+
+export type EventsValuesRetrieveFormat = (typeof EventsValuesRetrieveFormat)[keyof typeof EventsValuesRetrieveFormat]
+
+export const EventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
 
 export type ExportsListParams = {
     /**

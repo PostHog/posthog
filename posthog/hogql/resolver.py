@@ -38,7 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
-from posthog.hogql.functions.prompt_jev import PromptJevCall
+from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -2004,12 +2004,12 @@ class Resolver(CloningVisitor):
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
 
-        if node.name.lower() == "__preview_promptjev":
+        if is_decision_call(node.name):
             spec = PromptJevCall.parse(node)
             node = clone_expr(node, clear_types=True)
             node.args[0] = self.visit(spec.input)
             node.type = ast.CallType(
-                name="__preview_promptJev",
+                name=node.name.lower(),
                 arg_types=[],
                 return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
             )

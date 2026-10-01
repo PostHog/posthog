@@ -416,6 +416,21 @@ class TestPopulationKindTrainingSemantics(SimpleTestCase):
         for fragment in forbidden:
             self.assertNotIn(fragment, cte)
 
+    def test_bound_anchor_replaces_every_now(self) -> None:
+        cte, values = _build_labeled_users_cte(
+            target_event="checkout",
+            target_definition=None,
+            team=None,
+            horizon_days=7,
+            lookback_days=90,
+            training_population={"kind": "ever_performed_event", "event": "signed_up"},
+            sample_limit=None,
+            anchor_ts=1_700_000_000,
+        )
+        self.assertNotIn("now()", cte)
+        self.assertIn("fromUnixTimestamp({anchor_ts})", cte)
+        self.assertEqual(values["anchor_ts"], 1_700_000_000)
+
     def test_t0_position_does_not_depend_on_a_moving_modulo(self) -> None:
         cte, _values = _build_labeled_users_cte(
             target_event="checkout",

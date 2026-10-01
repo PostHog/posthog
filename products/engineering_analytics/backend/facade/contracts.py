@@ -948,6 +948,18 @@ class PullRequestList:
 
 
 @dataclass(frozen=True)
+class AttentionPullRequestList:
+    """Open pull requests that need attention: failing CI, or stuck by the ``CICardSummary`` rule.
+    Failing first, then newest. ``items`` holds at most ``limit``; ``total`` counts every match, so
+    a consumer can say how many it did not show.
+    """
+
+    items: list[PullRequestListItem]
+    total: int
+    limit: int
+
+
+@dataclass(frozen=True)
 class BranchPRMatch:
     """A pull request a git branch resolves to — the cross-product link seam so a caller
     (e.g. the LLM analytics UI) can turn a git branch into a PR detail link. ``repo`` is 'owner/name'.

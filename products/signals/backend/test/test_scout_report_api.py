@@ -261,6 +261,8 @@ class TestScoutReportAPI(APIBaseTest):
         assert retry["report_id"] == first["report_id"]
         assert retry["idempotent_replay"] is True
         assert SignalReport.objects.filter(team=self.team).count() == 1
+        # A retry that crosses a deploy looks the report up by this stored key, so its format must not drift.
+        assert SignalReport.objects.get(team=self.team).scout_idempotency_key == f"{run.id}:key:checkout-p99"
 
     def test_emit_report_still_authors_a_second_report_for_a_different_finding(self) -> None:
         # The barrier must not swallow a real second finding: one run routinely reports more than one
@@ -1926,6 +1928,7 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
         expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None

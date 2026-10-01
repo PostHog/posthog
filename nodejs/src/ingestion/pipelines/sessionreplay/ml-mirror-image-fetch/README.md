@@ -420,6 +420,8 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 `v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The parser accepts and removes the legacy optional `lowOriginDiversityDeferred` field.
 
+Each frontier or delay record also carries a `capture-timestamp-ms` header. Its value is the smallest `firstSeenAtMs` of the record's jobs. The lane reads the header to report its capture watermark (requirement 11.13) without parsing the record.
+
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
 **10.5** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
@@ -482,6 +484,8 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
 
 Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
+
+**11.13** The lane reports `ml_replay_capture_watermark_timestamp_seconds{data="image_urls"}` for each frontier partition. The value is the earliest `capture-timestamp-ms` among the records that the lane holds on the partition, or that it finished in the last 10 minutes. A record stays held until the consumer stores an offset past it. The mirror, the scrub lane, the Parquet sink, and the retry lane report the same gauge. The minimum over the lanes on a data path is how far back that data is complete in the training bucket. A record that waits in Kafka behind the consumer position does not count until the lane reads it. A URL in a delay topic that no retry consumer reads never counts again.
 
 ### 12. Conditional requests
 

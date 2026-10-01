@@ -24,7 +24,6 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
-    LemonTextArea,
     Spinner,
     Link,
     LemonDivider,
@@ -59,7 +58,10 @@ import {
     type PromptConfig,
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
+import { TemplateVariableTextArea } from './TemplateVariableTextArea'
 
 // Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
@@ -247,6 +249,7 @@ function PlaygroundLayout(): JSX.Element {
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
+            <PlaygroundVariablesPanel />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (
@@ -875,6 +878,7 @@ function getRoleDotClass(role: string): string {
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
+    const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
     const { setSystemPrompt, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -971,13 +975,12 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                                 evaluations apply those rules when they run.
                             </p>
                         )}
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder="System instructions for the AI assistant..."
                             value={prompt.systemPrompt}
                             onChange={(value) => setSystemPrompt(value, promptId)}
+                            unfilledVariables={unfilledVariables}
                             minRows={2}
-                            maxRows={undefined}
                             onPressCmdEnter={() => submitPrompt()}
                         />
                     </div>
@@ -1001,11 +1004,11 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold mb-1 block text-sm">System instructions</label>
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder="System instructions for the AI assistant..."
                             value={prompt.systemPrompt}
                             onChange={(value) => setSystemPrompt(value, promptId)}
+                            unfilledVariables={unfilledVariables}
                             minRows={8}
                         />
                     </div>
@@ -1025,6 +1028,7 @@ function MessageDisplay({
     index: number
 }): JSX.Element {
     const { editModal, collapsedSections } = useValues(llmPlaygroundPromptsLogic)
+    const { unfilledVariables } = useValues(llmPlaygroundVariablesLogic)
     const { updateMessage, deleteMessage, setEditModal, toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
     const { submitPrompt } = useActions(llmPlaygroundRunLogic)
 
@@ -1048,7 +1052,9 @@ function MessageDisplay({
     ]
 
     const trimmedContent = message.content.trim()
-    const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
+    // A leading `{{` is a template token, not JSON (no valid JSON starts with it)
+    const useJsonEditor =
+        (trimmedContent.startsWith('{') && !trimmedContent.startsWith('{{')) || trimmedContent.startsWith('[')
 
     return (
         <>
@@ -1118,13 +1124,12 @@ function MessageDisplay({
                             />
                         </div>
                     ) : (
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder={`Enter ${message.role} message here...`}
                             value={message.content}
                             onChange={handleContentChange}
+                            unfilledVariables={unfilledVariables}
                             minRows={2}
-                            maxRows={undefined}
                             onPressCmdEnter={() => submitPrompt()}
                         />
                     )}
@@ -1148,11 +1153,11 @@ function MessageDisplay({
                 <div className="space-y-4">
                     <div>
                         <label className="font-semibold mb-1 block text-sm">Message content</label>
-                        <LemonTextArea
-                            className="text-sm w-full"
+                        <TemplateVariableTextArea
                             placeholder={`Enter ${message.role} message here...`}
                             value={message.content}
                             onChange={handleContentChange}
+                            unfilledVariables={unfilledVariables}
                             minRows={8}
                         />
                     </div>

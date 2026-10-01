@@ -79,6 +79,21 @@ class TestResumableSourceManager:
             "posthog:data_warehouse:resumable_source:1:job-1", '{"cursor":"cus_2"}', ex=60 * 60 * 24
         )
 
+    def test_save_and_load_logs_do_not_include_cursor_payloads(self):
+        manager = _manager()
+        redis = MagicMock()
+        redis.get.return_value = '{"cursor":"sensitive-customer-id"}'
+
+        with patch.object(ResumableSourceManager, "_get_redis") as get_redis:
+            get_redis.return_value.__enter__.return_value = redis
+            manager.save_state(_SweepPosition(cursor="sensitive-customer-id"))
+            manager.commit()
+            manager.load_state()
+
+        logger = typing.cast(MagicMock, manager._logger)
+        messages = [str(call.args[0]) for call in logger.debug.call_args_list]
+        assert all("sensitive-customer-id" not in message for message in messages)
+
     def test_committing_persists_the_staged_state_even_when_the_block_raises(self):
         manager = _manager()
         redis = MagicMock()
