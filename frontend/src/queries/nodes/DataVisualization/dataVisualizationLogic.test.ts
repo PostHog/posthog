@@ -670,12 +670,28 @@ describe('dataVisualizationLogic', () => {
     })
 
     test.each([
-        { name: 'loads the Hog VM for a table with formatting rules', rules: [equalsRule], hogVm: expect.anything() },
-        { name: 'does not load the Hog VM for a table without formatting rules', rules: [], hogVm: null },
-    ])('$name', async ({ rules, hogVm }) => {
+        {
+            name: 'loads the Hog VM for a table with formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+        },
+        {
+            name: 'does not load the Hog VM for a table without formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for a chart that kept table formatting rules',
+            display: ChartDisplayType.ActionsLineGraph,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+    ])('$name', async ({ display, rules, hogVm }) => {
         const tableLogic = dataVisualizationLogic({
             key: 'hog-vm-loading',
-            query: { ...defaultQuery, tableSettings: { conditionalFormatting: rules } },
+            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
             dataNodeCollectionId,
         } as DataVisualizationLogicProps)
         tableLogic.mount()

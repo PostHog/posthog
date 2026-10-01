@@ -674,6 +674,7 @@ export interface dataVisualizationLogicValues {
     isShowingCachedResults: boolean
     isTableVisualization: boolean
     isTransposed: boolean
+    needsHogVm: boolean
     numericalColumns: Column[]
     pinnedColumns: string[]
     presetChartHeight: boolean
@@ -981,6 +982,10 @@ export interface dataVisualizationLogicMeta {
                 | TraceSpansTreeQueryResponse
                 | null
         ) => ChartDisplayType
+        needsHogVm: (
+            effectiveVisualizationType: ChartDisplayType,
+            conditionalFormattingRules: ConditionalFormattingRule[]
+        ) => boolean
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
         showTableSettings: (effectiveVisualizationType: ChartDisplayType) => boolean
         isColumnPinned: (pinnedColumns: string[]) => (columnName: string) => boolean
@@ -1097,7 +1102,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     })),
     reducers(({ props }) => ({
         hogVm: [null as HogVm | null, { setHogVm: (_, { hogVm }) => hogVm }],
-        hogVmLoadError: [null as unknown, { setHogVmLoadError: (_, { error }) => error }],
+        hogVmLoadError: [null as unknown, { setHogVmLoadError: (_, { error }) => error, setHogVm: () => null }],
         query: [
             props.query,
             {
@@ -1902,6 +1907,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse
             ): ChartDisplayType => getAutoVisualizationType(columns, rowCountFromResponse(response)),
         ],
+        // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
+        needsHogVm: [
+            (s) => [s.effectiveVisualizationType, s.conditionalFormattingRules],
+            (visualizationType: ChartDisplayType, rules: ConditionalFormattingRule[]): boolean =>
+                visualizationType === ChartDisplayType.ActionsTable && rules.length > 0,
+        ],
         isTableVisualization: [
             (s) => [s.effectiveVisualizationType],
             (visualizationType: ChartDisplayType): boolean =>
@@ -2032,9 +2043,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         toggleColumnPin: [sharedListeners.pinnedColumnsChanged],
     })),
     subscriptions(({ actions, values }) => ({
-        // The Hog VM and its crypto polyfills are large, so only a table with formatting rules loads them.
-        conditionalFormattingRules: (rules: ConditionalFormattingRule[]) => {
-            if (rules.length > 0 && !values.hogVm) {
+        needsHogVm: (needsHogVm: boolean) => {
+            if (needsHogVm && !values.hogVm) {
                 actions.loadHogVm()
             }
         },
