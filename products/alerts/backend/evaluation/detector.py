@@ -143,12 +143,18 @@ def extract_detector_series(
         # the whole series rather than comparing against a single anchor interval.
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
-    return apply_evaluation_delay(
+    delayed = apply_evaluation_delay(
         ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval),
         delay=evaluation_delay_intervals,
         minimum_points=min_points_to_evaluate(detector_config),
         timezone=team.timezone,
     )
+    # The detector scores every retained point, not only the trailing window the delay checks.
+    if any(point.value is None for item in delayed.series for point in item.points):
+        raise DelayedEvaluationUnavailable(
+            "The eligible intervals contain missing values. Wait for more data or check the insight."
+        )
+    return delayed
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:

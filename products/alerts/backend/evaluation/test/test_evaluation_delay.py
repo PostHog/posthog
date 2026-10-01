@@ -125,10 +125,11 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertIn("less than lower threshold", result.breaches[0])
         self.assertNotIn("previous hour", result.breaches[0])
 
-    @parameterized.expand([(False,), (True,)])
-    def test_missing_eligible_value_is_skipped(self, detector: bool) -> None:
+    @parameterized.expand([(False, 31), (True, 31), (True, 0)])
+    def test_missing_eligible_value_is_skipped(self, detector: bool, missing_index: int) -> None:
         self.alert.detector_config = {"type": "zscore", "window": 30} if detector else None
-        data = [100.0] * 31 + [None, 0.0, 0.0, 0.0]
+        data: list[float | None] = [100.0] * 31 + [0.0, 0.0, 0.0, 0.0]
+        data[missing_index] = None
         dates = [(datetime(2026, 1, 15, tzinfo=UTC) + timedelta(hours=i)).isoformat() for i in range(len(data))]
         result = self.evaluate(data, dates, detector)
         self.assertIsNone(result.value)
