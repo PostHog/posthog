@@ -7758,6 +7758,10 @@ snapshots:
         hash: v1.k794b7964.0073c5938eb58b2f46998705da2f7057af76a33672895d3d62ebfa73fb10b35b.X0SVL-b3I11Gnd4z_tqve-gEpqiWfWVzNbqvu1Do7gs
     replay-tabs-home-success--recent-recordings--light:
         hash: v1.k794b7964.3d26e4bebc2707c150626fd017c46ccd68b25dd8a5b10125d12d89b33c9595ba.Sif1Rhezuoon8YFPlJQfn74x2A34m1vBQJKM24iF4-4
+    replay-tabs-home-success--recent-recordings-consolidated-controls--dark:
+        hash: v1.k794b7964.433b48e170ac84640c044253daba6ee0c7b1787d3dbab0ece760cdea2010563b.BMowazmKPojHWUrFOIoQlg5N3tKL9aS7d4I_io8lSyA
+    replay-tabs-home-success--recent-recordings-consolidated-controls--light:
+        hash: v1.k794b7964.76a06018b65aefc782ae6903693afe38aa56769c92c9f5ca5dcfd92caaf8834e.nNgzWC-iMgbb3yH4B8HdjvvZv4_RGzNZ8nPHFYwd1sU
     replay-tabs-home-success--recent-recordings-empty--dark:
         hash: v1.k794b7964.b96eb8ff3becd42ef223773f142db0fb5a5c7d743adcce158cb164940f170c20.5aj7iROHwfdLWjLstJZEx3YzsXaFoHJbn4sok-n-0XM
     replay-tabs-home-success--recent-recordings-empty--light:
