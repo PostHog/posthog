@@ -83,7 +83,7 @@ The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scan
 
 Each case carries the recorded production output, and labeled cases also carry the human thumbs label. The scorers grade the PR's prompts against whichever reference a case has, so one run already benchmarks a prompt change against production.
 What it is not yet is a standing benchmark comparable across PRs and over time: the collector re-samples per run (deterministic for a fixed source, but the source drifts as observations accumulate and expire), so run-over-run score deltas mix a prompt change with a set change.
-A pinned dataset fixes that (see "Pinning the dataset" below): a person curates the set once, uploads it, and CI reads it unchanged, so prompt-path PRs compare against the same footage every run. Consent is re-verified at every eval start. Pinning real recordings to an internal bucket still needs the data-governance decision; until it clears, PR runs keep collecting fresh.
+A pinned dataset fixes that (see "Pinning the dataset" below): a person curates the set once, uploads it, and CI reads it unchanged, so prompt-path PRs compare against the same footage every run. Consent is re-verified at every eval start, and a case leaves the set when its source recording is deleted or expires. Pinning real recordings to an internal bucket still needs the data-governance decision; until it clears, PR runs keep collecting fresh.
 
 ## Pinning the dataset
 
@@ -97,7 +97,7 @@ AWS_PROFILE=... POSTHOG_API_KEY=... REPLAY_VISION_EVAL_DATASET_BUCKET=... python
     --upload replay-vision/golden/v1/manifest.json
 ```
 
-A pinned key never changes: `--upload` refuses a key that already holds a manifest. To extend the set, collect with `--from <old key>` (which downloads the pin into `--output` first), upload under a new key prefix (for example `replay-vision/golden/v2/manifest.json`, because case files sit beside the manifest), and point `REPLAY_VISION_EVAL_PIN_KEY` at it. Nothing changes the pin automatically.
+An upload never changes a pinned key: `--upload` refuses a key that already holds a manifest. To extend the set, collect with `--from <old key>` (which downloads the pin into `--output` first), upload under a new key prefix (for example `replay-vision/golden/v2/manifest.json`, because case files sit beside the manifest), and point `REPLAY_VISION_EVAL_PIN_KEY` at it. Nothing adds cases to the pin automatically. Only the prune job below removes them.
 
 Running the suite against the pin instead of a local directory:
 
@@ -108,8 +108,26 @@ REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/v1/manifest.json \
 POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
 ```
 
-The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. CI uses the pin only when the `replay-vision-evals` environment sets all three of `REPLAY_VISION_EVAL_PIN_BUCKET`, `REPLAY_VISION_EVAL_PIN_KEY`, and `REPLAY_VISION_EVAL_PIN_ROLE_ARN` (a read-only role GitHub OIDC can assume from that environment; `REPLAY_VISION_EVAL_PIN_REGION` defaults to `us-east-1`).
+The suite downloads the pinned manifest and the files of every live case, replacing local copies, then re-verifies the source org's consent before scanning. CI uses the pin only when the `replay-vision-evals` environment sets all three of `REPLAY_VISION_EVAL_PIN_BUCKET`, `REPLAY_VISION_EVAL_PIN_KEY`, and `REPLAY_VISION_EVAL_PIN_ROLE_ARN` (a read-only role GitHub OIDC can assume from that environment; `REPLAY_VISION_EVAL_PIN_REGION` defaults to `us-east-1`).
 With any of them unset, CI collects fresh.
+
+### Lifecycle
+
+A pinned case follows the lifecycle of its source recording, in `pin_lifecycle.py`.
+A case is live while `GET /api/environments/<project>/session_recordings/<session>/` returns the recording and its `expiry_time` is in the future.
+The API returns 404 after a deletion (by a user, a person deletion, or a team deletion), and `expiry_time` follows the team's recording retention.
+
+- Every reader drops dead cases before it fetches any bytes: the download, the eval on a local directory, and `collect` when it reuses earlier cases. The eval refuses to run when no case is left.
+- The `Replay Vision Evals Prune` workflow runs daily on master. In every version under `replay-vision/golden/`, it deletes the video and inputs of every dead case, then rewrites the manifest without them. This is the one change a pinned key ever gets.
+- An API error stops the prune before it deletes anything more, so an outage never deletes a live case. The job prints only a count.
+- The workflow uses the `replay-vision-evals-prune` environment, restricted to master. It needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY`, `REPLAY_VISION_EVAL_PIN_BUCKET`, and `REPLAY_VISION_EVAL_PIN_PRUNE_ROLE_ARN` (a role that can list, read, write, and delete under `replay-vision/golden/`). With any of them unset, it skips green.
+
+To prune by hand:
+
+```bash
+AWS_PROFILE=... POSTHOG_API_KEY=... REPLAY_VISION_EVAL_DATASET_BUCKET=... \
+    python -m products.replay_vision.evals.pin_lifecycle --prefix replay-vision/golden/
+```
 Before they are set, recording bytes in an internal bucket needs the data-governance decision below.
 
 ## Data handling
@@ -117,7 +135,7 @@ Before they are set, recording bytes in an internal bucket needs the data-govern
 The dataset contains real session recordings and event data.
 
 - Keep it in a local or internal location only; never commit it, upload it, or reference its contents in PRs.
-- A dataset never expires on age: the suite re-verifies the source org's AI data-processing consent at every eval start (via the public API of US or EU Cloud, with `POSTHOG_API_KEY`) and refuses to scan only when consent is actually withdrawn.
+- A case lives only as long as its source recording (see "Lifecycle" above). The suite also re-verifies the source org's AI data-processing consent at every eval start (via the public API of US or EU Cloud, with `POSTHOG_API_KEY`) and refuses to scan when consent is withdrawn.
 - The suite is `OneShotPrivateEval`, so per-case logs stay in the local `eval_harness/logs/` directory and nothing goes to Braintrust.
 - The retained `signals` can contain session content. Keep these payloads private; never include them in public CI summaries, commits, or pull requests.
 - Dataset-derived content still leaves the machine on three paths. Two reach a model provider: the Gemini scans, which are the same provider call production already makes through `run_scan`, and the `summary_alignment` judge, which sends the recorded and fresh summaries to `gpt-5.4`. The third is the harness's `$ai_evaluation` capture, which stays inside PostHog.

@@ -64,7 +64,7 @@ def main() -> None:
 
     output = Path(args.output).expanduser()
     if args.from_key:
-        pinned = download_pinned_dataset(output, key=args.from_key)
+        pinned = download_pinned_dataset(output, api_key=api_key, key=args.from_key)
         print(f"Loaded {len(pinned.cases)} pinned cases from {args.from_key}")  # noqa: T201
 
     dataset = collect(

@@ -67,6 +67,7 @@ from products.replay_vision.evals.dataset import (
     MANIFEST_NAME,
     GoldenCase,
     GoldenDataset,
+    drop_dead_cases,
     load_dataset,
     parse_utc,
     save_dataset,
@@ -603,12 +604,17 @@ def collect(
     # case folders of earlier runs; this run's freshly collected version wins on overlap.
     merged = _reusable_existing_cases(output, team_id)
     merged.update({case.case_id: case for case in cases})
-    dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host=host,
-        project_id=project_id,
-        organization_id=str(environment["organization"]),
-        cases=list(merged.values()),
+    # Reused cases come from earlier runs or an older pin, so drop those whose recording has since
+    # been deleted or expired instead of carrying them into a new version.
+    dataset = drop_dead_cases(
+        GoldenDataset(
+            created_at=dt.datetime.now(dt.UTC).isoformat(),
+            host=host,
+            project_id=project_id,
+            organization_id=str(environment["organization"]),
+            cases=list(merged.values()),
+        ),
+        api_key,
     )
     save_dataset(output, dataset)
     return dataset

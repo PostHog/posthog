@@ -38,6 +38,7 @@ from products.replay_vision.evals import (
     collector,
     dataset as dataset_module,
     eval_scanner_quality,
+    pin_lifecycle,
 )
 from products.replay_vision.evals.collector import (
     _VideoAsset,
@@ -47,7 +48,6 @@ from products.replay_vision.evals.collector import (
 )
 from products.replay_vision.evals.dataset import (
     DATASET_BUCKET_ENV_VAR,
-    DATASET_ENDPOINT_ENV_VAR,
     DATASET_ENV_VAR,
     DATASET_KEY_ENV_VAR,
     GoldenCase,
@@ -60,6 +60,7 @@ from products.replay_vision.evals.dataset import (
     upload_pinned_dataset,
 )
 from products.replay_vision.evals.eval_scanner_quality import build_case
+from products.replay_vision.evals.pin_lifecycle import DATASET_ENDPOINT_ENV_VAR
 from products.replay_vision.evals.scorers import (
     LabeledOutcome,
     OutputStability,
@@ -436,7 +437,9 @@ def test_ensure_dataset_consent_resolves_the_org_on_legacy_manifests() -> None:
 
 
 def _golden_case_on_disk(case_id: str, root: Path, *, write_files: bool = True) -> GoldenCase:
-    case = _golden("monitor", None, _monitor_output("no"), case_id=case_id)
+    case = _golden("monitor", None, _monitor_output("no"), case_id=case_id).model_copy(
+        update={"session_id": f"sess-{case_id}"}
+    )
     if write_files:
         case.case_dir(root).mkdir(parents=True)
         case.video_path(root).write_bytes(f"video-{case_id}".encode())
@@ -473,12 +476,58 @@ class _FakePinStore:
         self.objects[Key] = Path(Filename).read_bytes()
         self.writes.append(Key)
 
+    def list_objects_v2(self, *, Bucket: str, Prefix: str) -> dict[str, Any]:
+        return {"Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]}
+
+    def delete_object(self, *, Bucket: str, Key: str) -> None:
+        self.objects.pop(Key, None)
+
 
 @pytest.fixture
 def pin_store() -> Iterator[_FakePinStore]:
     store = _FakePinStore()
-    with patch.object(dataset_module, "_pin_client", return_value=store):
+    with patch.object(dataset_module, "pin_client", return_value=store):
         yield store
+
+
+class _FakePostHogApi:
+    """Stands in for `requests.get` against US Cloud: recordings, the organization, and the environment."""
+
+    def __init__(self) -> None:
+        self.deleted: set[str] = set()
+        self.expired: set[str] = set()
+        self.failing: set[str] = set()
+        self.approved = True
+        self.urls: list[str] = []
+
+    def __call__(self, url: str, **_: Any) -> MagicMock:
+        self.urls.append(url)
+        response = MagicMock(status_code=200)
+        if "/session_recordings/" in url:
+            session_id = url.rstrip("/").rsplit("/", 1)[-1]
+            if session_id in self.failing:
+                response.status_code = 503
+                response.raise_for_status.side_effect = requests.HTTPError("503", response=response)
+            elif session_id in self.deleted:
+                response.status_code = 404
+            else:
+                expiry = dt.datetime.now(dt.UTC) + dt.timedelta(days=-1 if session_id in self.expired else 30)
+                response.json.return_value = {"expiry_time": expiry.isoformat()}
+        elif "/organizations/" in url:
+            response.json.return_value = {"is_ai_data_processing_approved": self.approved}
+        else:
+            response.json.return_value = {"organization": _ORG_ID}
+        return response
+
+    def recording_checks(self) -> list[str]:
+        return [url.rstrip("/").rsplit("/", 1)[-1] for url in self.urls if "/session_recordings/" in url]
+
+
+@pytest.fixture
+def posthog_api() -> Iterator[_FakePostHogApi]:
+    api = _FakePostHogApi()
+    with patch("requests.get", side_effect=api):
+        yield api
 
 
 def _pinned_dataset(*cases: GoldenCase) -> GoldenDataset:
@@ -489,6 +538,37 @@ def _pinned_dataset(*cases: GoldenCase) -> GoldenDataset:
         organization_id=_ORG_ID,
         cases=list(cases),
     )
+
+
+@pytest.mark.parametrize(
+    "state,live",
+    [("live", True), ("expired", False), ("deleted", False)],
+)
+def test_recording_is_live_follows_the_source_recording(posthog_api: _FakePostHogApi, state: str, live: bool) -> None:
+    if state != "live":
+        getattr(posthog_api, state).add("sess-1")
+    assert (
+        pin_lifecycle.recording_is_live(
+            host="https://us.posthog.com",
+            project_id=2,
+            session_id="sess-1",
+            api_key="test-key",
+            now=dt.datetime.now(dt.UTC),
+        )
+        == live
+    )
+
+
+def test_recording_is_live_raises_when_the_api_cannot_say(posthog_api: _FakePostHogApi) -> None:
+    posthog_api.failing.add("sess-1")
+    with pytest.raises(requests.HTTPError):
+        pin_lifecycle.recording_is_live(
+            host="https://us.posthog.com",
+            project_id=2,
+            session_id="sess-1",
+            api_key="test-key",
+            now=dt.datetime.now(dt.UTC),
+        )
 
 
 def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(
@@ -522,14 +602,18 @@ def test_upload_pinned_dataset_refuses_without_writing(
     assert pin_store.writes == []
 
 
-def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_path: Path) -> None:
+def test_collect_records_the_org_and_reuses_only_live_cases_of_the_collected_team(
+    tmp_path: Path, posthog_api: _FakePostHogApi
+) -> None:
     same_team = _golden_case_on_disk("c1", tmp_path)
     other_team = _golden_case_on_disk("c2", tmp_path).model_copy(update={"team_id": 3})
+    deleted_recording = _golden_case_on_disk("c3", tmp_path)
+    posthog_api.deleted.add(deleted_recording.session_id)
     inputs = build_llm_inputs(_FakeApi(), 2, "sess-1")  # type: ignore[arg-type]
     assert inputs is not None
-    for case in (same_team, other_team):
+    for case in (same_team, other_team, deleted_recording):
         case.inputs_path(tmp_path).write_text(inputs.model_dump_json())
-    save_dataset(tmp_path, _pinned_dataset(same_team, other_team))
+    save_dataset(tmp_path, _pinned_dataset(same_team, other_team, deleted_recording))
     api = MagicMock()
     api.get_json.side_effect = lambda path: (
         {"id": 2, "project_id": 2, "organization": _ORG_ID, "name": "Team"}
@@ -553,8 +637,12 @@ def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_p
     assert load_dataset(tmp_path) == dataset
 
 
-@pytest.mark.parametrize("error", [requests.ReadTimeout("slow"), requests.HTTPError("500")])
-def test_collect_skips_a_case_whose_request_fails(tmp_path: Path, error: Exception) -> None:
+@pytest.mark.parametrize(
+    "error", [requests.ReadTimeout("slow"), requests.HTTPError("500", response=MagicMock(status_code=500))]
+)
+def test_collect_skips_a_case_whose_request_fails(
+    tmp_path: Path, posthog_api: _FakePostHogApi, error: Exception
+) -> None:
     api = MagicMock()
     api.get_json.side_effect = lambda path: (
         {"id": 2, "project_id": 2, "organization": _ORG_ID, "name": "Team"}
@@ -581,7 +669,9 @@ def test_collect_skips_a_case_whose_request_fails(tmp_path: Path, error: Excepti
     assert [case.case_id for case in dataset.cases] == ["c2"]
 
 
-def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path, pin_store: _FakePinStore) -> None:
+def test_download_pinned_dataset_replaces_existing_local_case_files(
+    tmp_path: Path, pin_store: _FakePinStore, posthog_api: _FakePostHogApi
+) -> None:
     dataset = _pinned_dataset(
         _golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path, write_files=False)
     )
@@ -590,7 +680,7 @@ def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Pa
         for name in ("video.mp4", "inputs.json"):
             pin_store.objects[f"replay-vision/golden/v1/cases/{case_id}/{name}"] = f"remote-{case_id}-{name}".encode()
 
-    downloaded = download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+    downloaded = download_pinned_dataset(tmp_path, api_key="test-key", bucket="test-bucket", key=_PIN_KEY)
 
     assert downloaded == dataset
     # c1's stale local bytes must not survive, or they are scored under the pinned manifest.
@@ -605,9 +695,27 @@ def test_golden_case_rejects_ids_that_leave_the_dataset_directory(case_id: str) 
         _golden("monitor", None, _monitor_output("no"), case_id=case_id)
 
 
+def test_download_pinned_dataset_skips_cases_whose_recording_is_gone(
+    tmp_path: Path, pin_store: _FakePinStore, posthog_api: _FakePostHogApi
+) -> None:
+    live, deleted, expired = (_golden_case_on_disk(case_id, tmp_path / "source") for case_id in ("c1", "c2", "c3"))
+    posthog_api.deleted.add(deleted.session_id)
+    posthog_api.expired.add(expired.session_id)
+    pin_store.objects[_PIN_KEY] = _pinned_dataset(live, deleted, expired).model_dump_json().encode()
+    # The prune job already removed the dead cases' bytes, so only the live case is still stored.
+    for name in ("video.mp4", "inputs.json"):
+        pin_store.objects[f"replay-vision/golden/v1/cases/c1/{name}"] = b"{}"
+
+    downloaded = download_pinned_dataset(tmp_path / "target", api_key="test-key", bucket="test-bucket", key=_PIN_KEY)
+
+    assert [case.case_id for case in downloaded.cases] == ["c1"]
+    assert load_dataset(tmp_path / "target") == downloaded
+    assert not [key for key in pin_store.reads if "/c2/" in key or "/c3/" in key]
+
+
 @pytest.mark.parametrize("missing", ["video.mp4", "inputs.json"])
 def test_download_pinned_dataset_fails_when_a_case_file_is_absent_remote(
-    tmp_path: Path, pin_store: _FakePinStore, missing: str
+    tmp_path: Path, pin_store: _FakePinStore, posthog_api: _FakePostHogApi, missing: str
 ) -> None:
     dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path, write_files=False))
     pin_store.objects[_PIN_KEY] = dataset.model_dump_json().encode()
@@ -615,7 +723,7 @@ def test_download_pinned_dataset_fails_when_a_case_file_is_absent_remote(
         if name != missing:
             pin_store.objects[f"replay-vision/golden/v1/cases/c1/{name}"] = b"{}"
     with pytest.raises(RuntimeError, match=f"missing {missing.split('.')[0]} for case c1"):
-        download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+        download_pinned_dataset(tmp_path, api_key="test-key", bucket="test-bucket", key=_PIN_KEY)
 
 
 @pytest.fixture
@@ -638,14 +746,14 @@ def real_pin_key(settings: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[str
 
 
 def test_pinned_dataset_round_trips_through_real_object_storage(
-    tmp_path: Path, real_pin_key: str, settings: Any
+    tmp_path: Path, real_pin_key: str, settings: Any, posthog_api: _FakePostHogApi
 ) -> None:
     source, target = tmp_path / "source", tmp_path / "target"
     dataset = _pinned_dataset(_golden_case_on_disk("c1", source), _golden_case_on_disk("c2", source))
     bucket = settings.OBJECT_STORAGE_BUCKET
 
     upload_pinned_dataset(source, dataset, bucket=bucket, key=real_pin_key)
-    downloaded = download_pinned_dataset(target, bucket=bucket, key=real_pin_key)
+    downloaded = download_pinned_dataset(target, api_key="test-key", bucket=bucket, key=real_pin_key)
 
     assert downloaded == dataset
     for case in dataset.cases:
@@ -654,11 +762,11 @@ def test_pinned_dataset_round_trips_through_real_object_storage(
     with pytest.raises(RuntimeError, match="upload under a new key prefix"):
         upload_pinned_dataset(source, dataset, bucket=bucket, key=real_pin_key)
     with pytest.raises(RuntimeError, match="No pinned golden dataset"):
-        download_pinned_dataset(target, bucket=bucket, key=real_pin_key.replace("/v1/", "/v9/"))
+        download_pinned_dataset(target, api_key="test-key", bucket=bucket, key=real_pin_key.replace("/v1/", "/v9/"))
 
 
 def test_collect_cli_extends_a_pin_under_a_new_key(
-    tmp_path: Path, real_pin_key: str, settings: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, real_pin_key: str, settings: Any, monkeypatch: pytest.MonkeyPatch, posthog_api: _FakePostHogApi
 ) -> None:
     bucket = settings.OBJECT_STORAGE_BUCKET
     pinned = _pinned_dataset(_golden_case_on_disk("c1", tmp_path / "seed"))
@@ -680,19 +788,27 @@ def test_collect_cli_extends_a_pin_under_a_new_key(
         collect_cli.main()
 
     assert seen_before_collect == [["c1"]]
-    grown = download_pinned_dataset(tmp_path / "grown", bucket=bucket, key=new_key)
+    grown = download_pinned_dataset(tmp_path / "grown", api_key="test-key", bucket=bucket, key=new_key)
     assert [case.case_id for case in grown.cases] == ["c1", "c2"]
-    original = download_pinned_dataset(tmp_path / "original", bucket=bucket, key=real_pin_key)
+    original = download_pinned_dataset(tmp_path / "original", api_key="test-key", bucket=bucket, key=real_pin_key)
     assert [case.case_id for case in original.cases] == ["c1"]
 
 
 @pytest.mark.parametrize("pinned", [True, False])
 @pytest.mark.parametrize("approved", [True, False])
-def test_eval_scanner_quality_checks_consent_before_scanning(
-    tmp_path: Path, pin_store: _FakePinStore, monkeypatch: pytest.MonkeyPatch, pinned: bool, approved: bool
+def test_eval_scanner_quality_checks_consent_and_recordings_before_scanning(
+    tmp_path: Path,
+    pin_store: _FakePinStore,
+    posthog_api: _FakePostHogApi,
+    monkeypatch: pytest.MonkeyPatch,
+    pinned: bool,
+    approved: bool,
 ) -> None:
     root = tmp_path / "dataset"
-    dataset = _pinned_dataset(_golden_case_on_disk("c1", root))
+    live, deleted = _golden_case_on_disk("c1", root), _golden_case_on_disk("c2", root)
+    posthog_api.deleted.add(deleted.session_id)
+    posthog_api.approved = approved
+    dataset = _pinned_dataset(live, deleted)
     if pinned:
         pin_store.objects[_PIN_KEY] = dataset.model_dump_json().encode()
         pin_store.objects["replay-vision/golden/v1/cases/c1/video.mp4"] = b"video"
@@ -703,13 +819,10 @@ def test_eval_scanner_quality_checks_consent_before_scanning(
         save_dataset(root, dataset)
     monkeypatch.setenv(DATASET_ENV_VAR, str(root))
     monkeypatch.setenv("POSTHOG_API_KEY", "test-key")
-    consent = MagicMock()
-    consent.json.return_value = {"is_ai_data_processing_approved": approved}
     one_shot = AsyncMock()
 
     with (
         patch.object(eval_scanner_quality, "gemini_api_key", return_value="test-gemini-key"),
-        patch("requests.get", return_value=consent),
         patch.object(eval_scanner_quality, "OneShotPrivateEval", one_shot),
     ):
         if approved:
@@ -719,9 +832,109 @@ def test_eval_scanner_quality_checks_consent_before_scanning(
                 asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
 
     assert (_PIN_KEY in pin_store.reads) == pinned
+    assert sorted(posthog_api.recording_checks()) == ["sess-c1", "sess-c2"]
     assert one_shot.call_count == (1 if approved else 0)
     if approved:
         assert [case.metadata["case_id"] for case in one_shot.call_args.kwargs["cases"]] == ["c1"]
+
+
+def test_eval_scanner_quality_refuses_when_no_recording_is_left(
+    tmp_path: Path, posthog_api: _FakePostHogApi, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "dataset"
+    gone = _golden_case_on_disk("c1", root)
+    posthog_api.deleted.add(gone.session_id)
+    save_dataset(root, _pinned_dataset(gone))
+    monkeypatch.setenv(DATASET_ENV_VAR, str(root))
+    monkeypatch.setenv("POSTHOG_API_KEY", "test-key")
+    one_shot = AsyncMock()
+    with (
+        patch.object(eval_scanner_quality, "gemini_api_key", return_value="test-gemini-key"),
+        patch.object(eval_scanner_quality, "OneShotPrivateEval", one_shot),
+        pytest.raises(RuntimeError, match="live source recording"),
+    ):
+        asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
+    one_shot.assert_not_called()
+
+
+def _store_with_two_versions(tmp_path: Path) -> tuple[_FakePinStore, list[GoldenCase]]:
+    cases = [_golden_case_on_disk(case_id, tmp_path) for case_id in ("c1", "c2", "c3")]
+    store = _FakePinStore()
+    for version, members in (("v1", cases[:2]), ("v2", cases)):
+        store.objects[f"replay-vision/golden/{version}/manifest.json"] = (
+            _pinned_dataset(*members).model_dump_json().encode()
+        )
+        for case in members:
+            for name in ("video.mp4", "inputs.json"):
+                store.objects[f"replay-vision/golden/{version}/cases/{case.case_id}/{name}"] = b"{}"
+    return store, cases
+
+
+def test_prune_deletes_dead_cases_from_every_version(tmp_path: Path, posthog_api: _FakePostHogApi) -> None:
+    store, (_, deleted, expired) = _store_with_two_versions(tmp_path)
+    posthog_api.deleted.add(deleted.session_id)
+    posthog_api.expired.add(expired.session_id)
+
+    removed = pin_lifecycle.prune_pinned_datasets(
+        client=store, bucket="test-bucket", prefix="replay-vision/golden/", api_key="test-key"
+    )
+
+    assert sorted(removed) == [
+        "replay-vision/golden/v1/cases/c2/inputs.json",
+        "replay-vision/golden/v1/cases/c2/video.mp4",
+        "replay-vision/golden/v2/cases/c2/inputs.json",
+        "replay-vision/golden/v2/cases/c2/video.mp4",
+        "replay-vision/golden/v2/cases/c3/inputs.json",
+        "replay-vision/golden/v2/cases/c3/video.mp4",
+    ]
+    assert sorted(store.objects) == [
+        "replay-vision/golden/v1/cases/c1/inputs.json",
+        "replay-vision/golden/v1/cases/c1/video.mp4",
+        "replay-vision/golden/v1/manifest.json",
+        "replay-vision/golden/v2/cases/c1/inputs.json",
+        "replay-vision/golden/v2/cases/c1/video.mp4",
+        "replay-vision/golden/v2/manifest.json",
+    ]
+    for version, kept in (("v1", ["c1"]), ("v2", ["c1"])):
+        manifest = GoldenDataset.model_validate_json(store.objects[f"replay-vision/golden/{version}/manifest.json"])
+        assert [case.case_id for case in manifest.cases] == kept
+    # One check per recording, even though v1 and v2 share two of them.
+    assert sorted(posthog_api.recording_checks()) == ["sess-c1", "sess-c2", "sess-c3"]
+    assert (
+        pin_lifecycle.prune_pinned_datasets(
+            client=store, bucket="test-bucket", prefix="replay-vision/golden/", api_key="test-key"
+        )
+        == []
+    )
+    assert len(store.writes) == 2
+
+
+def test_prune_keeps_the_manifest_entry_until_the_case_files_are_gone(
+    tmp_path: Path, posthog_api: _FakePostHogApi
+) -> None:
+    store, (_, deleted, _) = _store_with_two_versions(tmp_path)
+    posthog_api.deleted.add(deleted.session_id)
+    manifests = {key: body for key, body in store.objects.items() if key.endswith("manifest.json")}
+    with (
+        patch.object(store, "delete_object", side_effect=RuntimeError("storage down")),
+        pytest.raises(RuntimeError, match="storage down"),
+    ):
+        pin_lifecycle.prune_pinned_datasets(
+            client=store, bucket="test-bucket", prefix="replay-vision/golden/", api_key="test-key"
+        )
+    assert {key: store.objects[key] for key in manifests} == manifests
+
+
+def test_prune_deletes_nothing_when_the_api_cannot_say(tmp_path: Path, posthog_api: _FakePostHogApi) -> None:
+    store, (live, deleted, _) = _store_with_two_versions(tmp_path)
+    posthog_api.failing.add(live.session_id)
+    posthog_api.deleted.add(deleted.session_id)
+    before = dict(store.objects)
+    with pytest.raises(requests.HTTPError):
+        pin_lifecycle.prune_pinned_datasets(
+            client=store, bucket="test-bucket", prefix="replay-vision/golden/", api_key="test-key"
+        )
+    assert store.objects == before
 
 
 def test_apply_known_freeform_tags_only_touches_freeform_classifiers() -> None:

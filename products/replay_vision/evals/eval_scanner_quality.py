@@ -43,6 +43,7 @@ from products.replay_vision.evals.dataset import (
     GoldenCase,
     dataset_root,
     download_pinned_dataset,
+    drop_dead_cases,
     ensure_dataset_consent,
     load_dataset,
 )
@@ -218,10 +219,12 @@ async def eval_scanner_quality(ctx: EvalContext) -> None:
 
     api_key = os.environ.get("POSTHOG_API_KEY", "").strip()
     if os.environ.get(DATASET_KEY_ENV_VAR, "").strip() and os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip():
-        dataset = await asyncio.to_thread(download_pinned_dataset, root)
+        dataset = await asyncio.to_thread(download_pinned_dataset, root, api_key=api_key)
     else:
-        dataset = load_dataset(root)
+        dataset = await asyncio.to_thread(drop_dead_cases, load_dataset(root), api_key)
     await asyncio.to_thread(ensure_dataset_consent, dataset, api_key)
+    if not dataset.cases:
+        raise RuntimeError(f"No case in the dataset at {root} has a live source recording; collect a new dataset")
     golden_cases = dataset.cases
     missing = [g.case_id for g in golden_cases if not (g.video_path(root).exists() and g.inputs_path(root).exists())]
     if missing:

@@ -1,0 +1,78 @@
+# Keeps the pinned Replay Vision golden dataset on the lifecycle of its source recordings.
+#
+# Every day it deletes the case files of each pinned case whose source recording is deleted
+# (by a user, a person deletion, or a team deletion) or past its retention `expiry_time`, in every
+# pinned version under `replay-vision/golden/`. Readers already drop such cases before they fetch
+# any bytes, so this job only removes the bytes. See products/replay_vision/evals/README.md.
+#
+# It runs master code only: the `replay-vision-evals-prune` environment allows only master, and it
+# holds the delete-scoped role and the PostHog API key. Until those are set the job skips green.
+name: Replay Vision Evals Prune
+
+on:
+    schedule:
+        - cron: '17 4 * * *'
+    workflow_dispatch:
+
+concurrency:
+    group: replay-vision-evals-prune
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    prune:
+        name: Prune pinned eval cases
+        timeout-minutes: 15
+        runs-on: ubuntu-24.04
+        environment: replay-vision-evals-prune
+        permissions:
+            contents: read
+            # GitHub OIDC for the pin's delete-scoped S3 role.
+            id-token: write
+
+        steps:
+            - name: Check configuration
+              id: gate
+              env:
+                  POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  PIN_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
+                  PRUNE_ROLE_ARN: ${{ vars.REPLAY_VISION_EVAL_PIN_PRUNE_ROLE_ARN }}
+              run: |
+                  if [ -n "$POSTHOG_API_KEY" ] && [ -n "$PIN_BUCKET" ] && [ -n "$PRUNE_ROLE_ARN" ]; then
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "enabled=false" >> "$GITHUB_OUTPUT"
+                      echo "::warning::The pin is not configured; skipping the prune"
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.enabled == 'true'
+              with:
+                  sparse-checkout: products/replay_vision/evals
+
+            - name: Install uv
+              if: steps.gate.outputs.enabled == 'true'
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Configure AWS credentials
+              if: steps.gate.outputs.enabled == 'true'
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.REPLAY_VISION_EVAL_PIN_PRUNE_ROLE_ARN }}
+                  aws-region: ${{ vars.REPLAY_VISION_EVAL_PIN_REGION || 'us-east-1' }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - name: Delete case files of dead recordings
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
+                  REPLAY_VISION_EVAL_DATASET_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
+              # Only boto3 and requests: the module imports no Django, so the job skips the full install.
+              run: |
+                  uv run --no-project --with boto3==1.40.49 --with requests==2.33.0 \
+                      python -m products.replay_vision.evals.pin_lifecycle --prefix replay-vision/golden/

@@ -9,7 +9,8 @@ A dataset is a plain directory, never committed to the repo (it contains real se
 A dataset can also be pinned in object storage (see `upload_pinned_dataset` /
 `download_pinned_dataset`), so prompt PRs compare against the same footage every run instead of a
 re-sampled fresh collection. The set is fixed by convention: a person curates and uploads it, and
-CI reads it unchanged. Consent is re-verified via the source instance's API at eval start.
+CI reads it unchanged. Consent is re-verified via the source instance's API at eval start, and a
+case lives only as long as its source recording (see `pin_lifecycle`).
 """
 
 import os
@@ -17,23 +18,26 @@ import datetime as dt
 from pathlib import Path
 from typing import Any
 
+import requests
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.temporal.types import ScannerLlmInputs, ScannerSnapshot
+from products.replay_vision.evals.pin_lifecycle import (
+    CASE_ID_PATTERN,
+    DATASET_BUCKET_ENV_VAR,
+    INPUTS_NAME,
+    MANIFEST_NAME,
+    VIDEO_NAME,
+    api_headers,
+    case_key,
+    live_session_ids,
+    pin_client,
+)
 
 DATASET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET"
-DATASET_BUCKET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_BUCKET"
 DATASET_KEY_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_OBJECT_KEY"
-# Optional S3 endpoint override, for a local S3-compatible store; unset means AWS.
-DATASET_ENDPOINT_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_ENDPOINT"
-MANIFEST_NAME = "manifest.json"
-VIDEO_NAME = "video.mp4"
-INPUTS_NAME = "inputs.json"
-# The consent check sends POSTHOG_API_KEY to the manifest's host, so a tampered manifest must not
-# be able to send the key to any other origin.
-CONSENT_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
 
 
 def parse_utc(raw: Any) -> dt.datetime:
@@ -49,7 +53,7 @@ class GoldenCase(BaseModel, frozen=True):
 
     # The pattern keeps a manifest from pointing case files outside the dataset directory.
     case_id: str = Field(
-        pattern=r"^[A-Za-z0-9_-]+$",
+        pattern=CASE_ID_PATTERN,
         description="Source ReplayObservation id; doubles as the case directory name.",
     )
     scanner_id: str
@@ -112,13 +116,7 @@ def ensure_dataset_consent(dataset: GoldenDataset, api_key: str) -> None:
     thing age proxied for is consent, which is checked directly here. Runs against the source
     instance's public API so it works from any runner, fail-closed on any error.
     """
-    import requests  # noqa: PLC0415 - keeps requests off the module import path of pure consumers
-
-    if not api_key:
-        raise RuntimeError("Set POSTHOG_API_KEY so the dataset's source-org consent can be re-verified")
-    if dataset.host.rstrip("/") not in CONSENT_HOSTS:
-        raise RuntimeError(f"Dataset host {dataset.host!r} is not one of {CONSENT_HOSTS}; refusing to send the API key")
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = api_headers(dataset.host, api_key)
     organization_id = dataset.organization_id
     if organization_id is None:
         # Older manifests predate the recorded org id; resolve it through the project endpoint.
@@ -136,14 +134,20 @@ def ensure_dataset_consent(dataset: GoldenDataset, api_key: str) -> None:
         )
 
 
+def drop_dead_cases(dataset: GoldenDataset, api_key: str) -> GoldenDataset:
+    """The dataset without cases whose source recording is deleted or expired."""
+    live = live_session_ids(
+        host=dataset.host,
+        project_id=dataset.project_id,
+        session_ids=[case.session_id for case in dataset.cases],
+        api_key=api_key,
+    )
+    return dataset.model_copy(update={"cases": [case for case in dataset.cases if case.session_id in live]})
+
+
 def save_dataset(root: Path, dataset: GoldenDataset) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / MANIFEST_NAME).write_text(dataset.model_dump_json(indent=2))
-
-
-def _case_key(key: str, case_id: str, file_name: str) -> str:
-    """Object key of one case file; `key` is the manifest key, the case files sit beside it."""
-    return f"{key.rsplit('/', 1)[0]}/cases/{case_id}/{file_name}"
 
 
 @frozen
@@ -165,22 +169,6 @@ def _bucket_and_key(bucket: str | None, key: str | None) -> _DatasetObjectLocati
     return _DatasetObjectLocation(bucket=raw_bucket, key=raw_key)
 
 
-def _pin_client() -> Any:
-    """S3 client for the pin, on the default AWS credential chain.
-
-    Not `posthog.storage.object_storage`: that client takes a fixed key pair from Django settings and
-    no session token, so it cannot use the temporary credentials of GitHub OIDC or AWS SSO.
-    """
-    import boto3  # noqa: PLC0415 - keeps boto3 off the eval import path
-    from botocore.config import Config  # noqa: PLC0415 - keeps boto3 off the eval import path
-
-    return boto3.client(
-        "s3",
-        endpoint_url=os.environ.get(DATASET_ENDPOINT_ENV_VAR, "").strip() or None,
-        config=Config(signature_version="s3v4", retries={"max_attempts": 3, "mode": "standard"}),
-    )
-
-
 def _read_object(client: Any, location: _DatasetObjectLocation, key: str) -> bytes | None:
     try:
         return client.get_object(Bucket=location.bucket, Key=key)["Body"].read()
@@ -199,7 +187,7 @@ def upload_pinned_dataset(
     sees a manifest naming cases whose bytes are absent.
     """
     location = _bucket_and_key(bucket, key)
-    client = _pin_client()
+    client = pin_client()
     if _read_object(client, location, location.key) is not None:
         raise RuntimeError(
             f"s3://{location.bucket}/{location.key} already holds a pinned dataset; upload under a new key prefix"
@@ -209,37 +197,41 @@ def upload_pinned_dataset(
         raise RuntimeError(f"Dataset at {root} is missing files for cases {missing[:5]}; collect before uploading")
     for golden in dataset.cases:
         client.upload_file(
-            str(golden.video_path(root)), location.bucket, _case_key(location.key, golden.case_id, VIDEO_NAME)
+            str(golden.video_path(root)), location.bucket, case_key(location.key, golden.case_id, VIDEO_NAME)
         )
         client.put_object(
             Bucket=location.bucket,
-            Key=_case_key(location.key, golden.case_id, INPUTS_NAME),
+            Key=case_key(location.key, golden.case_id, INPUTS_NAME),
             Body=golden.inputs_path(root).read_bytes(),
         )
     client.put_object(Bucket=location.bucket, Key=location.key, Body=dataset.model_dump_json(indent=2).encode())
 
 
-def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str | None = None) -> GoldenDataset:
-    """Download the pinned dataset into root, replacing any local case files.
+def download_pinned_dataset(
+    root: Path, *, api_key: str, bucket: str | None = None, key: str | None = None
+) -> GoldenDataset:
+    """Download the pinned dataset's live cases into root, replacing any local case files.
 
-    Local files are never reused, because a file left by another pin or a partial download has the
-    same path as the pinned one and would be scored under the wrong manifest.
+    Cases whose source recording is deleted or expired are dropped before any of their bytes are
+    fetched, and the saved manifest leaves them out. Local files are never reused, because a file
+    left by another pin or a partial download has the same path as the pinned one and would be
+    scored under the wrong manifest.
     """
     location = _bucket_and_key(bucket, key)
-    client = _pin_client()
+    client = pin_client()
     raw = _read_object(client, location, location.key)
     if raw is None:
         raise RuntimeError(f"No pinned golden dataset at s3://{location.bucket}/{location.key}")
-    dataset = GoldenDataset.model_validate_json(raw)
+    dataset = drop_dead_cases(GoldenDataset.model_validate_json(raw), api_key)
     root.mkdir(parents=True, exist_ok=True)
     save_dataset(root, dataset)
     for golden in dataset.cases:
         golden.case_dir(root).mkdir(parents=True, exist_ok=True)
-        video = _read_object(client, location, _case_key(location.key, golden.case_id, VIDEO_NAME))
+        video = _read_object(client, location, case_key(location.key, golden.case_id, VIDEO_NAME))
         if video is None:
             raise RuntimeError(f"Pinned dataset is missing video for case {golden.case_id}")
         golden.video_path(root).write_bytes(video)
-        inputs = _read_object(client, location, _case_key(location.key, golden.case_id, INPUTS_NAME))
+        inputs = _read_object(client, location, case_key(location.key, golden.case_id, INPUTS_NAME))
         if inputs is None:
             raise RuntimeError(f"Pinned dataset is missing inputs for case {golden.case_id}")
         golden.inputs_path(root).write_text(inputs.decode())
