@@ -42,7 +42,7 @@ const visibilityTag = (gap: ContentAutopilotOpportunityApi['gap']): JSX.Element 
         return <LemonTag type="warning">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
     }
     if (gap.mentioned_checks) {
-        return <LemonTag type="highlight">Mentioned, not cited</LemonTag>
+        return <LemonTag type="highlight">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
     }
     return <LemonTag type="danger">Not mentioned</LemonTag>
 }
@@ -127,7 +127,10 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
             {opportunities === null && opportunitiesLoading ? (
                 <LemonSkeleton className="h-40 w-full" />
             ) : opportunitiesError ? (
-                <LemonBanner type="error" action={{ children: 'Try again', onClick: refreshOpportunities }}>
+                <LemonBanner
+                    type="error"
+                    action={{ children: 'Try again', onClick: refreshOpportunities, loading: opportunitiesLoading }}
+                >
                     Couldn't load opportunities. {opportunitiesError}
                 </LemonBanner>
             ) : visibleOpportunities.length === 0 ? (
