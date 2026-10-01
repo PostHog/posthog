@@ -437,7 +437,7 @@ export interface broadcastWizardLogicMeta {
             conversion: HogFlowConversionApi,
             email: BroadcastEmailValue,
             emailRateLimit: HogFlowEmailSendingRateLimitApi | null,
-            emailSettings: any
+            emailSettings: BroadcastEmailSettings
         ) => HogFlowApi | null
         broadcastId: (broadcast: HogFlowApi | null, id: string) => string | null
         expandedRunIds: (expandedRunOverride: string[] | null, batchJobs: HogFlowBatchJobApi[]) => string[]
