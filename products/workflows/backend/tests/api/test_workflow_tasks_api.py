@@ -28,7 +28,7 @@ def _token(
     expiry: timedelta = timedelta(minutes=5),
     signing_key: str = SECRET,
 ) -> str:
-    claims: dict = {"team_id": team_id}
+    claims: dict[str, Any] = {"team_id": team_id}
     if hog_flow_id is not None:
         claims["hog_flow_id"] = hog_flow_id
     return encode_jwt(claims, expiry, audience, signing_key=signing_key)
@@ -47,7 +47,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
         self.url = f"/api/projects/{self.team.id}/workflow_tasks/"
 
-    def _post(self, body: dict | None = None, token: str | None = None) -> Any:
+    def _post(self, body: dict[str, Any] | None = None, token: str | None = None) -> Any:
         return self.client.post(
             self.url,
             {"prompt": "look into the alert", **(body or {})},
@@ -163,7 +163,7 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
             ),
         ]
     )
-    def test_rejects_invalid_input(self, _name: str, body: dict, field: str) -> None:
+    def test_rejects_invalid_input(self, _name: str, body: dict[str, Any], field: str) -> None:
         serializer = WorkflowTaskCreateSerializer(data=body)
 
         assert not serializer.is_valid()
