@@ -133,6 +133,29 @@ ActiveRun.decorators = [
     }),
 ]
 
+export const FailedRun: StoryFn<typeof ContentAutopilot> = () => (
+    <div className="p-6">
+        <ContentAutopilot />
+    </div>
+)
+FailedRun.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [
+            {
+                ...EXAMPLE_RUN,
+                run_status: 'failed',
+                errors: [
+                    {
+                        error_code: 'timed_out',
+                        message: 'Drafting took too long. Try fewer opportunities at once.',
+                    },
+                ],
+            },
+        ],
+    }),
+]
+
 const ProposalStory = ({ tab }: { tab?: ContentAutopilotProposalTab }): JSX.Element => {
     const { profileDataLoaded } = useValues(contentAutopilotLogic)
     const { selectProposal, setProposalTab } = useActions(contentAutopilotLogic)
@@ -157,6 +180,39 @@ ProposalReview.decorators = [
         profiles: [EXAMPLE_PROFILE],
         runs: [EXAMPLE_RUN],
         proposals: [EXAMPLE_PROPOSAL_LIST],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+    }),
+]
+
+export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => {
+    const { profileDataLoaded } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    useEffect(() => {
+        if (profileDataLoaded) {
+            setWorkspaceTab('drafts')
+        }
+    }, [profileDataLoaded, setWorkspaceTab])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+DraftsTab.decorators = [
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        proposals: [
+            { ...EXAMPLE_PROPOSAL_LIST, id: '00000000-0000-4000-8000-000000000211', lifecycle_status: 'failed' },
+            EXAMPLE_PROPOSAL_LIST,
+            {
+                ...EXAMPLE_PROPOSAL_LIST,
+                id: '00000000-0000-4000-8000-000000000212',
+                proposal_type: 'new_content',
+                lifecycle_status: 'exported',
+                title: 'Does web analytics work without cookies?',
+            },
+        ],
         opportunities: EXAMPLE_OPPORTUNITIES,
     }),
 ]

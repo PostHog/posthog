@@ -18,6 +18,7 @@ import type {
 import { webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax } from 'products/web_analytics/frontend/generated/api.zod'
 
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
+
 export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
 export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
@@ -25,6 +26,14 @@ export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
 export type ContentAutopilotWorkspaceSettled = Record<ContentAutopilotWorkspaceResource, boolean>
 export type ContentAutopilotProfileDataSettled = Record<ContentAutopilotProfileResource, boolean>
+
+const REVIEW_ORDER: Record<ContentAutopilotProposalListApi['lifecycle_status'], number> = {
+    ready_for_review: 0,
+    failed: 1,
+    generating: 2,
+    exported: 3,
+    rejected: 4,
+}
 
 export interface ContentAutopilotProposalActionReasons {
     reject?: string
@@ -143,14 +152,13 @@ export interface contentAutopilotLogicValues {
     draftDisabledReason: string | undefined
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
-    newContentProposals: ContentAutopilotProposalListApi[]
+    failedDraftCount: number
     onboardingOpen: boolean
     onboardingStep: ContentAutopilotOnboardingStep
     opportunities: ContentAutopilotOpportunityApi[] | null
     opportunitiesError: string | null
     opportunitiesLoading: boolean
     opportunitySearch: string
-    pageImprovementProposals: ContentAutopilotProposalListApi[]
     profile: ContentAutopilotSiteProfileApi | null
     profileDataLoaded: boolean
     profileDataSettled: ContentAutopilotProfileDataSettled
@@ -165,6 +173,8 @@ export interface contentAutopilotLogicValues {
     proposals: ContentAutopilotProposalListApi[]
     proposalsLoading: boolean
     proposedMarkdown: string
+    readyDraftCount: number
+    reviewQueue: ContentAutopilotProposalListApi[]
     runMutation: ContentAutopilotRunApi | null
     runMutationLoading: boolean
     runs: ContentAutopilotRunApi[]
@@ -540,10 +550,12 @@ export interface contentAutopilotLogicMeta {
             selectedProposal: ContentAutopilotProposalApi | null,
             proposedMarkdown: string
         ) => boolean
-        newContentProposals: (siteProposals: ContentAutopilotProposalListApi[]) => ContentAutopilotProposalListApi[]
-        pageImprovementProposals: (
+        reviewQueue: (siteProposals: ContentAutopilotProposalListApi[]) => ContentAutopilotProposalListApi[]
+        readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
+        failedDraftCount: (
+            siteRuns: ContentAutopilotRunApi[],
             siteProposals: ContentAutopilotProposalListApi[]
-        ) => ContentAutopilotProposalListApi[]
+        ) => number
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
         profileDataLoaded: (profileDataSettled: ContentAutopilotProfileDataSettled) => boolean
         proposalActionReasons: (
@@ -1031,15 +1043,22 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (selectedProposal: ContentAutopilotProposalApi | null, proposedMarkdown: string): boolean =>
                 selectedProposal !== null && proposedMarkdown !== selectedProposal.proposed_markdown,
         ],
-        newContentProposals: [
+        reviewQueue: [
             (selectors) => [selectors.siteProposals],
             (proposals: ContentAutopilotProposalListApi[]): ContentAutopilotProposalListApi[] =>
-                proposals.filter(({ proposal_type }) => proposal_type === 'new_content'),
+                [...proposals].sort((a, b) => REVIEW_ORDER[a.lifecycle_status] - REVIEW_ORDER[b.lifecycle_status]),
         ],
-        pageImprovementProposals: [
+        readyDraftCount: [
             (selectors) => [selectors.siteProposals],
-            (proposals: ContentAutopilotProposalListApi[]): ContentAutopilotProposalListApi[] =>
-                proposals.filter(({ proposal_type }) => proposal_type === 'page_improvement'),
+            (proposals: ContentAutopilotProposalListApi[]): number =>
+                proposals.filter(({ lifecycle_status }) => lifecycle_status === 'ready_for_review').length,
+        ],
+        failedDraftCount: [
+            (selectors) => [selectors.siteRuns, selectors.siteProposals],
+            (runs: ContentAutopilotRunApi[], proposals: ContentAutopilotProposalListApi[]): number =>
+                proposals.filter(
+                    ({ lifecycle_status, run_id }) => lifecycle_status === 'failed' && run_id === runs[0]?.id
+                ).length,
         ],
         workspaceInitialized: [
             (selectors) => [selectors.workspaceSettled],

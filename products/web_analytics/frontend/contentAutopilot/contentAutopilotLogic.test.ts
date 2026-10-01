@@ -362,19 +362,39 @@ describe('contentAutopilotLogic', () => {
         expect(mountedLogic.values.workspaceTab).toBe('opportunities')
     })
 
-    it('groups the proposals returned for the selected site', async () => {
-        const newContent: ContentAutopilotProposalListApi = {
+    it('puts drafts ready for review first in the review queue', async () => {
+        const rejected: ContentAutopilotProposalListApi = {
             ...EXAMPLE_PROPOSAL_LIST,
             id: '00000000-0000-4000-8000-000000000202',
-            proposal_type: 'new_content',
+            lifecycle_status: 'rejected',
         }
-        mockProposalsList.mockResolvedValue(paginated([EXAMPLE_PROPOSAL_LIST, newContent]))
+        const failed: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000203',
+            lifecycle_status: 'failed',
+        }
+        const ready: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            lifecycle_status: 'ready_for_review',
+        }
+        const failedInAnOlderRun: ContentAutopilotProposalListApi = {
+            ...EXAMPLE_PROPOSAL_LIST,
+            id: '00000000-0000-4000-8000-000000000204',
+            run_id: '00000000-0000-4000-8000-000000000199',
+            lifecycle_status: 'failed',
+        }
+        mockProposalsList.mockResolvedValue(paginated([rejected, failed, failedInAnOlderRun, ready]))
 
         const mountedLogic = await mountWorkspace()
 
-        expect(mountedLogic.values.siteProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id, newContent.id])
-        expect(mountedLogic.values.newContentProposals.map(({ id }) => id)).toEqual([newContent.id])
-        expect(mountedLogic.values.pageImprovementProposals.map(({ id }) => id)).toEqual([EXAMPLE_PROPOSAL_LIST.id])
+        expect(mountedLogic.values.reviewQueue.map(({ id }) => id)).toEqual([
+            ready.id,
+            failed.id,
+            failedInAnOlderRun.id,
+            rejected.id,
+        ])
+        expect(mountedLogic.values.readyDraftCount).toBe(1)
+        expect(mountedLogic.values.failedDraftCount).toBe(1)
     })
 
     it('polls while work is active and stops refreshing after it settles', async () => {
