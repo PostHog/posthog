@@ -138,6 +138,7 @@ export interface contentAutopilotLogicValues {
     dismissedOpportunity: ContentAutopilotOpportunityApi | null
     dismissedOpportunityCount: number
     dismissedOpportunityLoading: boolean
+    dismissingOpportunityId: string | null
     draftDisabledReason: string | undefined
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
@@ -207,6 +208,9 @@ export interface contentAutopilotLogicActions {
     ) => {
         runMutation: ContentAutopilotRunApi
         payload?: string
+    }
+    clearOpportunitySelection: () => {
+        value: true
     }
     deleteProfile: (profileId: string) => string
     deleteProfileFailure: (
@@ -396,12 +400,12 @@ export interface contentAutopilotLogicActions {
         errorObject?: any
     }
     refreshOpportunitiesSuccess: (
-        opportunities: ContentAutopilotOpportunityApi[],
+        opportunities: ContentAutopilotOpportunityApi[] | null,
         payload?: {
             value: true
         }
     ) => {
-        opportunities: ContentAutopilotOpportunityApi[]
+        opportunities: ContentAutopilotOpportunityApi[] | null
         payload?: {
             value: true
         }
@@ -585,6 +589,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         loadOpportunities: true,
         refreshOpportunities: true,
         toggleOpportunitySelection: (opportunityId: string) => ({ opportunityId }),
+        clearOpportunitySelection: true,
         setShowDismissedOpportunities: (showDismissedOpportunities: boolean) => ({ showDismissedOpportunities }),
         setOpportunitySearch: (opportunitySearch: string) => ({ opportunitySearch }),
         setWorkspaceTab: (workspaceTab: ContentAutopilotWorkspaceTab) => ({ workspaceTab }),
@@ -638,7 +643,6 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 setWorkspaceTab: (_, { workspaceTab }) => workspaceTab,
                 selectProfile: () => 'opportunities',
-                draftOpportunitiesSuccess: () => 'drafts',
             },
         ],
         opportunitySearch: [
@@ -656,11 +660,20 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         ? state.filter((id) => id !== opportunityId)
                         : [...state, opportunityId],
                 selectProfile: () => [],
-                draftOpportunitiesSuccess: () => [],
+                clearOpportunitySelection: () => [],
                 loadOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
-                refreshOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
+                refreshOpportunitiesSuccess: (state, { opportunities }) =>
+                    opportunities ? draftableSelection(state, opportunities) : state,
                 dismissOpportunitySuccess: (state, { dismissedOpportunity }) =>
                     state.filter((id) => id !== dismissedOpportunity.id),
+            },
+        ],
+        dismissingOpportunityId: [
+            null as string | null,
+            {
+                dismissOpportunity: (_, opportunityId) => opportunityId,
+                dismissOpportunitySuccess: () => null,
+                dismissOpportunityFailure: () => null,
             },
         ],
         showDismissedOpportunities: [
@@ -802,7 +815,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     breakpoint()
                     const opportunities = await fetchOpportunities(teamId, profile.id)
                     breakpoint()
-                    return opportunities
+                    return values.profile?.id === profile.id ? opportunities : values.opportunities
                 },
             },
         ],
@@ -1204,8 +1217,13 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         deleteProfileFailure: ({ errorObject }) => {
             lemonToast.error(getErrorMessage(errorObject))
         },
-        draftOpportunitiesSuccess: () => {
+        draftOpportunitiesSuccess: ({ runMutation }) => {
             lemonToast.success('Drafting started. Each draft takes a few minutes.')
+            if (runMutation.profile_id !== values.profile?.id) {
+                return
+            }
+            actions.clearOpportunitySelection()
+            actions.setWorkspaceTab('drafts')
             actions.loadRuns()
             actions.loadOpportunities()
         },
