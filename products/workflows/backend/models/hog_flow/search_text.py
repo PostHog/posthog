@@ -20,7 +20,6 @@ DEFAULT_EXCERPT_CHARS: Final = 80
 MAX_EXCERPT_CHARS: Final = 160
 _WHITESPACE: Final = re.compile(r"\s+")
 
-# The HogFlow fields that `build_search_text` reads. Saving any of them rebuilds `HogFlow.search_text`.
 SEARCH_TEXT_SOURCE_FIELDS: Final[frozenset[str]] = frozenset({"name", "description", "actions", "draft"})
 
 # Joins the fields in `HogFlow.search_text`. It is a Unicode noncharacter, which no Postgres locale provider counts
@@ -57,8 +56,6 @@ class StepSearchMatch:
 
 @frozen
 class SearchResultShape:
-    """What a search result row carries beyond its metadata, as the caller asked for it."""
-
     regex: re2._Regexp
     output: WorkflowSearchOutput
     max_steps: int
@@ -68,7 +65,6 @@ class SearchResultShape:
 @frozen
 class StepMatches:
     count: int
-    # The first matches in step order, at most the requested number.
     steps: list[StepSearchMatch]
 
 
@@ -207,7 +203,6 @@ def _action_list(value: object) -> list[object]:
 
 
 def iter_step_search_texts(actions: object, draft: object) -> Iterator[StepSearchText]:
-    """Every searchable text of every step, live steps first, then the steps staged in the draft."""
     for action in _action_list(actions):
         yield from _step_texts(action, StepSearchVersion.LIVE)
     draft_actions = draft.get("actions") if isinstance(draft, dict) else None
@@ -216,7 +211,6 @@ def iter_step_search_texts(actions: object, draft: object) -> Iterator[StepSearc
 
 
 def build_search_text(*, name: str | None, description: str | None, actions: object, draft: object) -> str:
-    """The text the workflow search matches against, stored as `HogFlow.search_text`."""
     values = [name or "", description or ""]
     values.extend(step.text for step in iter_step_search_texts(actions, draft))
     # A draft is a full copy of the live content, so most of its values repeat one that is already present.
@@ -252,11 +246,8 @@ def _excerpt(text: str, regex: re2._Regexp, max_chars: int) -> str:
 def find_step_matches(
     actions: object, draft: object, regex: re2._Regexp, *, max_steps: int, excerpt_chars: int
 ) -> StepMatches:
-    """The steps whose text matches `regex` from `step_regex`, one entry per step with the first field that matched.
-
-    A staged step is listed only when its live version did not match, so each step appears once, with the text a
-    person most likely looks at.
-    """
+    """A staged step is listed only when its live version did not match, so each step appears once, with the text a
+    person most likely looks at."""
     first_match: dict[str, StepSearchText] = {}
     for step in iter_step_search_texts(actions, draft):
         if step.action_id not in first_match and regex.search(step.text) is not None:

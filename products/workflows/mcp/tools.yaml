@@ -489,7 +489,6 @@ tools:
     workflows-search:
         operation: hog_flows_search_list
         enabled: true
-        # The route ships with this tool, so the flag holds the tool back until the API serves it.
         feature_flag: workflows-search-mcp-tool
         scopes:
             - hog_flow:read

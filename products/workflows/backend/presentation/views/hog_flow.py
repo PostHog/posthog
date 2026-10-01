@@ -2852,7 +2852,6 @@ class HogFlowSearchQuerySerializer(serializers.Serializer):
     )
 
     def validate_q(self, value: str) -> str:
-        # The separator joins the fields of the stored search text, so a term containing it could match across two.
         if SEARCH_TEXT_SEPARATOR in value:
             raise serializers.ValidationError("Search term contains an unsupported character.")
         return value
@@ -2919,7 +2918,6 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
         read_only_fields = fields
 
     def to_representation(self, instance: HogFlow) -> dict[str, Any]:
-        # The four match fields read one step scan per row. With `output=names` no field needs it.
         shape = self._shape
         self._step_matches: StepMatches | None = None
         if shape.output != WorkflowSearchOutput.NAMES:
@@ -2958,8 +2956,7 @@ class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializer
         return self._step_matches.count > len(self._step_matches.steps)
 
 
-# What a search result row reads: its model fields and `team` for the access level. The counts and matches outputs
-# also read the step content that the matches come from.
+# `team` resolves the access level.
 _SEARCH_ROW_FIELDS: Final[tuple[str, ...]] = (
     *(field for field in HogFlowSearchResultSerializer.Meta.fields if field in {f.name for f in HogFlow._meta.fields}),
     "team",
@@ -4792,8 +4789,7 @@ class HogFlowPagination(LimitOffsetPagination):
 
 
 class HogFlowSearchPagination(HogFlowPagination):
-    """Reads the total from a window count on the page query, so the search predicate runs once per request
-    instead of once for the count and again for the page."""
+    """Reads the total from a window count, so the search predicate runs once per request, not twice."""
 
     # Smaller pages than the list, because a search row can carry step excerpts and agents read the pages whole.
     default_limit = 20
@@ -5269,13 +5265,11 @@ class HogFlowViewSet(
         search = (self.request.GET.get("search") or "").strip()
         if not search:
             return queryset
-        if len(search) > MAX_SEARCH_TERM_LENGTH:
-            raise exceptions.ValidationError(
-                {"search": f"Search term cannot exceed {MAX_SEARCH_TERM_LENGTH} characters"}
-            )
-        # Spaces match any run of space/dash/underscore, so "welcome email" also matches "welcome-email", the same
-        # approach as feature flag search.
-        regex_pattern = search_pattern(search)
+        if len(search) > 200:
+            raise exceptions.ValidationError({"search": "Search term cannot exceed 200 characters"})
+        # Escape regex metacharacters, then let spaces match any run of space/dash/underscore
+        # so "welcome email" also matches "welcome-email" — same approach as feature flag search.
+        regex_pattern = re.escape(search).replace(r"\ ", r"[\s\-_]*")
 
         # Name and description are small columns, while the step search has to read every workflow's `actions`
         # JSON (tens of KB per email step). Only fall through to the step content when nothing matched by

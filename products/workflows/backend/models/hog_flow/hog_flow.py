@@ -219,11 +219,8 @@ class HogFlow(UUIDTModel):
     # present in this row's `actions`; entries with no surviving successor are omitted.
     action_redirects = models.JSONField(null=True, blank=True)
 
-    # Name, description and the searchable text of every live and staged step, joined by SEARCH_TEXT_SEPARATOR,
-    # so the workflow search reads one column instead of stripping email HTML at query time. save() rebuilds it,
-    # so a write that bypasses save() and changes a source field leaves it stale until
-    # `rebuild_hog_flow_search_text` runs. Null on rows not saved since the column was added, and the search
-    # matches the source columns for those rows instead.
+    # Lets the workflow search read one column instead of stripping email HTML at query time. save() rebuilds it,
+    # so a write that bypasses save() leaves it stale until `rebuild_hog_flow_search_text` runs.
     search_text = models.TextField(null=True, blank=True, editable=False)
 
     def __str__(self):

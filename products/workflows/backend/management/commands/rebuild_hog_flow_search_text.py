@@ -24,7 +24,6 @@ class SearchTextRebuild:
 
 
 def rebuild_search_text(queryset: QuerySet[HogFlow], *, page_size: int, dry_run: bool) -> SearchTextRebuild:
-    """Rebuild `search_text` for every workflow in the queryset, in pages ordered by id. Writes only stale rows."""
     queryset = queryset.only("id", "name", "description", "actions", "draft", "search_text").order_by("id")
     checked = 0
     changed = 0
