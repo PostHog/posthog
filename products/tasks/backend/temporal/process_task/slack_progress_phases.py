@@ -1,9 +1,11 @@
 """Plain-language progress phases for the Slack agent-design plan block.
 
 The plan shows one line per kind of work, never tool names or tool arguments. A tool call
-maps to a phase here, and the relay counts calls per phase for the line's title. The one
-exception is the short description Claude writes for each shell command: it is written
-for people, so the open line may show it while the command runs.
+maps to a phase here, and the relay counts calls per phase for the line's title.
+
+While a line is open it can also say what runs now, from the first of these that exists:
+the description Claude writes for a shell command, the last sentence the agent wrote
+before the call, or a fixed label for what a PostHog SQL query reads.
 """
 
 import re
@@ -150,6 +152,31 @@ _READ_COMMAND = re.compile(
     r"git\s+(log|show|diff|status|blame|grep|ls-files))\b"
 )
 _ACTIVITY_LIMIT = 80
+_MIN_INTENT_LENGTH = 8
+
+_SQL_ESCAPED_WHITESPACE = re.compile(r"\\[ntr]")
+_SQL_TABLE = re.compile(r"\b(?:from|join)\s+([a-z_][\w.]*)")
+_SCHEMA_TOOLS = frozenset({"read-data-schema"})
+# What a query reads decides its label. First match wins.
+_SQL_TABLE_LABELS: tuple[tuple[str, str], ...] = (
+    ("system.", "Checking what data exists"),
+    ("information_schema", "Checking what data exists"),
+    ("events", "Querying events"),
+    ("persons", "Querying people"),
+    ("person", "Querying people"),
+    ("sessions", "Querying sessions"),
+    ("groups", "Querying groups"),
+)
+_SQL_DEFAULT_LABEL = "Running a query"
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+_OBJECT_TAG = re.compile(r"<[^>]*>")
+_MARKDOWN_MARKS = re.compile(r"[*_`#>]+")
+_INTENT_PREFIX = re.compile(
+    r"^(?:(?:now|next|then|first|ok|okay|great|good)[,:]?\s+)*"
+    r"(?:let me|let's|i'll|i will|i'm going to|i am going to|i need to|i should)\s+",
+    re.IGNORECASE,
+)
 
 
 @frozen
@@ -161,6 +188,8 @@ class ToolCall:
     command: str | None
     # The plain-language description the agent gave a shell command, when it gave one.
     description: str | None = None
+    # A fixed label for what the call reads, used when the agent wrote nothing about it.
+    hint: str | None = None
 
 
 def _phase_for_command(command: str) -> ProgressPhase:
@@ -250,6 +279,46 @@ def done_plan_title(elapsed: timedelta) -> str:
     return f"Done in {duration}"
 
 
+def intent_from_narrative(text: str) -> str | None:
+    """The last sentence the agent wrote before a tool call, as a short activity.
+
+    "Now let me count daily active users for last week." becomes "Count daily active users
+    for last week". A question is left out, because it asks the reader and reports nothing.
+    """
+    plain = _MARKDOWN_MARKS.sub("", _OBJECT_TAG.sub("", text))
+    sentences = [sentence.strip() for sentence in _SENTENCE_END.split(plain) if sentence.strip()]
+    if not sentences or sentences[-1].endswith("?"):
+        return None
+    sentence = _INTENT_PREFIX.sub("", sentences[-1]).rstrip(".:!… ")
+    if len(sentence) < _MIN_INTENT_LENGTH:
+        return None
+    return _short_activity(sentence[0].upper() + sentence[1:])
+
+
+def _sql_hint(query: str) -> str:
+    tables = _SQL_TABLE.findall(_SQL_ESCAPED_WHITESPACE.sub(" ", query).lower())
+    for prefix, label in _SQL_TABLE_LABELS:
+        if any(table.startswith(prefix) for table in tables):
+            return label
+    return _SQL_DEFAULT_LABEL
+
+
+def _posthog_hint(name: str, command: str | None, raw_input: dict[str, Any]) -> str | None:
+    """A fixed label for a PostHog SQL or schema call. Other PostHog tools get none."""
+    for prefix in _POSTHOG_MCP_PREFIXES:
+        if name.startswith(prefix):
+            tool = _posthog_tool_name(name.removeprefix(prefix), command)
+            break
+    else:
+        return None
+    if tool in _SCHEMA_TOOLS:
+        return _SQL_TABLE_LABELS[0][1]
+    if tool != "execute-sql":
+        return None
+    query = raw_input.get("query")
+    return _sql_hint(query if isinstance(query, str) else command or "")
+
+
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -295,4 +364,5 @@ def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     # Only Claude's shell tool writes its description for people. A description argument on
     # other tools is content, such as the text of a dashboard the agent creates.
     description = _short_activity(raw_input.get("description")) if lowered == "bash" else None
-    return ToolCall(name=name, kind=kind, command=command, description=description)
+    hint = _posthog_hint(lowered, command, raw_input)
+    return ToolCall(name=name, kind=kind, command=command, description=description, hint=hint)

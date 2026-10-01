@@ -126,7 +126,10 @@ class TestSlackAgentDesignRelay:
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
         sent = calls.sent_chunks()
         # The open line shows what runs now, and the finished line goes back to its count.
-        assert ("Reading the code: Search for callers", "in_progress") in [(c.title, c.status) for c in sent]
+        open_titles = [c.title for c in sent if c.status == "in_progress"]
+        assert "Reading the code: Search for callers" in open_titles
+        # With no shell description, the agent's own last sentence says what the call is for.
+        assert "Looking at PostHog data: Look into this" in open_titles
         # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
         assert all(chunk.details is None for chunk in sent)
         assert all(stop.complete_task_details is None for stop in calls.stops)

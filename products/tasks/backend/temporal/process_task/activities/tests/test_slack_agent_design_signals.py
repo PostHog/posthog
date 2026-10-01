@@ -2,6 +2,8 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design_signals import (
     SlackAgentDesignSignalEmitter,
     _event_method,
@@ -82,15 +84,33 @@ class TestSlackAgentDesignSignalEmitter:
         assert first == [("agent_status_update", {"phase": "reading_code"})]
         assert repeat == []
 
-    def test_shell_call_carries_its_description_to_the_open_line(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "shell_description",
+                "Bash",
+                {"command": "pytest", "description": "Run the tests"},
+                {"phase": "running_checks", "activity": "Run the tests"},
+            ),
+            (
+                "posthog_query_label",
+                "mcp__posthog__exec",
+                {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
+                {"phase": "posthog_data", "hint": "Querying events"},
+            ),
+        ]
+    )
+    def test_call_carries_what_runs_now_to_the_open_line(
+        self, _name: str, tool_name: str, raw_input: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
-        call = _tool_call("call-2", "Bash", "")
-        call["notification"]["params"]["update"]["rawInput"] = {"command": "pytest", "description": "Run the tests"}
+        call = _tool_call("call-2", tool_name, "")
+        call["notification"]["params"]["update"]["rawInput"] = raw_input
 
         signals = emitter.process(call)
 
-        assert signals == [("agent_status_update", {"phase": "running_checks", "activity": "Run the tests"})]
+        assert signals == [("agent_status_update", expected)]
 
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

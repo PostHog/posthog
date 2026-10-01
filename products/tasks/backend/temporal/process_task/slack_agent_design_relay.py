@@ -5,7 +5,8 @@ Drives one chat.startStream message per turn:
 - A plan block with one line per kind of work (see ``slack_progress_phases``). A line
   appears the first time its phase is used and completes the line before it. Later calls
   of an earlier phase only move that line's counter. Tool names and arguments never show.
-  The open line shows the description of the running shell command when the agent gave one.
+  The open line says what runs now: the description of a shell command, else the last
+  sentence the agent wrote before the call, else a fixed label for a PostHog query.
   Phases past ``MAX_PLAN_LINES`` fold into one "Other work" line.
 - The agent's prose is not streamed while it works. Each tool call ends a burst of prose,
   and the last non-empty burst streams as the final answer when the turn completes.
@@ -47,6 +48,7 @@ with workflow.unsafe.imports_passed_through():
         PLAN_TITLE_STOPPED,
         PLAN_TITLE_WORKING,
         done_plan_title,
+        intent_from_narrative,
         phase_line_title,
     )
 
@@ -101,16 +103,19 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
         """A tool call. It ends the prose burst before it, and counts toward its phase when it has one."""
         self._last_signal_at = workflow.now()
+        intent = intent_from_narrative(self._narrative) if self._narrative.strip() else None
         if self._narrative.strip():
             self._last_burst = self._narrative
         self._narrative = ""
 
-        key = payload.get("phase") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            return
+        key = payload.get("phase")
         if not isinstance(key, str) or key not in PHASES:
             return
         if key not in self._line_ids and len(self._line_order) >= MAX_PLAN_LINES - 1:
             key = OTHER_WORK.key
-        activity = payload.get("activity") if isinstance(payload, dict) else None
+        activity = payload.get("activity") or intent or payload.get("hint")
         self._activity[key] = activity if isinstance(activity, str) and activity else None
         self._counts[key] = self._counts.get(key, 0) + 1
         if key not in self._line_ids:

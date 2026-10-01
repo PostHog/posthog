@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.temporal.process_task.slack_progress_phases import (
     done_plan_title,
+    intent_from_narrative,
     phase_for_tool_call,
     tool_call_from_acp_update,
 )
@@ -111,6 +112,44 @@ class TestPhaseForToolCall:
 
         assert tool_call is not None
         assert tool_call.description == expected
+
+    @parameterized.expand(
+        [
+            (
+                "events",
+                'call execute-sql {"query": "SELECT count() FROM events WHERE event = \'$pageview\'"}',
+                "Querying events",
+            ),
+            (
+                "schema_on_a_new_line",
+                'call execute-sql {"query": "SELECT name\\nFROM system.information_schema.tables"}',
+                "Checking what data exists",
+            ),
+            ("people_join", 'call execute-sql {"query": "SELECT 1 FROM x JOIN persons ON 1"}', "Querying people"),
+            ("unknown_table", 'call execute-sql {"query": "SELECT 1"}', "Running a query"),
+            ("other_tool", 'call dashboard-get {"id": 1}', None),
+        ]
+    )
+    def test_labels_what_a_posthog_query_reads(self, _name: str, command: str, expected: str | None) -> None:
+        tool_call = tool_call_from_acp_update(_claude("mcp__posthog__exec", {"command": command}))
+
+        assert tool_call is not None
+        assert tool_call.hint == expected
+
+
+class TestIntentFromNarrative:
+    @parameterized.expand(
+        [
+            ("let_me", "Let me pull daily active users for last week.", "Pull daily active users for last week"),
+            ("last_sentence", "Great, the table exists. Now I'll count DAU per day:", "Count DAU per day"),
+            ("markdown", "The **events** table has data.\n\nLet me check `$pageview` counts", "Check $pageview counts"),
+            # A question asks the reader and reports nothing about the work.
+            ("question", "Should I use UTC for the week?", None),
+            ("too_short", "Ok.", None),
+        ]
+    )
+    def test_reads_the_last_sentence_as_an_activity(self, _name: str, text: str, expected: str | None) -> None:
+        assert intent_from_narrative(text) == expected
 
 
 class TestDonePlanTitle:

@@ -836,7 +836,8 @@ def _extract_tool_call_phase(event_data: dict, seen: set[str]) -> dict[str, Any]
     """Build ``{"phase": key}`` for the Slack plan block from an ACP tool_call/tool_call_update.
 
     The plan names the kind of work only, so the payload carries no tool name and no arguments.
-    The one exception is ``activity``: the description Claude writes for people on a shell command.
+    The exceptions are ``activity``, the description Claude writes for people on a shell command,
+    and ``hint``, a fixed label for what a PostHog query reads.
     A Claude shell or PostHog call arrives with an empty rawInput first; the id is not marked seen
     until the command is known, so the next tool_call_update retries.
     """
@@ -861,6 +862,8 @@ def _extract_tool_call_phase(event_data: dict, seen: set[str]) -> dict[str, Any]
     payload: dict[str, Any] = {"phase": phase.key}
     if tool_call.description:
         payload["activity"] = tool_call.description
+    if tool_call.hint:
+        payload["hint"] = tool_call.hint
     return payload
 
 
