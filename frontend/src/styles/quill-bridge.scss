@@ -154,12 +154,12 @@
 }
 
 /*
- * PostHog's compiled `hover:bg-muted` reads `--muted-3000`, which is a text colour, and it is `!important`.
- * Pin the hover to quill's muted surface, like `.bg-muted` above.
+ * Use this for a quill hover fill, not `hover:bg-muted`. PostHog's compiled `hover:bg-muted` reads `--muted-3000`,
+ * a dark text colour, and it is `!important` inside a cascade layer, so no rule in this file can override it.
  */
 /* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
-[data-quill] .hover\:bg-muted:hover {
-    background-color: var(--muted) !important;
+[data-quill] .hover\:bg-fill-hover:hover {
+    background-color: var(--fill-hover);
 }
 
 [data-quill] .bg-destructive-foreground {
