@@ -34,6 +34,7 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, read_output
+from products.replay_vision.backend.scanner_access import scanner_experiment_scope_q, snapshot_experiment_scope_q
 
 from ee.hogai.utils.untrusted import neutralize_markup
 
@@ -204,17 +205,15 @@ def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
 def _team_rows() -> QuerySet[ReplayObservation]:
     """Observations that may feed a team's phrases. A row captured while its scanner targeted an experiment stays
     readable only to that experiment's viewers, even after the targeting is removed, so it never feeds them."""
-    return ReplayObservation.objects.filter(
-        status=ObservationStatus.SUCCEEDED, scanner_snapshot__experiment_targeting__experiment_id__isnull=True
+    return ReplayObservation.objects.filter(status=ObservationStatus.SUCCEEDED).filter(
+        snapshot_experiment_scope_q(unrestricted=True)
     )
 
 
 def _team_sources() -> QuerySet[ReplayScanner]:
     """Enabled scanners that may feed a team's cross-scanner phrases. An experiment-targeted scanner's
     observations are readable per experiment, so they never feed phrases every viewer of the team sees."""
-    return ReplayScanner.objects.filter(enabled=True).filter(
-        Q(experiment_targeting__isnull=True) | Q(experiment_targeting={})
-    )
+    return ReplayScanner.objects.filter(enabled=True).filter(scanner_experiment_scope_q(unrestricted=True))
 
 
 def stale_team_candidates(limit: int) -> list[int]:
@@ -344,10 +343,12 @@ def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.d
     Rows are gated like `scanner_access.accessible_observations`: a viewer of this scanner can read its
     current experiment, so only observations whose snapshot names no experiment or that same one may feed
     phrases everyone who opens the scanner sees."""
-    current_experiment = (scanner.experiment_targeting or {}).get("experiment_id")
+    current_experiment = (scanner.experiment_scope() or {}).get("experiment_id")
     rows = ReplayObservation.objects.filter(scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED).filter(
-        Q(scanner_snapshot__experiment_targeting__experiment_id__isnull=True)
-        | Q(scanner_snapshot__experiment_targeting__experiment_id=current_experiment)
+        snapshot_experiment_scope_q(
+            unrestricted=True,
+            experiment_ids=[current_experiment] if current_experiment is not None else (),
+        )
     )
     if scanner.search_suggestions_watermark is not None:
         rows = rows.filter(completed_at__gt=scanner.search_suggestions_watermark)

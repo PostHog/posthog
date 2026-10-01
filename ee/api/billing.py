@@ -27,6 +27,7 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -34,7 +35,7 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session
+from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -266,9 +267,34 @@ class HasBillingUsageSpendReadAccess(permissions.BasePermission):
         return user_has_billing_usage_spend_read_access(request.user, org)
 
 
+class BillingNotManagedByPartner(permissions.BasePermission):
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is not None:
+            raise_if_billing_managed_by_partner(organization)
+        return True
+
+
+def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
+    partner = get_billing_lock_partner(organization) if organization else None
+    return {"partner_name": partner.name} if partner else None
+
+
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+class BillingManagedByPartnerSerializer(serializers.Serializer):
+    partner_name = serializers.CharField(
+        allow_blank=True, help_text="Name of the partner that pays for this organization. Can be empty."
+    )
+
+
+BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
+    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
+    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+)
 
 
 @extend_schema_serializer(many=False)
@@ -310,6 +336,9 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     account_owner = serializers.JSONField(required=False, allow_null=True)
     customer_trust_scores = serializers.JSONField(required=False)
     never_drop_data = serializers.BooleanField(required=False)
+    billing_managed_by_partner = BillingManagedByPartnerSerializer(
+        allow_null=True, help_text=BILLING_MANAGED_BY_PARTNER_HELP_TEXT
+    )
 
 
 class LicenseKeySerializer(serializers.Serializer):
@@ -542,6 +571,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if account_url:
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
+        response["billing_managed_by_partner"] = billing_managed_by_partner(org)
+
         return Response(response)
 
     @extend_schema(
@@ -630,7 +661,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["POST"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
@@ -679,7 +710,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="subscription/switch-plan",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -690,7 +721,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         methods=["GET"],
         detail=False,
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -764,7 +795,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="credits/purchase",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def purchase_credits(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -784,7 +815,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["POST"],
         detail=False,
         url_path="trials/activate",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def activate_trial(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
@@ -804,7 +835,12 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.cancel_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize")
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize",
+        permission_classes=[permissions.IsAuthenticated, BillingNotManagedByPartner],
+    )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
