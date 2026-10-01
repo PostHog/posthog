@@ -109,4 +109,30 @@ describe('sqlEditorVimLogic', () => {
             { vim_mode_enabled: true, vimrc: 'set relativenumber' },
         ])
     })
+
+    it('keeps an in-flight Vim mode change when an unrelated account update finishes first', async () => {
+        let releaseVimPatch: () => void = () => {}
+        const vimPatchHeld = new Promise<void>((resolve) => {
+            releaseVimPatch = resolve
+        })
+        useMocks({
+            patch: {
+                '/api/users/@me/': async ({ request }) => {
+                    const body = (await request.json()) as Partial<UserType>
+                    if (body.ui_configuration) {
+                        await vimPatchHeld
+                    }
+                    return [200, { ...MOCK_DEFAULT_USER, ...body }]
+                },
+            },
+        })
+        setUp({ uiConfiguration: { version: 1 } })
+
+        logic.actions.setVimModeEnabled(true)
+        userLogic.actions.updateUser({ theme_mode: 'dark' })
+        await expectLogic(logic).toDispatchActions(['updateUserSuccess'])
+
+        expect(logic.values.vimModeEnabled).toBe(true)
+        releaseVimPatch()
+    })
 })

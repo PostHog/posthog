@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { VIMRC_MAX_LENGTH, VimrcError, parseVimrc } from 'lib/monaco/vimrc'
@@ -136,7 +137,9 @@ export const sqlEditorVimLogic = kea<sqlEditorVimLogicType>([
             null as SQLEditorConfiguration | null,
             {
                 setPendingSqlEditorConfiguration: (_, { configuration }) => configuration,
-                updateUserSuccess: () => null,
+                // Other account updates also dispatch this, so clear only when the request that carried this object finishes.
+                updateUserSuccess: (state, { payload }) =>
+                    payload?.user.ui_configuration?.sql_editor === state ? null : state,
                 updateUserFailure: () => null,
             },
         ],
@@ -165,7 +168,7 @@ export const sqlEditorVimLogic = kea<sqlEditorVimLogicType>([
             false,
             {
                 saveVimrc: () => true,
-                updateUserSuccess: () => false,
+                closeVimrcModal: () => false,
                 updateUserFailure: () => false,
             },
         ],
@@ -205,14 +208,24 @@ export const sqlEditorVimLogic = kea<sqlEditorVimLogicType>([
             const configuration = withSqlEditorPatch(values.uiConfiguration, { vim_mode_enabled: enabled })
             actions.setPendingSqlEditorConfiguration(configuration.sql_editor ?? null)
             actions.updateUser({ ui_configuration: configuration })
+            posthog.capture('sql editor vim mode toggled', { enabled })
         },
         openVimrcModal: () => {
             actions.setVimrcDraft(values.vimrc)
+            posthog.capture('sql editor vimrc opened', { has_vimrc: values.vimrc.trim().length > 0 })
         },
         saveVimrc: () => {
-            const configuration = withSqlEditorPatch(values.uiConfiguration, { vimrc: values.vimrcDraft })
+            const vimrc = values.vimrcDraft
+            const configuration = withSqlEditorPatch(values.uiConfiguration, { vimrc })
             actions.setPendingSqlEditorConfiguration(configuration.sql_editor ?? null)
-            actions.updateUser({ ui_configuration: configuration }, actions.closeVimrcModal)
+            actions.updateUser({ ui_configuration: configuration }, () => {
+                actions.closeVimrcModal()
+                // Counts only. The vimrc text is free text the user typed, so it never leaves the browser in an event.
+                posthog.capture('sql editor vimrc saved', {
+                    line_count: vimrc.split('\n').length,
+                    command_count: parseVimrc(vimrc).commands.length,
+                })
+            })
         },
     })),
 ])
