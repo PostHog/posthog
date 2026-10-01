@@ -2485,38 +2485,38 @@ class TestResourceCreateKwargs:
     @pytest.mark.parametrize(
         "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (32768, 32768)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (65536, 65536)),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6, "cpu_cores": 4},
                 (4.0, 4.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             ({"vm_runtime": True, "custom_image_name": "posthog-sandbox-custom-other"}, (0.5, 8.0), (16384, 16384)),
             ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
             (
                 {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
                 (4.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
                 (4.0, 8.0),
-                (32768, 32768),
+                (65536, 65536),
             ),
             (
-                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 48},
+                {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 80},
                 (4.0, 8.0),
-                (49152, 49152),
+                (81920, 81920),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "burstable_resources": False},
                 8.0,
-                32768,
+                65536,
             ),
         ],
     )

@@ -3771,6 +3771,19 @@ export const TasksConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * @summary Fetch pull request titles for tasks
+ */
+export const tasksPullRequestTitlesCreateBodyIdsMax = 30
+
+export const TasksPullRequestTitlesCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .max(tasksPullRequestTitlesCreateBodyIdsMax)
+        .describe("Task IDs whose latest run's pull request titles to fetch (max 30)."),
+})
+
+/**
  * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
  *
  * The same rows the Slack `/posthog rules` commands manage; the repo selection agent

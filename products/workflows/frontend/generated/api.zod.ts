@@ -2351,7 +2351,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .datetime({ offset: true })
                             .nullable()
                             .describe('Next scheduled fire time, computed by the scheduler.'),
-                        created_at: zod.iso.datetime({ offset: true }).describe('When this version was published.'),
+                        created_at: zod.iso.datetime({ offset: true }),
                         updated_at: zod.iso.datetime({ offset: true }),
                     })
                 )
