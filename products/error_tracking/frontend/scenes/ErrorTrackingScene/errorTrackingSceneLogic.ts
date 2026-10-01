@@ -43,9 +43,9 @@ export const ERROR_TRACKING_SCENE_LOGIC_KEY = 'ErrorTrackingScene'
 
 const DEFAULT_ACTIVE_TAB = 'issues'
 
-const ACTIVE_TABS = ['issues', 'insights', 'recommendations', 'configuration'] as const
+export type ErrorTrackingSceneActiveTab = 'issues' | 'insights' | 'recommendations' | 'configuration'
 
-export type ErrorTrackingSceneActiveTab = (typeof ACTIVE_TABS)[number]
+const ACTIVE_TABS: ErrorTrackingSceneActiveTab[] = ['issues', 'insights', 'recommendations', 'configuration']
 
 const isActiveTab = (value: unknown): value is ErrorTrackingSceneActiveTab =>
     ACTIVE_TABS.includes(value as ErrorTrackingSceneActiveTab)

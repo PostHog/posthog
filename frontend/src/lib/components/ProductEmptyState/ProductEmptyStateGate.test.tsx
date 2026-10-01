@@ -166,6 +166,7 @@ describe('ProductEmptyStateGate', () => {
         ['', true],
         ['?activeTab=issues', true],
         ['?activeTab=configuration', false],
+        ['?activeTab=unknown', true],
     ])('gates the search param tab %s: %s', (search, expectedGated) => {
         const statusLogic = productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
         statusLogic.mount()
@@ -179,7 +180,7 @@ describe('ProductEmptyStateGate', () => {
                 emptyState={{
                     config: { ...config, productKey: ProductKey.ERROR_TRACKING },
                     statusLogic: noopStatusLogic,
-                    scenes: [{ scene: Scene.ErrorTracking, searchParam: 'activeTab', tabs: [undefined, 'issues'] }],
+                    scenes: [{ scene: Scene.ErrorTracking, searchParam: 'activeTab', exceptTabs: ['configuration'] }],
                 }}
             >
                 <div>the real scene</div>

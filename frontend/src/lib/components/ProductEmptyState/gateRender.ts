@@ -43,8 +43,12 @@ function coversCurrentSurface(
     if (typeof gated === 'string') {
         return gated === activeSceneId
     }
-    const tab = gated.searchParam ? searchParams[gated.searchParam] : params.tab
-    return gated.scene === activeSceneId && gated.tabs.includes(typeof tab === 'string' ? tab : undefined)
+    if (gated.scene !== activeSceneId) {
+        return false
+    }
+    const rawTab = gated.searchParam ? searchParams[gated.searchParam] : params.tab
+    const tab = typeof rawTab === 'string' ? rawTab : undefined
+    return 'exceptTabs' in gated ? !tab || !gated.exceptTabs.includes(tab) : gated.tabs.includes(tab)
 }
 
 export type ProductEmptyStateGateActivation = 'off' | 'awaiting-flags' | 'on'

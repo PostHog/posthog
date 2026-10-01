@@ -24,7 +24,7 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
         {
             scene: Scene.ErrorTracking,
             searchParam: 'activeTab',
-            tabs: [undefined, 'issues', 'insights', 'recommendations'],
+            exceptTabs: ['configuration'],
         },
     ],
     SceneNav: ErrorTrackingSceneNav,
