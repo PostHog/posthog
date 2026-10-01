@@ -350,6 +350,37 @@ class TestGetRows:
 
         assert [len(batch) for batch in batches] == [CHUNK_SIZE, 1]
 
+    @pytest.mark.parametrize(
+        "endpoint, path, body",
+        [
+            ("teams", "teams", [{"id": "team-1", "name": "Tier 1", "agentIds": ["agent-1"]}]),
+            ("inboxes", "inboxes", [{"id": "inbox-1", "name": "Support", "disabled": False}]),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_lookup_streams_read_the_whole_list_and_ignore_the_watermark(self, mock_session, endpoint, path, body):
+        mock_session.return_value.get.return_value = _jobs_response(body)
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                endpoint,
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-14T05:00:00.000Z",
+            )
+        )
+
+        assert batches == [body]
+        assert [call.args[0] for call in mock_session.return_value.get.call_args_list] == [
+            f"https://myorg.gladly.com/api/v1/{path}"
+        ]
+        manager.save_state.assert_not_called()
+
 
 class TestNormalizeReportColumn:
     @pytest.mark.parametrize(
@@ -528,6 +559,64 @@ class TestGetReportRows:
             "2024-03-09",
             "2024-03-15",
         ]
+
+    @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
+    @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_work_session_report_uses_a_time_range_and_keys_rows_on_contact_and_agent(self, mock_session):
+        header = (
+            "Timezone Filter,id,contact_session_id,contact_session_created_at,agent_id,"
+            "contact_session_ended_at,work_session_handle_time_sec\n"
+        )
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                header
+                + "UTC,,cs-open,2024-03-14T08:00:00.000Z,,,\n"
+                + "UTC,ws-2,cs-2,2024-03-14T08:30:00.000Z,,2024-03-14T08:45:00.000Z,\n"
+                + "UTC,,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,100\n"
+            ),
+            _csv_response(header + "UTC,ws-1,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,120\n"),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "work_session_events",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-15T00:30:00.000Z",
+            )
+        )
+
+        assert [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list] == [
+            {
+                "metricSet": "WorkSessionEventsReportV4",
+                "timezone": "UTC",
+                "startAtTime": "2024-03-14T00:00Z",
+                "endAtTime": "2024-03-14T23:59Z",
+            },
+            {
+                "metricSet": "WorkSessionEventsReportV4",
+                "timezone": "UTC",
+                "startAtTime": "2024-03-15T00:00Z",
+                "endAtTime": "2024-03-15T23:59Z",
+            },
+        ]
+
+        # The open contact has no agent yet, so its key would never match the row it
+        # gets once it ends. It is skipped, while the ended unhandled contact stays.
+        unhandled, first_read, restated = [row for batch in batches for row in batch]
+        assert unhandled["contact_session_id"] == "cs-2"
+        assert unhandled["agent_id"] is None
+        # A restated session must merge onto its earlier row even though its id
+        # and handle time changed.
+        assert first_read["_row_id"] == restated["_row_id"]
+        assert unhandled["_row_id"] != first_read["_row_id"]
+        assert restated["work_session_handle_time_sec"] == "120"
 
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")

@@ -1285,21 +1285,6 @@ from = [
     "products.error_tracking",
 ]
 
-# Legacy leaks — cdp still imports these batch_exports internals directly. Each entry names
-# its crossing and the facade that replaces it. The block drains as those callers move, and
-# keeps backend:contract-check off until it is empty.
-# tach interfaces have no consumer scoping, so this block opens the listed paths to every module,
-# not only to the consumers named below.
-[[interfaces]]
-expose = [
-    # cdp's enable_backfills validates with BatchExportSerializer. A facade must not import DRF,
-    # so the exit here is the presentation move, after which presentation.views is the channel.
-    "backend\\.api\\.batch_export.*",
-]
-from = [
-    "products.batch_exports",
-]
-
 [[interfaces]]
 expose = [
     "backend\\.facade.*",

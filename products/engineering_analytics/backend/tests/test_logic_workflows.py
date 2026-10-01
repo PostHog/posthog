@@ -9,6 +9,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import DeliveryStage
 from products.engineering_analytics.backend.logic import build_workflow_health
@@ -273,7 +275,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             ],
         )
 
-        overview = api.get_repo_overview(team=self.team, include_series=False)
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as build_catalog:
+            overview = api.get_repo_overview(team=self.team, include_series=False)
+        assert build_catalog.call_count == 1  # one catalog for every query of the request
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
