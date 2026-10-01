@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { PinnedContextSwitchError } from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { OrganizationSetActiveSchema } from '@/schema/tool-inputs'
 import type { CachedOrg, CachedProject, Context, ToolBase } from '@/tools/types'
@@ -15,7 +16,13 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     params: Params
 ) => {
     const { orgId } = params
-    await context.cache.set('orgId', orgId)
+    // Without a session, the next request applies the pin again: a pinned project
+    // brings back its own org. Refuse rather than report a switch that reverts.
+    const pinned = context.stateManager.pinnedContext
+    if (pinned && !pinned.sessionScoped && pinned.pin.organizationId !== orgId) {
+        throw new PinnedContextSwitchError(pinned.pin)
+    }
+    await context.stateManager.setActiveContext({ orgId })
     // Record the switch on the MCP session so a pinned connection's resent pin
     // doesn't revert it on the next request.
     await context.setSessionActiveContext?.({ orgId })
@@ -30,7 +37,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     }
 
     // Read cached project for full metadata block
-    const projectId = (await context.cache.get('projectId')) ?? 'unknown'
+    const projectId = pinned?.projectId ?? (await context.cache.get('projectId')) ?? 'unknown'
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
     const integrationKinds = project

@@ -27,6 +27,22 @@ export type SessionScopedState = {
     appliedPinOrgId: string | undefined
 }
 
+/**
+ * The org and project a pinned request runs against. The resolver builds it once
+ * per request from the pin and the session's recorded switch, and `StateManager`
+ * reads it before the token cache. The token cache is shared by every session on
+ * the same credential, so the pin never goes there.
+ */
+export type PinnedActiveContext = {
+    /** The org and project ids that the request params pinned. */
+    pin: { organizationId?: string | undefined; projectId?: string | undefined }
+    /** True when an MCP session records switches across requests. */
+    sessionScoped: boolean
+    /** Effective ids for this request. A switch updates them in place. */
+    orgId?: string | undefined
+    projectId?: string | undefined
+}
+
 export type CachedUser = ApiUser
 export type CachedOrg = Schemas.OrganizationBasic
 export type CachedProject = Schemas.ProjectBackwardCompat

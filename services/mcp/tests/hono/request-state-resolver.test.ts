@@ -7,6 +7,7 @@ const {
     mockSessionScopedStores,
     mockRefreshTtlCalls,
     mockRedisFailures,
+    mockPinned,
 } = vi.hoisted(() => ({
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
@@ -20,6 +21,8 @@ const {
         pinWriteGate: undefined as Promise<void> | undefined,
         contextReads: 0,
     },
+    // The request-scoped context the last resolve handed to RequestContext.
+    mockPinned: { last: undefined as { orgId?: string; projectId?: string; sessionScoped: boolean } | undefined },
 }))
 
 vi.mock('@/lib/posthog/flags', () => ({
@@ -60,7 +63,7 @@ vi.mock('@/hono/request-context', () => {
             store.set(key, value)
         }),
         setMany: vi.fn(async (entries: Record<string, unknown>) => {
-            if (store === mockTokenStore) {
+            if (store !== mockTokenStore) {
                 await mockRedisFailures.pinWriteGate
             }
             for (const [key, value] of Object.entries(entries)) {
@@ -112,6 +115,9 @@ vi.mock('@/hono/request-context', () => {
                 safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
+                setPinnedContext: vi.fn((pinned: typeof mockPinned.last) => {
+                    mockPinned.last = pinned
+                }),
             }
         }),
     }
@@ -168,6 +174,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.contextError = undefined
         mockRedisFailures.pinWriteGate = undefined
         mockRedisFailures.contextReads = 0
+        mockPinned.last = undefined
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
     })
@@ -455,11 +462,13 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 
     describe('pinned project/org context', () => {
-        // What the switch-project handler does: write the token cache and record
-        // the switch on the session (Context.setSessionActiveContext).
-        const simulateSwitch = (mcpSessionId: string, projectId: string): void => {
-            mockTokenStore.set('projectId', projectId)
-            mockSessionScopedStores.get(mcpSessionId)?.set('activeProjectId', projectId)
+        // What the switch-project handler records on the session (Context.setSessionActiveContext).
+        const simulateSwitch = (mcpSessionId: string, projectId: string, orgId?: string): void => {
+            const store = mockSessionScopedStores.get(mcpSessionId)
+            store?.set('activeProjectId', projectId)
+            if (orgId) {
+                store?.set('activeOrgId', orgId)
+            }
         }
 
         it('does not revert an in-session switch-project when the same pin is resent', async () => {
@@ -467,12 +476,12 @@ describe('RequestStateResolver MCP client contexts', () => {
             // request establishes the pin; a later switch-project selects a new
             // active project that the resent pin must not clobber.
             await makeResolver().resolve(makeProps({ projectId: '1' }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+            expect(mockPinned.last?.projectId).toBe('1')
 
             simulateSwitch('mcp-session-1', '2')
 
             await makeResolver().resolve(makeProps({ projectId: '1' }))
-            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockPinned.last?.projectId).toBe('2')
         })
 
         it('re-applies a changed pin and discards the recorded switch', async () => {
@@ -480,7 +489,7 @@ describe('RequestStateResolver MCP client contexts', () => {
             simulateSwitch('mcp-session-1', '2')
 
             await makeResolver().resolve(makeProps({ projectId: '9' }))
-            expect(mockTokenStore.get('projectId')).toBe('9')
+            expect(mockPinned.last?.projectId).toBe('9')
             expect(mockSessionScopedStores.get('mcp-session-1')?.get('activeProjectId')).toBeUndefined()
         })
 
@@ -490,38 +499,42 @@ describe('RequestStateResolver MCP client contexts', () => {
             // any changed pin value reverts both fields. Otherwise org-scoped tools
             // stay on the switched org while project-scoped tools use the new pin.
             await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1' }))
-
-            // A cross-org switch-project records both fields on the session and the token cache.
-            mockTokenStore.set('orgId', 'org-2')
-            mockTokenStore.set('projectId', '2')
-            mockSessionScopedStores.get('mcp-session-1')?.set('activeOrgId', 'org-2')
-            mockSessionScopedStores.get('mcp-session-1')?.set('activeProjectId', '2')
+            simulateSwitch('mcp-session-1', '2', 'org-2')
 
             await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '9' }))
-            expect(mockTokenStore.get('orgId')).toBe('org-1')
-            expect(mockTokenStore.get('projectId')).toBe('9')
+            expect(mockPinned.last).toMatchObject({ orgId: 'org-1', projectId: '9' })
         })
 
         it('applies the pin on every request without an MCP session id', async () => {
-            // No session means no cross-request continuity to protect, so the pin
-            // must keep winning each request (single-exec CLI stands alone).
+            // No session means no cross-request continuity, so the pin wins each
+            // request and the switch tools must refuse instead of reporting success.
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
-            mockTokenStore.set('projectId', '2')
+            expect(mockPinned.last).toMatchObject({ projectId: '1', sessionScoped: false })
+        })
 
-            await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: undefined }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+        it.each([
+            ['with an MCP session', 'mcp-session-1'],
+            ['without an MCP session', undefined],
+        ])('never writes the pin into the shared token cache %s', async (_label, mcpSessionId) => {
+            // The token cache is shared by every session on the credential. A pin
+            // written there reverts a switch-project and leaks into other sessions.
+            mockTokenStore.set('projectId', '2')
+            mockTokenStore.set('orgId', 'org-2')
+
+            await makeResolver().resolve(makeProps({ organizationId: 'org-1', projectId: '1', mcpSessionId }))
+
+            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockTokenStore.get('orgId')).toBe('org-2')
+            expect(mockPinned.last).toMatchObject({ orgId: 'org-1', projectId: '1' })
         })
 
         it('keeps concurrent sessions with different pins on one token isolated', async () => {
-            // The token cache is shared by every session on the same credential.
-            // Each request must re-assert its own session's context, or one
-            // session's pin leaks into the other's queries.
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: 'session-a' }))
             await makeResolver().resolve(makeProps({ projectId: '2', mcpSessionId: 'session-b' }))
-            expect(mockTokenStore.get('projectId')).toBe('2')
+            expect(mockPinned.last?.projectId).toBe('2')
 
             await makeResolver().resolve(makeProps({ projectId: '1', mcpSessionId: 'session-a' }))
-            expect(mockTokenStore.get('projectId')).toBe('1')
+            expect(mockPinned.last?.projectId).toBe('1')
         })
 
         it('renews the session-scoped keys TTL on every pinned request', async () => {

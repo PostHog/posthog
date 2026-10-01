@@ -14,7 +14,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { hash } from '@/lib/utils'
-import type { Context, Env, SessionScopedState, State } from '@/tools/types'
+import type { Context, Env, PinnedActiveContext, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getClientIpSigningKeys, getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
@@ -45,6 +45,7 @@ export class RequestContext {
     private readonly props: RequestProperties
     private requestContext: MCPRequestContext
     private sessionContext: MCPSessionContext | null = null
+    private pinnedContext: PinnedActiveContext | undefined
 
     constructor(
         redis: RedisLike,
@@ -100,6 +101,11 @@ export class RequestContext {
             )
         }
         return this.sessionScopedCacheInstance
+    }
+
+    /** Set by the resolver before `getContext()`, so every tool reads the pinned context. */
+    setPinnedContext(pinned: PinnedActiveContext | undefined): void {
+        this.pinnedContext = pinned
     }
 
     private async readCachedOAuthClientName(): Promise<string | undefined> {
@@ -208,7 +214,7 @@ export class RequestContext {
 
     async getContext(): Promise<Context> {
         const api = await this.api()
-        const stateManager = new StateManager(this.tokenCache, api)
+        const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext)
         const sessionScopedCache = this.sessionScopedCache
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,

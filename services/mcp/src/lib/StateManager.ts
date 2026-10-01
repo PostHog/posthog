@@ -13,7 +13,7 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
-import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
+import type { CachedOrg, CachedProject, CachedUser, PinnedActiveContext, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
@@ -32,9 +32,44 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
-    constructor(cache: ScopedCache<State>, api: ApiClient) {
+    private _pinned: PinnedActiveContext | undefined
+    constructor(cache: ScopedCache<State>, api: ApiClient, pinned?: PinnedActiveContext) {
         this._cache = cache
         this._api = api
+        this._pinned = pinned
+    }
+
+    get pinnedContext(): PinnedActiveContext | undefined {
+        return this._pinned
+    }
+
+    /**
+     * Set the active org and project. On a pinned request the ids only update the
+     * request-scoped context: the session store records the switch, and the token
+     * cache must not, because other sessions on the same credential read it. A
+     * pinned request without a session still persists the keys the pin leaves open.
+     */
+    async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
+        const pinned = this._pinned
+        if (!pinned) {
+            await this._cache.setMany({
+                ...(updates.orgId ? { orgId: updates.orgId } : {}),
+                ...(updates.projectId ? { projectId: updates.projectId } : {}),
+            })
+            return
+        }
+        if (updates.orgId) {
+            pinned.orgId = updates.orgId
+        }
+        if (updates.projectId) {
+            pinned.projectId = updates.projectId
+        }
+        if (!pinned.sessionScoped) {
+            await this._cache.setMany({
+                ...(updates.orgId && !pinned.pin.organizationId ? { orgId: updates.orgId } : {}),
+                ...(updates.projectId && !pinned.pin.projectId ? { projectId: updates.projectId } : {}),
+            })
+        }
     }
 
     private async _fetchUser(): Promise<ApiUser> {
@@ -277,6 +312,20 @@ export class StateManager {
      * fetch.
      */
     private async _resolveOrganizationId(): Promise<string | undefined> {
+        const pinned = this._pinned
+        if (pinned?.orgId) {
+            return pinned.orgId
+        }
+        // A pinned project owns the org. The shared token cache can hold another
+        // session's org, so derive the org from the project first.
+        if (pinned?.projectId) {
+            const project = await this.getCachedOrFetchProject().catch(() => undefined)
+            if (project?.organization) {
+                pinned.orgId = project.organization
+                return pinned.orgId
+            }
+        }
+
         const cached = await this._cache.get('orgId')
         if (cached) {
             return cached
@@ -304,7 +353,7 @@ export class StateManager {
     }
 
     async getProjectId(): Promise<string> {
-        const projectId = await this._cache.get('projectId')
+        const projectId = this._pinned?.projectId ?? (await this._cache.get('projectId'))
 
         if (!projectId) {
             const { organizationId, projectId: resolved } = await this.setDefaultOrganizationAndProject()
@@ -477,7 +526,7 @@ export class StateManager {
         projectName?: string
     }> {
         const [orgId, project] = await Promise.all([
-            this._cache.get('orgId'),
+            this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
 
