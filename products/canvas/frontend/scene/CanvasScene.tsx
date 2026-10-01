@@ -16,6 +16,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { canvasEditLogic } from '../editing/canvasEditLogic'
+import { CanvasEditorRenderer } from '../editing/CanvasEditorRenderer'
 import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
 import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
@@ -33,13 +35,55 @@ export const scene: SceneExport<CanvasSceneLogicProps> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
+function CanvasEditBody(): JSX.Element {
+    const { entry, sourceError, sourceLoading } = useValues(canvasEditLogic)
+    const { loadSource, setEditing } = useActions(canvasEditLogic)
+
+    if (entry) {
+        return <CanvasEditorRenderer />
+    }
+    if (sourceError && !sourceLoading) {
+        return (
+            <Empty className="h-full border-0">
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <IconWarning />
+                    </EmptyMedia>
+                    <EmptyTitle>This canvas can't be edited right now</EmptyTitle>
+                    <EmptyDescription>{sourceError}</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <div className="flex flex-wrap justify-center gap-2">
+                        <Button variant="outline" onClick={() => loadSource()} data-attr="canvas-edit-load-retry">
+                            Try again
+                        </Button>
+                        <Button variant="default" onClick={() => setEditing(false)} data-attr="canvas-edit-cancel">
+                            Stop editing
+                        </Button>
+                    </div>
+                </EmptyContent>
+            </Empty>
+        )
+    }
+    return (
+        <div className="flex h-full flex-col gap-3 p-4" aria-label="Loading the canvas source">
+            <Skeleton className="h-4 w-1/3" />
+            <Skeleton className="h-full w-full" />
+        </div>
+    )
+}
+
 function CanvasBody(): JSX.Element {
     const { bodyState, viewLoading, liveRenderSource } = useValues(canvasSceneLogic)
     const { loadView } = useActions(canvasSceneLogic)
     const { browseVersionId } = useValues(canvasHistoryLogic)
+    const { editing } = useValues(canvasEditLogic)
 
     if (browseVersionId && bodyState !== 'missing' && bodyState !== 'error') {
         return <CanvasBrowsedCanvas />
+    }
+    if (editing && bodyState !== 'missing' && bodyState !== 'error') {
+        return <CanvasEditBody />
     }
     switch (bodyState) {
         case 'loading':
@@ -113,14 +157,16 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
         <BindLogic logic={canvasSceneLogic} props={{ id }}>
             <BindLogic logic={canvasHistoryLogic} props={{ id }}>
                 <BindLogic logic={canvasCommentsLogic} props={{ id }}>
-                    <div data-quill className="flex h-full min-h-0 flex-col bg-background">
-                        <CanvasSceneHeader />
-                        <main className="relative min-h-0 flex-1">
-                            <CanvasBody />
-                        </main>
-                        <CanvasSelectionCommentAction />
-                        <CanvasHistoryConfirmDialog />
-                    </div>
+                    <BindLogic logic={canvasEditLogic} props={{ id }}>
+                        <div data-quill className="flex h-full min-h-0 flex-col bg-background">
+                            <CanvasSceneHeader />
+                            <main className="relative min-h-0 flex-1">
+                                <CanvasBody />
+                            </main>
+                            <CanvasSelectionCommentAction />
+                            <CanvasHistoryConfirmDialog />
+                        </div>
+                    </BindLogic>
                 </BindLogic>
             </BindLogic>
         </BindLogic>

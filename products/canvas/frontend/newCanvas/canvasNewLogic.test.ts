@@ -7,7 +7,10 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { CANVAS_ENTRY_PATH } from '../editing/blockLibrary/blockProject'
+import { canvasEditLogic } from '../editing/canvasEditLogic'
 import { canvasSceneLogic } from '../scene/canvasSceneLogic'
+import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { canvasNewLogic } from './canvasNewLogic'
 
 const CANVAS_ID = 'canvas-new-1'
@@ -19,12 +22,16 @@ describe('canvasNewLogic', () => {
     let taskStatus = 201
     let linkStatus = 200
     let runCount = 0
+    let publishStatus = 201
+    let published: { project: { files: Record<string, string> }; expected_current_version_id: string | null } | null =
+        null
 
     beforeEach(() => {
         createdCanvas = null
         createCount = 0
         linkStatus = 200
         runCount = 0
+        published = null
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [
@@ -46,6 +53,20 @@ describe('canvasNewLogic', () => {
                 '/api/projects/:team_id/tasks/:id/': { id: 'task-1', title: 'Daily signups', latest_run: null },
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
                 '/api/projects/:team_id/task_channels/:id/': { id: 'space-growth', name: 'growth', system_role: null },
+                '/api/projects/:team_id/canvases/:id/source/': () => [
+                    200,
+                    {
+                        canvas: createdCanvas,
+                        project: {
+                            schemaVersion: 1,
+                            entryHtml: 'index.html',
+                            files: { 'index.html': '<div id="root"></div>', [CANVAS_ENTRY_PATH]: '' },
+                            dependencies: { react: '19.0.0' },
+                            canvasSdkVersion: '0.2.0',
+                        },
+                        current_version_id: null,
+                    },
+                ],
             },
             post: {
                 '/api/projects/:team_id/tasks/:id/run/': async ({ request }) => {
@@ -72,6 +93,12 @@ describe('canvasNewLogic', () => {
                     return taskStatus === 201
                         ? [201, { id: 'task-1', title: 'Daily signups', latest_run: null }]
                         : [403, { error: 'Agent-started task runs are not available for this project' }]
+                },
+                '/api/projects/:team_id/canvases/:id/publish/': async ({ request }) => {
+                    published = (await request.json()) as typeof published
+                    return publishStatus === 201
+                        ? [201, { current_version_id: 'version-1' }]
+                        : [400, { detail: 'Invalid project' }]
                 },
             },
             patch: {
@@ -122,4 +149,39 @@ describe('canvasNewLogic', () => {
             expect(logic.values.startHandoff).toBeNull()
         }
     )
+
+    test.each([
+        ['publishes the blank starter and opens it in edit mode on the Blocks tab', 201, true],
+        ['lands on the empty canvas when the starter fails to publish', 400, false],
+    ])('Start blank %s', async (_, status, editing) => {
+        publishStatus = status
+        const logic = canvasNewLogic()
+        logic.mount()
+        router.actions.push(urls.canvasNew('space-growth'))
+        await expectLogic(logic).toDispatchActions(['loadSpacesSuccess'])
+
+        logic.actions.startBlank()
+        logic.actions.startBlank()
+        logic.actions.send()
+        await expectLogic(logic).toDispatchActions(['startBlankFinished'])
+
+        expect(createCount).toEqual(1)
+        expect(createdCanvas).toMatchObject({ id: CANVAS_ID, channel: 'space-growth' })
+        expect(published?.expected_current_version_id).toBeNull()
+        expect(published?.project.files[CANVAS_ENTRY_PATH]).toContain('<DateRange blockId="b-range" />')
+        expect(Object.keys(published?.project.files ?? {})).toEqual(
+            expect.arrayContaining(['src/blocks/runtime.tsx', 'src/blocks/DateRange.tsx', 'src/blocks/library.json'])
+        )
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.canvasDetail(CANVAS_ID))
+        expect(router.values.lastMethod).toEqual('REPLACE')
+
+        canvasSceneLogic({ id: CANVAS_ID }).mount()
+        const editLogic = canvasEditLogic({ id: CANVAS_ID })
+        editLogic.mount()
+        expect(editLogic.values.editing).toBe(editing)
+        expect(logic.values.editHandoff).toBeNull()
+        if (editing) {
+            expect(canvasSidePanelLogic.values).toMatchObject({ selectedTab: 'canvas-blocks', sidePanelOpen: true })
+        }
+    })
 })

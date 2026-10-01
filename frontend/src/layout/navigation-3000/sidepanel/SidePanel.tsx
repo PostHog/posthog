@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { IconChat, IconComment, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
+import { IconApps, IconChat, IconComment, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -106,6 +106,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
     [SidePanelTab.CanvasChat]: {
         label: 'Chat',
         Icon: IconChat,
+        Content: CanvasSidePanel,
+    },
+    [SidePanelTab.CanvasBlocks]: {
+        label: 'Blocks',
+        Icon: IconApps,
         Content: CanvasSidePanel,
     },
     [SidePanelTab.CanvasComments]: {

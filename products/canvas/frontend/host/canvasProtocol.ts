@@ -179,3 +179,74 @@ export type HostToCanvasMessage =
           result?: unknown
           error?: string
       }
+
+const sourceRangeFields = {
+    file: z.string().min(1).max(1024),
+    start: z.number().int().min(0).max(10_000_000),
+    end: z.number().int().min(0).max(10_000_000),
+}
+const sourceRangeSchema = z.object(sourceRangeFields).refine(({ start, end }) => end > start)
+const gridGrowthSchema = z
+    .object({ ...sourceRangeFields, columns: z.number().int().min(1).max(4) })
+    .refine(({ start, end }) => end > start)
+const editElementSchema = z.object({
+    rev: z.number().int().nonnegative(),
+    source: sourceRangeSchema.nullable(),
+    blockType: z.string().max(128).nullable(),
+    blockId: z.string().max(128).nullable(),
+    props: z.record(z.string().max(128), z.unknown()),
+    tag: z.string().max(128),
+    text: z.string().max(100_000).nullable(),
+    params: z.string().max(100_000).nullable(),
+    layout: z.object({ inGrid: z.boolean(), grow: gridGrowthSchema.nullable(), grid: sourceRangeSchema.nullable() }),
+})
+const coordinates = { x: z.number().finite(), y: z.number().finite() }
+export const canvasEditMessageSchema = z.discriminatedUnion('type', [
+    z.object({
+        channel,
+        type: z.literal('canvas-edit-select'),
+        element: editElementSchema.nullable(),
+        byPointer: z.boolean().optional(),
+    }),
+    z.object({
+        channel,
+        type: z.literal('canvas-edit-root'),
+        rev: z.number().int().nonnegative(),
+        root: sourceRangeSchema.nullable(),
+    }),
+    z.object({
+        channel,
+        type: z.literal('canvas-edit-drop-target'),
+        hit: z
+            .object({
+                rev: z.number().int().nonnegative(),
+                target: z
+                    .object({
+                        ...sourceRangeFields,
+                        place: z.enum(['before', 'after', 'left', 'right', 'inside']),
+                        grow: gridGrowthSchema.optional(),
+                    })
+                    .refine(({ start, end }) => end > start),
+            })
+            .nullable(),
+    }),
+    z.object({ channel, type: z.literal('canvas-edit-drag-start'), element: editElementSchema, ...coordinates }),
+    z.object({ channel, type: z.literal('canvas-edit-pointer'), ...coordinates }),
+    z.object({ channel, type: z.literal('canvas-edit-pointer-up') }),
+    z.object({ channel, type: z.literal('canvas-edit-pointer-cancel') }),
+    z.object({
+        channel,
+        type: z.literal('canvas-edit-key'),
+        key: z.string().min(1).max(32),
+        metaKey: z.boolean(),
+        ctrlKey: z.boolean(),
+        shiftKey: z.boolean(),
+    }),
+    z.object({
+        channel,
+        type: z.literal('canvas-edit-text'),
+        element: editElementSchema,
+        text: z.string().max(100_000),
+    }),
+])
+export type CanvasEditMessage = z.infer<typeof canvasEditMessageSchema>

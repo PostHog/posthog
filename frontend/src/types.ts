@@ -7170,6 +7170,7 @@ export enum SidePanelTab {
     Info = 'info',
     // A canvas scene replaces the general tabs with its own panel tabs.
     CanvasChat = 'canvas-chat',
+    CanvasBlocks = 'canvas-blocks',
     CanvasComments = 'canvas-comments',
     CanvasTimeline = 'canvas-timeline',
 }

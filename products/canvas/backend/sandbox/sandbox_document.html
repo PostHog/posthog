@@ -84,6 +84,7 @@
     const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
     let bridgePort = null;
     let sendToHost = null;
+    let disconnectBridge = null;
     const post = (msg) => {
       const message = { channel: CHANNEL, ...msg };
       if (sendToHost) sendToHost(message);
@@ -1116,7 +1117,7 @@
 		lifted = null;
 	};
 	const onMove = (event) => {
-		if (!enabled) return;
+		if (!enabled || !event.isTrusted) return;
 		const pressed = (event.buttons & 1) === 1;
 		if (forwarding) {
 			if (!pressed) {
@@ -1205,29 +1206,31 @@
 		const selection = window.getSelection();
 		selection?.removeAllRanges();
 		selection?.addRange(range);
-		element.addEventListener("blur", () => finishText(true), { once: true });
-		element.addEventListener("keydown", (event) => {
-			if (event.key === "Enter" && !event.shiftKey) {
-				event.preventDefault();
-				element.blur();
-			};
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				finishText(false);
-				element.blur();
-			}
-		});
 		return true;
 	};
+	const onTextKey = (event) => {
+		if (!event.isTrusted || !editingText || event.target !== editingText.element) return;
+		if (event.key === "Enter" && !event.shiftKey) {
+			event.preventDefault();
+			finishText(true);
+		} else if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			finishText(false);
+		}
+	};
+	const onTextBlur = (event) => {
+		if (event.isTrusted && event.target === editingText?.element) finishText(true);
+	};
 	const onDouble = (event) => {
-		if (!enabled) return;
+		if (!enabled || !event.isTrusted) return;
 		event.preventDefault();
 		event.stopPropagation();
 		const element = candidateOf(event.target);
 		if (element && element !== editingText?.element) startText(element);
 	};
 	const onDown = (event) => {
+		if (!event.isTrusted) return;
 		forwarding = false;
 		if (!enabled || event.button !== 0) return;
 		if (editingText?.element.contains(event.target)) return;
@@ -1247,18 +1250,19 @@
 		};
 	};
 	const swallow = (event) => {
-		if (!enabled) return;
+		if (!enabled || !event.isTrusted) return;
 		event.preventDefault();
 		event.stopPropagation();
 	};
-	const onUp = (_event) => {
+	const onUp = (event) => {
+		if (!event.isTrusted) return;
 		dragOrigin = null;
 		if (!forwarding) return;
 		forwarding = false;
 		post({ type: "canvas-edit-pointer-up" });
 	};
 	const onKey = (event) => {
-		if (!enabled) return;
+		if (!enabled || !event.isTrusted) return;
 		const target = event.target;
 		if (target && (target.isContentEditable || [
 			"INPUT",
@@ -1383,6 +1387,8 @@
 	window.addEventListener("mouseup", onUp, true);
 	window.addEventListener("click", swallow, true);
 	window.addEventListener("dblclick", onDouble, true);
+	window.addEventListener("keydown", onTextKey, true);
+	window.addEventListener("blur", onTextBlur, true);
 	window.addEventListener("keydown", onKey, true);
 	document.addEventListener("mouseleave", () => {
 		hovered = null;
@@ -1543,13 +1549,14 @@
       if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
         bridgePort = e.ports[0];
         sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
         bridgePort.onmessage = (event) => receive(event.data);
         post({ type: "ready" });
       } else if (!portOnly && !bridgePort) {
         receive(e.data);
       }
     });
-    window.addEventListener("pagehide", () => bridgePort?.close());
+    window.addEventListener("pagehide", () => disconnectBridge?.());
 
     post({ type: "ready" });
   </script>

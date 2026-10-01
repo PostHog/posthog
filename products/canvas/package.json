@@ -21,6 +21,7 @@
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "react": "*",
         "react-dom": "*",
         "zod": "*"
