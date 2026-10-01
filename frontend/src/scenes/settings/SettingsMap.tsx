@@ -91,6 +91,7 @@ import {
 } from './environment/ActivityLogSettings'
 import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
+import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
@@ -534,6 +535,24 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AgentUsageSettings />,
                 keywords: ['spend', 'cost', 'usage', 'credits', 'billing', 'models', 'desktop'],
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-cloud-environments',
+        title: 'Cloud environments',
+        group: 'AI',
+        flag: 'TODAY_RAIL_NAV',
+        keywords: ['environments', 'sandbox', 'network access', 'allowed domains', 'desktop'],
+        settings: [
+            {
+                id: 'ai-cloud-environments',
+                title: 'Environments',
+                description:
+                    'Cloud runs start in a sandbox. An environment sets which repositories it applies to and which hosts the sandbox can reach.',
+                component: <CloudEnvironmentsSettings />,
+                keywords: ['sandbox', 'network', 'domains', 'firewall', 'repositories', 'cloud runs'],
             },
         ],
     },
