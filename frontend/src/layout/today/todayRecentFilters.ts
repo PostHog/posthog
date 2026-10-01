@@ -10,6 +10,12 @@ export interface TodayRecentFilters {
 
 export const DEFAULT_RECENT_FILTERS: TodayRecentFilters = { createdBy: 'anyone', sources: [] }
 
+export const RECENT_CREATED_BY_OPTIONS: { value: TodayRecentCreatedByFilter; label: string }[] = [
+    { value: 'anyone', label: 'Anyone' },
+    { value: 'me', label: 'Me' },
+    { value: 'others', label: 'Other people' },
+]
+
 const SOURCE_LABELS: Record<string, string> = {
     user_created: 'Manual',
     posthog_ai: 'PostHog AI',
