@@ -303,8 +303,7 @@ def list_metric_names(
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
-    most-recently-seen, with exact-name matches floated to the top.
+    Returns a list of `{"name": str, "metric_type": str}` dicts.
     Passing `services` narrows the list to names those services reported.
     Raises `ValueError` for an out-of-range limit or too many services.
 
