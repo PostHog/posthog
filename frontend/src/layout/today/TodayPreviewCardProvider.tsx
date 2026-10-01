@@ -14,8 +14,12 @@ import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { TodaySpaceHoverCard } from './TodaySpaceHoverCard'
 
-function opensBelow(payload: TodayPreviewPayload): boolean {
+/** Beside a row, centered on it, so the path to a tall card is short from any row. Under a link in the
+ * briefing text instead, so the card does not cover the line. */
+function placement(payload: TodayPreviewPayload): Pick<PreviewCard.Positioner.Props, 'side' | 'align' | 'sideOffset'> {
     return payload.kind === 'report' && payload.surface === 'briefing'
+        ? { side: 'bottom', align: 'start', sideOffset: 6 }
+        : { side: 'right', align: 'center', sideOffset: 10 }
 }
 
 /**
@@ -62,14 +66,11 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            {/* Beside a row, centered on it, so the path to a tall card is short from any row.
-                                Under a link in the briefing text instead, so the card does not cover the line. */}
                             <PreviewCard.Positioner
                                 data-quill
                                 data-quill-portal="popover"
-                                side={opensBelow(payload) ? 'bottom' : 'right'}
-                                align={opensBelow(payload) ? 'start' : 'center'}
-                                sideOffset={opensBelow(payload) ? 6 : 10}
+                                className="z-[var(--z-popover-with-chart)]"
+                                {...placement(payload)}
                             >
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
                                 <PreviewCard.Popup className="outline-none">

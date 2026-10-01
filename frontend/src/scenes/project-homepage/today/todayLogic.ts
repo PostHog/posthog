@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
+import type { TodayReportCard, TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { TeamType, UserType } from '~/types'
 
 import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
@@ -296,6 +296,15 @@ export interface todayLogicMeta {
 
 export type todayLogicType = MakeLogicType<todayLogicValues, todayLogicActions, Record<string, any>, todayLogicMeta>
 
+/** The same cards keyed for both surfaces. Each card is built once and shared by both. */
+function previewsBySurface(
+    cards: [string, TodayReportCard][]
+): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> {
+    const previews = (surface: TodayReportPreview['surface']): Record<string, TodayReportPreview> =>
+        Object.fromEntries(cards.map(([key, card]) => [key, { kind: 'report', card, surface }]))
+    return { briefing: previews('briefing'), sidebar: previews('sidebar') }
+}
+
 export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
@@ -470,32 +479,19 @@ export const todayLogic = kea<todayLogicType>([
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
                 showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
         ],
-        // Only reports get a hover card. The card stores its trigger's payload, so each report keeps one
-        // object per surface across renders.
+        // The card stores its trigger's payload, so each report keeps one object per surface across renders.
         reportPreviews: [
             (s) => [s.briefingItems],
             (
                 briefingItems: BriefingItemApi[]
-            ): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> => {
-                const previews = (surface: TodayReportPreview['surface']): Record<string, TodayReportPreview> =>
-                    Object.fromEntries(
-                        briefingItems
-                            .filter((item) => item.group === 'report')
-                            .map((item) => [item.key, { kind: 'report', card: briefingItemReportCard(item), surface }])
-                    )
-                return { briefing: previews('briefing'), sidebar: previews('sidebar') }
-            },
+            ): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> =>
+                previewsBySurface(briefingItems.map((item) => [item.key, briefingItemReportCard(item)])),
         ],
         // The team's reports stand in until the personal briefing is written, and get the same card.
         teamReportPreviews: [
             (s) => [s.reports],
-            (reports: SignalReport[]): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> => {
-                const previews = (surface: TodayReportPreview['surface']): Record<string, TodayReportPreview> =>
-                    Object.fromEntries(
-                        reports.map((report) => [report.id, { kind: 'report', card: teamReportCard(report), surface }])
-                    )
-                return { briefing: previews('briefing'), sidebar: previews('sidebar') }
-            },
+            (reports: SignalReport[]): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> =>
+                previewsBySurface(reports.map((report) => [report.id, teamReportCard(report)])),
         ],
         // Shown once something is off the list: "0 of 5 done" reads as a nag, not progress.
         briefingProgress: [
@@ -624,7 +620,6 @@ export const todayLogic = kea<todayLogicType>([
                     // pinned: analytics event name and properties. Renaming them breaks dashboards.
                     posthog.capture('today report previewed', {
                         list: 'personal',
-                        group: item.group,
                         source: item.source,
                         reason: item.reason,
                         rank: item.rank,

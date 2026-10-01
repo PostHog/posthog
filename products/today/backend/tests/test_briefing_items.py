@@ -15,22 +15,19 @@ from products.today.backend.models import DailyBriefing
 
 RESOLVED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000001")
 DISMISSED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000002")
-RESOLVED_TICKET = uuid.UUID("00000000-0000-4000-8000-000000000003")
-OPEN_TICKET = uuid.UUID("00000000-0000-4000-8000-000000000004")
-SUPPRESSED_ISSUE = uuid.UUID("00000000-0000-4000-8000-000000000005")
-RELEASED_ISSUE = uuid.UUID("00000000-0000-4000-8000-000000000006")
+OPEN_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000003")
+MISSING_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000004")
 
 
-def _item(key: str, group: ItemGroup, source: ItemSource) -> FactSheetItem:
+def _item(report_id: uuid.UUID) -> FactSheetItem:
     return FactSheetItem(
-        key=key,
-        group=group,
-        source=source,
+        key=f"report:{report_id}",
+        group=ItemGroup.REPORT,
+        source=ItemSource.SELF_DRIVING,
         reason=ItemReason.WAITING_FOR_YOU,
-        title=key,
+        title=str(report_id),
         url="/project/1/inbox",
         rank=1,
-        urgency=1,
         facts={},
     )
 
@@ -64,16 +61,7 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
 
 class TestBriefingItemStates(SimpleTestCase):
     def test_items_show_what_was_resolved_or_dismissed_since_the_briefing_was_written(self) -> None:
-        items = [
-            _item(f"report:{RESOLVED_REPORT}", ItemGroup.REPORT, ItemSource.SELF_DRIVING),
-            _item(f"report:{DISMISSED_REPORT}", ItemGroup.REPORT, ItemSource.SELF_DRIVING),
-            _item(f"ticket:{RESOLVED_TICKET}", ItemGroup.OTHER, ItemSource.SUPPORT),
-            _item(f"ticket:{OPEN_TICKET}", ItemGroup.OTHER, ItemSource.SUPPORT),
-            _item("ticket:not-a-uuid", ItemGroup.OTHER, ItemSource.SUPPORT),
-            _item(f"issue:{SUPPRESSED_ISSUE}", ItemGroup.OTHER, ItemSource.ERROR_TRACKING),
-            _item(f"issue:{RELEASED_ISSUE}", ItemGroup.OTHER, ItemSource.ERROR_TRACKING),
-            _item("github_pr:example/app#7", ItemGroup.OTHER, ItemSource.GITHUB),
-        ]
+        items = [_item(RESOLVED_REPORT), _item(DISMISSED_REPORT), _item(OPEN_REPORT), _item(MISSING_REPORT)]
         briefing = DailyBriefing(
             id=uuid.uuid4(),
             team_id=1,
@@ -92,17 +80,8 @@ class TestBriefingItemStates(SimpleTestCase):
                 return_value=[
                     _report_details(RESOLVED_REPORT, "resolved"),
                     _report_details(DISMISSED_REPORT, "suppressed"),
+                    _report_details(OPEN_REPORT, "ready"),
                 ],
-            ),
-            patch.object(
-                briefings.conversations,
-                "ticket_statuses",
-                return_value={RESOLVED_TICKET: "resolved", OPEN_TICKET: "open"},
-            ) as ticket_statuses,
-            patch.object(
-                briefings.error_tracking,
-                "issue_statuses",
-                return_value={SUPPRESSED_ISSUE: "suppressed", RELEASED_ISSUE: "pending_release"},
             ),
             patch.object(
                 briefings.signals,
@@ -115,14 +94,9 @@ class TestBriefingItemStates(SimpleTestCase):
         assert {item.key: item.state for item in contract.items} == {
             f"report:{RESOLVED_REPORT}": ItemState.DONE,
             f"report:{DISMISSED_REPORT}": ItemState.DISMISSED,
-            f"ticket:{RESOLVED_TICKET}": ItemState.DONE,
-            f"ticket:{OPEN_TICKET}": ItemState.OPEN,
-            "ticket:not-a-uuid": ItemState.OPEN,
-            f"issue:{SUPPRESSED_ISSUE}": ItemState.DISMISSED,
-            f"issue:{RELEASED_ISSUE}": ItemState.DONE,
-            "github_pr:example/app#7": ItemState.OPEN,
+            f"report:{OPEN_REPORT}": ItemState.OPEN,
+            f"report:{MISSING_REPORT}": ItemState.OPEN,
         }
-        assert ticket_statuses.call_args.kwargs["ticket_ids"] == [RESOLVED_TICKET, OPEN_TICKET]
         report = next(item.report for item in contract.items if item.key == f"report:{RESOLVED_REPORT}")
         assert report is not None
         assert (report.priority, report.pull_request_state, [(m.value, m.query) for m in report.metrics]) == (
@@ -130,4 +104,4 @@ class TestBriefingItemStates(SimpleTestCase):
             "merged",
             [(42.0, {"kind": "InsightVizNode"})],
         )
-        assert [item.report for item in contract.items if item.group != ItemGroup.REPORT] == [None] * 6
+        assert next(item.report for item in contract.items if item.key == f"report:{MISSING_REPORT}") is None

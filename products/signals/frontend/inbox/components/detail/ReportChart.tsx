@@ -23,7 +23,7 @@ import { ReportChartsContext } from './reportChartsContext'
  * so the report shows the chart alone. A scout writes the query against the insight schema, so it
  * can arrive with any of these turned on. Mirrors what `NotebookNodeQuery` does for the same reason.
  */
-export function asEmbeddedChart(query: Record<string, any>): Node {
+function asEmbeddedChart(query: Record<string, any>): Node {
     const node = { ...query, full: false } as any
     if (isInsightVizNode(node) || isSavedInsightNode(node)) {
         node.showFilters = false
@@ -48,7 +48,7 @@ export function asEmbeddedChart(query: Record<string, any>): Node {
  * card — and nothing here can tell which it will be before the query returns. So it sizes to its
  * content, like the table an absent display already produces.
  */
-export function isGraphicalSqlNode(query: Node): boolean {
+function isGraphicalSqlNode(query: Node): boolean {
     if (!isDataVisualizationNode(query)) {
         return false
     }
@@ -154,6 +154,18 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
+/**
+ * The chart's query as a bare graph for a compact surface, or null when it is not a graph. A saved
+ * insight loads through its own scene logic, and a table or a single number needs more room.
+ */
+export function reportChartGraphQuery(chart: ReportChartApi): Node | null {
+    if (!chart.query || typeof chart.query !== 'object') {
+        return null
+    }
+    const query = asEmbeddedChart(chart.query as Record<string, any>)
+    return isInsightVizNode(query) || isGraphicalSqlNode(query) ? query : null
+}
+
 /** Looks the chart up on the report being shown (`ReportChartsContext`). Replay Vision reads reports
  * through its own scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
 export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {

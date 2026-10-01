@@ -19,12 +19,9 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 
 import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
-import type { Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 
-import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/components/cards/ReportCardImpactMetric'
-import { asEmbeddedChart, isGraphicalSqlNode } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+import { reportChartGraphQuery } from 'products/signals/frontend/inbox/components/detail/ReportChart'
 import {
     asReportMetricAggregateQuery,
     asReportMetricSeriesQuery,
@@ -38,17 +35,6 @@ import { TodayReportHoverCardMetric } from './TodayReportHoverCardMetric'
 
 // The card lists a few more metrics by their saved value. A chart for each would run two live queries per metric on every hover.
 const LISTED_METRIC_COUNT = 2
-
-/** The query a chart from the report body draws in the card, or null when it is not a graph that fits there. */
-function drawableChartQuery(chart: ReportChartApi): Node | null {
-    if (!chart.query || typeof chart.query !== 'object') {
-        return null
-    }
-    const query = asEmbeddedChart(chart.query as Record<string, any>)
-    // A saved insight loads through its own scene logic, and a table or a single number needs more
-    // room than the card has, so only ad-hoc insights and SQL graphs show here.
-    return isInsightVizNode(query) || isGraphicalSqlNode(query) ? query : null
-}
 
 /**
  * A report's hover card, on its left-bar row and on its links in the briefing text: its priority, why the
@@ -73,7 +59,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
     // A report without a metric to chart shows the first chart from its body instead.
     const bodyChart = hasMetricChart
         ? null
-        : card.charts.map((chart) => ({ chart, query: drawableChartQuery(chart) })).find(({ query }) => query)
+        : card.charts.map((chart) => ({ chart, query: reportChartGraphQuery(chart) })).find(({ query }) => query)
     const hasChart = hasMetricChart || !!bodyChart
     const otherMetrics = card.metrics.flatMap((candidate) => {
         const parts = hasMetricChart && candidate === metric ? null : reportMetricRowParts(candidate, candidate.value)

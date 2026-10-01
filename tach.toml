@@ -1634,8 +1634,6 @@ path = "products.today"
 depends_on = [
     "ee",
     "posthog",
-    "products.conversations",
-    "products.error_tracking",
     "products.signals",
     "products.tasks",
 ]

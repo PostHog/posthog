@@ -2,7 +2,6 @@ import { dayjs } from 'lib/dayjs'
 
 import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
 
-import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
@@ -80,39 +79,6 @@ export function reportSource(report: Pick<SignalReport, 'source_products'>): Tod
     return sourceStyle(report.source_products?.[0])
 }
 
-const MARKDOWN_HEADING_LINE = /^ {0,3}#{1,6}\s.*$/m
-// A `chart:` link places a chart in the report body. Plain text has no chart to place, so the link goes.
-const MARKDOWN_CHART_LINK = /\[[^\]]*\]\(chart:[^)]*\)/g
-const MARKDOWN_CHART_ID = /\]\(chart:([^)\s]+)\)/g
-const MARKDOWN_LINK = /\[([^\]]*)\]\([^)]*\)/g
-const MARKDOWN_EMPHASIS = /\*\*|__|`/g
-
-/**
- * The opening of a report's markdown summary as plain text on one line: the text before its first
- * section heading, with chart links removed and other links reduced to their text.
- */
-export function reportSummaryLead(summary: string | null | undefined): string | null {
-    const lead = (summary ?? '').split(MARKDOWN_HEADING_LINE).find((section) => section.trim())
-    const text = (lead ?? '')
-        .replace(MARKDOWN_CHART_LINK, '')
-        .replace(MARKDOWN_LINK, '$1')
-        .replace(MARKDOWN_EMPHASIS, '')
-        .split(/\s+/)
-        .filter(Boolean)
-        .join(' ')
-    return text || null
-}
-
-/** The charts the summary references, in the order it references them, then the rest in stored order. */
-function chartsByReference(charts: ReportChartApi[], summary: string | null): ReportChartApi[] {
-    const referenced = [...new Set([...(summary ?? '').matchAll(MARKDOWN_CHART_ID)].map((match) => match[1]))]
-    const rank = (chart: ReportChartApi): number => {
-        const index = referenced.indexOf(chart.chart_id)
-        return index === -1 ? referenced.length : index
-    }
-    return [...charts].sort((a, b) => rank(a) - rank(b))
-}
-
 /** The hover card of one of the team's reports, shown while the personal briefing is not written yet. */
 export function teamReportCard(report: SignalReport): TodayReportCard {
     return {
@@ -122,13 +88,13 @@ export function teamReportCard(report: SignalReport): TodayReportCard {
         stateLabel: null,
         resolved: false,
         priority: report.priority ?? null,
-        summary: reportSummaryLead(report.summary),
+        summary: report.summary_lead || null,
         pullRequestState: report.implementation_pr_merged ? 'merged' : (report.implementation_pr_state ?? null),
         pullRequestUrl: report.implementation_pr_url ?? null,
         signalCount: report.signal_count,
         updatedAt: report.updated_at,
         metrics: report.metrics ?? [],
-        charts: chartsByReference(report.charts ?? [], report.summary),
+        charts: report.charts ?? [],
         sourceLabel: reportSource(report).label,
     }
 }

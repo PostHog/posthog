@@ -287,6 +287,7 @@ const REPORTS = [
         title: 'Signup form rejects plus-addressed emails',
         summary:
             'Sign-ups with a plus sign in the email address fail validation since the last release.\n\n## Impact\n\nNew teams that use plus addressing cannot finish signing up.',
+        summary_lead: 'Sign-ups with a plus sign in the email address fail validation since the last release.',
         status: SignalReportStatus.READY,
         signal_count: 12,
         updated_at: '2026-09-28T07:00:00Z',
@@ -299,6 +300,7 @@ const REPORTS = [
         id: 'report-2',
         title: 'Pricing page visitors drop off at the plan table',
         summary: 'Most visitors who reach the plan table leave without starting a trial.',
+        summary_lead: 'Most visitors who reach the plan table leave without starting a trial.',
         status: SignalReportStatus.READY,
         signal_count: 5,
         updated_at: '2026-09-27T16:00:00Z',
@@ -314,6 +316,7 @@ const REPORTS = [
         id: 'report-3',
         title: 'LLM costs doubled for the summarize tool',
         summary: 'Token usage for the summarize tool doubled after the prompt change.',
+        summary_lead: 'Token usage for the summarize tool doubled after the prompt change.',
         status: SignalReportStatus.PENDING_INPUT,
         signal_count: 3,
         updated_at: '2026-09-27T10:00:00Z',
@@ -326,6 +329,8 @@ const REPORTS = [
         title: 'Checkout conversion fell after the address form change',
         summary:
             'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        summary_lead:
+            'Fewer people finish checkout since the address form gained a required phone field. The drop is sharpest on mobile, where the field is hard to fill.',
         status: SignalReportStatus.READY,
         signal_count: 4,
         updated_at: '2026-09-28T08:00:00Z',
@@ -662,7 +667,7 @@ export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
 }
 
-// One report was dismissed and the ticket was resolved after the briefing was written.
+// One report was resolved and another dismissed after the briefing was written.
 export const HomeWithResolvedAndDismissedItems: Story = {
     decorators: [
         mswDecorator({
@@ -672,7 +677,7 @@ export const HomeWithResolvedAndDismissedItems: Story = {
                     items: PERSONAL_BRIEFING.items.map((item) =>
                         item.key === 'report:report-3'
                             ? { ...item, state: 'dismissed' }
-                            : item.key === 'ticket:t-1'
+                            : item.key === 'report:report-1'
                               ? { ...item, state: 'done' }
                               : item
                     ),

@@ -50,6 +50,7 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
+from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1184,6 +1185,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "would be accepted (see the field's schema for the reason values)."
         ),
     )
+    summary_lead = serializers.SerializerMethodField(
+        help_text=(
+            "The opening of `summary` as plain text on one line: the text before its first section heading, "
+            f"with chart links removed and other links reduced to their text. At most {SUMMARY_LEAD_LIMIT} characters."
+        ),
+    )
     priority = serializers.SerializerMethodField(
         help_text="P0–P4 from the latest priority judgment artefact (when present).",
     )
@@ -1287,6 +1294,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "summary",
+            "summary_lead",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
@@ -1350,6 +1358,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
         return data if isinstance(data, dict) else None
+
+    def get_summary_lead(self, obj: SignalReport) -> str:
+        return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)

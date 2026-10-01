@@ -101,11 +101,6 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue |
     )
 
 
-def issue_statuses(team_id: int, issue_ids: list[UUID]) -> dict[UUID, str]:
-    rows = ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).values_list("id", "status")
-    return dict(rows)
-
-
 def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
     return (
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)

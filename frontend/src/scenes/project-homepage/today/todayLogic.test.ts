@@ -10,7 +10,7 @@ import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
-import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts, reportSummaryLead } from './todaySignalReports'
+import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
 
 function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
@@ -155,20 +155,9 @@ describe('todayLogic', () => {
             .toMatchValues({ briefingProgress: expected })
     })
 
-    it('gives a hover card to the reports of both lists, and to nothing else', async () => {
-        const [item] = makeBriefing().items
+    it('gives a hover card to the reports of both lists', async () => {
         listResponse = [200, { results: [makeReport({ id: 'team-a' })], count: 1 }]
-        briefingResponses = [
-            [
-                200,
-                makeBriefing({
-                    items: [
-                        item,
-                        { ...item, key: 'ticket:t-1', group: 'other', source: 'support', reason: 'assigned_ticket' },
-                    ],
-                }),
-            ],
-        ]
+        briefingResponses = [[200, makeBriefing()]]
         const logic = todayLogic()
         logic.mount()
 
@@ -248,19 +237,5 @@ describe('todayLogic', () => {
     ])('offers the right prompts for %s', (_, overrides, expected) => {
         const report = makeReport({ suggested_prompts: ['Draft the fix'], ...(overrides as Partial<SignalReport>) })
         expect(reportPrompts(report)).toEqual(expected)
-    })
-
-    test.each([
-        ['stops at the first section', 'Signups fail.\n\n## Impact\nNew teams cannot sign up.', 'Signups fail.'],
-        ['skips an opening heading', '## Summary\nSignups fail.\n## Impact\nMore.', 'Signups fail.'],
-        ['keeps a hash inside a line', 'Issue #42 ## fails', 'Issue #42 ## fails'],
-        [
-            'has links',
-            'Leaks **typed text**. [Page leaves](chart:page-leaves) See [the form](https://example.com/form).',
-            'Leaks typed text. See the form.',
-        ],
-        ['has nothing to show', null, null],
-    ])('shows the summary lead on a team report card when it %s', (_, summary, expected) => {
-        expect(reportSummaryLead(summary)).toEqual(expected)
     })
 })

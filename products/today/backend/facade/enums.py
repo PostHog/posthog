@@ -55,5 +55,5 @@ class ItemState(StrEnum):
     OPEN = "open"
     # Resolved, fixed or merged since the briefing was written.
     DONE = "done"
-    # Judged not worth acting on since the briefing was written: a dismissed report, a suppressed error issue.
+    # Dismissed or deleted since the briefing was written.
     DISMISSED = "dismissed"
