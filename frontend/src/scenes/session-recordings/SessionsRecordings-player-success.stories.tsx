@@ -102,7 +102,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recordings/live_count/': () => [200, { active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
                     return [
@@ -171,6 +170,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
+
+                    if (body.query.kind === 'HogQLQuery' && body.query.query.includes('raw_session_replay_events')) {
+                        return [200, { results: [[7]] }]
+                    }
 
                     if (body.query.kind === 'HogQLQuery' && body.query.query.includes('$session_id as session_id')) {
                         return HttpResponse.json({

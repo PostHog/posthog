@@ -526,12 +526,6 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-class SessionRecordingLiveCountResponseSerializer(serializers.Serializer):
-    active_recordings = serializers.IntegerField(
-        help_text="Number of recordings that received data in the last few minutes. Cached for up to 30 seconds."
-    )
-
-
 @frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
@@ -857,7 +851,7 @@ class SessionRecordingViewSet(
     authentication_classes = [ExportRendererAuthentication]
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "live_count"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -1140,15 +1134,6 @@ class SessionRecordingViewSet(
             raise exc
 
         return Response(status=204)
-
-    @extend_schema(
-        description="Count the recordings that are in progress, meaning they received data in the last few minutes.",
-        responses={200: SessionRecordingLiveCountResponseSerializer},
-    )
-    @action(methods=["GET"], detail=False, url_path="live_count")
-    def live_count(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        active_recordings = SessionReplayEvents().count_live_sessions(self.team)
-        return Response(SessionRecordingLiveCountResponseSerializer({"active_recordings": active_recordings}).data)
 
     @extend_schema(
         description="Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. "

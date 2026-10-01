@@ -48,8 +48,6 @@ SESSION_ID_CLOCK_SKEW_SLACK = timedelta(days=3)
 
 _EARLIEST_PLAUSIBLE_SESSION_START = datetime(2020, 1, 1, tzinfo=pytz.UTC)
 
-LIVE_SESSIONS_COUNT_CACHE_TTL_SECONDS = 30
-
 
 @dataclass(frozen=True)
 class SessionEventsPage:
@@ -245,45 +243,6 @@ class SessionReplayEvents:
             # that should be impossible but cache invalidation is hard etc etc
             cache.set(cache_key, existence, timeout=seconds_until_midnight())
         return existence
-
-    def count_live_sessions(self, team: Team) -> int:
-        """Count sessions that ingested recording data within the ongoing window, cached per team."""
-        cache_key = f"session_recording_live_count_team_{team.pk}"
-        cached_count = cache.get(cache_key)
-        if isinstance(cached_count, int):
-            return cached_count
-
-        count = self._count_live_sessions(team)
-        cache.set(cache_key, count, timeout=LIVE_SESSIONS_COUNT_CACHE_TTL_SECONDS)
-        return count
-
-    @staticmethod
-    def _count_live_sessions(team: Team) -> int:
-        python_now = datetime.now(pytz.timezone("UTC"))
-        # The start bound lets ClickHouse prune on the sort key; a session cannot run longer than a day.
-        query = """
-            SELECT count()
-            FROM (
-                SELECT session_id
-                FROM session_replay_events
-                PREWHERE
-                    team_id = %(team_id)s
-                    AND _timestamp >= %(ingested_after)s
-                WHERE min_first_timestamp >= %(started_after)s
-                GROUP BY session_id
-                HAVING max(is_deleted) = 0
-            )
-            """
-        tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
-        result = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "started_after": python_now - timedelta(days=1, minutes=ONGOING_SESSION_WINDOW_MINUTES),
-                "ingested_after": python_now - timedelta(minutes=ONGOING_SESSION_WINDOW_MINUTES),
-            },
-        )
-        return int(result[0][0])
 
     def batch_exists(self, session_ids: list[str], team: Team) -> dict[str, bool]:
         """

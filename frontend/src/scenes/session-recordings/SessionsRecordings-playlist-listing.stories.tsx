@@ -22,7 +22,6 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/session_recordings/live_count/': () => [200, { active_recordings: 7 }],
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')

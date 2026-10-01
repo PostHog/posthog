@@ -93383,11 +93383,6 @@ export namespace Schemas {
       failed_ids: string[];
     }
 
-    export interface SessionRecordingLiveCountResponse {
-      /** Number of recordings that received data in the last few minutes. Cached for up to 30 seconds. */
-      active_recordings: number;
-    }
-
     export type SessionReplayListWidgetCatalogEntryOpenApiWidgetType = typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType[keyof typeof SessionReplayListWidgetCatalogEntryOpenApiWidgetType];
 
 
