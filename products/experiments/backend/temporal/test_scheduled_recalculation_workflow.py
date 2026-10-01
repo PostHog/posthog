@@ -7,11 +7,11 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.experiments.backend.temporal.models import (
-    ScheduledRecalculationStartResult,
-    ScheduledRecalculationWorkflowInputs,
+from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
+from products.experiments.backend.temporal.scheduled_recalculation_logic import (
+    ScheduledRecalculationCandidate,
+    ScheduledRecalculationDiscovery,
 )
-from products.experiments.backend.temporal.scheduled_recalculation_logic import ScheduledRecalculationCandidate
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
     ScheduledExperimentRecalculationWorkflow,
 )
@@ -27,8 +27,8 @@ def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
 
 async def _run(discover, exposures, start, hour: int = 2) -> dict:
     @activity.defn(name="discover_scheduled_recalculation_candidates")
-    async def discover_activity(hour: int) -> list[ScheduledRecalculationCandidate]:
-        return discover(hour)
+    async def discover_activity() -> ScheduledRecalculationDiscovery:
+        return ScheduledRecalculationDiscovery(hour=hour, candidates=discover(hour))
 
     @activity.defn(name="check_experiment_exposures")
     async def exposures_activity(experiment_id: int, hour: int) -> bool:
@@ -49,7 +49,6 @@ async def _run(discover, exposures, start, hour: int = 2) -> dict:
         ):
             return await env.client.execute_workflow(
                 ScheduledExperimentRecalculationWorkflow.run,
-                ScheduledRecalculationWorkflowInputs(hour=hour),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
