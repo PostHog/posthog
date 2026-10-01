@@ -251,6 +251,7 @@ Numeric means are weighted by successful result counts; boolean and category rat
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
 Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.
 Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
+Long score summaries truncate to fit their container, with the full value available on hover.
 Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means retain their existing precision.
 Below the passing and failing counts, each card shows distinct experiments with the scored item count in parentheses. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
 Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.

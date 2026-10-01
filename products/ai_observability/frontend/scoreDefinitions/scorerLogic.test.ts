@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
@@ -196,28 +199,53 @@ describe('scorer editor', () => {
         expect(createVersion).not.toHaveBeenCalled()
     })
 
-    it('ignores a repeated save while the version request is pending', async () => {
-        let resolve: (value: ScoreDefinitionApi) => void = () => {}
-        createVersion.mockImplementation(
-            () =>
-                new Promise((done) => {
-                    resolve = done
-                })
-        )
-        const logic = scorerLogic({ scorerId: definition.id })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setDraftField('numericMax', '10')
+    it.each([
+        ['save', false],
+        ['save', true],
+        ['createVersion', false],
+        ['toggleArchive', false],
+    ] as const)(
+        'applies the response when %s is repeated while its request is pending (new: %s)',
+        async (action, isNew) => {
+            let resolve: (value: ScoreDefinitionApi) => void = () => {}
+            const request = isNew ? create : action === 'toggleArchive' ? update : createVersion
+            request.mockImplementation(
+                () =>
+                    new Promise((done) => {
+                        resolve = done
+                    })
+            )
+            const logic = scorerLogic({ scorerId: isNew ? 'new' : definition.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            if (action === 'save') {
+                logic.actions.setDraftField('kind', 'numeric')
+                logic.actions.setDraftField('name', definition.name)
+                logic.actions.setDraftField('numericMax', '10')
+            }
 
-        logic.actions.save()
-        logic.actions.save()
+            logic.actions[action]()
+            logic.actions[action]()
 
-        expect(createVersion).toHaveBeenCalledTimes(1)
-        expect(logic.values.saving).toBe(true)
-        resolve({ ...definition, config: { max: 10 }, current_version: 3 })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.saving).toBe(false)
-    })
+            expect(request).toHaveBeenCalledTimes(1)
+            expect(logic.values.saving).toBe(true)
+            const saved =
+                action === 'toggleArchive'
+                    ? { ...definition, archived: true }
+                    : { ...definition, config: { max: 10 }, current_version: 3 }
+            resolve(saved)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.saving).toBe(false)
+            if (isNew) {
+                expect(router.values.location.pathname).toBe(
+                    `/project/${MOCK_DEFAULT_TEAM.id}${urls.aiObservabilityScorer(saved.id)}`
+                )
+            } else {
+                expect(logic.values.definition).toEqual(saved)
+                expect(logic.values.hasUnsavedChanges).toBe(false)
+            }
+        }
+    )
 
     it('keeps edits after a version conflict without retrying against a newer version', async () => {
         createVersion.mockRejectedValue({ status: 409 })

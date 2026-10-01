@@ -1,5 +1,5 @@
 import { IconCheck, IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { offlineScorePasses } from './offlineScoreInterpretation'
 import {
@@ -11,21 +11,30 @@ import {
 
 export function OfflineScoreSummaryDisplay({ summary }: { summary: OfflineScoreSummary }): JSX.Element {
     const meanPassed = summary.scorer.kind === 'numeric' ? offlineScorePasses(summary.mean, summary.scorer) : null
+    const score = formatOfflineScore(summary)
     return (
         <div className="min-w-0 flex flex-col gap-1">
             <div className="flex flex-wrap items-baseline gap-1">
                 {meanPassed === null ? (
-                    <strong className="break-words tabular-nums" translate="no">
-                        {formatOfflineScore(summary)}
-                    </strong>
+                    <Tooltip title={score}>
+                        <strong className="min-w-0 max-w-full truncate tabular-nums" translate="no">
+                            {score}
+                        </strong>
+                    </Tooltip>
                 ) : (
-                    <LemonTag
-                        type={meanPassed ? 'success' : 'danger'}
-                        icon={meanPassed ? <IconCheck /> : <IconX />}
-                        title={meanPassed ? 'Mean meets the passing rule' : 'Mean does not meet the passing rule'}
+                    <Tooltip
+                        title={`${score}: ${meanPassed ? 'Mean meets the passing rule' : 'Mean does not meet the passing rule'}`}
                     >
-                        <span translate="no">{formatOfflineScore(summary)}</span>
-                    </LemonTag>
+                        <LemonTag
+                            type={meanPassed ? 'success' : 'danger'}
+                            icon={meanPassed ? <IconCheck /> : <IconX />}
+                            className="max-w-full"
+                        >
+                            <span className="truncate" translate="no">
+                                {score}
+                            </span>
+                        </LemonTag>
+                    </Tooltip>
                 )}
                 <span className="text-xs text-muted">{offlineScoreMetricLabel(summary.scorer)}</span>
             </div>

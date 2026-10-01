@@ -59,8 +59,11 @@ export interface scorerLogicActions {
     addOption: () => { value: true }
     removeOption: (index: number) => { index: number }
     save: () => { value: true }
+    performSave: () => { value: true }
     createVersion: () => { value: true }
+    performCreateVersion: () => { value: true }
     toggleArchive: () => { value: true }
+    performToggleArchive: () => { value: true }
     setSaving: (saving: boolean) => { saving: boolean }
     setError: (error: string | null) => { error: string | null }
 }
@@ -85,8 +88,11 @@ export const scorerLogic = kea<scorerLogicType>([
         addOption: true,
         removeOption: (index: number) => ({ index }),
         save: true,
+        performSave: true,
         createVersion: true,
+        performCreateVersion: true,
         toggleArchive: true,
+        performToggleArchive: true,
         setSaving: (saving: boolean) => ({ saving }),
         setError: (error: string | null) => ({ error }),
     }),
@@ -195,7 +201,7 @@ export const scorerLogic = kea<scorerLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         loadDefinitionSuccess: ({ definition }) => actions.initialize(definition),
-        save: async (_, breakpoint) => {
+        save: () => {
             if (
                 values.saving ||
                 values.definitionLoading ||
@@ -210,11 +216,14 @@ export const scorerLogic = kea<scorerLogicType>([
                 actions.setError(validationError)
                 return
             }
+            actions.setSaving(true)
+            actions.performSave()
+        },
+        performSave: async (_, breakpoint) => {
             const teamId = getCurrentProjectId()
             const { draft, definition, isNew, willCreateVersion } = values
             const metadata = { name: draft.name.trim(), description: draft.description.trim() }
             const operation = isNew ? 'create' : willCreateVersion ? 'version' : 'metadata'
-            actions.setSaving(true)
             actions.setError(null)
             posthog.capture('ai scorer save started', { operation, kind: draft.kind })
             try {
@@ -256,7 +265,7 @@ export const scorerLogic = kea<scorerLogicType>([
                 actions.setSaving(false)
             }
         },
-        createVersion: async (_, breakpoint) => {
+        createVersion: () => {
             if (
                 values.saving ||
                 values.definitionLoading ||
@@ -266,9 +275,12 @@ export const scorerLogic = kea<scorerLogicType>([
             ) {
                 return
             }
-            const definition = values.definition
-            const teamId = getCurrentProjectId()
             actions.setSaving(true)
+            actions.performCreateVersion()
+        },
+        performCreateVersion: async (_, breakpoint) => {
+            const definition = values.definition!
+            const teamId = getCurrentProjectId()
             actions.setError(null)
             try {
                 const saved = await llmAnalyticsScoreDefinitionsNewVersionCreate(teamId, definition.id, {
@@ -293,7 +305,7 @@ export const scorerLogic = kea<scorerLogicType>([
                 actions.setSaving(false)
             }
         },
-        toggleArchive: async (_, breakpoint) => {
+        toggleArchive: () => {
             if (
                 values.saving ||
                 values.definitionLoading ||
@@ -303,9 +315,12 @@ export const scorerLogic = kea<scorerLogicType>([
             ) {
                 return
             }
-            const definition = values.definition
-            const teamId = getCurrentProjectId()
             actions.setSaving(true)
+            actions.performToggleArchive()
+        },
+        performToggleArchive: async (_, breakpoint) => {
+            const definition = values.definition!
+            const teamId = getCurrentProjectId()
             actions.setError(null)
             try {
                 const saved = await llmAnalyticsScoreDefinitionsPartialUpdate(teamId, definition.id, {

@@ -1,7 +1,7 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, Mock, call, patch
 
 from django.http import QueryDict
 from django.test import SimpleTestCase
@@ -575,15 +575,16 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertNotIn(str(active.id), [result["id"] for result in response.data["results"]])
 
     @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
-    def test_patch_reports_user_action(self, mock_report_user_action):
+    def test_patch_reports_user_action(self, mock_report_user_action: Mock) -> None:
         definition = self._create_definition()
         mock_report_user_action.reset_mock()
 
-        response = self.client.patch(
-            f"{self._endpoint()}{definition.id}/",
-            {"name": "Updated quality", "description": "Updated description", "archived": True},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"{self._endpoint()}{definition.id}/",
+                {"name": "Updated quality", "description": "Updated description", "archived": True},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         definition.refresh_from_db()
@@ -605,41 +606,53 @@ class TestScoreDefinitionsApi(APIBaseTest):
             request=ANY,
         )
 
+    @parameterized.expand([("configuration_only", False), ("with_metadata", True)])
     @patch("products.ai_observability.backend.api.score_definitions.report_user_action")
-    def test_new_version_reports_user_action(self, mock_report_user_action):
+    def test_new_version_reports_user_action(
+        self, _name: str, update_metadata: bool, mock_report_user_action: Mock
+    ) -> None:
         definition = self._create_definition()
         mock_report_user_action.reset_mock()
 
-        response = self.client.post(
-            f"{self._endpoint()}{definition.id}/new_version/",
-            {
-                "config": {
-                    "options": [
-                        {"key": "pass", "label": "Pass"},
-                        {"key": "fail", "label": "Fail"},
-                    ]
-                }
-            },
-            format="json",
-        )
+        metadata = {"name": "Updated quality", "description": "Updated description"} if update_metadata else {}
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"{self._endpoint()}{definition.id}/new_version/",
+                {
+                    **metadata,
+                    "config": {
+                        "options": [
+                            {"key": "pass", "label": "Pass"},
+                            {"key": "fail", "label": "Fail"},
+                        ]
+                    },
+                },
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         definition.refresh_from_db()
 
-        mock_report_user_action.assert_called_once_with(
-            self.user,
-            "llma scorer version created",
-            {
-                "scorer_id": str(definition.id),
-                "scorer_name": definition.name,
-                "scorer_kind": definition.kind,
-                "has_description": False,
-                "archived": False,
-                "version": 2,
-            },
-            team=self.team,
-            request=ANY,
-        )
+        properties = {
+            "scorer_id": str(definition.id),
+            "scorer_name": definition.name,
+            "scorer_kind": definition.kind,
+            "has_description": update_metadata,
+            "archived": False,
+            "version": 2,
+        }
+        expected_calls = [call(self.user, "llma scorer version created", properties, team=self.team, request=ANY)]
+        if update_metadata:
+            expected_calls.append(
+                call(
+                    self.user,
+                    "llma scorer updated",
+                    {**properties, "changed_fields": ["name", "description"]},
+                    team=self.team,
+                    request=ANY,
+                )
+            )
+        self.assertCountEqual(mock_report_user_action.call_args_list, expected_calls)
 
     def _default_config_for_kind(self, kind: str) -> dict:
         if kind == "categorical":

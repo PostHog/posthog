@@ -311,7 +311,7 @@ class ScoreDefinitionViewSet(
         definition.create_new_version(config=config, created_by=cast(User, self.request.user))
         return definition
 
-    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> list[str]:
+    def _update_definition_metadata(self, definition: ScoreDefinition, validated_data: dict[str, Any]) -> None:
         definition_data = dict(validated_data)
         changed_fields: list[str] = []
 
@@ -323,10 +323,26 @@ class ScoreDefinitionViewSet(
                 setattr(definition, field, value)
                 changed_fields.append(field)
 
-        if changed_fields:
-            definition.save(update_fields=[*changed_fields, "updated_at"])
+        if not changed_fields:
+            return
 
-        return changed_fields
+        definition.save(update_fields=[*changed_fields, "updated_at"])
+        event_properties: dict[str, str | bool | int | list[str]] = {
+            **self._event_properties(definition),
+            "changed_fields": changed_fields,
+        }
+        if "archived" in changed_fields:
+            event_properties["archived_new_value"] = definition.archived
+
+        transaction.on_commit(
+            lambda: report_user_action(
+                self.request.user,
+                "llma scorer updated",
+                event_properties,
+                team=self.team,
+                request=self.request,
+            )
+        )
 
     @transaction.atomic
     def _create_definition_version(
@@ -398,24 +414,7 @@ class ScoreDefinitionViewSet(
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         definition = self.get_object()
-        changed_fields = self._update_definition_metadata(definition, dict(request.validated_data))
-
-        if changed_fields:
-            event_properties: dict[str, Any] = {
-                **self._event_properties(definition),
-                "changed_fields": changed_fields,
-            }
-
-            if "archived" in changed_fields:
-                event_properties["archived_new_value"] = definition.archived
-
-            report_user_action(
-                request.user,
-                "llma scorer updated",
-                event_properties,
-                team=self.team,
-                request=request,
-            )
+        self._update_definition_metadata(definition, dict(request.validated_data))
 
         return Response(self.get_serializer(definition).data, status=status.HTTP_200_OK)
 
