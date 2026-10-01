@@ -511,7 +511,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, COALESCE(eds.label, eds.name) as name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
                                null as origin, edj.pipeline_id as source_id
@@ -644,7 +644,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cursor.execute(
                     """
                     WITH external_jobs AS (
-                        SELECT edj.id, edsrc.source_type as type, COALESCE(eds.label, eds.name) as name, edj.status,
+                        SELECT edj.id, edsrc.source_type as type, COALESCE(NULLIF(eds.label, ''), eds.name) as name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
                                null as origin, edj.pipeline_id as source_id
