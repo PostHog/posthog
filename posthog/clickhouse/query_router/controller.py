@@ -290,6 +290,13 @@ class LimitController:
             logger.warning("query_router_load_read_failed", exc_info=True)
             loads = {}
             result = TickResult.LOAD_READ_FAILED
+        # A slow load read can outlast the lease. A controller that lost it in the meantime must not
+        # overwrite the limit of the controller that replaced it.
+        self._holds_lease = self._hold_lease()
+        if not self._holds_lease:
+            self._reset()
+            CONTROLLER_TICKS_COUNTER.labels(result=TickResult.NOT_LEADER).inc()
+            return TickResult.NOT_LEADER
         for pool in Pool:
             self._write_limit(pool, loads.get(pool), now)
             self._record_slot_gauges(pool, now)

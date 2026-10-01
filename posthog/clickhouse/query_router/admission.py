@@ -48,7 +48,9 @@ _BASE_POLL_DELAY_SECONDS = 0.05
 _MAX_POLL_DELAY_SECONDS = 1.0
 
 # A slot outlives the time limit of its query, so the slot of a process that died without a release
-# keeps counting for as long as ClickHouse can still run the query.
+# keeps counting for as long as ClickHouse can still run the query. A query that runs past its slot,
+# which takes a query with no time limit or one longer than the maximum, stops counting early. That
+# errs toward admitting, and the alternative is a dead process holding a slot with no bound.
 _SLOT_TTL_MARGIN_SECONDS = 30
 _MIN_SLOT_TTL_SECONDS = 60
 _MAX_SLOT_TTL_SECONDS = 3600

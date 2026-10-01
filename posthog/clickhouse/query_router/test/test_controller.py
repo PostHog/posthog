@@ -136,6 +136,18 @@ class TestLimitController(SimpleTestCase):
 
         assert self._written_limits() == {}
 
+    def test_controller_that_loses_the_lease_during_the_load_read_writes_nothing(self) -> None:
+        def fetch_while_another_controller_takes_over() -> list[NodeCounters]:
+            self.redis.set(config.CONTROLLER_LEADER_KEY, "another-controller", ex=5)
+            return [_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.9)]
+
+        controller = LimitController(
+            load_reader=LoadReader(fetch=fetch_while_another_controller_takes_over), get_time=self.clock
+        )
+        controller.tick()
+
+        assert self._written_limits() == {}
+
     def test_new_leader_continues_from_the_limit_the_previous_leader_wrote(self) -> None:
         self._controller(
             _FakeFetch([_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.9)])
