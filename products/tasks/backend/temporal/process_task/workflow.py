@@ -530,6 +530,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._end_of_turn_received: Optional[bool] = None
         self._last_turn_succeeded = False
         self._turn_ended_received = False
+        self._turn_completion_signal_count = 0
         self._last_agent_heartbeat_at: Optional[datetime] = None
         self._prewarmed: bool = False
         self._first_user_message_received: bool = False
@@ -3523,8 +3524,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_active = agent_active
         self._end_of_turn_received = not agent_active
         self._last_turn_succeeded = False
-        if not agent_active and _turn_opens_on_dispatch():
-            self._turn_ended_received = True
+        if not agent_active:
+            self._turn_completion_signal_count += 1
+            if _turn_opens_on_dispatch():
+                self._turn_ended_received = True
 
     @temporalio.workflow.signal
     async def agent_turn_completed(self, succeeded: bool = False) -> None:
@@ -3706,6 +3709,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         )
         try:
             max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
+            turn_completion_count = self._turn_completion_signal_count
             outcome = await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
@@ -3727,12 +3731,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
             )
             # A delivered message opens a turn: the first heartbeat may lag or be throttled away.
-            if outcome != STEER_DECLINED_OUTCOME and _turn_opens_on_dispatch():
-                self._end_of_turn_received = False
-                # The ingest plane never reports a turn active, only inactive at its close, so a
-                # stale `False` from the turn that just ended must not carry into this one — it
-                # would permanently hide a lost agent for every later turn of the run.
-                self._agent_active = None
+            # The delivery call can return after that turn's completion signal, in which case the
+            # signal already holds the newer state and must not be overwritten.
+            if outcome != STEER_DECLINED_OUTCOME:
+                turn_opens_on_dispatch = _turn_opens_on_dispatch()
+                if self._turn_completion_signal_count == turn_completion_count and turn_opens_on_dispatch:
+                    self._end_of_turn_received = False
+                    # The ingest plane never reports a turn active, only inactive at its close, so a
+                    # stale `False` from the turn that just ended must not carry into this one — it
+                    # would permanently hide a lost agent for every later turn of the run.
+                    self._agent_active = None
             return outcome
         except Exception as e:
             error_properties = self._activity_error_properties(e)

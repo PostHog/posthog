@@ -1917,6 +1917,26 @@ class TestProcessTaskWorkflowUnit:
         assert workflow._end_of_turn_received is expected
         assert workflow._agent_active is (None if outcome is None else False)
 
+    async def test_followup_delivery_does_not_reopen_a_turn_that_completed_while_awaiting(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._end_of_turn_received = True
+        workflow._agent_active = False
+
+        async def deliver_after_turn_completes(*_args, **_kwargs):
+            await workflow.agent_state_changed(False)
+            return None
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", Mock(return_value="uuid"))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", deliver_after_turn_completes)
+
+        await workflow._send_followup_to_sandbox("go", [])
+
+        assert workflow._end_of_turn_received is True
+        assert workflow._agent_active is False
+
     async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
