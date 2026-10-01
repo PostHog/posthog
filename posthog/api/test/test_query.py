@@ -48,7 +48,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
-from posthog.errors import InternalCHQueryError
+from posthog.errors import GENERIC_INTERNAL_CH_ERROR_MESSAGE, INTERNAL_CH_ERROR_USER_MESSAGES, InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
@@ -122,6 +122,28 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, ClickHouseQueryTimeOut.status_code)
         self.assertNotIn("Retry-After", response)
         self.assertEqual(mock_capture.called, expect_capture)
+
+    @parameterized.expand(
+        [
+            ("known_code", 158, INTERNAL_CH_ERROR_USER_MESSAGES["TOO_MANY_ROWS"]),
+            ("unknown_code", 999_999, GENERIC_INTERNAL_CH_ERROR_MESSAGE),
+        ]
+    )
+    def test_internal_clickhouse_error_hides_raw_message(self, _name, code, expected_detail):
+        error = InternalCHQueryError("DB::Exception: raw server detail", code=code)
+
+        with (
+            patch("posthog.api.query.process_query_model", side_effect=error),
+            patch("posthog.api.query.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": HogQLQuery(query="select 1").model_dump()},
+            )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], expected_detail)
+        mock_capture.assert_called_once_with(error)
 
     @parameterized.expand(
         [
