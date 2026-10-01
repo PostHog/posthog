@@ -65,8 +65,13 @@ def add_tags_to_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 
 def remove_tags_from_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Detach only the named tags from an object."""
-    # Individual deletes so the TaggedItem activity signal fires for each removal.
-    for tagged_item in obj.tagged_items.filter(tag__name__in=normalize_tag_names(tags)):
+    # Individual deletes so the TaggedItem activity signal fires for each removal. The signal
+    # reads the tag, its team and the tagged object, so load them with the rows.
+    for tagged_item in (
+        obj.tagged_items.filter(tag__name__in=normalize_tag_names(tags))
+        .select_related("tag__team")
+        .prefetch_related("integer_object", "uuid_object")
+    ):
         tagged_item.delete()
     return list(obj.tagged_items.select_related("tag"))
 
@@ -138,9 +143,16 @@ def apply_bulk_tag_changes(
     for obj in objects:
         team_ids.add(obj.team_id)
         current_tags = current_tag_names(obj)
-        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
-
-        set_tags_on_object(list(new_tags), obj)
+        # add and remove write only the named tags. current_tags can be stale, so writing
+        # back a full set resolved from it would delete a tag that another request attached
+        # after the objects were loaded.
+        if tag_action == "add":
+            new_tags = {tagged_item.tag.name for tagged_item in add_tags_to_object(tags, obj)}
+        elif tag_action == "remove":
+            new_tags = {tagged_item.tag.name for tagged_item in remove_tags_from_object(tags, obj)}
+        else:
+            new_tags = set(normalized_tags)
+            set_tags_on_object(list(new_tags), obj)
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
         if activity_context is not None and current_tags != new_tags:
