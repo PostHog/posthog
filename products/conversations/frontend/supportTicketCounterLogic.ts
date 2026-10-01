@@ -162,7 +162,21 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
         // a single success listener covers both the happy path and the swallowed
         // error path. The disposables plugin auto-pauses the scheduled timer
         // when the tab is hidden and resumes it when visible.
-        loadUnreadCountSuccess: () => actions.schedulePoll(),
+        loadUnreadCountSuccess: ({ unreadCount }) => {
+            // The first load after mount or a team change only sets the baseline, so messages that already exist do not notify.
+            if (
+                cache.notificationBaseline !== undefined &&
+                unreadCount > cache.notificationBaseline &&
+                values.canShowNotifications
+            ) {
+                actions.showNotification()
+            }
+            cache.notificationBaseline = unreadCount
+            actions.schedulePoll()
+        },
+        resetCount: () => {
+            cache.notificationBaseline = undefined
+        },
         schedulePoll: () => {
             if (!values.isSupportEnabled) {
                 return
@@ -184,7 +198,7 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             actions.loadUnreadCount()
         },
     })),
-    subscriptions(({ actions, values, cache }) => ({
+    subscriptions(({ actions, cache }) => ({
         // React to team changes - reset and re-fetch for new team
         currentTeam: (currentTeam, oldTeam) => {
             // Skip initial mount (oldTeam is undefined)
@@ -210,9 +224,6 @@ export const supportTicketCounterLogic = kea<supportTicketCounterLogicType>([
             }
             if (unreadCount !== oldUnreadCount) {
                 supportTicketsSceneLogic.findMounted()?.actions.loadTickets()
-            }
-            if (unreadCount > oldUnreadCount && values.canShowNotifications) {
-                actions.showNotification()
             }
         },
     })),
