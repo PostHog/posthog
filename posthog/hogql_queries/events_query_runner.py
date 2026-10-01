@@ -549,7 +549,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if self.query.orderBy is not None:
                 order_by = self._requested_order_by(table, self.query.orderBy)
             else:
-                order_by = self._default_order_by(select_input, select, aggregations)
+                order_by = self._default_order_by(table, select_input, select, aggregations)
 
             first_order = order_by[0].expr if order_by else None
             self._cursor_eligible = (
@@ -579,7 +579,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return [parse_order_expr(column, timings=self.timings) for column in columns]
 
     def _default_order_by(
-        self, select_input: list[str], select: list[ast.Expr], aggregations: list[ast.Expr]
+        self,
+        table: EventsListTable,
+        select_input: list[str],
+        select: list[ast.Expr],
+        aggregations: list[ast.Expr],
     ) -> list[ast.OrderExpr]:
         if "count()" in select_input:
             return [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
@@ -588,6 +592,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if "timestamp" in select_input:
             return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
         if len(select) > 0:
+            if (
+                table.looks_up_person_display_names
+                and self.select_input_raw()[0].split("--")[0].strip() == "person_display_name"
+            ):
+                # The selected tuple holds distinct_id in place of the name. Sorting by that tuple does not sort by name.
+                sort_key = f"({self._person_display_name_key(table)})"
+                return [ast.OrderExpr(expr=parse_expr(sort_key), order="ASC")]
             return [ast.OrderExpr(expr=select[0], order="ASC")]
         return []
 

@@ -1490,6 +1490,32 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {"display_name": "unnamed-user", "id": str(unnamed.uuid), "distinct_id": "unnamed-user"},
         ]
 
+    @parameterized.expand([("default_order", None), ("requested_order", ["person_display_name -- Person ASC"])])
+    def test_flag_evaluations_sort_by_person_display_name(self, _name: str, order_by: list[str] | None):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        first_by_name = _create_person(
+            team_id=self.team.pk, distinct_ids=["zz-user"], properties={"email": "aa@example.com"}
+        )
+        last_by_name = _create_person(
+            team_id=self.team.pk, distinct_ids=["aa-user"], properties={"email": "zz@example.com"}
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation("aa-user", last_by_name.uuid)
+        self._insert_flag_evaluation("zz-user", first_by_name.uuid)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=order_by,
+                after="-30d",
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["display_name"] for row in response.results] == ["aa@example.com", "zz@example.com"]
+
     def _enable_property_access_control(self) -> None:
         from posthog.constants import AvailableFeature
 
