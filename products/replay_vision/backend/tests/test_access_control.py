@@ -4,6 +4,8 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -13,6 +15,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
@@ -199,6 +202,17 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(self.client.post(f"{url}estimate/", window, format="json").status_code, 403)
         self.assertEqual(self.client.post(url, window, format="json").status_code, 403)
 
+    def _create_experiment_scoped_scanner(self, name: str, experiment_id: int, location: str) -> ReplayScanner:
+        # The two places a scanner's experiment scope can live: the legacy column on the four
+        # original types, and scanner_config on the experiment type.
+        if location == "column":
+            return self._create_scanner(name=name, experiment_targeting={"experiment_id": experiment_id})
+        return self._create_scanner(
+            name=name,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": experiment_id},
+        )
+
     def test_experiment_targeting_rejects_an_experiment_the_caller_cannot_view(self) -> None:
         # A scanner-editor without experiment access must not be able to confirm an experiment's
         # existence via the targeting validation response; a denied experiment reads as not-found.
@@ -273,6 +287,70 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         scanner.refresh_from_db()
         self.assertIsNone(scanner.experiment_targeting)
 
+    def test_experiment_scanner_create_rejects_a_denied_experiment(self) -> None:
+        # The experiment type keeps its scope in scanner_config, a write path the
+        # experiment_targeting field's access check never sees; the config path must gate the same way.
+        experiment = create_experiment(self.team, "denied-flag", launched=True, variants=["control", "test"])
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "config-denied",
+                "scanner_type": "experiment",
+                "scanner_config": {"prompt": "p", "experiment_id": experiment.id},
+                "model": "gemini-3.8-flash",
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_config")
+
+    def test_experiment_scanner_config_is_partially_hidden_from_a_denied_viewer(self) -> None:
+        # Only the experiment keys are hidden, so the rest of the config (prompt, length) stays
+        # readable; hiding the whole config would break the editor for a scanner-level viewer.
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        config = {"prompt": "p", "experiment_id": experiment.id, "variants": ["test"]}
+        scanner = self._create_scanner(name="config-scoped", scanner_type=ScannerType.EXPERIMENT, scanner_config=config)
+        self._set_resource_default("replay_scanner", "viewer")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.get(f"{self.scanners_url}{scanner.id}/")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["scanner_config"], {"prompt": "p"})
+
+        # The creator, who can view the experiment, still sees the whole config.
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"{self.scanners_url}{scanner.id}/").json()["scanner_config"], config)
+
+    def test_save_by_an_editor_denied_the_experiment_keeps_the_config_scope(self) -> None:
+        # The read path strips the experiment keys for such an editor, and the editor form writes
+        # the whole config back on save. Without the restore, a prompt edit would fail validation
+        # (or clear a scope the caller can't see).
+        experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
+        config = {"prompt": "p", "experiment_id": experiment.id, "variants": ["test"]}
+        scanner = self._create_scanner(name="config-scoped", scanner_type=ScannerType.EXPERIMENT, scanner_config=config)
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+
+        self.client.force_login(self.other_user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "sharper prompt"}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        scanner.refresh_from_db()
+        self.assertEqual(
+            scanner.scanner_config,
+            {"prompt": "sharper prompt", "experiment_id": experiment.id, "variants": ["test"]},
+        )
+
     def test_estimate_treats_a_denied_experiment_targeting_as_not_found(self) -> None:
         # The query runner's own access check answers a denied experiment with a 403, which would
         # confirm the hidden id exists; the endpoint must answer 400 not-found, like the scanner
@@ -290,13 +368,13 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 400, resp.json())
         self.assertEqual(resp.json()["attr"], "experiment_targeting")
 
-    def test_experiment_id_filter_returns_no_matches_for_an_inaccessible_experiment(self) -> None:
+    @parameterized.expand([("column",), ("config",)])
+    def test_experiment_id_filter_returns_no_matches_for_an_inaccessible_experiment(self, location: str) -> None:
         # Guards the ?experiment_id= disclosure: a scanner-viewer who can't access the experiment must
         # not confirm a scanner targets it via the filter's match count. Distinct code path from the
         # serializer redaction above — the scanner is hidden from the list entirely, not just nulled.
         experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
-        targeting = {"experiment_id": experiment.id, "variant": "test"}
-        self._create_scanner(name="targeted", experiment_targeting=targeting)
+        self._create_experiment_scoped_scanner("targeted", experiment.id, location)
         self._set_resource_default("replay_scanner", "viewer")
         self._set_resource_default("experiment", "none")
         self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
@@ -322,7 +400,8 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([s["name"] for s in resp.json()["results"]], ["targeted"])
 
-    def test_observations_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+    @parameterized.expand([("column",), ("config",)])
+    def test_observations_of_a_denied_experiment_scanner_read_as_not_found(self, location: str) -> None:
         # An experiment scanner's observations are the experiment's exposed sessions, so scanner +
         # session_recording access is not enough to read them: a caller denied the experiment must
         # not learn which sessions and people were exposed. Reads as not-found, not 403, matching
@@ -332,7 +411,7 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self._set_resource_default("session_recording", "editor")
         self._set_resource_default("experiment", "none")
         self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
-        targeted = self._create_scanner(name="targeted", experiment_targeting={"experiment_id": experiment.id})
+        targeted = self._create_experiment_scoped_scanner("targeted", experiment.id, location)
         plain = self._create_scanner(name="plain")
         # Observations carry the scanner's snapshot, so their experiment targeting is recorded on the row.
         ReplayObservation.objects.create(

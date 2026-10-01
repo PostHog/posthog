@@ -21,6 +21,7 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     classifier: 'completion',
     scorer: 'warning',
     summarizer: 'success',
+    experiment: 'highlight',
 }
 
 export const OBSERVATION_TRIGGER_TAG: Record<
@@ -387,6 +388,7 @@ const SCANNER_TYPE_OUTPUT_HINT: Record<ScannerType, string> = {
     classifier: 'a category from a set you define',
     scorer: 'a number score',
     summarizer: 'a text summary',
+    experiment: 'a text summary per exposed session',
 }
 
 export function scannerTypeOutputHint(scannerType: ScannerType): string {
@@ -399,6 +401,7 @@ export const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     summarizer: 'Summary',
     monitor: 'Verdict',
     scorer: 'Score',
+    experiment: 'Summary',
 }
 
 export function createdByLabel(user: ScannerCreatedBy | null): string {

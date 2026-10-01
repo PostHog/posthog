@@ -117,6 +117,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
     apply_experiment_targeting,
+    config_experiment_scope,
 )
 from products.replay_vision.backend.prompt_questions import (
     question_fields_for_save,
@@ -146,6 +147,7 @@ from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     is_experiment_accessible,
     readable_observation_scanner_ids,
+    scanner_experiment_scope_q,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -316,6 +318,7 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
     Filter *values* stay out: they can carry customer data (URLs, emails)."""
     query = scanner.query if isinstance(scanner.query, dict) else {}
     estimate = scanner.estimated_monthly_observations
+    experiment_scope = scanner.experiment_scope()
     return {
         "scanner_id": str(scanner.id),
         "scanner_type": scanner.scanner_type,
@@ -325,10 +328,10 @@ def scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
         "sampling_rate": scanner.sampling_rate,
         "sampling_mode": scanner.sampling_mode,
         "enabled": scanner.enabled,
-        # experiment_targeting narrows the population server-side, so it counts as filtered; the
+        # An experiment scope narrows the population server-side, so it counts as filtered; the
         # separate flag keeps experiment-scoped scanners countable apart from hand-filtered ones.
-        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(scanner.experiment_targeting),
-        "has_experiment_targeting": bool(scanner.experiment_targeting),
+        "has_filters": any(query.get(key) for key in _QUERY_FILTER_KEYS) or bool(experiment_scope),
+        "has_experiment_targeting": bool(experiment_scope),
         # True when the prompt is a stock template's word for word, so a creation-flow experiment can
         # tell a scanner tailored to the team from a template saved with its defaults.
         "uses_template_prompt": template_question(scanner.scanner_config) is not None,
@@ -803,7 +806,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
+        self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
+        self._validate_experiment_scanner(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
@@ -831,6 +836,64 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             and not self._can_view_targeted_experiment(self.instance.experiment_targeting)
         ):
             attrs.pop("experiment_targeting")
+
+    def _restore_redacted_experiment_config(self, attrs: dict[str, Any]) -> None:
+        # to_representation strips the experiment keys from an experiment scanner's config for
+        # callers denied the experiment, and the editor form writes the whole config back on save.
+        # Restore the stored keys when such a caller writes a config with no experiment_id, so the
+        # save reads as untouched scope instead of failing validation. A caller who can view the
+        # experiment gets no restore: their missing experiment_id is a real (rejected) edit.
+        if self.instance is None or self.instance.scanner_type != ScannerType.EXPERIMENT:
+            return
+        config = attrs.get("scanner_config")
+        if not isinstance(config, dict) or config.get("experiment_id") is not None:
+            return
+        stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
+        if stored.get("experiment_id") is None:
+            return
+        if self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]}):
+            return
+        restored = {**config, "experiment_id": stored["experiment_id"]}
+        if "variants" not in restored and "variants" in stored:
+            restored["variants"] = stored["variants"]
+        attrs["scanner_config"] = restored
+
+    def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:
+        """The experiment-type checks that need a viewer or the experiments product, which the
+        pydantic config validation has no access to: experiment access, and a resolvable exposed
+        population (launched, person-aggregated, variants exist)."""
+        scanner_type = attrs.get("scanner_type", getattr(self.instance, "scanner_type", None))
+        if scanner_type != ScannerType.EXPERIMENT:
+            return
+        if attrs.get("experiment_targeting"):
+            raise serializers.ValidationError(
+                {"experiment_targeting": "An experiment scanner keeps its experiment in scanner_config."}
+            )
+        if "scanner_config" not in attrs and "scanner_type" not in attrs:
+            return
+        config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None)) or {}
+        if self.instance is not None and config_experiment_scope(config) == self.instance.experiment_scope():
+            # Unchanged scope: an editor denied the experiment may still edit the prompt, and the
+            # experiment's launch state was already checked when the scope was written.
+            return
+        experiment_id = config.get("experiment_id")
+        if not isinstance(experiment_id, int):
+            # scanner_config_error already rejected this shape; kept as the type narrow.
+            raise serializers.ValidationError({"scanner_config": "Experiment is required."})
+        # Filtered by the caller's experiment access (not just the team), mirroring
+        # validate_experiment_targeting: a denied or cross-team id reads as not-found.
+        if not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+            raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
+        # Deferred: the experiments replay facade pulls in the recordings query modules, which
+        # circle back into this package's importers.
+        from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
+
+        try:
+            resolve_exposure_linkage(
+                self.context["get_team"](), experiment_id=experiment_id, variants=config.get("variants")
+            )
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"scanner_config": exc.detail}) from exc
 
     def validate_experiment_targeting(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         # The field already validated the blob's shape; this adds the access check, which needs the
@@ -907,6 +970,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # check in validate_experiment_targeting — a caller without experiment access sees null.
         if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
             data["experiment_targeting"] = None
+        # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
+        # a denied caller, so the rest of the config (prompt, length) stays editable.
+        if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
+            experiment_id = data["scanner_config"].get("experiment_id")
+            if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
+                data["scanner_config"] = {
+                    key: value
+                    for key, value in data["scanner_config"].items()
+                    if key not in ("experiment_id", "variants")
+                }
         return data
 
     def _can_view_targeted_experiment(self, targeting: dict[str, Any]) -> bool:
@@ -1186,7 +1259,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         view = self.request.parser_context.get("view") if self.request else None
         if view is None or not is_experiment_accessible(view.user_access_control, view.team_id, experiment_id):
             return queryset.none()
-        return queryset.filter(experiment_targeting__experiment_id=experiment_id)
+        return queryset.filter(scanner_experiment_scope_q(experiment_ids=[experiment_id]))
 
     @staticmethod
     def _filter_search(queryset: QuerySet[ReplayScanner], _name: str, value: str) -> QuerySet[ReplayScanner]:
@@ -1343,6 +1416,13 @@ class InlineScanRequestSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         config = attrs["scanner_config"]
+        if attrs["scanner_type"] == ScannerType.EXPERIMENT:
+            # Inline scans skip the saved-scanner path that access-checks the experiment and, for
+            # now, the workflow step that attributes a session's variant. Until those run for
+            # inline scans, the type would scan without its experiment context.
+            raise serializers.ValidationError(
+                {"scanner_type": "Experiment scanners can't run as inline scans. Create the scanner instead."}
+            )
         if not isinstance(config, dict):
             raise serializers.ValidationError({"scanner_config": "Scanner configuration must be a JSON object."})
         if "prompt" in config:
@@ -2192,6 +2272,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 self.user_access_control, self.team_id, experiment_id
             ):
                 experiment_targeting = None
+        if source.scanner_type == ScannerType.EXPERIMENT:
+            scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
+            if scope_experiment_id is None or not is_experiment_accessible(
+                self.user_access_control, self.team_id, scope_experiment_id
+            ):
+                # The experiment type can't exist without its experiment, so there is no
+                # targeting-stripped copy to fall back to the way the legacy types have.
+                raise serializers.ValidationError("Duplicating this scanner requires access to its experiment.")
         # One transaction so a failed tag write can't leave an untagged copy behind. Side effects stay outside.
         with transaction.atomic():
             try:
