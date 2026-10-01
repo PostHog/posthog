@@ -14,12 +14,12 @@ import {
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { SpaceCanvasCard } from './SpaceCanvasCard'
 import { SpaceCanvasDeleteDialog } from './SpaceCanvasDeleteDialog'
-import { spaceNewCanvasUrl } from './spaceCanvasUrls'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 const GRID_CLASS = 'grid grid-cols-1 gap-3 @lg/main-content:grid-cols-2 @3xl/main-content:grid-cols-3'
@@ -50,7 +50,7 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
         <Button
             variant={variant}
             size="sm"
-            render={<LinkPrimitive to={spaceNewCanvasUrl()} />}
+            render={<LinkPrimitive to={urls.canvasNew(id)} />}
             data-attr="today-space-canvases-new"
         >
             <IconPlus />

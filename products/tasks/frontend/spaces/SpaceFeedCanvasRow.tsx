@@ -1,13 +1,13 @@
 import { Badge, Card, Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
-import { spaceCanvasUrl } from './spaceCanvasUrls'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedCanvasRowProps {
@@ -28,7 +28,7 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
     )
     const name = (className: string): JSX.Element => (
         <LinkPrimitive
-            to={spaceCanvasUrl(canvas.id)}
+            to={urls.canvasDetail(canvas.id)}
             className={cn('min-w-0 truncate text-foreground after:absolute after:inset-0', className)}
             data-attr="today-space-feed-canvas-row"
         >

@@ -1,6 +1,7 @@
 import { Card, ContextMenu, ContextMenuContent, ContextMenuTrigger, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { CONTEXT_PARTS } from '~/layout/today/todayMenuParts'
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
@@ -10,7 +11,6 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { SpaceCanvasActions } from './SpaceCanvasActions'
 import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
 import { SpaceCanvasMenu } from './SpaceCanvasMenu'
-import { spaceCanvasUrl } from './spaceCanvasUrls'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 export function SpaceCanvasCard({ spaceId, canvas }: { spaceId: string; canvas: CanvasApi }): JSX.Element {
@@ -27,7 +27,7 @@ export function SpaceCanvasCard({ spaceId, canvas }: { spaceId: string; canvas: 
                     <div className="flex min-w-0 items-center gap-2">
                         <TemplateIcon className="size-3.5 shrink-0 text-muted-foreground" />
                         <LinkPrimitive
-                            to={spaceCanvasUrl(canvas.id)}
+                            to={urls.canvasDetail(canvas.id)}
                             className="min-w-0 flex-1 truncate text-sm font-medium text-foreground after:absolute after:inset-0"
                             data-attr="today-space-canvases-card"
                         >
