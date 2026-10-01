@@ -551,6 +551,7 @@ from .google_webfonts.source import GoogleWebfontsSource
 from .google_workspace_admin_reports.source import GoogleWorkspaceAdminReportsSource
 from .gorgias.source import GorgiasSource
 from .grafana.source import GrafanaSource
+from .grafana_irm.source import GrafanaIRMSource
 from .granola.source import GranolaSource
 from .greenhouse.source import GreenhouseSource
 from .greythr.source import GreytHrSource
