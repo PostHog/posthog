@@ -486,6 +486,8 @@ export const visionScannersCreateBodyTagsItemMax = 255
 
 export const visionScannersCreateBodyTagsMax = 32
 
+export const visionScannersCreateBodyGoalMax = 2000
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -518,6 +520,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             )
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        goal: zod
+            .string()
+            .max(visionScannersCreateBodyGoalMax)
+            .nullish()
+            .describe(
+                "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
             ),
         creation_method: zod
             .union([
@@ -626,6 +635,8 @@ export const visionScannersPartialUpdateBodyTagsItemMax = 255
 
 export const visionScannersPartialUpdateBodyTagsMax = 32
 
+export const visionScannersPartialUpdateBodyGoalMax = 2000
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -660,6 +671,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            ),
+        goal: zod
+            .string()
+            .max(visionScannersPartialUpdateBodyGoalMax)
+            .nullish()
+            .describe(
+                "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
             ),
         creation_method: zod
             .union([

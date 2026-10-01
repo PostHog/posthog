@@ -1255,15 +1255,14 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchHighlightContext
         experimentId: ExperimentIdType
     }
-    reportExperimentWizardGuideToggled: (
-        visible: boolean,
+    reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
-    ) => {
-        currentStep: string
-        visible: boolean
     }
-    reportExperimentWizardStarted: (guideVisible: boolean) => {
-        guideVisible: boolean
+    reportExperimentWizardStarted: () => {
+        value: true
+    }
+    reportExperimentsListAiBadgeClicked: () => {
+        value: true
     }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
@@ -1915,8 +1914,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             draftAgeSeconds,
         }),
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
-        reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
-        reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
+        reportExperimentWizardStarted: true,
+        reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
+        reportExperimentsListAiBadgeClicked: true,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2549,16 +2549,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 })
             }
         },
-        reportExperimentWizardStarted: ({ guideVisible }) => {
-            posthog.capture('experiment wizard started', {
-                guide_visible: guideVisible,
-            })
+        reportExperimentWizardStarted: () => {
+            posthog.capture('experiment wizard started')
         },
-        reportExperimentWizardGuideToggled: ({ visible, currentStep }) => {
-            posthog.capture('experiment wizard guide toggled', {
-                visible,
-                current_step: currentStep,
-            })
+        reportExperimentWizardAskAiClicked: ({ currentStep }) => {
+            posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
+        },
+        reportExperimentsListAiBadgeClicked: () => {
+            posthog.capture('experiments list ai badge clicked')
         },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
