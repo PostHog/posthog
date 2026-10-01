@@ -160,7 +160,7 @@ Quarantine call shape (`quarantine-create`):
 - `id` — the repo UUID (the run's `repo_id`), and `run_type` — the failing run's `run_type`. Both are route parameters.
 - `identifier`, and a `reason` with the evidence, for example "unstable on master: 7 failed default-branch runs in 7 days, chart animation timing; unrelated to PR 1234".
 - `source_run_id` — the run that failed. `expires_at` — omit it for 30 days, or set an earlier date, never a later one.
-- Then call `recompute-create { id: <newest run_id> }` and check `ci_rerun_triggered`.
+- Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`.
 
 Toleration call shape — both fields are required:
 
@@ -273,7 +273,7 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 - `hard_rate` and `hard_count`: the share and number of recent default-branch runs that failed the gate.
   `last_flaked_at`: the latest of them.
 - `soft_rate`: the share that a toleration absorbed.
-- `window_runs`: the repo's default-branch runs behind those rates. It is the same for every entry and says nothing about the story.
+- `window_runs`: the repo's default-branch runs behind those rates. It is the same for every entry of a run type and says nothing about the story.
 
 A story with no entry is quiet only when the response has `truncated: false`.
 With `truncated: true`, an absent story can be in any state, so absence proves nothing.
