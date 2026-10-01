@@ -93,6 +93,16 @@ describe('alertSchedulingStale', () => {
                 '2026-04-05T15:15:00.000Z',
                 'Australia/Lord_Howe',
             ],
+            // New York repeats 01:00 to 02:00 on 1 November. At 06:40 UTC (the second 01:40), the next automatic
+            // hourly window follows 02:00 EST (07:00 UTC), not the first 01:00 (05:00 UTC).
+            [
+                AlertCalculationInterval.HOURLY,
+                null,
+                '2026-11-01T06:40:00.000Z',
+                '2026-11-01T07:02:00.000Z',
+                '2026-11-01T07:13:00.000Z',
+                'America/New_York',
+            ],
         ])(
             'uses %s schedule start time %s',
             (interval, scheduleStartTime, nowValue, expected, expectedLatest, timezone) => {

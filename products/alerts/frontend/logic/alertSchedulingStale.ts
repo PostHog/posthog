@@ -67,7 +67,10 @@ export function approximateNextAlertRun(
         if (customRun) {
             return { earliest: customRun, latest: customRun }
         }
-        const anchor = localNow.startOf('minute').add(cadence - (localNow.minute() % cadence), 'minutes')
+        // Floor the instant in UTC, because `startOf` on the zoned value re-reads the wall time and, in a repeated
+        // hour, can move to the earlier occurrence.
+        const currentMinute = dayjs.utc(localNow.valueOf()).startOf('minute')
+        const anchor = currentMinute.add(cadence - (localNow.minute() % cadence), 'minutes')
         return {
             earliest: anchor.add(cadence === 15 ? 1 : 2, 'minutes'),
             latest: anchor.add(cadence === 15 ? 3 : 13, 'minutes'),
