@@ -78,12 +78,14 @@ export const codexBillingLogic = kea<codexBillingLogicType>([
                 setPreferredCodexModelAccess: (_, { codexModelAccess }) => codexModelAccess,
             },
         ],
+        // Cleared by the plan pick, not by `connectCodexSuccess`: reducers run before listeners, so clearing it
+        // there would hide it from the listener that makes the pick.
         selectPlanAfterConnect: [
             false,
             {
                 connectPlan: () => true,
                 closeConnectModal: () => false,
-                connectCodexSuccess: () => false,
+                setPreferredCodexModelAccess: () => false,
             },
         ],
     }),
