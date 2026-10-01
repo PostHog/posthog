@@ -123,9 +123,9 @@ async function addLabels(labels) {
 // ---------------------------------------------------------------------------
 // Feature flags team only: the `review/low-hanging-fruit` label.
 //
-// Small PRs that the PostHog AI app opens for the feature flags team get this
-// label, so the team can pick them off the Feature Flags board first. Other
-// teams have not opted in, so everything in this section is scoped to the
+// PRs that the PostHog AI app opens for the feature flags team get this label
+// when they are quick to review, so the team can pick them off the Feature
+// Flags board first. Other teams have not opted in, so everything in this section is scoped to the
 // feature flags team. main() calls only flagsLowHangingFruitLabel().
 // ---------------------------------------------------------------------------
 
@@ -142,8 +142,37 @@ const FLAGS_AI_BOT_LOGIN = 'posthog[bot]'
 // read organization projects, and the card does not exist yet when the PR opens.
 const FLAGS_TEAM_LABEL = 'team/feature-flags'
 
-const FLAGS_MAX_CHANGED_FILES = 2
-const FLAGS_MAX_CHANGED_LINES = 50
+// Test code cannot break production, so test files do not count toward the
+// limits. A tests-only PR therefore qualifies at any size.
+const FLAGS_TEST_PATH_PATTERNS = [
+    /(^|\/)(tests?|__tests__|__snapshots__)\//,
+    /\.(test|spec)\.[cm]?[jt]sx?$/,
+    /(^|\/)(test_[^/]*|conftest)\.py$/,
+    /_test\.(py|go|rs)$/,
+    // Rust test modules that live in `src/`, next to the code they test.
+    /(^|\/)(test_[^/]*|tests)\.rs$/,
+]
+
+// Components and styles only. A kea logic or a plain `.ts` file holds state and
+// API calls, so it is not a UI tweak even when the diff is small.
+const FLAGS_UI_PATH_PATTERN = /^(frontend\/src|products\/[^/]+\/frontend)\/.+\.(tsx|scss|css)$/
+const FLAGS_KEA_LOGIC_PATTERN = /Logic\.tsx$/
+
+function isFlagsTestFile(filename) {
+    return FLAGS_TEST_PATH_PATTERNS.some((pattern) => pattern.test(filename))
+}
+
+function isFlagsUiFile(filename) {
+    return FLAGS_UI_PATH_PATTERN.test(filename) && !FLAGS_KEA_LOGIC_PATTERN.test(filename)
+}
+
+// A PR qualifies when its hand-written, non-test files fit at least one of
+// these shapes.
+const FLAGS_QUICK_REVIEW_SHAPES = [
+    { maxFiles: 2, maxLines: 50, fileMatches: () => true },
+    { maxFiles: 5, maxLines: 100, fileMatches: isFlagsUiFile },
+]
+
 // GitHub's maximum page size for the "list pull request files" endpoint.
 const FLAGS_FILES_PAGE_SIZE = 100
 
@@ -200,9 +229,14 @@ function isFlagsLowHangingFruit(files) {
     if (files.some((file) => FLAGS_RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))) {
         return false
     }
-    const reviewedFiles = flagsWithoutGeneratedFiles(files)
+    const reviewedFiles = flagsWithoutGeneratedFiles(files).filter((file) => !isFlagsTestFile(file.filename))
     const changedLines = reviewedFiles.reduce((sum, file) => sum + file.additions + file.deletions, 0)
-    return reviewedFiles.length <= FLAGS_MAX_CHANGED_FILES && changedLines <= FLAGS_MAX_CHANGED_LINES
+    return FLAGS_QUICK_REVIEW_SHAPES.some(
+        (shape) =>
+            reviewedFiles.length <= shape.maxFiles &&
+            changedLines <= shape.maxLines &&
+            reviewedFiles.every((file) => shape.fileMatches(file.filename))
+    )
 }
 
 // The job applies every label after this request, and it has a five-minute

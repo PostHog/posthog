@@ -205,14 +205,14 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
         description: 'small single-file change',
     },
     {
-        files: [file('a.tsx', 30, 5), file('a.test.tsx', 15)],
+        files: [file('a.py', 30, 5), file('b.py', 15)],
         expected: true,
         description: 'exactly at the line and file limits',
     },
     {
-        files: [file('a.tsx', 30, 5), file('a.test.tsx', 16)],
+        files: [file('a.py', 30, 5), file('b.py', 16)],
         expected: false,
-        description: 'one line over the line limit, test lines included',
+        description: 'one line over the line limit',
     },
     {
         files: [file('a.tsx', 1), file('b.tsx', 1), file('c.tsx', 1)],
@@ -238,6 +238,69 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
         files: [file('.github/actions/paths-filter/dist/index.js', 2, 2)],
         expected: false,
         description: 'small change to a generated file under .github/',
+    },
+    {
+        files: [
+            file('posthog/api/test/test_feature_flag.py', 400),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.test.ts', 300),
+            file('rust/feature-flags/src/flags/test_flag_matching.rs', 200),
+            file('rust/feature-flags/tests/test_flags.rs', 100),
+        ],
+        expected: true,
+        description: 'large tests-only change',
+    },
+    {
+        files: [
+            file('products/feature_flags/backend/local_evaluation.py', 30),
+            file('posthog/utils.py', 20),
+            file('products/feature_flags/backend/test/test_local_evaluation.py', 300),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.test.ts', 100),
+        ],
+        expected: true,
+        description: 'small source change with large tests',
+    },
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlagTestingTab.tsx', 200)],
+        expected: false,
+        description: 'large change to a component with "Testing" in its name',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 30),
+            file('frontend/src/scenes/feature-flags/FeatureFlagSchedule.tsx', 30),
+            file('frontend/src/scenes/feature-flags/FeatureFlag.scss', 20),
+            file('products/feature_flags/frontend/FlagsTable.tsx', 10),
+            file('frontend/src/scenes/feature-flags/FlagCard.tsx', 10),
+        ],
+        expected: true,
+        description: 'UI tweak exactly at the line and file limits',
+    },
+    {
+        files: [file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 50), file('a.scss', 1), file('b.css', 40)],
+        expected: false,
+        description: 'UI tweak with a style file outside the frontend directories',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 50),
+            file('frontend/src/scenes/feature-flags/FeatureFlag.scss', 51),
+        ],
+        expected: false,
+        description: 'UI tweak one line over the line limit',
+    },
+    {
+        files: Array.from({ length: 6 }, (_, i) => file(`frontend/src/scenes/feature-flags/C${i}.tsx`, 1)),
+        expected: false,
+        description: 'UI tweak one file over the file limit',
+    },
+    {
+        files: [
+            file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 20),
+            file('frontend/src/scenes/feature-flags/featureFlagLogic.ts', 20),
+            file('frontend/src/scenes/feature-flags/flagsLogic.tsx', 20),
+        ],
+        expected: false,
+        description: 'UI tweak that also changes kea logics',
     },
     {
         files: [...generatedFiles(98), file('a.tsx', 10)],
