@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/integrations/api'
+import { EmailSenderConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -74,6 +75,155 @@ const integrationsChannelsRetrieve = (): ToolBase<
                 offset: params.offset,
                 search: params.search,
             },
+        })
+        return result
+    },
+})
+
+const IntegrationsDomainConnectApplyUrlCreateSchema = () => {
+    const IntegrationsDomainConnectApplyUrlCreateBody = orvalSchemas.IntegrationsDomainConnectApplyUrlCreateBody()
+    return IntegrationsDomainConnectApplyUrlCreateBody
+}
+
+const integrationsDomainConnectApplyUrlCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsDomainConnectApplyUrlCreateSchema>,
+    Schemas.DomainConnectApplyUrlResponse
+> => ({
+    name: 'integrations-domain-connect-apply-url-create',
+    schema: IntegrationsDomainConnectApplyUrlCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IntegrationsDomainConnectApplyUrlCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.context !== undefined) {
+            body['context'] = params.context
+        }
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.proxy_record_id !== undefined) {
+            body['proxy_record_id'] = params.proxy_record_id
+        }
+        if (params.redirect_uri !== undefined) {
+            body['redirect_uri'] = params.redirect_uri
+        }
+        if (params.provider_endpoint !== undefined) {
+            body['provider_endpoint'] = params.provider_endpoint
+        }
+        const result = await context.api.request<Schemas.DomainConnectApplyUrlResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/domain-connect/apply-url/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IntegrationsDomainConnectCheckRetrieveSchema = () => {
+    const IntegrationsDomainConnectCheckRetrieveQueryParams =
+        orvalSchemas.IntegrationsDomainConnectCheckRetrieveQueryParams()
+    return IntegrationsDomainConnectCheckRetrieveQueryParams
+}
+
+const integrationsDomainConnectCheckRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsDomainConnectCheckRetrieveSchema>,
+    Schemas.DomainConnectCheckResponse
+> => ({
+    name: 'integrations-domain-connect-check-retrieve',
+    schema: IntegrationsDomainConnectCheckRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IntegrationsDomainConnectCheckRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DomainConnectCheckResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/domain-connect/check/`,
+            query: {
+                domain: params.domain,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailCreateSchema = () => {
+    const IntegrationsCreateBody = orvalSchemas.IntegrationsCreateBody()
+    return IntegrationsCreateBody.extend({ config: EmailSenderConfigSchema })
+}
+
+const integrationsEmailCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailCreateSchema>,
+    Schemas.IntegrationConfig
+> => ({
+    name: 'integrations-email-create',
+    schema: IntegrationsEmailCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.kind !== undefined) {
+            body['kind'] = params.kind
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        body['kind'] = 'email'
+        const result = await context.api.request<Schemas.IntegrationConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailPartialUpdateSchema = () => {
+    const IntegrationsEmailPartialUpdateBody = orvalSchemas.IntegrationsEmailPartialUpdateBody()
+    const IntegrationsEmailPartialUpdateParams = orvalSchemas.IntegrationsEmailPartialUpdateParams()
+    return IntegrationsEmailPartialUpdateParams.omit({ project_id: true })
+        .extend(IntegrationsEmailPartialUpdateBody.shape)
+        .extend({ config: EmailSenderConfigSchema.optional() })
+}
+
+const integrationsEmailPartialUpdate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailPartialUpdateSchema>,
+    Schemas.IntegrationConfig
+> => ({
+    name: 'integrations-email-partial-update',
+    schema: IntegrationsEmailPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailPartialUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.IntegrationConfig>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/`,
+            body,
+        })
+        return result
+    },
+})
+
+const IntegrationsEmailVerifyCreateSchema = () => {
+    const IntegrationsEmailVerifyCreateParams = orvalSchemas.IntegrationsEmailVerifyCreateParams()
+    return IntegrationsEmailVerifyCreateParams.omit({ project_id: true })
+}
+
+const integrationsEmailVerifyCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsEmailVerifyCreateSchema>,
+    Schemas.EmailDomainVerification
+> => ({
+    name: 'integrations-email-verify-create',
+    schema: IntegrationsEmailVerifyCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsEmailVerifyCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailDomainVerification>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/email/verify/`,
         })
         return result
     },
@@ -254,6 +404,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-domain-connect-apply-url-create': integrationsDomainConnectApplyUrlCreate,
+    'integrations-domain-connect-check-retrieve': integrationsDomainConnectCheckRetrieve,
+    'integrations-email-create': integrationsEmailCreate,
+    'integrations-email-partial-update': integrationsEmailPartialUpdate,
+    'integrations-email-verify-create': integrationsEmailVerifyCreate,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,

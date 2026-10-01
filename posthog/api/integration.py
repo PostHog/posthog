@@ -45,11 +45,29 @@ from posthog.api.github_callback.types import (
     github_app_install_url,
     is_valid_github_installation_id,
 )
+from posthog.api.integration_domain_serializers import (
+    DomainConnectApplyUrlRequestSerializer,
+    DomainConnectApplyUrlResponseSerializer,
+    DomainConnectCheckQuerySerializer,
+    DomainConnectCheckResponseSerializer,
+    EmailDomainVerificationSerializer,
+    EmailSenderUpdateRequestSerializer,
+    NativeEmailIntegrationSerializer,
+)
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
-from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.domain_connect import (
+    DomainConnectSigningKeyMissing,
+    discover_domain_connect,
+    extract_root_domain_and_host,
+    generate_apply_url,
+    get_available_providers,
+    resolve_email_context,
+    resolve_proxy_context,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -282,16 +300,6 @@ def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_
         f"This GitHub integration is being used by {runs}. "
         f"Wait for {pronoun} to finish or cancel {pronoun} before disconnecting it."
     )
-
-
-class NativeEmailIntegrationSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    name = serializers.CharField()
-    provider = serializers.ChoiceField(choices=["ses", "maildev"] if settings.DEBUG else ["ses"])
-    mail_from_subdomain = serializers.CharField(required=False, allow_blank=True)
-
-    def validate_email(self, value: str) -> str:
-        return value.lower()
 
 
 class GitHubRepoSerializer(serializers.Serializer):
@@ -1370,6 +1378,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "domain_connect_check",
     ]
     scope_object_write_actions = [
         "create",
@@ -1383,6 +1392,10 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "email_update",
+        # Both call SES to refresh the domain's verification state, so they write despite reading as lookups.
+        "email_verify",
+        "domain_connect_apply_url",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
@@ -2430,35 +2443,42 @@ class IntegrationViewSet(
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
+    @validated_request(
+        responses={200: EmailDomainVerificationSerializer},
+        summary="Verify an email sender's domain",
+        description=(
+            "Ask the email provider to check the sending domain's DNS records and return each record with its status. "
+            "When every record is verified, all senders on the domain in this project become able to send."
+        ),
+    )
     @action(methods=["POST"], detail=True, url_path="email/verify")
-    def email_verify(self, request, **kwargs):
+    def email_verify(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         email = EmailIntegration(self.get_object())
         verification_result = email.verify()
         return Response(verification_result)
 
-    @extend_schema(responses={200: IntegrationSerializer})
+    @validated_request(
+        EmailSenderUpdateRequestSerializer,
+        responses={200: IntegrationSerializer},
+        summary="Update an email sender",
+    )
     @action(methods=["PATCH"], detail=True, url_path="email")
-    def email_update(self, request, **kwargs) -> Response:
+    def email_update(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         instance = self.get_object()
-        config = request.data.get("config", {})
-
-        serializer = NativeEmailIntegrationSerializer(data=config)
-        serializer.is_valid(raise_exception=True)
-
         email = EmailIntegration(instance)
-        email.update_native_integration(serializer.validated_data, instance.team_id)
-
+        email.update_native_integration(request.validated_data["config"], instance.team_id)
         return Response(IntegrationSerializer(email.integration).data)
 
+    @validated_request(
+        query_serializer=DomainConnectCheckQuerySerializer,
+        responses={200: DomainConnectCheckResponseSerializer},
+        summary="Check Domain Connect support for a domain",
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
-    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        domain = request.query_params.get("domain", "")
-        if not domain:
-            raise ValidationError("domain query parameter is required")
-
+    def domain_connect_check(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        domain_parts = extract_root_domain_and_host(domain)
+        domain_parts = extract_root_domain_and_host(request.validated_query_data["domain"])
         result = discover_domain_connect(domain_parts.root_domain)
         return Response(
             {
@@ -2468,34 +2488,25 @@ class IntegrationViewSet(
             }
         )
 
+    @validated_request(
+        DomainConnectApplyUrlRequestSerializer,
+        responses={200: DomainConnectApplyUrlResponseSerializer},
+        summary="Generate a Domain Connect apply URL",
+        description=(
+            "Build the signed URL that sends a person to their DNS host to approve the records for an email "
+            "sending domain or a reverse proxy domain."
+        ),
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["POST"], detail=False, url_path="domain-connect/apply-url")
-    def domain_connect_apply_url(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Unified endpoint for generating Domain Connect apply URLs.
-
-        Accepts a context ("email" or "proxy") and the relevant resource ID.
-        The backend resolves the domain, template variables, and service ID
-        based on context, then builds the signed apply URL.
-        """
-        from posthog.domain_connect import (
-            DOMAIN_CONNECT_PROVIDERS,
-            DomainConnectSigningKeyMissing,
-            generate_apply_url,
-            resolve_email_context,
-            resolve_proxy_context,
-        )
-
-        context = request.data.get("context")
-        redirect_uri = request.data.get("redirect_uri")
-        provider_endpoint = request.data.get("provider_endpoint")
-
-        if provider_endpoint and provider_endpoint not in DOMAIN_CONNECT_PROVIDERS:
-            raise ValidationError("Unsupported provider endpoint")
+    def domain_connect_apply_url(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        data = request.validated_data
+        context = data["context"]
+        redirect_uri = data.get("redirect_uri")
+        provider_endpoint = data.get("provider_endpoint")
 
         if context == "email":
-            integration_id = request.data.get("integration_id")
-            if not integration_id:
-                raise ValidationError("integration_id is required for email context")
+            integration_id = data["integration_id"]
             try:
                 resolved = resolve_email_context(integration_id, self.team_id)
             except ValueError as e:
@@ -2503,11 +2514,8 @@ class IntegrationViewSet(
                 raise ValidationError(
                     "Validation error resolving email context. Please try again later or contact support."
                 )
-
-        elif context == "proxy":
-            proxy_record_id = request.data.get("proxy_record_id")
-            if not proxy_record_id:
-                raise ValidationError("proxy_record_id is required for proxy context")
+        else:
+            proxy_record_id = data["proxy_record_id"]
             organization = self.organization
             try:
                 resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
@@ -2518,8 +2526,6 @@ class IntegrationViewSet(
                 raise ValidationError(
                     "Validation error resolving proxy context. Please try again later or contact support."
                 )
-        else:
-            raise ValidationError("context must be 'email' or 'proxy'")
 
         try:
             url = generate_apply_url(

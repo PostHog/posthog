@@ -1741,6 +1741,74 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_provider in response.json()["detail"]
 
+    @pytest.mark.parametrize(
+        "method,url_suffix,body,scope,expected_status,expected_detail",
+        [
+            ("get", "domain-connect/check/?domain=mail.example.com", None, "integration:read", 200, None),
+            ("post", "domain-connect/apply-url/", {"context": "email"}, "integration:read", 403, "integration:write"),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email"},
+                "integration:write",
+                400,
+                "integration_id is required for email context",
+            ),
+            ("post", "{email_id}/email/verify/", None, "integration:read", 403, "integration:write"),
+            ("post", "{email_id}/email/verify/", None, "integration:write", 200, None),
+            ("patch", "{email_id}/email/", {"config": {}}, "integration:read", 403, "integration:write"),
+            (
+                "patch",
+                "{email_id}/email/",
+                {"config": {"email": "hello@mail.example.com", "name": "Acme", "provider": "ses"}},
+                "integration:write",
+                200,
+                None,
+            ),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    @patch(
+        "products.workflows.backend.facade.api.verify_ses_email_domain",
+        return_value={"status": "pending", "dnsRecords": []},
+    )
+    @patch("posthog.api.integration.discover_domain_connect", return_value=None)
+    def test_email_domain_actions_with_scoped_api_key(
+        self,
+        _mock_discover,
+        _mock_verify,
+        _mock_update,
+        method,
+        url_suffix,
+        body,
+        scope,
+        expected_status,
+        expected_detail,
+        client: HttpClient,
+    ):
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="hello@mail.example.com",
+            config={"email": "hello@mail.example.com", "domain": "mail.example.com", "provider": "ses"},
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=[scope]
+        )
+
+        response = getattr(client, method)(
+            f"/api/environments/{self.team.pk}/integrations/{url_suffix.format(email_id=email_integration.id)}",
+            data=json.dumps(body) if body is not None else None,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_detail:
+            assert expected_detail in response.json()["detail"]
+
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
         mock_list_repos.return_value = (
