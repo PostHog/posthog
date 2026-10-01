@@ -330,7 +330,6 @@ class PipelineNonDLT(Generic[ResumableData]):
                 safe_point_scope.close()
 
             await write_remaining_rows()
-
             await self._persist_observed_columns()
 
             prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
@@ -340,6 +339,11 @@ class PipelineNonDLT(Generic[ResumableData]):
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
+            if self._resource.on_complete is not None:
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
             return result
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup of

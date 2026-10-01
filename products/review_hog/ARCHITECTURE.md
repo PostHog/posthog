@@ -411,7 +411,7 @@ only separates the fleet's Modal cost from user-driven runs.
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
-rest — **OpenAI Codex `gpt-6-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
+rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
 report's **review tier**. The pins are per **report**, not per process: each `ReviewReport` persists a **review
 arm** (adapter / model / effort / permission mode) plus the tier it was chosen from (`review_tier`, and for agent
 PRs the Signals priority that placed it there, `review_signal_priority`), decided once at report creation and kept
@@ -515,7 +515,7 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   `{ mode, settings: { model, reasoning_effort } }` as the per-turn `collaborationMode` (codex applies a provided
   collaboration mode as is and ignores the turn's `effort` param when one is sent, so the pinned effort has to ride
   along here or every turn runs at the model's default effort — this is the line that applies a tier's effort to
-  `gpt-6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
+  `gpt-6.1-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
   adapter). Startup validation (`bin.ts` + `isSupportedReasoningEffort`) checks the model/effort combo against the
   registry, but **not** that the gateway actually serves the model. The sandbox reviewer path has no allow-list fallback:
   `_doInitializeSession` → `createAcpConnection` passes the pinned `model` straight to codex (no `gatewayModels`, so

@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useId } from 'react'
 
 import { Badge, Spinner, Text } from '@posthog/quill'
 
@@ -6,11 +7,12 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TodaySessionDialogs } from '~/layout/today/TodaySessionDialogs'
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
-import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
+import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedStatus } from './spaceFeedStatus'
@@ -29,6 +31,8 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
     const item = sessionItem(task)
+    const menuId = useId()
+    const menu = sessionMenuTarget(item, { menuId, pinned, userId: user?.id })
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const author = task.created_by
@@ -85,17 +89,9 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
                 </Text>
             )}
             <span className="absolute right-1 opacity-0 transition-opacity group-focus-within/row:opacity-100 group-hover/row:opacity-100">
-                <TodaySessionMenu
-                    sessionId={task.id}
-                    title={item.title}
-                    pinned={pinned}
-                    spaceId={item.channel}
-                    surface="feed"
-                    canHandOff={canHandOff(item, user?.id)}
-                    analysisRunId={analysisRunId(item)}
-                    activeRunId={activeCloudRunId(item)}
-                />
+                <TodaySessionMenu target={menu} surface="feed" />
             </span>
+            <TodaySessionDialogs target={menu} />
         </div>
     )
 }
