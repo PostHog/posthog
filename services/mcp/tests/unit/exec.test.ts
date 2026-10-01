@@ -2044,6 +2044,7 @@ describe('exec tool', () => {
                     skillsEnabled: true,
                     docsSearchEnabled: true,
                     businessKnowledgeSearchEnabled: true,
+                    businessKnowledgeRepoSearchEnabled: true,
                 }),
                 commandReference,
                 undefined
