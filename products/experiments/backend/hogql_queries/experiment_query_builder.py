@@ -18,7 +18,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -41,6 +40,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
     ExperimentQueryContext,
+    MaturityGate,
 )
 from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
@@ -194,16 +194,19 @@ class ExperimentQueryBuilder:
             self.preaggregation_job_ids = precomputation_context.exposure_job_ids
             self.metric_events_preaggregation_job_ids = precomputation_context.metric_events_job_ids
 
+        # The only clock read of a build, so every maturity filter in the query uses the same cutoff.
+        maturity = MaturityGate.of(self.context, computed_at=timezone.now())
+
         assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
-                query = self._build_funnel_query()
+                query = self._build_funnel_query(maturity)
             case ExperimentMeanMetric():
-                query = self._build_mean_query()
+                query = self._build_mean_query(maturity)
             case ExperimentRatioMetric():
-                query = self._build_ratio_query()
+                query = self._build_ratio_query(maturity)
             case ExperimentRetentionMetric():
-                query = self._build_retention_query()
+                query = self._build_retention_query(maturity)
             case _:
                 raise NotImplementedError(
                     f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
@@ -212,26 +215,30 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
-    def _exposure_query_builder(self) -> ExposureQueryBuilder:
-        """Built per call so it picks up the ``preaggregation_job_ids`` that build_query() sets."""
+    def _exposure_query_builder(self, maturity: MaturityGate | None = None) -> ExposureQueryBuilder:
+        """
+        Built per call so it picks up the ``preaggregation_job_ids`` that build_query() sets.
+        Only the exposure select of build_query() passes ``maturity``.
+        """
         return ExposureQueryBuilder(
             context=self.context,
             breakdown_injector=self.breakdown_injector,
-            maturity_having_builder=self._build_maturity_having_clause,
+            maturity=maturity,
+            maturity_window_seconds=self._get_maturity_window_seconds(),
             preaggregation_job_ids=self.preaggregation_job_ids,
         )
 
-    def _funnel_query_builder(self) -> FunnelQueryBuilder:
-        return FunnelQueryBuilder(self)
+    def _funnel_query_builder(self, maturity: MaturityGate | None = None) -> FunnelQueryBuilder:
+        return FunnelQueryBuilder(self, maturity=maturity)
 
-    def _retention_query_builder(self) -> RetentionQueryBuilder:
-        return RetentionQueryBuilder(self)
+    def _retention_query_builder(self, maturity: MaturityGate | None = None) -> RetentionQueryBuilder:
+        return RetentionQueryBuilder(self, maturity=maturity)
 
-    def _mean_query_builder(self) -> MeanQueryBuilder:
-        return MeanQueryBuilder(self)
+    def _mean_query_builder(self, maturity: MaturityGate | None = None) -> MeanQueryBuilder:
+        return MeanQueryBuilder(self, maturity=maturity)
 
-    def _ratio_query_builder(self) -> RatioQueryBuilder:
-        return RatioQueryBuilder(self)
+    def _ratio_query_builder(self, maturity: MaturityGate | None = None) -> RatioQueryBuilder:
+        return RatioQueryBuilder(self, maturity=maturity)
 
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
@@ -257,54 +264,27 @@ class ExperimentQueryBuilder:
 
     def _get_maturity_window_seconds(self) -> int:
         """
-        Non-retention metrics only. Retention uses
-        RetentionQueryBuilder.get_retention_maturity_seconds() and applies maturity
-        in its start_events CTE, anchored on the start_event timestamp.
+        The maturity window that starts at the entity's first exposure: the conversion
+        window, or 0 when there is no metric. Anchored on the first exposure, matching
+        how the variant is assigned. Anchoring on the last exposure would keep resetting
+        the window for flags re-evaluated repeatedly (e.g. backend flags), so active
+        users would never mature.
+
+        Retention returns 0: it applies maturity in its start_events CTE, anchored on
+        the start_event timestamp, with RetentionQueryBuilder.get_retention_maturity_seconds().
         """
+        if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
+            return 0
         return self._get_conversion_window_seconds()
 
-    def _build_maturity_having_clause(self, timestamp_expr: str = "timestamp") -> Optional[ast.Expr]:
-        """
-        Returns a HAVING clause expression to filter out users whose conversion window
-        hasn't elapsed yet, or None if the feature is not enabled.
+    def _build_funnel_query(self, maturity: MaturityGate) -> ast.SelectQuery:
+        return self._funnel_query_builder(maturity).build_funnel_query()
 
-        Anchored on the user's first exposure (min timestamp), matching how the
-        variant is assigned. Anchoring on the last exposure would keep resetting the
-        window for flags re-evaluated repeatedly (e.g. backend flags), so active users
-        would never mature. Callers pass an exposure-only timestamp expression.
+    def _build_mean_query(self, maturity: MaturityGate) -> ast.SelectQuery:
+        return self._mean_query_builder(maturity).build_mean_query()
 
-        Retention metrics apply maturity in their own start_events CTE through
-        RetentionQueryBuilder.build_retention_maturity_having_clause(), so this
-        returns None for them.
-        """
-        if self.metric is None:
-            return None
-        if isinstance(self.metric, ExperimentRetentionMetric):
-            return None
-        if not self.only_count_matured_users:
-            return None
-
-        maturity_seconds = self._get_maturity_window_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            f"min({timestamp_expr}) + toIntervalSecond({{maturity_seconds}}) <= toDateTime({{now}}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
-        )
-
-    def _build_funnel_query(self) -> ast.SelectQuery:
-        return self._funnel_query_builder().build_funnel_query()
-
-    def _build_mean_query(self) -> ast.SelectQuery:
-        return self._mean_query_builder().build_mean_query()
-
-    def _build_ratio_query(self) -> ast.SelectQuery:
-        return self._ratio_query_builder().build_ratio_query()
+    def _build_ratio_query(self, maturity: MaturityGate) -> ast.SelectQuery:
+        return self._ratio_query_builder(maturity).build_ratio_query()
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""
@@ -420,8 +400,8 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().build_exposure_step_predicate()
 
-    def _get_exposure_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder().select_query()
+    def _get_exposure_query(self, maturity: MaturityGate | None = None) -> ast.SelectQuery:
+        return self._exposure_query_builder(maturity).select_query()
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -462,5 +442,5 @@ class ExperimentQueryBuilder:
             return self._retention_query_builder().get_metric_events_window_extension_seconds()
         return self._get_conversion_window_seconds()
 
-    def _build_retention_query(self) -> ast.SelectQuery:
-        return self._retention_query_builder().build_retention_query()
+    def _build_retention_query(self, maturity: MaturityGate) -> ast.SelectQuery:
+        return self._retention_query_builder(maturity).build_retention_query()

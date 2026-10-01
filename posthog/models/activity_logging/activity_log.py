@@ -394,11 +394,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
         "full_refresh_interval_days": "full refresh interval (days)",
+        "full_refresh_time_of_day": "full refresh time (UTC)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
     },

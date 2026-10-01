@@ -5,12 +5,14 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import mock
 
 from django.db import InterfaceError, InternalError, OperationalError
 
 import redis.exceptions as redis_exceptions
+import deltalake.exceptions
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
@@ -699,6 +701,34 @@ async def test_transient_object_store_error_reraised_as_non_reportable():
     # only skips reporting for NonReportableError — so it must be wrapped, not just logged at warning.
     error = OSError(
         "Operation not supported: the credential provider was not enabled: no providers in chain provided credentials"
+    )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
+    # A warehouse-parent fan-out reader pins a parent table to a version, then opens it lazily —
+    # if the parent resyncs and resets its table in between, the pinned version's `_delta_log`
+    # entry is gone by the time the read happens. Self-healing on retry (a fresh pin resolves
+    # against the post-reset table), so it must not be captured as a bug, same as the identical
+    # race already classified for the writer's own maintenance path.
+    error = deltalake.exceptions.DeltaError(
+        "Kernel error: File not found: dlt/team_1_stripe_source/customer/_delta_log/00000000000000000017.json"
     )
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
@@ -1456,21 +1486,29 @@ def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_sa
 
 
 @pytest.mark.parametrize(
-    "scheduled_full_refresh,due_in_days,expected",
+    "scheduled_full_refresh,next_full_refresh_at,expected",
     [
-        pytest.param(True, -1, True, id="first_attempt_of_a_due_refresh"),
-        pytest.param(True, 7, False, id="retry_after_the_wipe_moved_the_due_time"),
-        pytest.param(False, -1, False, id="run_not_marked_as_a_refresh"),
+        pytest.param(True, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), True, id="first_attempt_of_a_due_refresh"),
+        pytest.param(
+            True, datetime(2026, 9, 29, 1, 31, tzinfo=UTC), False, id="retry_after_the_wipe_moved_the_due_time"
+        ),
+        # A 1-day interval at 03:00: the 01:31 wipe moved the due time to 03:00 the same day, which is within the
+        # slack of a retry at 02:11.
+        pytest.param(
+            True, datetime(2026, 9, 22, 3, 0, tzinfo=UTC), False, id="retry_after_a_wipe_before_the_chosen_time"
+        ),
+        pytest.param(False, datetime(2026, 9, 22, 1, 0, tzinfo=UTC), False, id="run_not_marked_as_a_refresh"),
     ],
 )
 def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
-    scheduled_full_refresh: bool, due_in_days: int, expected: bool
+    scheduled_full_refresh: bool, next_full_refresh_at: datetime, expected: bool
 ) -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
         sync_type_config={},
-        full_refresh_interval_days=7,
-        next_full_refresh_at=datetime.now(UTC) + timedelta(days=due_in_days),
+        sync_frequency_interval=timedelta(days=1),
+        full_refresh_interval_days=1,
+        next_full_refresh_at=next_full_refresh_at,
     )
     inputs = ImportDataActivityInputs(
         team_id=1,
@@ -1480,4 +1518,7 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         scheduled_full_refresh=scheduled_full_refresh,
     )
 
-    assert _resolve_reset_pipeline(inputs, schema) is expected
+    with time_machine.travel(datetime(2026, 9, 22, 2, 11, tzinfo=UTC), tick=False):
+        assert (
+            _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
+        )

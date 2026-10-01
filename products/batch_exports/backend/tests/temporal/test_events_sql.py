@@ -24,3 +24,8 @@ def test_native_events_export_query_keeps_empty_object_literals() -> None:
     assert "'{0}'" not in query
     for key in ("$set", "$set_once", "$group_set"):
         assert f"temporary_properties.^`{key}`), '{{}}')" in query
+
+
+def test_native_events_export_query_unescapes_dotted_keys() -> None:
+    # Without this setting `toJSONString(properties)` prints a stored dotted key as `a%2Eb`.
+    assert "json_type_escape_dots_in_keys=1" in native_events_export_query("event")

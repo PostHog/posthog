@@ -291,6 +291,8 @@ export interface QuarantineInputApi {
      * @nullable
      */
     source_run_id?: string | null
+    /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
+    notify_owners?: boolean
     /** @nullable */
     expires_at?: string | null
 }
@@ -336,6 +338,17 @@ export interface TolerationPileupsApi {
     generated_at: string
 }
 
+/**
+ * * `review` - review
+ * * `observe` - observe
+ */
+export type PurposeEnumApi = (typeof PurposeEnumApi)[keyof typeof PurposeEnumApi]
+
+export const PurposeEnumApi = {
+    Review: 'review',
+    Observe: 'observe',
+} as const
+
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
 
 export const SearchMatchTypeEnumApi = {
@@ -357,6 +370,11 @@ export type RunApiMetadata = { [key: string]: unknown }
 
 export interface RunApi {
     approved_by?: UserBasicInfoApi | null
+    /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+     *
+     * * `review` - review
+     * * `observe` - observe */
+    readonly purpose: PurposeEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
      *
      * * `exact` - exact

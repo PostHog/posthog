@@ -1,11 +1,12 @@
 import time
+import asyncio
 import threading
 from typing import Any
 
 import pytest
 import unittest.mock
 
-from django.db import connection
+from django.db import connection, transaction
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
@@ -13,7 +14,7 @@ from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
     _create_data_modeling_job,
 )
 
-from products.data_modeling.backend.facade.api import NodeMoveError, move_saved_query_to_dag
+from products.data_modeling.backend.facade.api import NodeMoveError, lock_dag, move_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataModelingJobStatus, Node
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
@@ -81,5 +82,34 @@ async def test_a_move_cannot_land_between_a_job_reading_a_placement_and_insertin
     assert refusals == ["materializing"]
     node = await database_sync_to_async(Node.objects.get)(id=anode.id)
     assert node.dag_id == adag.id
+    job = await database_sync_to_async(DataModelingJob.objects.get)(id=created.job_id)
+    assert job.status == DataModelingJobStatus.RUNNING
+
+
+async def test_a_job_start_does_not_wait_behind_a_dag_edge_writer(ateam, adag, anode):
+    held = threading.Event()
+    release = threading.Event()
+
+    def hold_the_dag_edge_lock_on_another_connection() -> None:
+        try:
+            with transaction.atomic():
+                lock_dag(ateam.pk, adag.id)
+                held.set()
+                release.wait(timeout=BLOCKED_DEADLINE_SECONDS)
+        finally:
+            connection.close()
+
+    writer = threading.Thread(target=hold_the_dag_edge_lock_on_another_connection)
+    writer.start()
+    try:
+        assert held.wait(timeout=BLOCKED_DEADLINE_SECONDS)
+        inputs = CreateDataModelingJobInputs(team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id))
+        created = await asyncio.wait_for(
+            _create_data_modeling_job(inputs, "test-workflow-id", "test-run-id"), timeout=BLOCKED_DEADLINE_SECONDS / 3
+        )
+    finally:
+        release.set()
+        writer.join(timeout=BLOCKED_DEADLINE_SECONDS)
+
     job = await database_sync_to_async(DataModelingJob.objects.get)(id=created.job_id)
     assert job.status == DataModelingJobStatus.RUNNING
