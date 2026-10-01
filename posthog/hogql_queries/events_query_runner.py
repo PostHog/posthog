@@ -25,8 +25,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSONS
-from posthog.hogql.database.models import ExpressionField, LazyJoin
+from posthog.hogql.database.schema.flag_evaluations import events_shaped_flag_evaluations
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
     action_to_expr,
@@ -40,7 +39,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -396,29 +394,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if table is FLAG_EVALUATIONS_LIST_TABLE:
-            # flag_evaluations.person carries only the id. Person property filters, test account filters, and
-            # selected or sorted person columns read person.properties. This joins persons the way events does under
-            # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy, so a query that reads no person field skips it.
-            # The change applies only to this runner's database. Every other reader keeps the narrow person.
-            flag_evaluations = context.database.get_table([*table.chain])
-            flag_evaluations.fields["person"] = LazyJoin(
-                from_field=["person_id"],
-                join_table=context.database.get_table("persons"),
-                resolver=PERSONS,
-            )
-            # flag_evaluations has no elements_chain or person_mode column. Empty strings let `*`, a saved column,
-            # a filter, or an order by that names either one still resolve.
-            for name in ("elements_chain", "person_mode"):
-                flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
-            # Group property filters, including test account filters, read group_N.properties as they do on events.
-            groups = context.database.get_table("groups")
-            for index in range(GROUP_TYPES_LIMIT):
-                flag_evaluations.fields[f"group_{index}"] = LazyJoin(
-                    from_field=[f"$group_{index}"],
-                    join_table=groups,
-                    resolver=GROUP_N,
-                    resolver_params={"group_index": index},
-                )
+            events_shaped_flag_evaluations(context.database)
         return context
 
     def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
