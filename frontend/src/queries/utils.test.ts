@@ -19,6 +19,7 @@ import {
     getDisplay,
     hogql,
     isMetricInsightQuery,
+    isNodeWithSource,
     queryUsesDataWarehouse,
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
@@ -516,5 +517,21 @@ describe('isMetricInsightQuery', () => {
         ],
     ])('identifies a %s', (_label, query, expected) => {
         expect(isMetricInsightQuery(query as Node)).toBe(expected)
+    })
+})
+
+describe('isNodeWithSource', () => {
+    it.each([
+        ['an insight viz node', { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery } }, true],
+        [
+            'a data visualization node',
+            { kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
+            true,
+        ],
+        ['a wrapper node without a source', { kind: NodeKind.DataVisualizationNode, chartSettings: {} }, false],
+        ['a wrapper node with an empty source', { kind: NodeKind.InsightVizNode, source: {} }, false],
+        ['a source node', { kind: NodeKind.TrendsQuery, series: [] }, false],
+    ])('only promises a source it can see, for %s', (_label, query, expected) => {
+        expect(isNodeWithSource(query)).toBe(expected)
     })
 })
