@@ -67,18 +67,27 @@ class TestSetPersonVersionFloorRPC(SimpleTestCase):
 class TestUpdatedDistinctIdsSkipsDeleted(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_live_person", None),
-            ("distinct_id_moved_to_another_person", Person(uuid=uuid4(), team_id=1)),
+            ("no_live_person", "none", False),
+            ("distinct_id_moved_to_another_person", "other", False),
+            ("replica_lags_a_delete_on_the_primary", "same", True),
         ]
     )
-    def test_leaves_the_distinct_id_unpublished(self, _name: str, live_person: Person | None) -> None:
+    def test_leaves_the_distinct_id_unpublished(self, _name: str, replica_owner: str, deleted: bool) -> None:
+        owner_uuid = uuid4()
+        live_person = {
+            "none": None,
+            "other": Person(uuid=uuid4(), team_id=1),
+            "same": Person(uuid=owner_uuid, team_id=1),
+        }[replica_owner]
         with (
             fake_personhog_client() as fake,
             mock.patch.object(deletion, "get_person_by_distinct_id", return_value=live_person),
             mock.patch.object(deletion, "create_person_distinct_id") as publish_distinct_id,
             mock.patch.object(deletion, "create_person") as publish_person,
         ):
-            fake.add_person(team_id=1, person_id=42, uuid=str(uuid4()), version=3, distinct_ids=["did-1"])
+            fake.add_person(
+                team_id=1, person_id=42, uuid=str(owner_uuid), version=3, distinct_ids=["did-1"], is_deleted=deleted
+            )
 
             _updated_distinct_ids(1, [("did-1", 105)])
 

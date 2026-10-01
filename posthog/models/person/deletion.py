@@ -84,7 +84,8 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
 
         # The version floor RPC also matches tombstoned rows, so publishing them as live would leave a person that
         # ClickHouse shows and Postgres keeps deleted, which the weekly sweep never removes. A tombstoned distinct ID
-        # needs no reset because its next event revives it above its delete row.
+        # needs no reset because its next event revives it above its delete row. This lookup reads the replica, so
+        # the primary is checked again after the version floor RPC.
         live_person = get_person_by_distinct_id(team_id, distinct_id, distinct_id_limit=0)
         if live_person is None:
             logger.info("Skipping distinct id reset: no live person", team_id=team_id, distinct_id=distinct_id)
@@ -96,6 +97,13 @@ def _updated_distinct_ids(team_id: int, distinct_id_versions: list[tuple[str, in
         if person is not None and person.uuid != live_person.uuid:
             logger.warning(
                 "Skipping distinct id reset: distinct id moved to another person",
+                team_id=team_id,
+                distinct_id=distinct_id,
+            )
+            continue
+        if person is not None and get_person_tombstones(team_id, [person.uuid]):
+            logger.warning(
+                "Skipping distinct id reset: person is deleted in Postgres",
                 team_id=team_id,
                 distinct_id=distinct_id,
             )
