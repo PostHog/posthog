@@ -9,6 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -77,6 +78,26 @@ ORDER BY address
 LIMIT {limit}
 """
 
+_LAST_SENT_QUERY = """
+SELECT lower(latest_recipient) AS address, max(latest_sent_at)
+FROM (
+    SELECT
+        argMax(recipient, version) AS latest_recipient,
+        argMax(sent_at, version) AS latest_sent_at,
+        argMax(is_deleted, version) AS latest_is_deleted
+    FROM message_assets
+    WHERE team_id = %(team_id)s
+      AND kind = 'email'
+      AND sent_at >= now() - INTERVAL 30 DAY
+      AND lower(recipient) IN %(addresses)s
+    GROUP BY invocation_id, action_id
+)
+WHERE latest_is_deleted = 0
+GROUP BY address
+"""
+
+_PERSONS_WITHOUT_EMAIL_QUERY = "SELECT count() FROM persons WHERE properties.email IS NULL"
+
 ALL_MARKETING_TOPIC_KEY = "all-marketing"
 
 
@@ -126,6 +147,7 @@ class RecipientQuery:
     search: str | None = None
     filters: tuple[RecipientFilter, ...] = ()
     cursor: str | None = None
+    email: str | None = None
 
 
 @frozen
@@ -189,15 +211,32 @@ def parse_recipient_filter(raw: str) -> RecipientFilter:
     return RecipientFilter(facet=facet, value=value, negated=negated)
 
 
+def normalize_address(email: str) -> str:
+    return email.strip().lower()
+
+
 def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
     topics = _team_topics(team.id)
     rows = _query_recipient_rows(team, user, query, topics)
     page_rows = rows[: query.limit]
+    last_sent_at = _last_sent_at_by_address(team.id, [row[0] for row in page_rows])
     keys_by_id = topics.keys_by_id
     return RecipientPage(
-        results=[_build_recipient(row, keys_by_id) for row in page_rows],
+        results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0])) for row in page_rows],
         next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
     )
+
+
+def find_recipient(team: "Team", user: "User", email: str) -> Recipient | None:
+    page = list_recipients(team, user, RecipientQuery(limit=1, email=normalize_address(email)))
+    return page.results[0] if page.results else None
+
+
+def count_persons_without_email(team: "Team", user: "User") -> int:
+    response = execute_hogql_query(
+        _PERSONS_WITHOUT_EMAIL_QUERY, team=team, user=user, query_type="MessagingRecipientsCoverageQuery"
+    )
+    return response.results[0][0]
 
 
 def _team_topics(team_id: int) -> _Topics:
@@ -229,7 +268,16 @@ def _address_filter(query: RecipientQuery) -> ast.Expr:
         )
     if query.cursor:
         conditions.append(parse_expr("address > {cursor}", placeholders={"cursor": ast.Constant(value=query.cursor)}))
+    if query.email:
+        conditions.append(parse_expr("address = {email}", placeholders={"email": ast.Constant(value=query.email)}))
     return ast.And(exprs=conditions)
+
+
+def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, datetime]:
+    if not addresses:
+        return {}
+    rows = sync_execute(_LAST_SENT_QUERY, {"team_id": team_id, "addresses": addresses})
+    return dict(rows)
 
 
 def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:
@@ -259,7 +307,9 @@ def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.
     )
 
 
-def _build_recipient(row: tuple[Any, ...], topic_keys_by_id: dict[str, str]) -> Recipient:
+def _build_recipient(
+    row: tuple[Any, ...], topic_keys_by_id: dict[str, str], last_sent_at: datetime | None
+) -> Recipient:
     (
         address,
         preference_maps,
@@ -288,7 +338,7 @@ def _build_recipient(row: tuple[Any, ...], topic_keys_by_id: dict[str, str]) -> 
             for person_id, distinct_id, name in persons
         ],
         person_count=person_count,
-        last_sent_at=None,
+        last_sent_at=last_sent_at,
         preferences_updated_at=preferences_updated_at if preference_maps else None,
     )
 

@@ -2,7 +2,8 @@ from typing import Any
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
@@ -13,7 +14,10 @@ from products.messaging.backend.models.message_preferences import PreferenceStat
 from products.messaging.backend.models.message_suppression import SuppressionSource
 from products.messaging.backend.services.recipients import (
     InvalidRecipientFilter,
+    RecipientPage,
     RecipientQuery,
+    count_persons_without_email,
+    find_recipient,
     list_recipients,
     parse_recipient_filter,
 )
@@ -42,6 +46,11 @@ class RecipientListQuerySerializer(serializers.Serializer):
         required=False,
         max_length=512,
         help_text="`next_cursor` from the previous page. Omit for the first page.",
+    )
+    email = serializers.CharField(
+        required=False,
+        max_length=512,
+        help_text="Return only this address, matched case-insensitively. Responds 404 when the team does not know it.",
     )
 
 
@@ -93,6 +102,12 @@ class RecipientPageSerializer(serializers.Serializer):
     )
 
 
+class RecipientCoverageSerializer(serializers.Serializer):
+    persons_without_email = serializers.IntegerField(
+        help_text="Number of persons with no `email` property. They can't be reached by email."
+    )
+
+
 class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
     serializer_class = _FallbackSerializer
@@ -103,9 +118,10 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="List every email address the team can send to",
     )
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
-            raise PermissionDenied("You need hog_flow viewer access to view recipients.")
+        self._require_hog_flow_viewer()
         params = request.validated_query_data
+        if "email" in params:
+            return self._single_recipient_page(request, params["email"])
         try:
             query = RecipientQuery(
                 limit=params["limit"],
@@ -117,3 +133,23 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except InvalidRecipientFilter as error:
             raise ValidationError({"filter": [str(error)]})
         return Response(RecipientPageSerializer(page).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=RecipientCoverageSerializer)},
+        summary="Count persons who can't be reached by email",
+    )
+    @action(detail=False, methods=["get"], required_scopes=["hog_flow:read", "person:read"])
+    def coverage(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        self._require_hog_flow_viewer()
+        coverage = {"persons_without_email": count_persons_without_email(self.team, request.user)}
+        return Response(RecipientCoverageSerializer(coverage).data)
+
+    def _single_recipient_page(self, request: ValidatedRequest, email: str) -> Response:
+        recipient = find_recipient(self.team, request.user, email)
+        if recipient is None:
+            raise NotFound("No recipient with this email address.")
+        return Response(RecipientPageSerializer(RecipientPage(results=[recipient], next_cursor=None)).data)
+
+    def _require_hog_flow_viewer(self) -> None:
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise PermissionDenied("You need hog_flow viewer access to view recipients.")
