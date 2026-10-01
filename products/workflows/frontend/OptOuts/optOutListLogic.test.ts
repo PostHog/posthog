@@ -51,14 +51,13 @@ describe('optOutListLogic usage tracking', () => {
             errors: [],
         })
         // jsdom cannot stream a File through Papa, so hand the parsed rows straight to its callback.
-        jest.spyOn(Papa, 'parse').mockImplementation(((_file: File, config: Papa.ParseLocalConfig<string[]>) => {
-            config.complete?.(
-                {
-                    data: [['email'], ['jamie@example.com'], ['alex@example.com'], ['sam@example.com']],
-                } as Papa.ParseResult<string[]>,
-                _file
-            )
-        }) as any)
+        jest.spyOn(Papa, 'parse').mockImplementation(((
+            _file: File,
+            config: { complete: (results: { data: string[][] }) => void }
+        ) =>
+            config.complete({
+                data: [['email'], ['jamie@example.com'], ['alex@example.com'], ['sam@example.com']],
+            })) as unknown as typeof Papa.parse)
         logic.actions.setCsvFile(new File([''], 'opt-outs.csv'))
 
         await expectLogic(logic, () => {
