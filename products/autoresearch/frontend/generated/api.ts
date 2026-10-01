@@ -792,7 +792,7 @@ export const getAutoresearchScoreCreateUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
+ * Start scoring the inference population using the champion model. Scoring runs in the background: it emits autoresearch_prediction events for each scored user and sets the pipeline's output_person_property on each scored person. The response returns at once with the running run. A second request while a run is running returns that run and starts nothing. The daily Temporal inference workflow also scores each pipeline on its cadence.
  * @summary Run inference (score users)
  */
 export const autoresearchScoreCreate = async (
