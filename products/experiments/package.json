@@ -9,6 +9,7 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "posthog-js": "catalog:",
         "ts-pattern": "catalog:"
     },
     "devDependencies": {
