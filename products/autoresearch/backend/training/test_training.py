@@ -164,6 +164,7 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         kwargs = facade.create_and_run_task.call_args.kwargs
         assert kwargs["posthog_mcp_scopes"] == TRAINING_MCP_SCOPES
+        assert "user:read" in kwargs["posthog_mcp_scopes"]
         assert kwargs["extra_run_state"] == {
             "autoresearch_training_run_id": str(training_run.id),
             "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
