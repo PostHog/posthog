@@ -949,7 +949,7 @@ export const BriefingItemHoverCardResolved: Story = {
             <TodayBriefingItemHoverCard
                 preview={{
                     kind: 'briefing_item',
-                    item: { ...PERSONAL_BRIEFING.items[4], state: 'done' },
+                    item: { ...PERSONAL_BRIEFING.items[1], state: 'done' },
                     surface: 'sidebar',
                 }}
             />

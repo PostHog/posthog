@@ -155,6 +155,27 @@ describe('todayLogic', () => {
             .toMatchValues({ briefingProgress: expected })
     })
 
+    it('gives a hover card only to reports', async () => {
+        const [item] = makeBriefing().items
+        briefingResponses = [
+            [
+                200,
+                makeBriefing({
+                    items: [
+                        item,
+                        { ...item, key: 'ticket:t-1', group: 'other', source: 'support', reason: 'assigned_ticket' },
+                    ],
+                }),
+            ],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
+        expect(Object.keys(logic.values.briefingItemPreviews.briefing)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.briefingItemPreviews.sidebar)).toEqual(['report:a'])
+    })
+
     it('asks for the top reports for the person and counts the rest', async () => {
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]

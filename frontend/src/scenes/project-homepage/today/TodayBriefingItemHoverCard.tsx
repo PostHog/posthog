@@ -29,9 +29,9 @@ import { itemReasonLabel, itemSource, itemStateLabel } from './todayBriefingItem
 import { todayLogic } from './todayLogic'
 
 /**
- * A briefing item's hover card in the left bar: why the briefing picked it, what happened to it since,
- * and for a report its priority, implementation pull request, summary and headline metric. Everything
- * comes with the briefing, so the card opens without a request.
+ * A report's hover card, on its left-bar row and on its links in the briefing text: why the briefing
+ * picked it, what happened to it since, its priority, implementation pull request, summary and headline
+ * metric. Everything comes with the briefing, so the card opens without a request.
  */
 export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefingItemPreview }): JSX.Element {
     const { item } = preview

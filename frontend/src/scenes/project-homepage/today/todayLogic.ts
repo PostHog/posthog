@@ -29,6 +29,7 @@ import {
     isBriefingSettled,
     isExternalHref,
     itemHref,
+    itemReportId,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
@@ -465,7 +466,8 @@ export const todayLogic = kea<todayLogicType>([
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
                 showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
         ],
-        // The hover card stores its trigger's payload, so each item keeps one object per surface across renders.
+        // Only reports get a hover card. The card stores its trigger's payload, so each report keeps one
+        // object per surface across renders.
         briefingItemPreviews: [
             (s) => [s.briefingItems],
             (
@@ -475,7 +477,9 @@ export const todayLogic = kea<todayLogicType>([
                     surface: TodayBriefingItemPreview['surface']
                 ): Record<string, TodayBriefingItemPreview> =>
                     Object.fromEntries(
-                        briefingItems.map((item) => [item.key, { kind: 'briefing_item', item, surface }])
+                        briefingItems
+                            .filter((item) => itemReportId(item) !== null)
+                            .map((item) => [item.key, { kind: 'briefing_item', item, surface }])
                     )
                 return { briefing: previews('briefing'), sidebar: previews('sidebar') }
             },

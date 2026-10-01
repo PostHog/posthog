@@ -37,10 +37,13 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             {segment.text}
         </Link>
     )
-    const linkWithCard = (
-        <TodayPreviewTrigger payload={briefingItemPreviews.briefing[item.key]} inline>
+    const preview = briefingItemPreviews.briefing[item.key]
+    const linkWithCard = preview ? (
+        <TodayPreviewTrigger payload={preview} inline>
             {link}
         </TodayPreviewTrigger>
+    ) : (
+        link
     )
     return segment.highlight ? <span className="TodayHome__highlight">{linkWithCard}</span> : linkWithCard
 }
