@@ -54,7 +54,21 @@ The release on Tuesday changed the plan picker layout. The start trial button no
 ![](https://example.com/markdown-pixel.png)
 `
 
-const CHART_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Inter, sans-serif">
+const REPORT_DRAFT_MARKDOWN = `# Trial starts dropped
+
+Trial starts fell week over week. I am still checking which step lost the most people.
+`
+
+const REPORT_SECOND_DRAFT_MARKDOWN = `# Trial starts dropped at the plan picker
+
+Trial starts fell **18%** week over week. The loss sits almost entirely at the plan picker step.
+
+## Why
+
+- Recordings show people scroll the plan table, then leave without a click.
+`
+
+const CHART_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 640 360" font-family="Inter, sans-serif">
 <rect width="640" height="360" fill="#ffffff"/>
 <text x="32" y="40" font-size="16" font-weight="600" fill="#151515">Conversion by funnel step</text>
 <rect x="400" y="28" width="10" height="10" rx="2" fill="#1d4aff" fill-opacity="0.3"/><text x="416" y="37" font-size="11" fill="#5f5f5f">Week of Sep 14</text>
@@ -150,8 +164,38 @@ const ARTIFACTS: TaskRunArtifactResponseApi[] = [
     },
 ]
 
+// Earlier uploads of the report. The file list groups them with `artifact-report` by name.
+const REPORT_OLDER_VERSIONS: TaskRunArtifactResponseApi[] = [
+    {
+        id: 'artifact-report-v2',
+        name: 'trial-drop-report.md',
+        type: 'output',
+        source: 'agent_output',
+        size: 4096,
+        content_type: 'text/markdown',
+        storage_path: 'tasks/artifacts/artifact-report-v2',
+        uploaded_at: '2026-09-28T18:02:00Z',
+        uploaded_by: 'agent',
+    },
+    {
+        id: 'artifact-report-v1',
+        name: 'trial-drop-report.md',
+        type: 'output',
+        source: 'agent_output',
+        size: 1024,
+        content_type: 'text/markdown',
+        storage_path: 'tasks/artifacts/artifact-report-v1',
+        uploaded_at: '2026-09-28T17:51:00Z',
+        uploaded_by: 'agent',
+    },
+]
+
+const REPORT_FILE_NAME = 'trial-drop-report.md'
+
 const CONTENT_BY_PATH: Record<string, string> = {
     'tasks/artifacts/artifact-report': REPORT_MARKDOWN,
+    'tasks/artifacts/artifact-report-v2': REPORT_SECOND_DRAFT_MARKDOWN,
+    'tasks/artifacts/artifact-report-v1': REPORT_DRAFT_MARKDOWN,
     'tasks/artifacts/artifact-summary': SUMMARY_HTML,
     'tasks/artifacts/artifact-csv': WEEKS_CSV,
 }
@@ -313,14 +357,25 @@ function TodayWebLayout({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-function StoryPage({ tab = 'artifacts', artifactId }: { tab?: TaskRunTab; artifactId?: string }): JSX.Element {
-    const { setActiveTab, selectArtifact } = useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
+function StoryPage({
+    tab = 'artifacts',
+    fileName,
+    versionId,
+}: {
+    tab?: TaskRunTab
+    fileName?: string
+    versionId?: string
+}): JSX.Element {
+    const { setActiveTab, selectArtifact, selectVersion } = useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
     useEffect(() => {
-        if (artifactId) {
-            selectArtifact(artifactId)
+        if (fileName) {
+            selectArtifact(fileName)
+        }
+        if (versionId) {
+            selectVersion(versionId)
         }
         setActiveTab(tab)
-    }, [tab, artifactId, setActiveTab, selectArtifact])
+    }, [tab, fileName, versionId, setActiveTab, selectArtifact, selectVersion])
     return (
         <TodayWebLayout>
             <TaskDetailPage taskId={TASK_ID} isMobile={false} />
@@ -332,8 +387,10 @@ const meta: Meta = {
     title: 'Scenes-App/Tasks/Artifacts',
     // No snapshots while the today-rail-nav layout is still changing quickly, the same as the Today stories.
     tags: ['test-skip'],
-    decorators: [mswDecorator(taskMocks(ARTIFACTS))],
+    // Mocks go through parameters, not story decorators: a story decorator's mocks register before the meta's and lose.
+    decorators: [mswDecorator({})],
     parameters: {
+        msw: { mocks: taskMocks(ARTIFACTS) },
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-09-28 18:30:00',
@@ -345,18 +402,28 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const MarkdownReport: Story = { render: () => <StoryPage artifactId="artifact-report" /> }
+export const MarkdownReport: Story = { render: () => <StoryPage fileName={REPORT_FILE_NAME} /> }
 
-export const SandboxedHtml: Story = { render: () => <StoryPage artifactId="artifact-summary" /> }
+export const SandboxedHtml: Story = { render: () => <StoryPage fileName="trial-funnel-summary.html" /> }
 
-export const Image: Story = { render: () => <StoryPage artifactId="artifact-chart" /> }
+export const Image: Story = { render: () => <StoryPage fileName="trial-starts-by-step.svg" /> }
 
-export const Csv: Story = { render: () => <StoryPage artifactId="artifact-csv" /> }
+export const Csv: Story = { render: () => <StoryPage fileName="trial-starts-by-week.csv" /> }
+
+export const Versions: Story = {
+    parameters: { msw: { mocks: taskMocks([...ARTIFACTS, ...REPORT_OLDER_VERSIONS]) } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+}
+
+export const OlderVersion: Story = {
+    parameters: { msw: { mocks: taskMocks([...ARTIFACTS, ...REPORT_OLDER_VERSIONS]) } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} versionId="artifact-report-v1" />,
+}
 
 export const ConversationTab: Story = { render: () => <StoryPage tab="conversation" /> }
 
 export const NoArtifacts: Story = {
-    decorators: [mswDecorator(taskMocks([]))],
+    parameters: { msw: { mocks: taskMocks([]) } },
     render: () => <StoryPage />,
 }
 
@@ -366,6 +433,6 @@ export const FlagOff: Story = {
 }
 
 export const ResumedTask: Story = {
-    decorators: [mswDecorator(taskMocks(ARTIFACTS, { resumed: true }))],
-    render: () => <StoryPage artifactId="artifact-report" />,
+    parameters: { msw: { mocks: taskMocks(ARTIFACTS, { resumed: true }) } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
 }
