@@ -3,7 +3,6 @@ import {
     KAFKA_METRICS_CLICKHOUSE,
     KAFKA_METRICS_INGESTION,
     KAFKA_METRICS_INGESTION_DLQ,
-    KAFKA_METRICS_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
 import { isProdEnv } from '~/common/utils/env-utils'
 
@@ -28,9 +27,13 @@ export function getDefaultMetricsIngestionOutputsConfig(): MetricsIngestionOutpu
 export type MetricsIngestionConsumerConfig = {
     METRICS_INGESTION_CONSUMER_GROUP_ID: string
     METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
-    METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     METRICS_INGESTION_CONSUMER_DLQ_TOPIC: string
     METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    /** Runs the framework pipeline consumer; `false` falls back to the pre-framework consumer. */
+    METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: boolean
+    /** Caps for merging one team's packets into one output packet per batch. */
+    METRICS_REPACK_MAX_RECORDS: number
+    METRICS_REPACK_MAX_BYTES_UNCOMPRESSED: number
     METRICS_REDIS_HOST: string
     METRICS_REDIS_PORT: number
     METRICS_REDIS_PASSWORD: string
@@ -52,9 +55,11 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
     return {
         METRICS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-metrics',
         METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_METRICS_INGESTION,
-        METRICS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_METRICS_INGESTION_OVERFLOW,
         METRICS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_METRICS_INGESTION_DLQ,
         METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_METRICS_CLICKHOUSE,
+        METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: true,
+        METRICS_REPACK_MAX_RECORDS: 1_000_000,
+        METRICS_REPACK_MAX_BYTES_UNCOMPRESSED: 50 * 1024 * 1024,
         METRICS_REDIS_HOST: '127.0.0.1',
         METRICS_REDIS_PORT: 6379,
         METRICS_REDIS_PASSWORD: '',

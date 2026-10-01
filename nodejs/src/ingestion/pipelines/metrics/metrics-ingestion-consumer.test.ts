@@ -7,7 +7,7 @@ import {
     KAFKA_METRICS_CLICKHOUSE,
     KAFKA_METRICS_INGESTION_DLQ,
 } from '~/common/config/kafka-topics'
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
+import { APP_METRICS_OUTPUT, AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -15,8 +15,8 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultMetricsIngestionConsumerConfig } from './config'
-import { DEFAULT_METRICS_RETENTION_DAYS, MetricsIngestionConsumer } from './metrics-ingestion-consumer'
-import { METRICS_DLQ_OUTPUT, METRICS_OUTPUT, MetricsDlqOutput, MetricsOutput } from './outputs/outputs'
+import { MetricsIngestionConsumer } from './metrics-ingestion-consumer'
+import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 
 const createKafkaMessage = (headers: Record<string, string>): Message => {
     // The consumer passes the Avro payload through without decoding it.
@@ -45,7 +45,7 @@ describe('MetricsIngestionConsumer', () => {
         consumer = new MetricsIngestionConsumer(getDefaultMetricsIngestionConsumerConfig(), {
             teamManager: hub.teamManager,
             quotaLimiting: hub.quotaLimiting,
-            outputs: new IngestionOutputs<MetricsOutput | MetricsDlqOutput | AppMetricsOutput>({
+            outputs: new IngestionOutputs<MetricsOutput | DlqOutput | AppMetricsOutput>({
                 [APP_METRICS_OUTPUT]: new SingleIngestionOutput(
                     APP_METRICS_OUTPUT,
                     KAFKA_APP_METRICS_2,
@@ -58,8 +58,8 @@ describe('MetricsIngestionConsumer', () => {
                     mockProducer,
                     'test'
                 ),
-                [METRICS_DLQ_OUTPUT]: new SingleIngestionOutput(
-                    METRICS_DLQ_OUTPUT,
+                [DLQ_OUTPUT]: new SingleIngestionOutput(
+                    DLQ_OUTPUT,
                     KAFKA_METRICS_INGESTION_DLQ,
                     mockProducer,
                     'test'
