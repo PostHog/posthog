@@ -71,7 +71,7 @@ export function TodayPaneSection({
                 style={{ height: open ? height : 0 }}
             >
                 {open && (
-                    <div className="h-full overflow-y-auto">
+                    <div className="scroll-mask-8 h-full scroll-py-8 overflow-y-auto">
                         <div ref={contentRef} className="flex flex-col gap-px pb-2">
                             {children}
                         </div>
