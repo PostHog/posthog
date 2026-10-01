@@ -25,6 +25,7 @@ import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/Tas
 import { cardMenuParts } from './todayMenuParts'
 import { TodaySessionPreview } from './todayPreviewCards'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
+import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { activityDetail } from './todayWorkItems'
@@ -101,6 +102,11 @@ export function TodaySessionHoverCard({
     onSubmenuOpenChange,
 }: TodaySessionHoverCardProps): JSX.Element {
     const { dot, pullRequest, author } = preview
+    const { requestArchive } = useActions(todaySessionMenuLogic)
+    useTodayArchiveShortcut(true, () => {
+        requestArchive(preview.menu.sessionId, preview.menu.menuId, preview.menu.activeRunId)
+        onAction()
+    })
     const parts = useMemo(() => cardMenuParts(onAction, onSubmenuOpenChange), [onAction, onSubmenuOpenChange])
     // Base UI reports no close when the submenu unmounts with the card, which would keep the card open for good.
     useEffect(() => () => onSubmenuOpenChange(false), [onSubmenuOpenChange])
