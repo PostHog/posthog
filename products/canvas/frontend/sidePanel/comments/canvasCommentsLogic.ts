@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -381,9 +381,10 @@ export const canvasCommentsLogic = kea<canvasCommentsLogicType>([
                 return saved
             } catch (error) {
                 track(actionType, false)
-                lemonToast.error(
-                    `Couldn't save the comment. ${error instanceof Error ? error.message : 'Try again in a moment.'}`
-                )
+                toast.error({
+                    title: "Couldn't save the comment",
+                    description: error instanceof Error ? error.message : 'Try again in a moment.',
+                })
                 actions.writeFinished(null)
                 return null
             }

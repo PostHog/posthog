@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { captureCanvasAction } from '../canvasAnalytics'
 import {
@@ -429,7 +429,7 @@ export const canvasHistoryLogic = kea<canvasHistoryLogicType>([
             }
         },
         loadBrowsedRenderFailure: ({ error }) => {
-            lemonToast.error(`Couldn't load that version. ${error || 'Try again in a moment.'}`)
+            toast.error({ title: "Couldn't load that version", description: error || 'Try again in a moment.' })
         },
         confirm: async () => {
             const confirmation = values.confirmation
@@ -448,10 +448,10 @@ export const canvasHistoryLogic = kea<canvasHistoryLogicType>([
                     await canvasesPromoteCreate(projectId, props.id, body)
                 }
                 captureCanvasAction(actionType, { dashboard_id: canvas.id, channel_id: canvas.channel, success: true })
-                lemonToast.success(
+                toast.success(
                     confirmation.kind === 'revert'
-                        ? 'Reverted. The canvas rebuilds from that version.'
-                        : 'Published the draft. It is live once its build is ready.'
+                        ? { title: 'Reverted', description: 'The canvas rebuilds from that version.' }
+                        : { title: 'Published the draft', description: 'It is live once its build is ready.' }
                 )
                 actions.setBrowseVersion(null)
                 actions.loadView()
@@ -463,12 +463,16 @@ export const canvasHistoryLogic = kea<canvasHistoryLogicType>([
             } catch (error) {
                 captureCanvasAction(actionType, { dashboard_id: canvas.id, channel_id: canvas.channel, success: false })
                 const status = (error as { status?: number } | null)?.status
-                lemonToast.error(
+                toast.error(
                     status === 409
-                        ? 'Someone changed this canvas since you opened it. Check the latest version and try again.'
-                        : `Couldn't ${confirmation.kind === 'revert' ? 'revert the canvas' : 'publish the draft'}. ${
-                              error instanceof Error ? error.message : 'Try again in a moment.'
-                          }`
+                        ? {
+                              title: 'Someone changed this canvas since you opened it',
+                              description: 'Check the latest version and try again.',
+                          }
+                        : {
+                              title: `Couldn't ${confirmation.kind === 'revert' ? 'revert the canvas' : 'publish the draft'}`,
+                              description: error instanceof Error ? error.message : 'Try again in a moment.',
+                          }
                 )
             } finally {
                 actions.confirmFinished()

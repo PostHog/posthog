@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { toast } from '@posthog/quill'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -387,7 +387,9 @@ export const canvasChatLogic = kea<canvasChatLogicType>([
                                 await canvasesPartialUpdate(projectId, canvas.id, { generation_task_id: resumed.id })
                             )
                         } catch {
-                            lemonToast.error('Your message was sent, but the canvas could not follow the new run.')
+                            toast.error({
+                                title: 'Your message was sent, but the canvas could not follow the new run.',
+                            })
                         }
                     }
                 }
