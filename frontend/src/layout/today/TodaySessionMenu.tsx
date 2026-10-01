@@ -37,6 +37,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { TodaySessionArchiveDialog } from './TodaySessionArchiveDialog'
 import { TodaySessionHandoffDialog } from './TodaySessionHandoffDialog'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
@@ -82,6 +83,7 @@ export function TodaySessionMenu({
         copySessionLink,
         stopSession,
     } = useActions(todaySessionMenuLogic)
+    const reportMenuOpen = useTodayPreviewMenuReport()
     const [spaceSearch, setSpaceSearch] = useState('')
     const runId = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS] ? analysisRunId : null
     const saving = pendingSessionIds.includes(sessionId)
@@ -90,7 +92,7 @@ export function TodaySessionMenu({
 
     return (
         <>
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={reportMenuOpen}>
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}

@@ -25,6 +25,29 @@ export interface SpacePresence {
 
 type PresenceTask = Pick<TaskListItemApi, 'created_by' | 'last_activity_at' | 'channel' | 'archived'>
 
+/** What one page of the team's newest tasks says about each space. */
+export interface SpaceActivity {
+    presence: Record<string, SpacePresence>
+    /** When someone last worked in each space. A space with no task on the page has no entry. */
+    lastActivityAt: Record<string, string>
+}
+
+/** The newest activity in each space, keyed by space id. Archived sessions don't count. */
+export function lastActivityBySpace(tasks: readonly PresenceTask[]): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const task of tasks) {
+        const ts = task.last_activity_at ? Date.parse(task.last_activity_at) : Number.NaN
+        if (!task.channel || task.archived || Number.isNaN(ts)) {
+            continue
+        }
+        const current = result[task.channel]
+        if (!current || Date.parse(current) < ts) {
+            result[task.channel] = task.last_activity_at as string
+        }
+    }
+    return result
+}
+
 /**
  * The recently active people in each space, keyed by space id, from one page of the team's tasks.
  * A space with nobody recent has no entry.
