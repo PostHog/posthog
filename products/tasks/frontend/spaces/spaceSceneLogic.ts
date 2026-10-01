@@ -100,6 +100,7 @@ export interface spaceSceneLogicValues {
     pinnedItems: TodayWorkItem[] // todaySpacesLogic
     unreadSessionIds: Set<string> // todaySpacesLogic
     user: UserType | null // userLogic
+    accessConfirmOpen: boolean
     activeTab: SpaceTab
     autoArchiveCustomDays: number | null
     autoArchiveCustomError: string | null
@@ -242,6 +243,9 @@ export interface spaceSceneLogicActions {
     sessionStarted: (sessionId: string) => {
         sessionId: string
     }
+    setAccessConfirmOpen: (open: boolean) => {
+        open: boolean
+    }
     setAutoArchiveCustomDays: (days: number | null) => {
         days: number | null
     }
@@ -382,6 +386,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         setNameDraft: (name: string | null) => ({ name }),
         commitName: true,
         ensureCanvases: true,
+        setAccessConfirmOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -437,6 +442,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         ],
     })),
     reducers({
+        accessConfirmOpen: [false, { setAccessConfirmOpen: (_, { open }) => open, spaceSaved: () => false }],
         sessionsUnavailable: [false, { loadSessions: () => false, loadSessionsFailure: () => true }],
         sessionsLoaded: [false, { loadSessionsSuccess: () => true }],
         canvasesUnavailable: [false, { loadCanvases: () => false, loadCanvasesFailure: () => true }],
