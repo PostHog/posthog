@@ -135,7 +135,6 @@ def _merged_pr_index(pull_requests_table: str) -> str:
 
 
 def build_query(table_name: str, *, pull_requests_table: str | None = None, started_floor: bool = False) -> str:
-    """``table_name`` is a runs source of ``depot_ci.with_depot_runs``, which carries the engine columns."""
     # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
     # aliases parseDateTimeBestEffort(run_started_at) AS run_started_at, and ClickHouse alias resolution
     # would make a WHERE there compare the parsed DateTime against the string. Keep it on the raw column.
