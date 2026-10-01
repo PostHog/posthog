@@ -5,20 +5,33 @@ import { parseArgs } from 'node:util'
 
 const BASELINE_PATH = 'frontend/snapshots.yml'
 
-export function readSnapshotIds(yamlText) {
-    const ids = new Set()
+// Returns each snapshot id with its lines as written, so a failure can print them for restoring.
+// The YAML writer emits a key over 128 characters in the explicit `? key` form.
+export function readSnapshotEntries(yamlText) {
+    const entries = new Map()
     let inSnapshots = false
+    let current = null
     for (const line of yamlText.split('\n')) {
-        if (/^\S/.test(line)) {
-            inSnapshots = /^snapshots:\s*$/.test(line)
+        if (/^\s*(#|$)/.test(line)) {
             continue
         }
-        const match = inSnapshots && /^ {4}(['"]?)([^\s'":]+)\1:\s*$/.exec(line)
-        if (match) {
-            ids.add(match[2])
+        if (/^\S/.test(line)) {
+            inSnapshots = /^snapshots:\s*(#.*)?$/.test(line)
+            current = null
+            continue
+        }
+        if (!inSnapshots) {
+            continue
+        }
+        const key = /^ {4}(?:\? +(['"]?)([^\s'":?]+)\1|(['"]?)([^\s'":?]+)\3:)\s*$/.exec(line)
+        if (key) {
+            current = [line]
+            entries.set(key[2] ?? key[4], current)
+        } else if (current) {
+            current.push(line)
         }
     }
-    return ids
+    return entries
 }
 
 // Storybook sanitizes a story id to exactly one `--` (title--export), and the test runner appends
@@ -39,9 +52,9 @@ export function readSnapshottedStories(indexJsonText, storybookRoot) {
     return stories
 }
 
-// A PR that edits a story file renders that story in its own Visual Review run, so a wrong removal
-// shows up there for review. Only stories the PR run does not render can lose every entry silently.
-export function findLiveRemovals({ baseIds, headIds, stories, changedFiles }) {
+// A story the PR's Visual Review run renders shows a wrong removal there for review. Only stories
+// that run skips can lose every entry silently.
+export function findLiveRemovals({ baseIds, headIds, stories, renderedFiles }) {
     const storiesWithHeadEntries = new Set([...headIds].map(storyIdOf))
     const removals = []
     for (const id of baseIds) {
@@ -49,7 +62,7 @@ export function findLiveRemovals({ baseIds, headIds, stories, changedFiles }) {
             continue
         }
         const storyId = storyIdOf(id)
-        if (!stories.has(storyId) || storiesWithHeadEntries.has(storyId) || changedFiles.has(stories.get(storyId))) {
+        if (!stories.has(storyId) || storiesWithHeadEntries.has(storyId) || renderedFiles.has(stories.get(storyId))) {
             continue
         }
         removals.push(id)
@@ -57,19 +70,18 @@ export function findLiveRemovals({ baseIds, headIds, stories, changedFiles }) {
     return removals.sort()
 }
 
-export function formatFailure(removals) {
+export function formatFailure(removals, baseEntries) {
     const storyCount = new Set(removals.map(storyIdOf)).size
+    const stories = storyCount === 1 ? 'story that still exists' : 'stories that still exist'
     return [
-        `This PR removes every ${BASELINE_PATH} entry of ${storyCount} ${storyCount === 1 ? 'story' : 'stories'} that still ${storyCount === 1 ? 'exists' : 'exist'}.`,
-        'This PR does not change those story files, so its own Visual Review run does not render them.',
+        `This PR removes every ${BASELINE_PATH} entry of ${storyCount} ${stories}.`,
+        "This PR's Visual Review run does not render these stories, so it cannot show the removal.",
         'The merge queue renders every story, reports these snapshots as new, and fails.',
         '',
-        'Removed entries:',
-        ...removals.map((id) => `  ${id}`),
+        `To fix it, add these lines back to ${BASELINE_PATH} under snapshots, in alphabetical order:`,
         '',
-        'To fix it, restore these entries. Either copy them back from the master version of the file, or run:',
-        `  git checkout origin/master -- ${BASELINE_PATH}`,
-        "then commit and push. Visual Review then asks you to approve this PR's snapshot changes again and commits them.",
+        ...removals.flatMap((id) => baseEntries.get(id)),
+        '',
         "If a story should no longer take snapshots, tag it 'test-skip' in its story file and this check passes.",
     ].join('\n')
 }
@@ -81,28 +93,29 @@ function main() {
             'head-snapshots': { type: 'string' },
             'storybook-index': { type: 'string' },
             'storybook-root': { type: 'string', default: 'common/storybook' },
-            'changed-files': { type: 'string' },
+            'rendered-files': { type: 'string' },
         },
     })
-    for (const required of ['base-snapshots', 'head-snapshots', 'storybook-index', 'changed-files']) {
+    for (const required of ['base-snapshots', 'head-snapshots', 'storybook-index', 'rendered-files']) {
         if (!values[required]) {
             console.error(`Missing --${required}`)
             process.exit(2)
         }
     }
 
+    const baseEntries = readSnapshotEntries(readFileSync(values['base-snapshots'], 'utf8'))
     const removals = findLiveRemovals({
-        baseIds: readSnapshotIds(readFileSync(values['base-snapshots'], 'utf8')),
-        headIds: readSnapshotIds(readFileSync(values['head-snapshots'], 'utf8')),
+        baseIds: new Set(baseEntries.keys()),
+        headIds: new Set(readSnapshotEntries(readFileSync(values['head-snapshots'], 'utf8')).keys()),
         stories: readSnapshottedStories(readFileSync(values['storybook-index'], 'utf8'), values['storybook-root']),
-        changedFiles: new Set(readFileSync(values['changed-files'], 'utf8').split('\n').filter(Boolean)),
+        renderedFiles: new Set(JSON.parse(readFileSync(values['rendered-files'], 'utf8'))),
     })
     if (removals.length === 0) {
         console.log(`No ${BASELINE_PATH} entry was removed for a story that still takes snapshots.`)
         return
     }
 
-    const message = formatFailure(removals)
+    const message = formatFailure(removals, baseEntries)
     console.log(message)
     if (process.env.GITHUB_STEP_SUMMARY) {
         appendFileSync(
@@ -117,6 +130,6 @@ function main() {
     process.exit(1)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     main()
 }

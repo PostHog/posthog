@@ -353,18 +353,20 @@ jobs:
                   if-no-files-found: error
 
     # A narrowed PR run renders only the stories its diff affects, so a PR can drop every baseline
-    # entry of an untouched story and stay green. The merge queue renders every story, reports
+    # entry of a story outside that set and stay green. The merge queue renders every story, reports
     # those snapshots as new, and fails each batch. This job finds such removals from the story
-    # index, without rendering anything.
+    # index, without rendering anything. A full PR run renders every story, so Visual Review shows
+    # the removal there and this job skips.
     check-baseline-removals:
         name: Check snapshot baseline removals
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        needs: [changes, build-storybook]
+        needs: [changes, build-storybook, select-stories]
         if: >-
             github.event_name == 'pull_request'
             && needs.changes.outputs.snapshots_baseline == 'true'
             && needs.build-storybook.result == 'success'
+            && needs.select-stories.outputs.mode == 'selective'
         steps:
             # The checker comes from the base branch, so the PR under test cannot change its verdict.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -402,7 +404,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPO: ${{ github.repository }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RENDERED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
@@ -416,12 +418,12 @@ jobs:
                   echo "Comparing frontend/snapshots.yml at $HEAD_SHA with merge base $merge_base"
                   gh api -H 'Accept: application/vnd.github.raw+json' \
                       "repos/$REPO/contents/frontend/snapshots.yml?ref=$merge_base" > "$RUNNER_TEMP/base-snapshots.yml"
-                  gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$RUNNER_TEMP/changed-files.txt"
+                  printf '%s' "$RENDERED_FILES_JSON" > "$RUNNER_TEMP/rendered-files.json"
                   node "$checker" \
                       --base-snapshots "$RUNNER_TEMP/base-snapshots.yml" \
                       --head-snapshots head/frontend/snapshots.yml \
                       --storybook-index "$RUNNER_TEMP/storybook-index/index.json" \
-                      --changed-files "$RUNNER_TEMP/changed-files.txt"
+                      --rendered-files "$RUNNER_TEMP/rendered-files.json"
 
     vr-setup:
         name: Create Visual Review run
