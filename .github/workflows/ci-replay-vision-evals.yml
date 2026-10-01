@@ -9,10 +9,11 @@
 # signal. Read the two paired scorers together: labeled_outcome flat or up while output_stability
 # drops means the change only added churn.
 #
-# The dataset comes from the pinned set in object storage when the
-# REPLAY_VISION_EVAL_PIN_BUCKET / REPLAY_VISION_EVAL_PIN_KEY repo vars are set (the pin's consent
-# is re-verified at eval start); otherwise it is collected fresh on the runner, which re-verifies
-# AI data-processing consent. Either way it is never cached, uploaded as an artifact, or otherwise
+# The dataset comes from the pinned set in S3 when the REPLAY_VISION_EVAL_PIN_BUCKET,
+# REPLAY_VISION_EVAL_PIN_KEY, and REPLAY_VISION_EVAL_PIN_ROLE_ARN vars are all set (the job reads
+# the bucket through that role over GitHub OIDC, and the pin's consent is re-verified at eval
+# start); otherwise it is collected fresh on the runner, which re-verifies AI data-processing
+# consent. Either way it is never cached, uploaded as an artifact, or otherwise
 # persisted beyond the run.
 # Only aggregate scores reach the public job log and step summary.
 # If any required secret is missing the job skips green with a warning, so a fork or a
@@ -24,7 +25,7 @@
 # approves it. A maintainer's own dispatch self-approves in the same queue.
 #
 # Persisting real recordings in the internal bucket needs a data-governance decision; until it
-# clears, the repo vars stay unset and runs keep collecting fresh. See
+# clears, the pin vars stay unset and runs keep collecting fresh. See
 # products/replay_vision/evals/README.md.
 name: Replay Vision Evals
 
@@ -84,6 +85,10 @@ jobs:
         runs-on: ubuntu-24.04
         # Approval-gated: the job's steps run PR-controlled code with repository secrets.
         environment: replay-vision-evals
+        permissions:
+            contents: read
+            # GitHub OIDC for the pin's read-only S3 role; unused while the pin vars are unset.
+            id-token: write
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -99,7 +104,17 @@ jobs:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  PIN_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
+                  PIN_KEY: ${{ vars.REPLAY_VISION_EVAL_PIN_KEY }}
+                  PIN_ROLE_ARN: ${{ vars.REPLAY_VISION_EVAL_PIN_ROLE_ARN }}
               run: |
+                  # The pin is used only when all three pin vars are set, so a half-configured pin
+                  # falls back to a fresh collection instead of failing without a dataset.
+                  if [ -n "$PIN_BUCKET" ] && [ -n "$PIN_KEY" ] && [ -n "$PIN_ROLE_ARN" ]; then
+                      echo "pinned=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "pinned=false" >> "$GITHUB_OUTPUT"
+                  fi
                   missing=""
                   for name in REPLAY_VISION_EVAL_POSTHOG_API_KEY GEMINI_API_KEY OPENAI_API_KEY ANTHROPIC_API_KEY BRAINTRUST_API_KEY; do
                       [ -n "${!name}" ] || missing="$missing $name"
@@ -173,8 +188,8 @@ jobs:
               run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
             - name: Collect golden dataset
-              # Skipped only when both pin vars are set, because the eval step downloads the pin only then.
-              if: steps.gate.outputs.enabled == 'true' && (vars.REPLAY_VISION_EVAL_PIN_BUCKET == '' || vars.REPLAY_VISION_EVAL_PIN_KEY == '')
+              # Skipped when the pin is configured, because the eval step downloads the pin then.
+              if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.pinned != 'true'
               shell: bash
               env:
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
@@ -202,6 +217,15 @@ jobs:
                   sys.exit(1 if not cases else 0)
                   EOF
 
+            - name: Configure AWS credentials for the pinned dataset
+              if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.pinned == 'true'
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ vars.REPLAY_VISION_EVAL_PIN_ROLE_ARN }}
+                  aws-region: ${{ vars.REPLAY_VISION_EVAL_PIN_REGION || 'us-east-1' }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
             - name: Run scanner quality suite
               if: steps.gate.outputs.enabled == 'true'
               shell: bash
@@ -209,11 +233,9 @@ jobs:
                   REPLAY_VISION_EVAL_DATASET: ${{ env.DATASET_DIR }}
                   # The consent re-verification at eval start reads the source instance's API.
                   POSTHOG_API_KEY: ${{ secrets.REPLAY_VISION_EVAL_POSTHOG_API_KEY }}
-                  # The pin download uses the default object storage settings, which point at the
-                  # runner-local SeaweedFS. To read the internal bucket, this step also needs that
-                  # bucket's endpoint and credentials, which are not wired yet.
-                  REPLAY_VISION_EVAL_DATASET_BUCKET: ${{ vars.REPLAY_VISION_EVAL_PIN_BUCKET }}
-                  REPLAY_VISION_EVAL_DATASET_OBJECT_KEY: ${{ vars.REPLAY_VISION_EVAL_PIN_KEY }}
+                  # The pin's own S3 client reads the OIDC credentials the step above exports.
+                  REPLAY_VISION_EVAL_DATASET_BUCKET: ${{ steps.gate.outputs.pinned == 'true' && vars.REPLAY_VISION_EVAL_PIN_BUCKET || '' }}
+                  REPLAY_VISION_EVAL_DATASET_OBJECT_KEY: ${{ steps.gate.outputs.pinned == 'true' && vars.REPLAY_VISION_EVAL_PIN_KEY || '' }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
                   BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
                   # The one-shot preflight name for a plain Anthropic key (used directly, no gateway).

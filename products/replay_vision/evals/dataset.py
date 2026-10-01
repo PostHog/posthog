@@ -26,6 +26,8 @@ from products.replay_vision.backend.temporal.types import ScannerLlmInputs, Scan
 DATASET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET"
 DATASET_BUCKET_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_BUCKET"
 DATASET_KEY_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_OBJECT_KEY"
+# Optional S3 endpoint override, for a local S3-compatible store; unset means AWS.
+DATASET_ENDPOINT_ENV_VAR = "REPLAY_VISION_EVAL_DATASET_ENDPOINT"
 MANIFEST_NAME = "manifest.json"
 VIDEO_NAME = "video.mp4"
 INPUTS_NAME = "inputs.json"
@@ -153,12 +155,6 @@ class _DatasetObjectLocation:
 
 
 def _bucket_and_key(bucket: str | None, key: str | None) -> _DatasetObjectLocation:
-    from django.conf import settings  # noqa: PLC0415 - keeps Django off the eval import path
-
-    # With storage disabled the client is a stub whose writes do nothing, so an upload would report
-    # success without writing the pin.
-    if not settings.OBJECT_STORAGE_ENABLED:
-        raise RuntimeError("OBJECT_STORAGE_ENABLED is off, so the pinned golden dataset cannot be read or written")
     raw_bucket = bucket if bucket is not None else os.environ.get(DATASET_BUCKET_ENV_VAR, "").strip()
     raw_key = key if key is not None else os.environ.get(DATASET_KEY_ENV_VAR, "").strip()
     if not raw_bucket or not raw_key:
@@ -169,19 +165,42 @@ def _bucket_and_key(bucket: str | None, key: str | None) -> _DatasetObjectLocati
     return _DatasetObjectLocation(bucket=raw_bucket, key=raw_key)
 
 
+def _pin_client() -> Any:
+    """S3 client for the pin, on the default AWS credential chain.
+
+    Not `posthog.storage.object_storage`: that client takes a fixed key pair from Django settings and
+    no session token, so it cannot use the temporary credentials of GitHub OIDC or AWS SSO.
+    """
+    import boto3  # noqa: PLC0415 - keeps boto3 off the eval import path
+    from botocore.config import Config  # noqa: PLC0415 - keeps boto3 off the eval import path
+
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ.get(DATASET_ENDPOINT_ENV_VAR, "").strip() or None,
+        config=Config(signature_version="s3v4", retries={"max_attempts": 3, "mode": "standard"}),
+    )
+
+
+def _read_object(client: Any, location: _DatasetObjectLocation, key: str) -> bytes | None:
+    try:
+        return client.get_object(Bucket=location.bucket, Key=key)["Body"].read()
+    except client.exceptions.NoSuchKey:
+        return None
+
+
 def upload_pinned_dataset(
     root: Path, dataset: GoldenDataset, *, bucket: str | None = None, key: str | None = None
 ) -> None:
     """Upload the manifest and every case's video and inputs under the dataset's object-storage key.
 
     Refuses a key that already holds a manifest, because a reader of the old manifest could get new
-    case files for the same case ids. To change the set, upload under a new key prefix (case files sit
-    beside the manifest) and point readers at it. The manifest lands last, so a reader never sees a manifest naming cases whose bytes are absent.
+    case files for the same case ids. To change the set, upload under a new key prefix (case files
+    sit beside the manifest) and point readers at it. The manifest lands last, so a reader never
+    sees a manifest naming cases whose bytes are absent.
     """
-    from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
-
     location = _bucket_and_key(bucket, key)
-    if object_storage.read_bytes(location.key, bucket=location.bucket, missing_ok=True) is not None:
+    client = _pin_client()
+    if _read_object(client, location, location.key) is not None:
         raise RuntimeError(
             f"s3://{location.bucket}/{location.key} already holds a pinned dataset; upload under a new key prefix"
         )
@@ -189,15 +208,15 @@ def upload_pinned_dataset(
     if missing:
         raise RuntimeError(f"Dataset at {root} is missing files for cases {missing[:5]}; collect before uploading")
     for golden in dataset.cases:
-        object_storage.write_from_file(
-            _case_key(location.key, golden.case_id, VIDEO_NAME), str(golden.video_path(root)), bucket=location.bucket
+        client.upload_file(
+            str(golden.video_path(root)), location.bucket, _case_key(location.key, golden.case_id, VIDEO_NAME)
         )
-        object_storage.write(
-            _case_key(location.key, golden.case_id, INPUTS_NAME),
-            golden.inputs_path(root).read_bytes(),
-            bucket=location.bucket,
+        client.put_object(
+            Bucket=location.bucket,
+            Key=_case_key(location.key, golden.case_id, INPUTS_NAME),
+            Body=golden.inputs_path(root).read_bytes(),
         )
-    object_storage.write(location.key, dataset.model_dump_json(indent=2), bucket=location.bucket)
+    client.put_object(Bucket=location.bucket, Key=location.key, Body=dataset.model_dump_json(indent=2).encode())
 
 
 def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str | None = None) -> GoldenDataset:
@@ -206,10 +225,9 @@ def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str |
     Local files are never reused, because a file left by another pin or a partial download has the
     same path as the pinned one and would be scored under the wrong manifest.
     """
-    from posthog.storage import object_storage  # noqa: PLC0415 - keeps boto3/Django off the eval import path
-
     location = _bucket_and_key(bucket, key)
-    raw = object_storage.read_bytes(location.key, bucket=location.bucket)
+    client = _pin_client()
+    raw = _read_object(client, location, location.key)
     if raw is None:
         raise RuntimeError(f"No pinned golden dataset at s3://{location.bucket}/{location.key}")
     dataset = GoldenDataset.model_validate_json(raw)
@@ -217,15 +235,11 @@ def download_pinned_dataset(root: Path, *, bucket: str | None = None, key: str |
     save_dataset(root, dataset)
     for golden in dataset.cases:
         golden.case_dir(root).mkdir(parents=True, exist_ok=True)
-        video = object_storage.read_bytes(
-            _case_key(location.key, golden.case_id, VIDEO_NAME), bucket=location.bucket, missing_ok=True
-        )
+        video = _read_object(client, location, _case_key(location.key, golden.case_id, VIDEO_NAME))
         if video is None:
             raise RuntimeError(f"Pinned dataset is missing video for case {golden.case_id}")
         golden.video_path(root).write_bytes(video)
-        inputs = object_storage.read_bytes(
-            _case_key(location.key, golden.case_id, INPUTS_NAME), bucket=location.bucket, missing_ok=True
-        )
+        inputs = _read_object(client, location, _case_key(location.key, golden.case_id, INPUTS_NAME))
         if inputs is None:
             raise RuntimeError(f"Pinned dataset is missing inputs for case {golden.case_id}")
         golden.inputs_path(root).write_text(inputs.decode())

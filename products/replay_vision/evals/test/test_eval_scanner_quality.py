@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import sys
 import json
 import time
@@ -34,6 +35,7 @@ from products.replay_vision.backend.temporal.types import (
 from products.replay_vision.evals import (
     collect as collect_cli,
     collector,
+    dataset as dataset_module,
     eval_scanner_quality,
 )
 from products.replay_vision.evals.collector import (
@@ -44,6 +46,7 @@ from products.replay_vision.evals.collector import (
 )
 from products.replay_vision.evals.dataset import (
     DATASET_BUCKET_ENV_VAR,
+    DATASET_ENDPOINT_ENV_VAR,
     DATASET_ENV_VAR,
     DATASET_KEY_ENV_VAR,
     GoldenCase,
@@ -440,70 +443,82 @@ def _golden_case_on_disk(case_id: str, root: Path, *, write_files: bool = True) 
     return case
 
 
-_PIN_KEY = "replay-vision/golden/main/manifest.json"
+_PIN_KEY = "replay-vision/golden/v1/manifest.json"
 
 
-def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(tmp_path: Path) -> None:
-    dataset = GoldenDataset(
+class _FakePinStore:
+    """In-memory stand-in for the pin's S3 client that logs reads and writes in order."""
+
+    class exceptions:
+        class NoSuchKey(Exception):
+            pass
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self.objects = dict(objects or {})
+        self.reads: list[str] = []
+        self.writes: list[str] = []
+
+    def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
+        self.reads.append(Key)
+        if Key not in self.objects:
+            raise self.exceptions.NoSuchKey()
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+    def put_object(self, *, Bucket: str, Key: str, Body: bytes) -> None:
+        self.objects[Key] = Body
+        self.writes.append(Key)
+
+    def upload_file(self, Filename: str, Bucket: str, Key: str) -> None:
+        self.objects[Key] = Path(Filename).read_bytes()
+        self.writes.append(Key)
+
+
+@pytest.fixture
+def pin_store() -> Iterator[_FakePinStore]:
+    store = _FakePinStore()
+    with patch.object(dataset_module, "_pin_client", return_value=store):
+        yield store
+
+
+def _pinned_dataset(*cases: GoldenCase) -> GoldenDataset:
+    return GoldenDataset(
         created_at=dt.datetime.now(dt.UTC).isoformat(),
         host="https://us.posthog.com",
         project_id=2,
         organization_id=_ORG_ID,
-        cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path)],
+        cases=list(cases),
     )
-    uploaded: list[str] = []
-    with (
-        patch("posthog.storage.object_storage.read_bytes", return_value=None),
-        patch(
-            "posthog.storage.object_storage.write_from_file",
-            side_effect=lambda key, path, bucket=None: uploaded.append(key),
-        ),
-        patch(
-            "posthog.storage.object_storage.write",
-            side_effect=lambda key, content, bucket=None, extras=None: uploaded.append(key),
-        ),
-    ):
-        upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
-    assert "replay-vision/golden/main/cases/c1/video.mp4" in uploaded
-    assert "replay-vision/golden/main/cases/c2/video.mp4" in uploaded
-    assert "replay-vision/golden/main/cases/c1/inputs.json" in uploaded
-    assert "replay-vision/golden/main/cases/c2/inputs.json" in uploaded
+
+
+def test_upload_pinned_dataset_writes_every_case_and_the_manifest_last(
+    tmp_path: Path, pin_store: _FakePinStore
+) -> None:
+    dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path))
+    upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
+    assert sorted(pin_store.writes[:-1]) == [
+        "replay-vision/golden/v1/cases/c1/inputs.json",
+        "replay-vision/golden/v1/cases/c1/video.mp4",
+        "replay-vision/golden/v1/cases/c2/inputs.json",
+        "replay-vision/golden/v1/cases/c2/video.mp4",
+    ]
     # Manifest lands last, so a reader never sees a manifest naming absent case files.
-    assert uploaded[-1] == _PIN_KEY
+    assert pin_store.writes[-1] == _PIN_KEY
 
 
-def test_upload_pinned_dataset_refuses_a_dataset_with_missing_local_files(tmp_path: Path) -> None:
-    dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
-        project_id=2,
-        organization_id=_ORG_ID,
-        cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
-    )
-    with (
-        patch("posthog.storage.object_storage.read_bytes", return_value=None),
-        pytest.raises(RuntimeError, match="missing files"),
-    ):
+@pytest.mark.parametrize("key_taken", [False, True])
+def test_upload_pinned_dataset_refuses_without_writing(
+    tmp_path: Path, pin_store: _FakePinStore, key_taken: bool
+) -> None:
+    if key_taken:
+        pin_store.objects[_PIN_KEY] = b"{}"
+        dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path))
+        error = "upload under a new key prefix"
+    else:
+        dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path, write_files=False))
+        error = "missing files"
+    with pytest.raises(RuntimeError, match=error):
         upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
-
-
-def test_upload_pinned_dataset_refuses_a_key_that_already_holds_a_manifest(tmp_path: Path) -> None:
-    dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
-        project_id=2,
-        organization_id=_ORG_ID,
-        cases=[_golden_case_on_disk("c1", tmp_path)],
-    )
-    with (
-        patch("posthog.storage.object_storage.read_bytes", return_value=b"{}"),
-        patch("posthog.storage.object_storage.write_from_file") as write_from_file,
-        patch("posthog.storage.object_storage.write") as write,
-        pytest.raises(RuntimeError, match="upload under a new key"),
-    ):
-        upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
-    write_from_file.assert_not_called()
-    write.assert_not_called()
+    assert pin_store.writes == []
 
 
 def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_path: Path) -> None:
@@ -537,33 +552,22 @@ def test_collect_records_the_org_and_reuses_only_the_collected_teams_cases(tmp_p
     assert load_dataset(tmp_path) == dataset
 
 
-def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path) -> None:
-    dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
-        project_id=2,
-        organization_id=_ORG_ID,
-        cases=[_golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path, write_files=False)],
+def test_download_pinned_dataset_replaces_existing_local_case_files(tmp_path: Path, pin_store: _FakePinStore) -> None:
+    dataset = _pinned_dataset(
+        _golden_case_on_disk("c1", tmp_path), _golden_case_on_disk("c2", tmp_path, write_files=False)
     )
-    remote = {case.case_id: case for case in dataset.cases}
-    with (
-        patch(
-            "posthog.storage.object_storage.read_bytes",
-            side_effect=lambda key, bucket=None, missing_ok=False: (
-                dataset.model_dump_json(indent=2).encode()
-                if key == _PIN_KEY
-                else b"remote-" + key.encode()
-                if key.endswith(("video.mp4", "inputs.json"))
-                else None
-            ),
-        ),
-    ):
-        downloaded = download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
-    assert [case.case_id for case in downloaded.cases] == ["c1", "c2"]
-    # c1's stale local bytes must not survive, or they are scored under the pinned manifest.
+    pin_store.objects[_PIN_KEY] = dataset.model_dump_json().encode()
     for case_id in ("c1", "c2"):
-        assert remote[case_id].video_path(tmp_path).read_bytes().startswith(b"remote-")
-        assert remote[case_id].inputs_path(tmp_path).read_text().startswith("remote-")
+        for name in ("video.mp4", "inputs.json"):
+            pin_store.objects[f"replay-vision/golden/v1/cases/{case_id}/{name}"] = f"remote-{case_id}-{name}".encode()
+
+    downloaded = download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+
+    assert downloaded == dataset
+    # c1's stale local bytes must not survive, or they are scored under the pinned manifest.
+    for case in dataset.cases:
+        assert case.video_path(tmp_path).read_bytes() == f"remote-{case.case_id}-video.mp4".encode()
+        assert case.inputs_path(tmp_path).read_text() == f"remote-{case.case_id}-inputs.json"
 
 
 @pytest.mark.parametrize("case_id", ["../escape", "/tmp/escape", "a/b", ""])
@@ -572,48 +576,36 @@ def test_golden_case_rejects_ids_that_leave_the_dataset_directory(case_id: str) 
         _golden("monitor", None, _monitor_output("no"), case_id=case_id)
 
 
-def test_download_pinned_dataset_fails_when_a_case_video_is_absent_remote(tmp_path: Path) -> None:
-    dataset = GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
-        project_id=2,
-        organization_id=_ORG_ID,
-        cases=[_golden_case_on_disk("c1", tmp_path, write_files=False)],
-    )
-    with patch(
-        "posthog.storage.object_storage.read_bytes",
-        side_effect=lambda key, bucket=None, missing_ok=False: (
-            dataset.model_dump_json(indent=2).encode() if key == _PIN_KEY else None
-        ),
-    ):
-        with pytest.raises(RuntimeError, match="missing video for case c1"):
-            download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+@pytest.mark.parametrize("missing", ["video.mp4", "inputs.json"])
+def test_download_pinned_dataset_fails_when_a_case_file_is_absent_remote(
+    tmp_path: Path, pin_store: _FakePinStore, missing: str
+) -> None:
+    dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path, write_files=False))
+    pin_store.objects[_PIN_KEY] = dataset.model_dump_json().encode()
+    for name in ("video.mp4", "inputs.json"):
+        if name != missing:
+            pin_store.objects[f"replay-vision/golden/v1/cases/c1/{name}"] = b"{}"
+    with pytest.raises(RuntimeError, match=f"missing {missing.split('.')[0]} for case c1"):
+        download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
 
 
 @pytest.fixture
-def real_pin_key(settings: Any) -> Iterator[str]:
-    settings.OBJECT_STORAGE_ENABLED = True
+def real_pin_key(settings: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
+    # The local S3-compatible store the test stack runs, reached through the pin's own client.
+    monkeypatch.setenv(DATASET_ENDPOINT_ENV_VAR, settings.OBJECT_STORAGE_ENDPOINT)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", settings.OBJECT_STORAGE_ACCESS_KEY_ID)
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", settings.OBJECT_STORAGE_SECRET_ACCESS_KEY)
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.delenv("AWS_SESSION_TOKEN", raising=False)
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
     prefix = f"test-replay-vision-pin-{uuid.uuid4().hex}"
     yield f"{prefix}/v1/manifest.json"
     s3 = boto3.resource(
         "s3",
         endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         config=BotoConfig(signature_version="s3v4"),
-        region_name="us-east-1",
     )
     s3.Bucket(settings.OBJECT_STORAGE_BUCKET).objects.filter(Prefix=prefix).delete()
-
-
-def _pinned_dataset(*cases: GoldenCase) -> GoldenDataset:
-    return GoldenDataset(
-        created_at=dt.datetime.now(dt.UTC).isoformat(),
-        host="https://us.posthog.com",
-        project_id=2,
-        organization_id=_ORG_ID,
-        cases=list(cases),
-    )
 
 
 def test_pinned_dataset_round_trips_through_real_object_storage(
@@ -632,17 +624,8 @@ def test_pinned_dataset_round_trips_through_real_object_storage(
         assert case.inputs_path(target).read_text() == case.inputs_path(source).read_text()
     with pytest.raises(RuntimeError, match="upload under a new key prefix"):
         upload_pinned_dataset(source, dataset, bucket=bucket, key=real_pin_key)
-
-
-@pytest.mark.parametrize("operation", ["upload", "download"])
-def test_pinned_dataset_refuses_when_object_storage_is_disabled(tmp_path: Path, settings: Any, operation: str) -> None:
-    settings.OBJECT_STORAGE_ENABLED = False
-    dataset = _pinned_dataset(_golden_case_on_disk("c1", tmp_path))
-    with pytest.raises(RuntimeError, match="OBJECT_STORAGE_ENABLED"):
-        if operation == "upload":
-            upload_pinned_dataset(tmp_path, dataset, bucket="test-bucket", key=_PIN_KEY)
-        else:
-            download_pinned_dataset(tmp_path, bucket="test-bucket", key=_PIN_KEY)
+    with pytest.raises(RuntimeError, match="No pinned golden dataset"):
+        download_pinned_dataset(target, bucket=bucket, key=real_pin_key.replace("/v1/", "/v9/"))
 
 
 def test_collect_cli_extends_a_pin_under_a_new_key(
@@ -677,13 +660,14 @@ def test_collect_cli_extends_a_pin_under_a_new_key(
 @pytest.mark.parametrize("pinned", [True, False])
 @pytest.mark.parametrize("approved", [True, False])
 def test_eval_scanner_quality_checks_consent_before_scanning(
-    tmp_path: Path, settings: Any, monkeypatch: pytest.MonkeyPatch, pinned: bool, approved: bool
+    tmp_path: Path, pin_store: _FakePinStore, monkeypatch: pytest.MonkeyPatch, pinned: bool, approved: bool
 ) -> None:
-    settings.OBJECT_STORAGE_ENABLED = True
     root = tmp_path / "dataset"
     dataset = _pinned_dataset(_golden_case_on_disk("c1", root))
-    manifest = dataset.model_dump_json().encode()
     if pinned:
+        pin_store.objects[_PIN_KEY] = dataset.model_dump_json().encode()
+        pin_store.objects["replay-vision/golden/v1/cases/c1/video.mp4"] = b"video"
+        pin_store.objects["replay-vision/golden/v1/cases/c1/inputs.json"] = b"{}"
         monkeypatch.setenv(DATASET_BUCKET_ENV_VAR, "test-bucket")
         monkeypatch.setenv(DATASET_KEY_ENV_VAR, _PIN_KEY)
     else:
@@ -696,10 +680,6 @@ def test_eval_scanner_quality_checks_consent_before_scanning(
 
     with (
         patch.object(eval_scanner_quality, "gemini_api_key", return_value="test-gemini-key"),
-        patch(
-            "posthog.storage.object_storage.read_bytes",
-            side_effect=lambda key, bucket=None, missing_ok=False: manifest if key == _PIN_KEY else b"{}",
-        ) as read_bytes,
         patch("requests.get", return_value=consent),
         patch.object(eval_scanner_quality, "OneShotPrivateEval", one_shot),
     ):
@@ -709,7 +689,7 @@ def test_eval_scanner_quality_checks_consent_before_scanning(
             with pytest.raises(RuntimeError, match="withdrawn AI data-processing consent"):
                 asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
 
-    assert read_bytes.called == pinned
+    assert (_PIN_KEY in pin_store.reads) == pinned
     assert one_shot.call_count == (1 if approved else 0)
     if approved:
         assert [case.metadata["case_id"] for case in one_shot.call_args.kwargs["cases"]] == ["c1"]

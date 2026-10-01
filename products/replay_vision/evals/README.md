@@ -87,10 +87,12 @@ A pinned dataset fixes that (see "Pinning the dataset" below): a person curates 
 
 ## Pinning the dataset
 
-A pinned dataset is the same directory, uploaded to object storage under one stable key so every run scans the same footage:
+A pinned dataset is the same directory, uploaded to S3 under one stable key so every run scans the same footage.
+The pin uses its own S3 client on the default AWS credential chain: an AWS SSO profile on a laptop, the OIDC role in CI.
+To use a local S3-compatible store instead, set `REPLAY_VISION_EVAL_DATASET_ENDPOINT` (for example `http://localhost:19000`) and that store's keys in `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
 
 ```bash
-POSTHOG_API_KEY=... REPLAY_VISION_EVAL_DATASET_BUCKET=... python -m products.replay_vision.evals.collect \
+AWS_PROFILE=... POSTHOG_API_KEY=... REPLAY_VISION_EVAL_DATASET_BUCKET=... python -m products.replay_vision.evals.collect \
     --project-id 2 --per-type 25 --output ~/.posthog/replay-vision-golden-dataset \
     --upload replay-vision/golden/v1/manifest.json
 ```
@@ -100,13 +102,15 @@ A pinned key never changes: `--upload` refuses a key that already holds a manife
 Running the suite against the pin instead of a local directory:
 
 ```bash
-REPLAY_VISION_EVAL_DATASET=~/.posthog/replay-vision-golden-dataset \
+AWS_PROFILE=... REPLAY_VISION_EVAL_DATASET=~/.posthog/replay-vision-golden-dataset \
 REPLAY_VISION_EVAL_DATASET_BUCKET=... \
 REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/v1/manifest.json \
 POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
 ```
 
-The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. Before the pin becomes the CI default, recording bytes in an internal bucket needs the data-governance decision below, and the CI eval step needs that bucket's endpoint and credentials.
+The suite downloads the pinned manifest and every case file, replacing local copies, then re-verifies the source org's consent before scanning. CI uses the pin only when the `replay-vision-evals` environment sets all three of `REPLAY_VISION_EVAL_PIN_BUCKET`, `REPLAY_VISION_EVAL_PIN_KEY`, and `REPLAY_VISION_EVAL_PIN_ROLE_ARN` (a read-only role GitHub OIDC can assume from that environment; `REPLAY_VISION_EVAL_PIN_REGION` defaults to `us-east-1`).
+With any of them unset, CI collects fresh.
+Before they are set, recording bytes in an internal bucket needs the data-governance decision below.
 
 ## Data handling
 
