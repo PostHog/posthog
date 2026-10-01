@@ -36,6 +36,10 @@ When a schedule triggers, it starts a workflow that:
 3. Stores results in the database
 4. Assembles one completed metrics recalculation per experiment as soon as that experiment's own metrics finish (see below)
 
+Each metric activity stores its result through the experiments facade (`record_daily_metric_result`, `record_daily_metric_failure`).
+The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
+A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
+
 ### Handing fresh points to the recalculation reader
 
 The experiment page reads results through `GET /metrics_recalculation/latest`, which returns the newest completed `ExperimentMetricsRecalculation`. Timeseries rows alone never reach it, so each workflow runs `create_recalculation_from_timeseries` once per experiment it touched (`products/experiments/backend/timeseries_sync.py`). The publish runs right after the experiment's own metric activities complete, not behind a whole-hour barrier, so one slow experiment or a mid-batch worker restart delays only its own publish:

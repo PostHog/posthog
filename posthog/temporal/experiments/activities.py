@@ -37,6 +37,8 @@ from products.experiments.backend.facade.timeseries import (
     build_metric,
     is_daily_timeseries_metric,
     metric_calculation_keys_for_experiments,
+    record_daily_metric_failure,
+    record_daily_metric_result,
     resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
@@ -47,10 +49,7 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricResult as ExperimentMetricResultModel,
-)
+from products.experiments.backend.models.experiment import Experiment
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -227,21 +226,13 @@ def _calculate_experiment_regular_metric_sync(
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-        completed_at = datetime.now(ZoneInfo("UTC"))
-
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_result(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.COMPLETED,
-                "result": result_dict,
-                "query_id": None,
-                "completed_at": completed_at,
-                "error_message": None,
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            result=result_dict,
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
@@ -260,19 +251,13 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     except (StatisticError, ZeroDivisionError) as e:
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
         )
 
         logger.warning(
@@ -307,19 +292,13 @@ def _calculate_experiment_regular_metric_sync(
         # doesn't retry and the worker interceptor doesn't report it to error tracking.
         is_permanent = classify_experiment_query_error(e) == "validation_error"
 
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
         )
 
         if is_permanent:
@@ -543,21 +522,13 @@ def _calculate_experiment_saved_metric_sync(
         result = query_runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
-        completed_at = datetime.now(ZoneInfo("UTC"))
-
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_result(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.COMPLETED,
-                "result": result_dict,
-                "query_id": None,
-                "completed_at": completed_at,
-                "error_message": None,
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            result=result_dict,
         )
 
         check_significance_transition(experiment, metric_uuid, fingerprint, result_dict, query_to_utc)
@@ -576,19 +547,13 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     except (StatisticError, ZeroDivisionError) as e:
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
         )
 
         logger.warning(
@@ -623,19 +588,13 @@ def _calculate_experiment_saved_metric_sync(
         # doesn't retry and the worker interceptor doesn't report it to error tracking.
         is_permanent = classify_experiment_query_error(e) == "validation_error"
 
-        ExperimentMetricResultModel.objects.update_or_create(
-            experiment_id=experiment_id,
+        record_daily_metric_failure(
+            experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
-            query_to=query_to_utc,
-            defaults={
-                "query_from": query_from_utc,
-                "status": ExperimentMetricResultModel.Status.FAILED,
-                "result": None,
-                "query_id": None,
-                "completed_at": None,
-                "error_message": str(e),
-            },
+            calculation_key=fingerprint,
+            window=query_to_utc,
+            query_from=query_from_utc,
+            error_message=str(e),
         )
 
         if is_permanent:

@@ -20,7 +20,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
 
-from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -40,7 +40,6 @@ from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
-    _store_result,
     _update_recalculation_progress_sync,
 )
 from products.experiments.stats.shared.statistics import StatisticError
@@ -911,7 +910,7 @@ class TestCalculateActivity(BaseTest):
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
         # time window is experiment.start_date, threaded into the runner via the experiment object it
-        # constructs and stored on the result row via _store_result(query_from=experiment.start_date).
+        # constructs and stored on the result row by the result store's run write (query_from=experiment.start_date).
         # This test pins the stored-row side. If the runner ever changes how it derives query_from, or if a
         # future refactor decouples the stored value from what the runner actually queries, the same class
         # of silent-miscalculation bug we just fixed for query_to could reappear here.
@@ -964,7 +963,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1023,7 +1022,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1043,84 +1042,6 @@ class TestCalculateActivity(BaseTest):
 
         mock_runner.assert_called_once()
 
-    def test_store_result_updates_existing_row_with_different_fingerprint_in_place(self):
-        # The unique constraint is (experiment, metric_uuid, query_to); fingerprint is not part of it. A row may
-        # already occupy that key under a different fingerprint (an earlier run written under the old per-run
-        # scheme, or the timeseries workflow). _store_result must update that row in place, not insert a second
-        # one and crash with IntegrityError. This is what unsticks experiments already collided in production.
-        exp = self._experiment(flag_key="store-upsert-key", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp, metric_uuids=["m1"])
-        query_to = datetime.fromisoformat(_QUERY_TO)
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint="legacy-fingerprint-from-a-prior-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"stale": True},
-        )
-
-        _store_result(
-            recalculation_id=str(recalc.id),
-            experiment_id=exp.id,
-            metric_uuid="m1",
-            recalc_fp="new-deterministic-fingerprint",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"fresh": True},
-            error_message=None,
-        )
-
-        rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
-        assert rows.count() == 1
-        row = rows.get()
-        assert row.fingerprint == "new-deterministic-fingerprint"
-        assert row.result == {"fresh": True}
-
-    @parameterized.expand(
-        [
-            (ExperimentMetricsRecalculation.Status.FAILED,),
-            (ExperimentMetricsRecalculation.Status.COMPLETED,),
-            (None,),
-        ]
-    )
-    def test_store_result_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
-        exp = self._experiment(flag_key="store-superseded", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp, metric_uuids=["m1"])
-        if status is None:
-            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).delete()
-        else:
-            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(status=status)
-        query_to = datetime.fromisoformat(_QUERY_TO)
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint="fingerprint-from-the-superseding-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"fresh": True},
-        )
-
-        _store_result(
-            recalculation_id=str(recalc.id),
-            experiment_id=exp.id,
-            metric_uuid="m1",
-            recalc_fp="fingerprint-from-the-orphaned-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.FAILED,
-            result=None,
-            error_message="the orphan's late failure",
-        )
-
-        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
-        assert row.status == ExperimentMetricResult.Status.COMPLETED
-        assert row.result == {"fresh": True}
-        assert row.error_message is None
-
     @parameterized.expand(
         [
             # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure, expected_result_rows)
@@ -1135,9 +1056,9 @@ class TestCalculateActivity(BaseTest):
     def test_retry_does_not_double_count(
         self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool, expected_result_rows: int
     ):
-        # Temporal retries the whole activity on transient failure. _store_result is idempotent (update_or_create
-        # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
-        # state identical to the first — no inflated counts, no duplicate result rows.
+        # Temporal retries the whole activity on transient failure. The run write is idempotent (update_or_create
+        # keyed on experiment, metric_uuid and query_to) and metric_errors is keyed by metric_uuid, so a second run
+        # must leave state identical to the first — no inflated counts, no duplicate result rows.
         exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
         recalc = self._recalc(exp, metric_uuids=[metric_uuid])
 
@@ -1160,7 +1081,7 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
         assert metric_uuid in recalc.metric_errors
-        # Exact count per case: 0 for discovery failures (no _store_result call), 1 for calc failures
+        # Exact count per case: 0 for discovery failures (no result write), 1 for calc failures
         # (one FAILED row, overwritten on retry rather than duplicated).
         assert (
             ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count()
