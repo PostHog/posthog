@@ -16,7 +16,7 @@ const meta: Meta<typeof ContentAutopilotSourceLedger> = {
 export default meta
 
 export const WithResearchNotes: StoryFn<typeof ContentAutopilotSourceLedger> = () => (
-    <div className="max-w-3xl p-4">
+    <div className="w-[720px] p-4">
         <ContentAutopilotSourceLedger
             entries={EXAMPLE_PROPOSAL.source_ledger}
             notes={["Couldn't read the cited page https://rival.example.com/replay."]}

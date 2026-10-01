@@ -39,13 +39,13 @@ const PASSED_CHECKS = [
 ]
 
 export const ReadyToDownload: StoryFn<typeof ContentAutopilotValidationSummary> = () => (
-    <div className="max-w-3xl p-4">
+    <div className="w-[720px] p-4">
         <ContentAutopilotValidationSummary report={{ passed: true, checks: PASSED_CHECKS }} />
     </div>
 )
 
 export const NeedsFixes: StoryFn<typeof ContentAutopilotValidationSummary> = () => (
-    <div className="max-w-3xl p-4">
+    <div className="w-[720px] p-4">
         <ContentAutopilotValidationSummary
             report={{
                 passed: false,
@@ -72,7 +72,7 @@ export const NeedsFixes: StoryFn<typeof ContentAutopilotValidationSummary> = () 
 )
 
 export const CouldNotDraft: StoryFn<typeof ContentAutopilotValidationSummary> = () => (
-    <div className="max-w-3xl p-4">
+    <div className="w-[720px] p-4">
         <ContentAutopilotValidationSummary
             report={{
                 passed: false,
