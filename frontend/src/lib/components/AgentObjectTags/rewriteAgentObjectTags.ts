@@ -326,10 +326,8 @@ function partialCouldBecomeTag(fragment: string): boolean {
 
 /**
  * Index where a trailing object tag that has not finished streaming in begins,
- * or null. Mirrors the Slack relay's `split_incomplete_tag_suffix`, minus its
- * fence holding: the Slack splitter is stateless across flushes and must keep
- * an open fence buffered, while here the whole text re-renders every chunk and
- * `scanCode` already keeps tags inside an open fence literal.
+ * or null. An open fence needs no holding here: the whole text re-renders every
+ * chunk and `scanCode` already keeps tags inside an open fence literal.
  *
  * Only the region after `searchFrom` (the end of the last complete tag) is
  * considered, so tag-shaped text inside a complete tag's body — SQL quoting

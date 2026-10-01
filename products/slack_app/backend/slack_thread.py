@@ -445,67 +445,42 @@ class SlackThreadHandler:
         chunks = _status_chunks(task_updates, markdown_text)
         if plan_title:
             chunks.insert(0, _plan_update_chunk(plan_title))
-        if not chunks:
-            return
-        try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=chunks,
-            )
-        except Exception as e:
-            logger.warning("slack_app_status_stream_append_failed", error=str(e))
+        self._append_chunks(ts, chunks, "slack_app_status_stream_append_failed")
 
     def append_status_blocks(self, ts: str, blocks: list[dict[str, Any]]) -> bool:
         """Append Block Kit blocks, such as chart cards, to an open stream. Returns whether Slack took them."""
         if not blocks:
             return True
-        try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=[{"type": "blocks", "blocks": blocks}],
-            )
-        except Exception as e:
-            logger.warning("slack_app_status_stream_blocks_append_failed", error=str(e))
-            return False
-        return True
+        return self._append_chunks(
+            ts, [{"type": "blocks", "blocks": blocks}], "slack_app_status_stream_blocks_append_failed"
+        )
 
     def stop_status_stream(
         self,
         ts: str,
         complete_task_id: str | None = None,
         complete_task_title: str | None = None,
-        complete_task_details: str | None = None,
         final_markdown: str | None = None,
         plan_title: str | None = None,
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
     ) -> None:
-        """Final flush: mark the last plan-block step complete, stream the final
-        answer as markdown_text chunks (this is what STAYS in the message body),
-        then chat.stopStream.
+        """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
-        The answer starts with the @-mention, so the one notification lands with the
-        first words of the answer. With no answer to stream here, the mention closes
-        the message instead, unless ``mention_sent`` says the answer already carried it.
-
-        ``append_attachments`` runs after the answer, so chart cards sit under the
-        text that describes them.
-
-        The provenance footer closes the message. It arrives as a `blocks` chunk
-        because a `context` block is the only way to get muted text."""
+        The answer starts with the @-mention, so the one notification lands with it. With no
+        answer to stream here, the mention closes the message instead, unless ``mention_sent``
+        says the answer already carried it. ``append_attachments`` runs after the answer, so
+        chart cards sit under the text that describes them. The provenance footer is a `blocks`
+        chunk because a `context` block is the only way to get muted text."""
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))
         if complete_task_id and complete_task_title:
-            answer_chunks.append(
-                _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
-            )
+            answer_chunks.append(_task_update_chunk(complete_task_id, complete_task_title, "complete", None))
         if final_markdown:
             for piece in _markdown_text_pieces(self._with_leading_mention(final_markdown)):
                 answer_chunks.append({"type": "markdown_text", "text": piece})
-        self._append_final_chunks(ts, answer_chunks)
+        self._append_chunks(ts, answer_chunks, "slack_app_status_stream_final_append_failed")
         if append_attachments is not None:
             try:
                 append_attachments()
@@ -520,7 +495,7 @@ class SlackThreadHandler:
         footer = self._footer_block()
         if footer:
             final_chunks.append({"type": "blocks", "blocks": [footer]})
-        self._append_final_chunks(ts, final_chunks)
+        self._append_chunks(ts, final_chunks, "slack_app_status_stream_final_append_failed")
         if footer:
             self._append_trailing_blocks(ts)
         try:
@@ -538,10 +513,9 @@ class SlackThreadHandler:
         return f"<@{recipient}> {markdown}"
 
     def attach_files(self, ts: str, file_ids: list[str]) -> bool:
-        """Attach uploaded files to a message whose stream has closed.
+        """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.
 
-        A streamed message cannot hold a file, and chat.update is the only way to add
-        one to a message that exists. The update keeps the message's blocks and text."""
+        A streaming message cannot hold a file, and chat.update is the only way to add one later."""
         try:
             self._get_client().chat_update(channel=self.context.channel, ts=ts, file_ids=file_ids)
         except Exception as e:
@@ -549,17 +523,15 @@ class SlackThreadHandler:
             return False
         return True
 
-    def _append_final_chunks(self, ts: str, chunks: list[dict[str, Any]]) -> None:
+    def _append_chunks(self, ts: str, chunks: list[dict[str, Any]], failure_event: str) -> bool:
         if not chunks:
-            return
+            return True
         try:
-            self._get_client().chat_appendStream(
-                channel=self.context.channel,
-                ts=ts,
-                chunks=chunks,
-            )
+            self._get_client().chat_appendStream(channel=self.context.channel, ts=ts, chunks=chunks)
         except Exception as e:
-            logger.warning("slack_app_status_stream_final_append_failed", error=str(e))
+            logger.warning(failure_event, error=str(e))
+            return False
+        return True
 
     def post_or_update_progress(self, stage: str, task_url: str | None = None) -> None:
         """Post a new progress message or update the existing one.

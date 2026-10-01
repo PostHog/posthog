@@ -52,7 +52,6 @@ class _SlackCalls:
         return [start, append, stop]
 
     def final_lines(self) -> dict[str, tuple[str, str | None, str]]:
-        """Each line as Slack shows it at the end: the last title and status, and every details text appended."""
         lines: dict[str, tuple[str, str]] = {}
         details: dict[str, str] = {}
         for chunk in self.sent_chunks():
@@ -62,8 +61,6 @@ class _SlackCalls:
         for stop in self.stops:
             if stop.complete_task_id and stop.complete_task_title:
                 lines[stop.complete_task_id] = (stop.complete_task_title, "complete")
-                if stop.complete_task_details:
-                    details[stop.complete_task_id] = details.get(stop.complete_task_id, "") + stop.complete_task_details
         return {line_id: (title, details.get(line_id), status) for line_id, (title, status) in lines.items()}
 
     def sent_chunks(self) -> list[TaskUpdateChunk]:
@@ -192,19 +189,24 @@ class TestSlackAgentDesignRelay:
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
 
     @pytest.mark.parametrize(
-        "work, last_line",
+        "work, last_line, plan_title",
         [
             (
-                [("agent_status_update", {"phase": "posthog:Execute SQL query"})],
-                ("Execute SQL query", None, "complete"),
+                [("agent_status_update", {"phase": "posthog:Execute SQL query", "activity": "Count weekly signups"})],
+                ("Execute SQL query", "Count weekly signups", "complete"),
+                "Count weekly signups",
             ),
-            ([("agent_text_delta", "Hi! What should I look at?")], ("Writing the answer", None, "complete")),
+            (
+                [("agent_text_delta", "Hi! What should I look at?")],
+                ("Writing the answer", None, "complete"),
+                "Thinking",
+            ),
         ],
         ids=["tool_call", "answer_without_tools"],
     )
     @pytest.mark.timeout(60, func_only=True)
     async def test_a_line_spins_between_setup_and_work(
-        self, work: list[tuple[str, Any]], last_line: tuple[str, None, str]
+        self, work: list[tuple[str, Any]], last_line: tuple[str, str | None, str], plan_title: str
     ) -> None:
         # With setup done and no call yet, nothing else shows that the agent is working. The
         # next line must take over the placeholder, or a finished "Thinking" line stays behind.
@@ -221,12 +223,28 @@ class TestSlackAgentDesignRelay:
         assert ("Thinking", "in_progress") in [(c.title, c.status) for c in calls.sent_chunks()]
         # A collapsed plan shows only its title, so the title must say what happens now.
         assert [s.plan_title for s in calls.starts] == ["Setting up sandbox"]
-        assert "Thinking" in [a.plan_title for a in calls.appends]
+        assert [a.plan_title for a in calls.appends if a.plan_title][-1] == plan_title
         assert list(calls.final_lines().values()) == [
             ("Sandbox ready", None, "complete"),
             ("Agent ready", None, "complete"),
             last_line,
         ]
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_quiet_relay_resends_its_open_line(self) -> None:
+        # Slack ends a stream that gets no update for a few minutes and fails its open step.
+        calls = await _run_relay([(WAIT, 130)], setup_title="Setting up sandbox")
+
+        resent = [c for a in calls.appends for c in a.task_updates if c.title == "Setting up sandbox"]
+        assert len(resent) >= 2
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_answer_without_steps_opens_the_stream_with_its_mention(self) -> None:
+        # The stop call must not mention the requester again, or they get a second ping.
+        calls = await _run_relay([("agent_text_delta", "Signups grew.")])
+
+        assert [s.first_markdown_text for s in calls.starts] == ["Signups grew."]
+        assert [s.mention_sent for s in calls.stops] == [True]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:

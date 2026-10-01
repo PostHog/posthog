@@ -834,15 +834,10 @@ def _is_active_agent_update(event_data: dict) -> bool:
 
 
 def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
-    """Build the Slack plan-block payload for an ACP tool call or an agent todo list.
+    """The Slack plan payload for an ACP tool call (``{"phase", "activity"}``) or todo list (``{"plan"}``).
 
-    A tool call becomes ``{"phase": key}``. The plan names the kind of work only, so the payload
-    carries no tool name and no arguments. The one exception is ``activity``: the description
-    the agent writes for people on a shell command or a PostHog call. A Claude shell or PostHog call arrives with an
-    empty rawInput first; the id is not marked seen until the command is known, so the next
-    update retries.
-
-    An agent todo list becomes ``{"plan": steps}``, and the relay shows it instead of the phases.
+    It carries no tool name or arguments, only the call's description written for people. An id is
+    marked seen only once its command is known, so a call that arrives without input retries.
     """
     if not _is_session_update(event_data):
         return None

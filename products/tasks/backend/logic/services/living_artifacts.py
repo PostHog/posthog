@@ -25,6 +25,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.event_usage import groups
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.channels import MAX_BUTTON_URL_CHARS, SlackButton, section_block
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 from posthog.storage import object_storage
@@ -845,7 +846,7 @@ class UploadedSlackFile:
 
     artifact: TaskArtifact
     version_number: int
-    file_id: str | None
+    file_id: str
     file_response: dict[str, Any] | None
 
 
@@ -1031,7 +1032,8 @@ def deliver_pending_slack_file_artifacts(
             except Exception:
                 logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
                 continue
-            result.unattached_files.append(UploadedSlackFile(artifact, version_number, file_id, file_response))
+            if file_id:
+                result.unattached_files.append(UploadedSlackFile(artifact, version_number, file_id, file_response))
             continue
         try:
             file_id, file_response = _upload_slack_file(
@@ -1649,7 +1651,11 @@ def stream_pending_slack_attachments(
     upload now and attach to the message after its stream closes (see
     ``attach_streamed_slack_files``), because a message cannot take a file while it streams.
     """
-    result = deliver_pending_slack_file_artifacts(run, append_blocks=append_blocks)
+    result = (
+        deliver_pending_slack_file_artifacts(run, append_blocks=append_blocks)
+        if has_pending_slack_file_artifacts(run)
+        else SlackFileDeliveryResult()
+    )
     _append_pending_canvas_notices(run, append_blocks)
     return result
 
@@ -1659,12 +1665,11 @@ def attach_streamed_slack_files(
 ) -> None:
     """Attach the files a streamed reply uploaded to that reply, once its stream has closed.
 
-    When Slack refuses the update, the files post as their own messages in the thread, so
-    the user still gets them."""
-    uploaded = [file for file in result.unattached_files if file.file_id]
+    When Slack refuses the update, the files post to the thread as their own messages instead."""
+    uploaded = result.unattached_files
     if not uploaded:
         return
-    if not attach_files([file.file_id for file in uploaded if file.file_id]):
+    if not attach_files([file.file_id for file in uploaded]):
         logger.warning("task_artifact.slack_file_attach_failed", task_run_id=str(run.id))
         deliver_pending_slack_file_artifacts(run)
         return
@@ -1682,13 +1687,16 @@ def attach_streamed_slack_files(
 def _append_pending_canvas_notices(run: TaskRun, append_blocks: Callable[[list[dict[str, Any]]], bool]) -> None:
     canvases = (
         TaskArtifact.objects.for_team(run.team_id)
-        .filter(task_id=run.task_id, adapter=TaskArtifact.Adapter.SLACK_CANVAS, status=TaskArtifact.Status.ACTIVE)
+        .filter(
+            task_id=run.task_id,
+            adapter=TaskArtifact.Adapter.SLACK_CANVAS,
+            status=TaskArtifact.Status.ACTIVE,
+            location__notice_status="pending",
+        )
         .order_by("created_at", "id")
     )
     for artifact in canvases:
         location = artifact.location or {}
-        if location.get("notice_status") != "pending":
-            continue
         if not append_blocks([_canvas_notice_block(artifact.name, location.get("url"))]):
             continue
         artifact.location = {**location, "notice_status": "posted"}
@@ -1696,17 +1704,12 @@ def _append_pending_canvas_notices(run: TaskRun, append_blocks: Callable[[list[d
 
 
 def _canvas_notice_block(name: str, canvas_url: str | None) -> dict[str, Any]:
-    block: dict[str, Any] = {
-        "type": "section",
-        "text": {"type": "mrkdwn", "text": f":spiral_note_pad: *{escape_slack_mrkdwn(name)}*"},
-    }
-    if canvas_url and len(canvas_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
-        block["accessory"] = {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Open canvas", "emoji": True},
-            "url": canvas_url,
-        }
-    return block
+    button = (
+        SlackButton(text="Open canvas", url=canvas_url)
+        if canvas_url and len(canvas_url) <= MAX_BUTTON_URL_CHARS
+        else None
+    )
+    return section_block(f":spiral_note_pad: *{escape_slack_mrkdwn(name)}*", button)
 
 
 def _post_canvas_created_message(

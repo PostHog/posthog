@@ -701,6 +701,37 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.location["delivery_status"], expected_status)
 
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts.get_delivery_image_url",
+        return_value="http://localhost:8010/exporter/export-chart.png?token=abc",
+    )
+    def test_streamed_reply_retries_charts_one_by_one_when_slack_rejects_the_batch(
+        self, _mock_delivery_url, mock_integration_for_mapping
+    ):
+        # One bad card must not cost the other charts their place in the reply.
+        charts = [
+            self._create_pending_slack_file_artifact(
+                name=f"Chart {index}",
+                filename=f"chart-{index}.v1.png",
+                content_type="image/png",
+                metadata={},
+                export_asset_id=320 + index,
+            )[0]
+            for index in range(2)
+        ]
+        mock_integration_for_mapping.return_value.client = unittest.mock.MagicMock()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+
+        def append_blocks(blocks: list[dict]) -> bool:
+            return sum(block["type"] == "image" for block in blocks) <= 1
+
+        stream_pending_slack_attachments(self.task_run, append_blocks=append_blocks)
+
+        for chart in charts:
+            chart.refresh_from_db()
+            self.assertEqual(chart.location["delivery_status"], "delivered")
+
     @parameterized.expand([("slack_attaches", True, [None]), ("slack_refuses", False, [None, "C123"])])
     @patch(
         "products.tasks.backend.logic.services.living_artifacts._upload_slack_file", return_value=("F1", {"id": "F1"})

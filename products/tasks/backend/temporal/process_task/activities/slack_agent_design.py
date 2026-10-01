@@ -48,7 +48,6 @@ class AppendSlackAgentDesignStepsInput:
     slack_thread_context: dict[str, Any]
     ts: str
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
-    markdown_text: Optional[str] = None
     plan_title: Optional[str] = None
 
 
@@ -58,7 +57,6 @@ class StopSlackAgentDesignStreamInput:
     ts: str
     complete_task_id: Optional[str] = None
     complete_task_title: Optional[str] = None
-    complete_task_details: Optional[str] = None
     # Streamed as markdown_text chunks below the plan block right before stopStream.
     final_markdown: Optional[str] = None
     # Sources the provenance footer and the run's pending attachments.
@@ -111,7 +109,7 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
 @activity.defn
 @close_db_connections
 def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> None:
-    """Append plan-block step transitions and/or a markdown_text chunk."""
+    """Append plan-block step transitions and a new plan title."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
@@ -120,7 +118,6 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
         handler.append_status_chunks(
             ts=input.ts,
             task_updates=_chunk_dicts(input.task_updates),
-            markdown_text=_rewrite_object_tags(input.markdown_text, handler.project_url),
             plan_title=input.plan_title,
         )
     except Exception as e:
@@ -130,8 +127,7 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @activity.defn
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
-    """Mark the last step complete, stream the final answer and the turn's attachments,
-    append the @-mention, close."""
+    """Mark the last step complete, stream the answer and the turn's attachments, close, attach files."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.logic.services.living_artifacts import (
         SlackFileDeliveryResult,
@@ -159,13 +155,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,
-            complete_task_details=input.complete_task_details,
             final_markdown=_rewrite_object_tags(input.final_markdown, handler.project_url),
             plan_title=input.plan_title,
             append_attachments=_append_attachments,
             mention_sent=input.mention_sent,
         )
-        # Files attach only once the stream has closed, because a streaming message cannot take one.
         for delivery in deliveries:
             if task_run is not None:
                 attach_streamed_slack_files(

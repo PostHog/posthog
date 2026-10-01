@@ -80,6 +80,22 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         assert _streamed_text(mock_client).count("<@U123>") == 1
 
+    @patch("products.slack_app.backend.slack_thread.slack_message_exists", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_start_status_stream_leads_an_answer_with_the_mention(self, mock_get_client, _mock_integration, _exists):
+        # An answer that opens the stream is the whole reply, so it carries the one ping.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+        )
+
+        SlackThreadHandler(context).start_status_stream(first_markdown_text="Signups grew.")
+
+        chunks = mock_client.chat_startStream.call_args.kwargs["chunks"]
+        assert [chunk.get("text") for chunk in chunks] == ["<@U123> Signups grew."]
+
     @parameterized.expand(
         [
             ("answer", "Signups grew.", False, ["plan_update", "<@U123> Signups grew.", "blocks"]),

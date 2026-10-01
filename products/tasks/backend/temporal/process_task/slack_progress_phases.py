@@ -1,17 +1,8 @@
 """Plain-language progress phases for the Slack agent-design plan block.
 
-The plan shows one line per kind of work, never tool names or tool arguments. A tool call
-maps to a phase here, and the relay counts calls per phase for the line's title.
-
-PostHog work gets one line per tool, titled as the MCP tool catalogue names it ("Execute SQL
-query", "Read data schema"), so a new PostHog tool gets a line without a change here. The
-catalogue categories are not used, because some of them ("Core", "Query wrappers") are
-internal names.
-
-When the agent keeps a todo list, the relay shows that list instead (see ``agent_plan_steps``).
-
-Under its title a line lists what each call was for: the description the agent gives a shell
-command or a PostHog call, else the last sentence the agent wrote before the call.
+A tool call maps to one line per kind of work, never to a tool name or its arguments. A PostHog
+tool gets the title the MCP tool catalogue gives it, because some catalogue categories ("Core",
+"Query wrappers") are internal names.
 """
 
 import re
@@ -20,31 +11,31 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions
+from posthog.slack.channels import clip_text
+
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX, parse_exec_command
 
 
 @frozen
 class ProgressPhase:
     key: str
     title: str
-    # Singular and plural noun for the call counter in the line title, or None for no count.
-    counter: tuple[str, str] | None
+    # The noun that counts calls in the line title, such as "queries". None shows no count.
+    counter: str | None
 
 
-_LOOKUPS = ("lookup", "lookups")
-
-_CALLS = ("call", "calls")
 # Keys of PostHog lines start with this. The rest of the key is the catalogue title of the tool.
 POSTHOG_PHASE_PREFIX = "posthog:"
 GETTING_CODE = ProgressPhase(key="getting_code", title="Getting the code", counter=None)
-READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter=_LOOKUPS)
-SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter=_LOOKUPS)
-MAKING_CHANGES = ProgressPhase(key="making_changes", title="Making changes", counter=("edit", "edits"))
-RUNNING_CHECKS = ProgressPhase(key="running_checks", title="Running checks", counter=("check", "checks"))
-RUNNING_COMMANDS = ProgressPhase(key="running_commands", title="Running commands", counter=("command", "commands"))
-PREPARING_FILES = ProgressPhase(key="preparing_files", title="Preparing attachments", counter=("file", "files"))
+READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter="lookups")
+SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter="lookups")
+MAKING_CHANGES = ProgressPhase(key="making_changes", title="Making changes", counter="edits")
+RUNNING_CHECKS = ProgressPhase(key="running_checks", title="Running checks", counter="checks")
+RUNNING_COMMANDS = ProgressPhase(key="running_commands", title="Running commands", counter="commands")
+PREPARING_FILES = ProgressPhase(key="preparing_files", title="Preparing attachments", counter="files")
 OPENING_PR = ProgressPhase(key="opening_pr", title="Opening a pull request", counter=None)
 # The relay folds phases past its line limit into this line, so the plan stays short.
-OTHER_WORK = ProgressPhase(key="other_work", title="Other work", counter=("step", "steps"))
+OTHER_WORK = ProgressPhase(key="other_work", title="Other work", counter="steps")
 
 PHASES: dict[str, ProgressPhase] = {
     phase.key: phase
@@ -61,6 +52,8 @@ PHASES: dict[str, ProgressPhase] = {
     )
 }
 
+# Statuses of agent todo items and of the parent's progress steps, as the statuses Slack draws.
+SLACK_STEP_STATUSES = {"pending": "pending", "in_progress": "in_progress", "completed": "complete", "failed": "error"}
 PLAN_TITLE_WORKING = "Working on it"
 # Placeholder lines that keep a spinner in the plan while no step is open.
 PREPARING_LINE_TITLE = "Getting ready"
@@ -99,10 +92,8 @@ _READ_TOOL_NAMES = frozenset({"read", "grep", "glob", "ls", "notebookread", "vie
 _WEB_TOOL_NAMES = frozenset({"websearch", "webfetch", "web_search", "web_fetch"})
 _SHELL_TOOL_NAMES = frozenset({"bash", "exec_command", "exec", "shell", "terminal"})
 
-# The PostHog MCP server exposes its tools through one `exec` tool: `call <tool> <json>` runs a
-# tool, and the other verbs only look up what the server offers.
+# The PostHog MCP server runs its tools through one `exec` tool.
 _POSTHOG_EXEC_TOOL = "exec"
-_POSTHOG_LOOKUP_VERBS = frozenset({"search", "info", "schema", "tools", "learn"})
 _PR_COMMAND = re.compile(r"\b(gh\s+pr\s+(create|edit|ready)|git\s+(commit|push))\b")
 _CHECK_COMMAND = re.compile(
     r"\b(pytest|jest|vitest|playwright|hogli\s+(test|lint|ci)|ruff|mypy|tsc|eslint|oxlint|prettier|"
@@ -117,7 +108,6 @@ _READ_COMMAND = re.compile(
 _WRITE_REDIRECT = re.compile(r"(?<![0-9&>])>>?(?![&>])")
 _ACTIVITY_LIMIT = 80
 _MAX_AGENT_PLAN_STEPS = 10
-_PLAN_STATUSES = {"pending": "pending", "in_progress": "in_progress", "completed": "complete"}
 _MIN_INTENT_LENGTH = 8
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
@@ -151,15 +141,13 @@ def _short_activity(description: Any) -> str | None:
     if not isinstance(description, str):
         return None
     text = " ".join(description.split()).rstrip(".")
-    if not text:
-        return None
-    return text if len(text) <= _ACTIVITY_LIMIT else text[: _ACTIVITY_LIMIT - 1] + "…"
+    return clip_text(text, _ACTIVITY_LIMIT) if text else None
 
 
 def posthog_phase(tool_title: str) -> ProgressPhase:
     """The line for a PostHog tool, titled as the MCP tool catalogue names it."""
-    title = " ".join(tool_title.split())[:_ACTIVITY_LIMIT]
-    return ProgressPhase(key=f"{POSTHOG_PHASE_PREFIX}{title}", title=title, counter=_CALLS)
+    title = clip_text(" ".join(tool_title.split()), _ACTIVITY_LIMIT)
+    return ProgressPhase(key=f"{POSTHOG_PHASE_PREFIX}{title}", title=title, counter="calls")
 
 
 def _phase_for_command(command: str) -> ProgressPhase:
@@ -170,18 +158,6 @@ def _phase_for_command(command: str) -> ProgressPhase:
     if _READ_COMMAND.match(command) and not _WRITE_REDIRECT.search(command):
         return READING_CODE
     return RUNNING_COMMANDS
-
-
-def _posthog_tool_name(tool_name: str, command: str | None) -> str | None:
-    """The PostHog tool a call runs, or None when it only looks up what the server offers."""
-    if tool_name != _POSTHOG_EXEC_TOOL:
-        return tool_name
-    words = [word for word in (command or "").split() if not word.startswith("--")]
-    if not words or words[0].lower() in _POSTHOG_LOOKUP_VERBS:
-        return None
-    if words[0].lower() == "call":
-        return words[1].lower() if len(words) > 1 else ""
-    return ""
 
 
 def _phase_for_posthog_tool(tool_name: str) -> ProgressPhase:
@@ -230,13 +206,12 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
 def phase_line_title(phase: ProgressPhase, count: int) -> str:
     """The plan line for a phase, such as "Execute SQL query (3 calls)". A single call shows no count.
 
-    The count goes in the title because Slack replaces a step's title on each task_update but
-    appends its details to the text it already shows.
+    The count goes in the title because Slack replaces a step's title on each update, but
+    appends its details.
     """
     if phase.counter is None or count <= 1:
         return phase.title
-    singular, plural = phase.counter
-    return f"{phase.title} ({count} {singular if count == 1 else plural})"
+    return f"{phase.title} ({count} {phase.counter})"
 
 
 def done_plan_title(elapsed: timedelta) -> str:
@@ -270,9 +245,17 @@ def intent_from_narrative(text: str) -> str | None:
 
 
 def _posthog_tool(name: str, command: str | None) -> str | None:
+    """The PostHog tool a call runs, or None when it only looks up what the server offers."""
     for prefix in _POSTHOG_MCP_PREFIXES:
-        if name.startswith(prefix):
-            return _posthog_tool_name(name.removeprefix(prefix), command) or None
+        if not name.startswith(prefix):
+            continue
+        tool = name.removeprefix(prefix)
+        if tool != _POSTHOG_EXEC_TOOL:
+            return tool
+        parsed = parse_exec_command(command or "")
+        if parsed is None or parsed[0].startswith(INFO_SYNTHETIC_PREFIX):
+            return None
+        return parsed[0].lower()
     return None
 
 
@@ -290,7 +273,7 @@ def agent_plan_steps(update: dict[str, Any]) -> list[dict[str, str]] | None:
         entry = _dict_or_empty(entry)
         title = _short_activity(entry.get("content"))
         if title:
-            steps.append({"title": title, "status": _PLAN_STATUSES.get(str(entry.get("status")), "pending")})
+            steps.append({"title": title, "status": SLACK_STEP_STATUSES.get(str(entry.get("status")), "pending")})
     return steps[:_MAX_AGENT_PLAN_STEPS]
 
 

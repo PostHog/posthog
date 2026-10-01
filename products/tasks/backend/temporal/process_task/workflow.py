@@ -403,13 +403,10 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
-# Gates the relay child that starts before provisioning so the plan shows during setup.
-# Only runs that resolved the agent-design flag on reach it, so other histories never
-# record the marker.
+# Gates the relay child that starts before provisioning, so the plan shows during setup.
 _PATCH_ID_SLACK_AGENT_DESIGN_EARLY_PLAN = "tasks-slack-agent-design-early-plan-2026-09"
 
-# Gates the signals that show each sandbox setup step in the early Slack plan. Only runs
-# with the early relay open reach it.
+# Gates the signals that show each sandbox setup step in the early Slack plan.
 _PATCH_ID_SLACK_AGENT_DESIGN_SETUP_STEPS = "tasks-slack-agent-design-setup-steps-2026-09"
 
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.

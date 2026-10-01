@@ -2254,6 +2254,21 @@ class TestProcessTaskWorkflowUnit:
         # The plan shows while the sandbox provisions, so the relay starts before the first turn.
         start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
 
+    @pytest.mark.parametrize("early_relay_open, starts_relay", [(True, False), (False, True)])
+    async def test_turn_started_reuses_the_relay_started_during_provisioning(self, early_relay_open, starts_relay):
+        # A second relay for the first turn would post a second reply in the thread.
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        workflow._is_agent_design_enabled = True
+        workflow._early_slack_relay_open = early_relay_open
+        start_relay_mock = AsyncMock()
+        workflow._start_slack_agent_design_relay = start_relay_mock  # type: ignore[method-assign]
+
+        await workflow.turn_started({"slack_thread_context": {"channel": "C1"}})
+
+        assert start_relay_mock.called is starts_relay
+        assert workflow._early_slack_relay_open is False
+
     @pytest.mark.parametrize(
         "relay_open, step, forwarded",
         [
