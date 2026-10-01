@@ -55,7 +55,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_flag_call_source_event,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan_primary
+from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan_primary, team_experiments_configs
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     filter_metric_group_ids_by_event,
@@ -1214,15 +1214,12 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
         .order_by(F("start_date").desc(nulls_last=True), "-created_at", "-id")[:limit]
     )
 
+    # A draft has no current result: rows from before a reset carry the earlier start date in their key.
+    launched = [experiment for experiment in rows if experiment.start_date is not None]
     # A calculation key resolves the team's experiment defaults, so read them once per team, not once per experiment.
-    team_configs: dict[int, TeamExperimentsConfig] = {}
+    team_configs = team_experiments_configs({experiment.team_id for experiment in launched})
     outcome_metrics: dict[int, OutcomeMetric] = {}
-    for experiment in rows:
-        # A draft has no current result: rows from before a reset carry the earlier start date in their key.
-        if experiment.start_date is None:
-            continue
-        if experiment.team_id not in team_configs:
-            team_configs[experiment.team_id] = get_or_create_team_extension(experiment.team, TeamExperimentsConfig)
+    for experiment in launched:
         metric = _outcome_metric(experiment, team_configs[experiment.team_id])
         if metric is not None:
             outcome_metrics[experiment.id] = metric
