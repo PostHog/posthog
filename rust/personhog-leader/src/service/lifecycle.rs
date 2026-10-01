@@ -2,6 +2,7 @@
 //! seals its state, and a release closes the fence with the op's outcome.
 //! The single-call and batch handlers share the per-person helpers here.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use futures::StreamExt;
@@ -16,7 +17,9 @@ use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
-use crate::fence::{fenced_status, mark_status, mark_statuses, semantic_refusal, FenceState};
+use crate::fence::{
+    fenced_status, mark_status, semantic_refusal, FenceState, MarkSnapshot, MarkVerifier,
+};
 use crate::pg::PgFallback;
 
 use super::{cached_person_to_proto, partition_from_metadata, PersonHogLeaderService};
@@ -108,27 +111,44 @@ fn record_release_phase(phase: &'static str, started: Instant) {
         .record(started.elapsed().as_secs_f64() * 1000.0);
 }
 
+fn no_lifecycle_db() -> Status {
+    semantic_refusal(
+        "no lifecycle database configured; refusing to produce a death document",
+        "no-lifecycle-db",
+    )
+}
+
 impl PersonHogLeaderService {
     #[allow(clippy::result_large_err)]
     fn lifecycle_db(&self) -> Result<&PgFallback, Status> {
-        self.fallback.as_ref().ok_or_else(|| {
-            semantic_refusal(
-                "no lifecycle database configured; refusing to produce a death document",
-                "no-lifecycle-db",
-            )
-        })
+        self.fallback.as_ref().ok_or_else(no_lifecycle_db)
     }
 
-    /// The committed half of a release for one person, given its mark
-    /// row's status. Shared by `ReleaseFence` and `ReleaseFences` so what
-    /// destroys a person is decided in one place.
+    #[allow(clippy::result_large_err)]
+    fn mark_verifier(&self) -> Result<&MarkVerifier, Status> {
+        self.mark_verifier.as_ref().ok_or_else(no_lifecycle_db)
+    }
+
+    /// The op's marks, read once per op per pod.
+    async fn mark_snapshot(&self, op_id: Uuid) -> Result<Arc<MarkSnapshot>, Status> {
+        let verifier = self.mark_verifier()?;
+        let started = Instant::now();
+        let snapshot = verifier.snapshot(op_id).await.map_err(mark_lookup_failed);
+        record_release_phase("snapshot", started);
+        snapshot
+    }
+
+    /// The committed half of a release for one person, verified against
+    /// the op's snapshot or its own mark row. Shared by `ReleaseFence` and
+    /// `ReleaseFences` so what destroys a person is decided in one place.
     async fn release_committed(
         &self,
         partition: u32,
         team_id: i64,
         op_id: Uuid,
         release: &CommittedRelease,
-        mark: Option<&str>,
+        snapshot: &MarkSnapshot,
+        lifecycle_db: &PgFallback,
     ) -> Result<(), Status> {
         let cache_key = PersonCacheKey {
             team_id,
@@ -145,10 +165,9 @@ impl PersonHogLeaderService {
         record_release_phase("lock_wait", lock_started);
 
         // Releasing another op's fence would break that op's seal.
-        if let Some(entry) = self.fences.get(&cache_key) {
-            if entry.op_id != op_id {
-                return Err(fenced_status(entry.value()));
-            }
+        let fence = self.fences.get(&cache_key).map(|entry| *entry.value());
+        if let Some(fence) = fence.filter(|fence| fence.op_id != op_id) {
+            return Err(fenced_status(&fence));
         }
 
         // Release must stay idempotent for the saga's retry and the
@@ -184,10 +203,19 @@ impl PersonHogLeaderService {
             }
         }
 
-        // The mark row must vouch for the op before anything is destroyed:
-        // the in-memory fence was installed on the request's word alone, so
-        // request plus fence is never enough. Unverifiable is refused.
-        match mark {
+        // The op's mark must vouch before anything is destroyed; the fence
+        // stands on the request's word alone, and unverifiable is refused.
+        let mark = if fence.is_some_and(|fence| snapshot.vouches_for(&fence)) {
+            snapshot
+                .status(team_id, release.person_id)
+                .map(str::to_owned)
+        } else {
+            let read_started = Instant::now();
+            let mark = mark_status(lifecycle_db, op_id, team_id, release.person_id).await;
+            record_release_phase("verify_mark", read_started);
+            mark.map_err(mark_lookup_failed)?
+        };
+        match mark.as_deref() {
             // A live mark: the op holds the person; proceed.
             Some("marked") | Some("sealed") => {}
             // The mark already settled as deleted: this release
@@ -325,7 +353,18 @@ impl PersonHogLeaderService {
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
 
-        self.fences.insert(cache_key, FenceState { op_id, op_type });
+        // A same-op re-fence leaves the fence alone: a fresh seal time would
+        // turn a takeover fence into one the op's snapshot may vouch for.
+        if !refence {
+            self.fences.insert(
+                cache_key,
+                FenceState {
+                    op_id,
+                    op_type,
+                    sealed_at: Some(Instant::now()),
+                },
+            );
+        }
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
         Ok(sealed)
     }
@@ -498,12 +537,16 @@ impl PersonHogLeaderService {
                     )));
                 };
                 let lifecycle_db = self.lifecycle_db()?;
-                let verify_started = Instant::now();
-                let mark = mark_status(lifecycle_db, op_id, req.team_id, req.person_id).await;
-                record_release_phase("verify_mark", verify_started);
-                let mark = mark.map_err(mark_lookup_failed)?;
-                self.release_committed(partition, req.team_id, op_id, &release, mark.as_deref())
-                    .await?;
+                let snapshot = self.mark_snapshot(op_id).await?;
+                self.release_committed(
+                    partition,
+                    req.team_id,
+                    op_id,
+                    &release,
+                    &snapshot,
+                    lifecycle_db,
+                )
+                .await?;
             }
             ReleaseOutcome::Aborted => {
                 self.release_aborted(partition, req.team_id, req.person_id, op_id)
@@ -568,19 +611,21 @@ impl PersonHogLeaderService {
                     )));
                 };
                 let lifecycle_db = self.lifecycle_db()?;
-                let person_ids: Vec<i64> = releases.iter().map(|r| r.person_id).collect();
-                let verify_started = Instant::now();
-                let marks = mark_statuses(lifecycle_db, op_id, team_id, &person_ids).await;
-                record_release_phase("verify_mark", verify_started);
-                let marks = marks.map_err(mark_lookup_failed)?;
+                let snapshot = self.mark_snapshot(op_id).await?;
                 // The releases run together so their death documents share
                 // fencing windows, and every one runs to completion: a
                 // sibling's failure cancels no produce in flight.
                 let release_futures: Vec<_> = releases
                     .iter()
                     .map(|release| {
-                        let mark = marks.get(&release.person_id).map(String::as_str);
-                        self.release_committed(partition, team_id, op_id, release, mark)
+                        self.release_committed(
+                            partition,
+                            team_id,
+                            op_id,
+                            release,
+                            &snapshot,
+                            lifecycle_db,
+                        )
                     })
                     .collect();
                 let results: Vec<_> = futures::stream::iter(release_futures)

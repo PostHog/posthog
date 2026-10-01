@@ -156,7 +156,7 @@ class ProjectAdmin(admin.ModelAdmin):
         from posthog.helpers.impersonation import is_impersonated
         from posthog.models.activity_logging.activity_log import Detail, log_activity
         from posthog.models.utils import UUIDT
-        from posthog.temporal.delete_teams.dispatch import PROJECT_DELETION_DELAY, start_delete_project_data_workflow
+        from posthog.temporal.delete_teams.dispatch import project_deletion_delay, start_delete_project_data_workflow
 
         change_url = reverse("admin:posthog_project_change", args=[project_id])
 
@@ -188,7 +188,8 @@ class ProjectAdmin(admin.ModelAdmin):
             messages.error(request, f"Project {project.name} ({project.pk}) is already pending deletion.")
             return redirect(change_url)
 
-        deletion_scheduled_at = timezone.now() + PROJECT_DELETION_DELAY
+        deletion_delay = project_deletion_delay(project)
+        deletion_scheduled_at = timezone.now() + (deletion_delay or timedelta())
         claimed_project = Project.objects.filter(pk=project.pk, is_pending_deletion=False).update(
             is_pending_deletion=True,
             deletion_scheduled_at=deletion_scheduled_at,
@@ -203,7 +204,9 @@ class ProjectAdmin(admin.ModelAdmin):
                 project_id=project.pk,
                 user_id=user.id,
                 project_name=project.name,
-                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+                start_delay=(
+                    max(deletion_scheduled_at - timezone.now(), timedelta()) if deletion_delay is not None else None
+                ),
             )
         except WorkflowAlreadyStartedError:
             messages.error(

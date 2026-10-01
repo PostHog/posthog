@@ -36,6 +36,7 @@ import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/ses
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
+import { playlistFiltersLogic } from './playlist/playlistFiltersLogic'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
@@ -243,13 +244,17 @@ const ReplayPageTabs: ReplayTab[] = [
 
 export function SessionRecordingsPageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { templatesInFiltersPanel } = useValues(playlistFiltersLogic)
+    const visibleTabs = templatesInFiltersPanel
+        ? ReplayPageTabs.filter((replayTab) => replayTab.key !== ReplayTabs.Templates)
+        : ReplayPageTabs
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset
             className="-mt-4"
-            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
+            tabs={visibleTabs.map((replayTab): LemonTab<string> => {
                 return {
                     label: (
                         <>

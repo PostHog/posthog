@@ -23,6 +23,7 @@ FLAG_KEY = "query-scan-warnings"
 DEFAULT_FLOOR_MS = 1000
 DEFAULT_EVENT_RATIO = 0.10
 DEFAULT_PERSONS_RATIO = 0.5
+DEFAULT_START_DATE_RATIO = 0.01
 
 
 class QueryScanMode(StrEnum):
@@ -49,11 +50,14 @@ class QueryScanFlag:
     event_ratio: float
     # A persons join is reported only when the persons read is at least this fraction of the events read.
     persons_ratio: float
+    # No start date is reported unless the unbounded read is at least this share of the project's
+    # events over all time. "All time" chosen in a picker is reported at any size.
+    start_date_ratio: float = DEFAULT_START_DATE_RATIO
 
     @property
     def thresholds_fingerprint(self) -> str:
         """Names the gates an analysis ran under, so one stored under other gates is not served."""
-        return f"{self.event_ratio!r}:{self.persons_ratio!r}"
+        return f"{self.event_ratio!r}:{self.persons_ratio!r}:{self.start_date_ratio!r}"
 
 
 class InvalidPayload(ValueError):
@@ -115,6 +119,7 @@ def _parse(mode: QueryScanMode, payload: object) -> QueryScanFlag:
         floor_ms=int(_number(values, "floor_ms", DEFAULT_FLOOR_MS)),
         event_ratio=_number(values, "event_ratio", DEFAULT_EVENT_RATIO),
         persons_ratio=_number(values, "persons_ratio", DEFAULT_PERSONS_RATIO),
+        start_date_ratio=_number(values, "start_date_ratio", DEFAULT_START_DATE_RATIO),
     )
 
 

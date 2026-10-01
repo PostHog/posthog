@@ -20,9 +20,10 @@ import {
     getDefaultModelForRuntimeAdapter,
     getEffortLabel,
     getEffortsForModel,
+    getHarnessLabel,
+    getModelCost,
     getModelLabel,
     getRuntimeAdapterForModel,
-    getRuntimeAdapterLabel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
@@ -32,6 +33,10 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { useThreadSkin } from '../../hooks/useThreadSkin'
+import { ModelCostChip } from '../ModelCostChip'
+import { ModelCostFooter } from '../ModelCostFooter'
+import type { ThreadSkin } from '../quill/quillThreadContext'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -71,10 +76,17 @@ interface PickerSectionProps {
     value: string
     onValueChange: (value: string) => void
     children: React.ReactNode
+    /** Rendered under the radio list, for a legend the options need to be read against. */
+    footer?: React.ReactNode
 }
 
 /** One `label … current ›` row of the cascade, opening a radio list. */
-function PickerSection({ title, current, value, onValueChange, children }: PickerSectionProps): JSX.Element {
+const PICKER_CHROME: Record<ThreadSkin, { triggerVariant: 'outline' | 'default'; icons: boolean }> = {
+    lemon: { triggerVariant: 'outline', icons: true },
+    quill: { triggerVariant: 'default', icons: false },
+}
+
+function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
     return (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger>
@@ -85,6 +97,7 @@ function PickerSection({ title, current, value, onValueChange, children }: Picke
                 <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
                     {children}
                 </DropdownMenuRadioGroup>
+                {footer}
             </DropdownMenuSubContent>
         </DropdownMenuSub>
     )
@@ -113,6 +126,7 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
 }: ComposerModelEffortPickersProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
     // Frozen when the Advanced view is entered rather than derived from the ladder: a model pick that steps off a
@@ -122,17 +136,21 @@ export function ComposerModelEffortPickers({
 
     // The catalogue only changes when the gateway list reloads, so derive the whole tree in one pass — this
     // component re-renders on every keystroke in the composer above it.
-    const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder } = useMemo(() => {
-        const adapter = getRuntimeAdapterForModel(models, selectedModel)
-        return {
-            selectedAdapter: adapter,
-            modelLabel: getModelLabel(models, selectedModel),
-            effortOptions: getEffortsForModel(models, selectedModel),
-            adapters: listRuntimeAdapters(models),
-            adapterModels: modelsForRuntimeAdapter(models, adapter),
-            ladder: getCapabilityLadder(models, adapter),
-        }
-    }, [models, selectedModel])
+    const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder, showsAnyCost } =
+        useMemo(() => {
+            const adapter = getRuntimeAdapterForModel(models, selectedModel)
+            const offered = modelsForRuntimeAdapter(models, adapter)
+            return {
+                selectedAdapter: adapter,
+                modelLabel: getModelLabel(models, selectedModel),
+                effortOptions: getEffortsForModel(models, selectedModel),
+                adapters: listRuntimeAdapters(models),
+                adapterModels: offered,
+                ladder: getCapabilityLadder(models, adapter),
+                // The legend explains a symbol, so it only belongs where a row carries one.
+                showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
+            }
+        }, [models, selectedModel])
 
     const selectAdapter = (adapter: string): void => {
         const runtimeAdapter = adapter as RuntimeAdapterEnumApi
@@ -202,12 +220,12 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant="outline" size="sm">
+                    <Button variant={chrome.triggerVariant} size="sm">
                         {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
-                        <IconChevronDown />
+                        {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
             />
@@ -227,7 +245,7 @@ export function ComposerModelEffortPickers({
                         {adapters.length > 1 && (
                             <PickerSection
                                 title="Harness"
-                                current={getRuntimeAdapterLabel(selectedAdapter)}
+                                current={getHarnessLabel(selectedAdapter)}
                                 value={selectedAdapter}
                                 onValueChange={selectAdapter}
                             >
@@ -240,7 +258,7 @@ export function ComposerModelEffortPickers({
                                             (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
                                         }
                                     >
-                                        {getRuntimeAdapterLabel(adapter)}
+                                        {getHarnessLabel(adapter)}
                                     </DropdownMenuRadioItem>
                                 ))}
                             </PickerSection>
@@ -254,10 +272,14 @@ export function ComposerModelEffortPickers({
                                 onModelChange(value)
                                 setOpen(false)
                             }}
+                            footer={showsAnyCost ? <ModelCostFooter /> : undefined}
                         >
                             {adapterModels.map((option) => (
                                 <DropdownMenuRadioItem key={option.model} value={option.model}>
-                                    {option.display_name}
+                                    <span className="flex w-full items-center justify-between gap-2">
+                                        {option.display_name}
+                                        <ModelCostChip model={option.model} />
+                                    </span>
                                 </DropdownMenuRadioItem>
                             ))}
                         </PickerSection>
@@ -307,7 +329,7 @@ export function ComposerModelEffortPickers({
                             )
                         }
                     >
-                        <IconRevert />
+                        {chrome.icons && <IconRevert />}
                         Reset to default
                     </DropdownMenuItem>
                 )}
@@ -316,7 +338,7 @@ export function ComposerModelEffortPickers({
                     you disagree with is the moment you want to change it. */}
                 {onOpenDefaultSettings && (
                     <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
-                        <IconGear />
+                        {chrome.icons && <IconGear />}
                         Change default
                     </DropdownMenuItem>
                 )}

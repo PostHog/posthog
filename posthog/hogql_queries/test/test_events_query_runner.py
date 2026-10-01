@@ -12,6 +12,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -26,8 +28,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import CompareOperationOp
 
+from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.person.util import get_person_by_distinct_id
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -111,9 +115,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             results = response.results
             return results
 
+    @events_only_in_active_schema()
     def test_is_not_set_boolean(self):
         # see https://github.com/PostHog/posthog/issues/18030
         self._create_boolean_field_test_events()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(
+                sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                [(0,)],
+            )
         results = self._run_boolean_field_query(
             EventPropertyFilter(
                 type="event",
@@ -125,8 +135,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual({"p_notset", "p_null"}, {row[0]["distinct_id"] for row in results})
 
+    @events_only_in_active_schema()
     def test_is_set_boolean(self):
         self._create_boolean_field_test_events()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(
+                sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                [(0,)],
+            )
 
         results = self._run_boolean_field_query(
             EventPropertyFilter(
@@ -163,7 +179,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # String session id is checked for a recording (none exists, so False); non-string ones are skipped.
         assert by_distinct_id["good"]["$has_recording"] is False
         for distinct_id in ("dict", "list", "int"):
-            assert "$has_recording" not in by_distinct_id[distinct_id]
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                assert isinstance(by_distinct_id[distinct_id]["$session_id"], str)
+                assert by_distinct_id[distinct_id]["$has_recording"] is False
+            else:
+                assert "$has_recording" not in by_distinct_id[distinct_id]
 
     def test_person_id_expands_to_distinct_ids(self):
         _create_person(

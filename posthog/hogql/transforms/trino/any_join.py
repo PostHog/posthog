@@ -10,9 +10,10 @@ _SUPPORTED_ANY_JOIN_TYPES = {
 
 
 class TrinoAnyJoinLowerer(CloningVisitor):
-    def __init__(self) -> None:
+    def __init__(self, *, physical_names: bool = True) -> None:
         super().__init__(clear_types=False)
         self.join_index = 0
+        self.physical_names = physical_names
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         first = node.select_from
@@ -179,8 +180,8 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             column_names = list(lowered.table.type.columns)
         elif isinstance(table_type, ast.LazyTableType):
             column_names = [
-                field.name
-                for field in table_type.table.fields.values()
+                field.name if self.physical_names else name
+                for name, field in table_type.table.fields.items()
                 if isinstance(field, DatabaseField)
                 and not (table_type.table.name == "persons" and field.name == "last_seen_at")
             ]
@@ -192,7 +193,9 @@ class TrinoAnyJoinLowerer(CloningVisitor):
             )
         else:
             column_names = [
-                field.name for field in table_type.table.fields.values() if isinstance(field, DatabaseField)
+                field.name if self.physical_names else name
+                for name, field in table_type.table.fields.items()
+                if isinstance(field, DatabaseField)
             ]
         if not column_names:
             raise TrinoLoweringError("TRINO_ANY_JOIN_EMPTY_TABLE_UNSUPPORTED", f"{join_type} without columns", lowered)
@@ -347,5 +350,5 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         return None
 
 
-def lower_trino_any_joins(node: ast.AST) -> ast.AST:
-    return TrinoAnyJoinLowerer().visit(node)
+def lower_trino_any_joins(node: ast.AST, *, physical_names: bool = True) -> ast.AST:
+    return TrinoAnyJoinLowerer(physical_names=physical_names).visit(node)

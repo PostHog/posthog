@@ -496,6 +496,25 @@ class TestValidateCredentials:
         assert "216.239.36.223" not in (message or "")
         assert "StatusCode" not in (message or "")
 
+    def test_insufficient_scope_tells_the_user_to_reconnect(self):
+        # Google raises this when the stored OAuth token was granted without the adwords scope.
+        # A user cannot act on "the required scopes" because they never choose scopes, so the
+        # wizard has to ask for the same reconnect the sync path asks for.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT: Request had insufficient authentication scopes"
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "Reconnect your Google Ads account" in (message or "")
+        assert "scopes" not in (message or "")
+
     def test_transient_google_side_error_returns_retry_message(self):
         # A transient INTERNAL/UNAVAILABLE blip from Google stringifies as a raw gRPC status plus a
         # protobuf failure dump. Surface a clean retry prompt instead of leaking that to the wizard.
@@ -964,6 +983,10 @@ class TestTransientGrpcErrorDetection:
             # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
             # transient backend incident, not a rejected credential — ride it out in-process.
             (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # A bare UNKNOWN status carrying "Stream removed" is a peer-initiated HTTP/2 stream reset
+            # (e.g. a load balancer recycling the connection), not an application failure — ride it
+            # out in-process the same way.
+            (google_api_exceptions.Unknown("Stream removed"), True),
             # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
             # broad a signal, so only the specific known message is treated as transient.
             (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),

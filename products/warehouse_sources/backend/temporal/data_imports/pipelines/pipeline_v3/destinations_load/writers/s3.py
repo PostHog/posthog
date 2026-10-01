@@ -4,6 +4,13 @@ Each batch is written to a key derived from the run and the batch index, so re-a
 overwrites its own object rather than appending a second copy. Nothing here needs a staging
 area or a swap.
 
+That is also why this writer carries no publish stamp, unlike the SQL destinations. Publishing
+is one more object under the same run prefix, the manifest, and re-writing it says the same
+thing it said the first time. A redelivered final batch therefore rewrites its own object and
+its own manifest, and no object any earlier batch wrote is touched. A destination that
+publishes by swapping a staging table over the live one has no such property, which is what
+the stamp exists to cover there.
+
 Credentials, the client and its config come from batch exports' S3 destination:
 
 - `_get_s3_integration` resolves all three shapes an S3-family integration can take. A

@@ -1,0 +1,758 @@
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { combineUrl, router } from 'kea-router'
+import type { LocationChangedPayload } from 'kea-router/lib/types'
+
+import { toast } from '@posthog/quill'
+
+import { writeToClipboard } from 'lib/utils/writeToClipboard'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { ConversationDetail, UserType } from '~/types'
+
+import {
+    taskActivityList,
+    taskActivityMarkReadCreate,
+    taskChannelsList,
+    taskChannelsStarCreate,
+    tasksList,
+    tasksSummariesCreate,
+} from 'products/tasks/frontend/generated/api'
+import {
+    ChannelDTOApi,
+    PrStateEnumApi,
+    TaskActivityDTOApi,
+    TaskActivityReadMarkerApi,
+    TaskListItemApi,
+} from 'products/tasks/frontend/generated/api.schemas'
+import {
+    SpaceActivity,
+    SpacePresence,
+    lastActivityBySpace,
+    presenceBySpace,
+} from 'products/tasks/frontend/spaces/spacePresence'
+import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
+
+import { TodaySpacePreview, spacePreview } from './todayPreviewCards'
+import {
+    DEFAULT_RECENT_FILTERS,
+    TodayRecentFilters,
+    filterRecentItems,
+    hasActiveRecentFilters,
+    recentSourceOptions,
+    withRecentFilterDefaults,
+} from './todayRecentFilters'
+import {
+    DEFAULT_RECENT_GROUPING,
+    DEFAULT_RECENT_SORT,
+    TodayRecentGrouping,
+    TodayRecentSection,
+    TodayRecentSort,
+    groupRecentItems,
+    sortRecentItems,
+} from './todayRecentOrder'
+import {
+    TodayWorkItem,
+    buildRecentItems,
+    sessionItem,
+    sessionReadRequest,
+    setActivityUnread,
+    unreadSessionIds,
+    unreadSpaceIds,
+} from './todayWorkItems'
+
+const PINNED_SESSION_LIMIT = 20
+const RECENT_SESSION_LIMIT = 30
+const RECENT_ITEM_LIMIT = 30
+// One page of the requester's newest activity. Unread state older than this does not show on the rail.
+const UNREAD_ACTIVITY_LIMIT = 200
+// The sidebar and a space scene both refresh on mount, so collapse their requests into one.
+const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
+// Like PostHog Desktop: one page of the team's newest activity across all spaces, polled slowly.
+// A space whose latest activity sits below this page shows no faces.
+const SPACE_PRESENCE_FETCH_LIMIT = 100
+const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
+
+export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
+
+/** The space page reads this search param once and focuses its new-session composer. */
+export const SPACE_COMPOSE_PARAM = 'compose'
+
+export function spaceNewSessionUrl(spaceId: string): string {
+    return combineUrl(urls.taskSpace(spaceId), { [SPACE_COMPOSE_PARAM]: 1 }).url
+}
+
+/** The personal space first, then the team's general space, then starred spaces, then the rest by name. */
+export function sortSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
+    const rank = (space: ChannelDTOApi): number =>
+        space.system_role === 'personal' ? 0 : space.system_role === 'general' ? 1 : space.starred ? 2 : 3
+    return [...spaces].sort((first, second) => rank(first) - rank(second) || first.name.localeCompare(second.name))
+}
+
+export function spaceLabel(space: Pick<ChannelDTOApi, 'name' | 'system_role'>): string {
+    return space.system_role === 'personal' ? 'personal' : space.name
+}
+
+/** Only some people can see it: the personal space, or a private shared space. */
+export function isLockedSpace(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): boolean {
+    return space.system_role === 'personal' || space.channel_type === 'personal' || space.channel_type === 'private'
+}
+
+export function starredSpaces(spaces: ChannelDTOApi[]): ChannelDTOApi[] {
+    return [
+        ...spaces.filter((space) => space.system_role === 'personal'),
+        ...spaces
+            .filter((space) => space.system_role !== 'personal' && space.starred)
+            .sort((first, second) => first.name.localeCompare(second.name)),
+    ]
+}
+
+/** The spaces a session can be filed to: its current space first, then starred spaces, then the rest by name. */
+export function fileToSpaces(spaces: ChannelDTOApi[], currentSpaceId: string | null, search = ''): ChannelDTOApi[] {
+    const query = search.trim().toLowerCase()
+    const starred = starredSpaces(spaces)
+    const ordered = [
+        ...spaces.filter((space) => space.id === currentSpaceId),
+        ...starred.filter((space) => space.id !== currentSpaceId),
+        ...spaces
+            .filter((space) => space.id !== currentSpaceId && !starred.includes(space))
+            .sort((first, second) => first.name.localeCompare(second.name)),
+    ]
+    return query ? ordered.filter((space) => spaceLabel(space).toLowerCase().includes(query)) : ordered
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface todaySpacesLogicValues {
+    conversationHistory: ConversationDetail[] // maxGlobalLogic
+    conversationHistoryLoading: boolean // maxGlobalLogic
+    currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
+    allRecentItems: TodayWorkItem[]
+    collapsedSections: TodayWorkSectionId[]
+    pendingSpaceIds: string[]
+    pinnedItems: TodayWorkItem[]
+    pinnedTasks: TaskListItemApi[]
+    pinnedTasksLoading: boolean
+    pullRequestStates: Record<string, PrStateEnumApi>
+    recentFilters: TodayRecentFilters
+    recentFiltersActive: boolean
+    recentGrouping: TodayRecentGrouping
+    recentGroups: TodayRecentSection[]
+    recentItems: TodayWorkItem[]
+    recentLoading: boolean
+    recentQuery: string
+    recentSearchOpen: boolean
+    recentSearchVisible: boolean
+    recentSort: TodayRecentSort
+    recentSourceOptions: string[]
+    recentTasks: TaskListItemApi[]
+    recentTasksLoading: boolean
+    recentTasksUnavailable: boolean
+    sectionHeights: Partial<Record<TodayWorkSectionId, number>>
+    sortedSpaces: ChannelDTOApi[]
+    spaceActivity: SpaceActivity
+    spaceActivityLoading: boolean
+    spaceNames: Record<string, string>
+    spacePresence: Record<string, SpacePresence>
+    spacePreviews: Record<string, TodaySpacePreview>
+    spaces: ChannelDTOApi[]
+    spacesLoading: boolean
+    spacesUnavailable: boolean
+    storedRecentFilters: Partial<TodayRecentFilters>
+    taskActivity: TaskActivityDTOApi[]
+    taskActivityLoading: boolean
+    unreadSessionIds: Set<string>
+    unreadSpaceIds: Set<string>
+    visibleSpaces: ChannelDTOApi[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface todaySpacesLogicActions {
+    locationChanged: ({
+        method,
+        pathname,
+        search,
+        searchParams,
+        hash,
+        hashParams,
+        initial,
+        url,
+        routerState,
+    }: LocationChangedPayload) => {
+        hash: string
+        hashParams: Record<string, any>
+        initial: boolean
+        method: 'POP' | 'PUSH' | 'REPLACE'
+        pathname: string
+        routerState: Record<string, any>
+        search: string
+        searchParams: Record<string, any>
+        url: string
+    } // router
+    clearRecentFilters: () => {
+        value: true
+    }
+    clearRecentSearchAndFilters: () => {
+        value: true
+    }
+    copySpaceLink: (spaceId: string) => {
+        spaceId: string
+    }
+    loadPinnedTasks: () => any
+    loadPinnedTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPinnedTasksSuccess: (
+        pinnedTasks: TaskListItemApi[],
+        payload?: any
+    ) => {
+        pinnedTasks: TaskListItemApi[]
+        payload?: any
+    }
+    loadPullRequestStates: (sessionIds: string[]) => {
+        sessionIds: string[]
+    }
+    loadRecentTasks: () => any
+    loadRecentTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecentTasksSuccess: (
+        recentTasks: TaskListItemApi[],
+        payload?: any
+    ) => {
+        recentTasks: TaskListItemApi[]
+        payload?: any
+    }
+    loadSpaceActivity: () => any
+    loadSpaceActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpaceActivitySuccess: (
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        },
+        payload?: any
+    ) => {
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        }
+        payload?: any
+    }
+    loadSpaces: () => any
+    loadSpacesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSpacesSuccess: (
+        spaces: ChannelDTOApi[],
+        payload?: any
+    ) => {
+        spaces: ChannelDTOApi[]
+        payload?: any
+    }
+    loadTaskActivity: (_: void) => void
+    loadTaskActivityFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTaskActivitySuccess: (
+        taskActivity: TaskActivityDTOApi[],
+        payload?: void
+    ) => {
+        taskActivity: TaskActivityDTOApi[]
+        payload?: void
+    }
+    markSessionRead: (
+        marker: TaskActivityReadMarkerApi,
+        activityIds: string[]
+    ) => {
+        activityIds: string[]
+        marker: TaskActivityReadMarkerApi
+    }
+    markSessionReadFailed: (activityIds: string[]) => {
+        activityIds: string[]
+    }
+    resetSectionPair: (
+        upper: TodayWorkSectionId,
+        lower: TodayWorkSectionId
+    ) => {
+        lower: TodayWorkSectionId
+        upper: TodayWorkSectionId
+    }
+    setPullRequestStates: (states: Record<string, PrStateEnumApi>) => {
+        states: Record<string, PrStateEnumApi>
+    }
+    setRecentFilters: (filters: TodayRecentFilters) => {
+        filters: TodayRecentFilters
+    }
+    setRecentGrouping: (grouping: TodayRecentGrouping) => {
+        grouping: TodayRecentGrouping
+    }
+    setRecentQuery: (query: string) => {
+        query: string
+    }
+    setRecentSearchOpen: (open: boolean) => {
+        open: boolean
+    }
+    setRecentSort: (sort: TodayRecentSort) => {
+        sort: TodayRecentSort
+    }
+    setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
+        heights: Partial<Record<TodayWorkSectionId, number>>
+    }
+    starFailed: (spaceId: string) => {
+        spaceId: string
+    }
+    toggleSection: (sectionId: TodayWorkSectionId) => {
+        sectionId: TodayWorkSectionId
+    }
+    toggleStar: (
+        spaceId: string,
+        starred: boolean
+    ) => {
+        spaceId: string
+        starred: boolean
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface todaySpacesLogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        sortedSpaces: (spaces: ChannelDTOApi[]) => ChannelDTOApi[]
+        visibleSpaces: (sortedSpaces: ChannelDTOApi[]) => ChannelDTOApi[]
+        pinnedItems: (pinnedTasks: TaskListItemApi[]) => TodayWorkItem[]
+        allRecentItems: (
+            recentTasks: TaskListItemApi[],
+            conversationHistory: ConversationDetail[],
+            pinnedTasks: TaskListItemApi[]
+        ) => TodayWorkItem[]
+        recentFilters: (storedRecentFilters: Partial<TodayRecentFilters>) => TodayRecentFilters
+        recentSourceOptions: (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters) => string[]
+        recentSearchVisible: (recentSearchOpen: boolean, recentQuery: string) => boolean
+        recentFiltersActive: (recentFilters: TodayRecentFilters) => boolean
+        unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        recentItems: (
+            allRecentItems: TodayWorkItem[],
+            recentQuery: string,
+            recentFilters: TodayRecentFilters,
+            recentSort: TodayRecentSort,
+            user: UserType | null,
+            unreadSessionIds: Set<string>,
+            pinnedItems: TodayWorkItem[]
+        ) => TodayWorkItem[]
+        spaceNames: (spaces: ChannelDTOApi[]) => Record<string, string>
+        recentGroups: (
+            recentItems: TodayWorkItem[],
+            recentSort: TodayRecentSort,
+            recentGrouping: TodayRecentGrouping,
+            spaceNames: Record<string, string>
+        ) => TodayRecentSection[]
+        recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
+        unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
+        spacePreviews: (
+            visibleSpaces: ChannelDTOApi[],
+            spaceActivity: SpaceActivity
+        ) => Record<string, TodaySpacePreview>
+    }
+}
+
+export type todaySpacesLogicType = MakeLogicType<
+    todaySpacesLogicValues,
+    todaySpacesLogicActions,
+    Record<string, any>,
+    todaySpacesLogicMeta
+>
+
+export const todaySpacesLogic = kea<todaySpacesLogicType>([
+    path(['layout', 'today', 'todaySpacesLogic']),
+    connect(() => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            userLogic,
+            ['user'],
+            maxGlobalLogic,
+            ['conversationHistory', 'conversationHistoryLoading'],
+        ],
+        actions: [router, ['locationChanged']],
+    })),
+    actions({
+        toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
+        setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
+        resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
+        setRecentQuery: (query: string) => ({ query }),
+        setRecentSearchOpen: (open: boolean) => ({ open }),
+        setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
+        clearRecentFilters: true,
+        clearRecentSearchAndFilters: true,
+        setRecentSort: (sort: TodayRecentSort) => ({ sort }),
+        setRecentGrouping: (grouping: TodayRecentGrouping) => ({ grouping }),
+        toggleStar: (spaceId: string, starred: boolean) => ({ spaceId, starred }),
+        starFailed: (spaceId: string) => ({ spaceId }),
+        copySpaceLink: (spaceId: string) => ({ spaceId }),
+        markSessionRead: (marker: TaskActivityReadMarkerApi, activityIds: string[]) => ({ marker, activityIds }),
+        markSessionReadFailed: (activityIds: string[]) => ({ activityIds }),
+        loadPullRequestStates: (sessionIds: string[]) => ({ sessionIds }),
+        setPullRequestStates: (states: Record<string, PrStateEnumApi>) => ({ states }),
+    }),
+    loaders(({ values }) => ({
+        spaces: [
+            [] as ChannelDTOApi[],
+            {
+                loadSpaces: async () => {
+                    if (!values.currentTeamId) {
+                        return []
+                    }
+                    const response = await taskChannelsList(String(values.currentTeamId))
+                    // Without `limit` the endpoint answers with a bare array rather than a page.
+                    return Array.isArray(response) ? (response as ChannelDTOApi[]) : response.results
+                },
+            },
+        ],
+        pinnedTasks: [
+            [] as TaskListItemApi[],
+            {
+                loadPinnedTasks: async () => {
+                    if (!values.currentTeamId) {
+                        return []
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        pinned: true,
+                        basic: true,
+                        limit: PINNED_SESSION_LIMIT,
+                    })
+                    return response.results
+                },
+            },
+        ],
+        recentTasks: [
+            [] as TaskListItemApi[],
+            {
+                loadRecentTasks: async () => {
+                    if (!values.currentTeamId || !values.user) {
+                        return []
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        created_by: values.user.id,
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: RECENT_SESSION_LIMIT,
+                    })
+                    return response.results
+                },
+            },
+        ],
+        spaceActivity: [
+            { presence: {}, lastActivityAt: {} } as SpaceActivity,
+            {
+                loadSpaceActivity: async () => {
+                    if (!values.currentTeamId) {
+                        return { presence: {}, lastActivityAt: {} }
+                    }
+                    const response = await tasksList(String(values.currentTeamId), {
+                        ordering: '-last_activity_at',
+                        basic: true,
+                        limit: SPACE_PRESENCE_FETCH_LIMIT,
+                    })
+                    return {
+                        presence: presenceBySpace(response.results, Date.now()),
+                        lastActivityAt: lastActivityBySpace(response.results),
+                    }
+                },
+            },
+        ],
+        taskActivity: [
+            [] as TaskActivityDTOApi[],
+            {
+                loadTaskActivity: async (_: void, breakpoint) => {
+                    await breakpoint(UNREAD_ACTIVITY_DEBOUNCE_MS)
+                    if (!values.currentTeamId) {
+                        return []
+                    }
+                    const response = await taskActivityList(String(values.currentTeamId), {
+                        limit: UNREAD_ACTIVITY_LIMIT,
+                    })
+                    return response.results
+                },
+            },
+        ],
+    })),
+    reducers({
+        pullRequestStates: [
+            {} as Record<string, PrStateEnumApi>,
+            { setPullRequestStates: (state, { states }) => ({ ...state, ...states }) },
+        ],
+        collapsedSections: [
+            [] as TodayWorkSectionId[],
+            { persist: true },
+            {
+                toggleSection: (state, { sectionId }) =>
+                    state.includes(sectionId) ? state.filter((id) => id !== sectionId) : [...state, sectionId],
+            },
+        ],
+        sectionHeights: [
+            {} as Partial<Record<TodayWorkSectionId, number>>,
+            { persist: true },
+            {
+                setSectionHeights: (_, { heights }) => heights,
+                resetSectionPair: (state, { upper, lower }) => {
+                    const { [upper]: _upper, [lower]: _lower, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
+        recentSearchOpen: [
+            false,
+            { setRecentSearchOpen: (_, { open }) => open, clearRecentSearchAndFilters: () => false },
+        ],
+        storedRecentFilters: [
+            DEFAULT_RECENT_FILTERS as Partial<TodayRecentFilters>,
+            // pinned: localStorage key. A new key resets every person's saved Recent filters.
+            { persist: true, storageKey: 'layout.today.todaySpacesLogic.recentFilters' },
+            {
+                setRecentFilters: (_, { filters }) => filters,
+                clearRecentFilters: () => DEFAULT_RECENT_FILTERS,
+                clearRecentSearchAndFilters: () => DEFAULT_RECENT_FILTERS,
+            },
+        ],
+        recentSort: [
+            DEFAULT_RECENT_SORT as TodayRecentSort,
+            { persist: true },
+            { setRecentSort: (_, { sort }) => sort },
+        ],
+        recentGrouping: [
+            DEFAULT_RECENT_GROUPING as TodayRecentGrouping,
+            { persist: true },
+            { setRecentGrouping: (_, { grouping }) => grouping },
+        ],
+        pendingSpaceIds: [
+            [] as string[],
+            {
+                toggleStar: (state, { spaceId }) => [...state, spaceId],
+                starFailed: (state, { spaceId }) => state.filter((id) => id !== spaceId),
+                loadSpacesSuccess: () => [],
+                loadSpacesFailure: () => [],
+            },
+        ],
+        spacesUnavailable: [false, { loadSpaces: () => false, loadSpacesFailure: () => true }],
+        recentTasksUnavailable: [false, { loadRecentTasks: () => false, loadRecentTasksFailure: () => true }],
+        taskActivity: {
+            markSessionRead: (state, { activityIds }) => setActivityUnread(state, activityIds, false),
+            markSessionReadFailed: (state, { activityIds }) => setActivityUnread(state, activityIds, true),
+        },
+    }),
+    selectors({
+        sortedSpaces: [(s) => [s.spaces], (spaces: ChannelDTOApi[]): ChannelDTOApi[] => sortSpaces(spaces)],
+        visibleSpaces: [
+            (s) => [s.sortedSpaces],
+            (sortedSpaces: ChannelDTOApi[]): ChannelDTOApi[] => starredSpaces(sortedSpaces),
+        ],
+        pinnedItems: [
+            (s) => [s.pinnedTasks],
+            (pinnedTasks: TaskListItemApi[]): TodayWorkItem[] =>
+                pinnedTasks.filter((task) => !task.archived).map(sessionItem),
+        ],
+        allRecentItems: [
+            (s) => [s.recentTasks, s.conversationHistory, s.pinnedTasks],
+            (
+                recentTasks: TaskListItemApi[],
+                conversationHistory: ConversationDetail[],
+                pinnedTasks: TaskListItemApi[]
+            ): TodayWorkItem[] =>
+                buildRecentItems(
+                    recentTasks,
+                    conversationHistory,
+                    pinnedTasks.map((task) => task.id),
+                    RECENT_ITEM_LIMIT
+                ),
+        ],
+        recentFilters: [
+            (s) => [s.storedRecentFilters],
+            (storedRecentFilters: Partial<TodayRecentFilters>): TodayRecentFilters =>
+                withRecentFilterDefaults(storedRecentFilters),
+        ],
+        recentSourceOptions: [
+            (s) => [s.allRecentItems, s.recentFilters],
+            (allRecentItems: TodayWorkItem[], recentFilters: TodayRecentFilters): string[] =>
+                recentSourceOptions(allRecentItems, recentFilters.sources),
+        ],
+        recentSearchVisible: [
+            (s) => [s.recentSearchOpen, s.recentQuery],
+            (recentSearchOpen: boolean, recentQuery: string): boolean => recentSearchOpen || recentQuery !== '',
+        ],
+        recentFiltersActive: [
+            (s) => [s.recentFilters],
+            (recentFilters: TodayRecentFilters): boolean => hasActiveRecentFilters(recentFilters),
+        ],
+        unreadSessionIds: [
+            (s) => [s.taskActivity],
+            (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSessionIds(taskActivity),
+        ],
+        recentItems: [
+            (s) => [
+                s.allRecentItems,
+                s.recentQuery,
+                s.recentFilters,
+                s.recentSort,
+                s.user,
+                s.unreadSessionIds,
+                s.pinnedItems,
+            ],
+            (
+                allRecentItems: TodayWorkItem[],
+                recentQuery: string,
+                recentFilters: TodayRecentFilters,
+                recentSort: TodayRecentSort,
+                user: UserType | null,
+                unreadSessionIds: Set<string>,
+                pinnedItems: TodayWorkItem[]
+            ): TodayWorkItem[] =>
+                sortRecentItems(
+                    filterRecentItems(allRecentItems, recentQuery, recentFilters, {
+                        userId: user?.id ?? null,
+                        unreadIds: unreadSessionIds,
+                        pinnedIds: new Set(pinnedItems.map((item) => item.id)),
+                    }),
+                    recentSort
+                ),
+        ],
+        spaceNames: [
+            (s) => [s.spaces],
+            (spaces: ChannelDTOApi[]): Record<string, string> =>
+                Object.fromEntries(spaces.map((space) => [space.id, spaceLabel(space)])),
+        ],
+        recentGroups: [
+            (s) => [s.recentItems, s.recentSort, s.recentGrouping, s.spaceNames],
+            (
+                recentItems: TodayWorkItem[],
+                recentSort: TodayRecentSort,
+                recentGrouping: TodayRecentGrouping,
+                spaceNames: Record<string, string>
+            ): TodayRecentSection[] => groupRecentItems(recentItems, recentSort, recentGrouping, spaceNames),
+        ],
+        recentLoading: [
+            (s) => [s.recentTasksLoading, s.conversationHistoryLoading],
+            (recentTasksLoading: boolean, conversationHistoryLoading: boolean): boolean =>
+                recentTasksLoading || conversationHistoryLoading,
+        ],
+        unreadSpaceIds: [
+            (s) => [s.taskActivity],
+            (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
+        ],
+        spacePresence: [
+            (s) => [s.spaceActivity],
+            (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
+        ],
+        // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
+        spacePreviews: [
+            (s) => [s.visibleSpaces, s.spaceActivity],
+            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+                Object.fromEntries(
+                    visibleSpaces.map((space) => [
+                        space.id,
+                        spacePreview(
+                            space,
+                            spaceLabel(space),
+                            spaceActivity.presence[space.id],
+                            spaceActivity.lastActivityAt[space.id]
+                        ),
+                    ])
+                ),
+        ],
+    }),
+    listeners(({ actions, values }) => {
+        // Reading a session anywhere in the app clears it, so the rail follows the open session rather than clicks.
+        const markOpenSessionRead = (): void => {
+            const { location, searchParams } = router.values
+            const sessionId = location.pathname.endsWith('/ai') ? searchParams.task : null
+            const request = typeof sessionId === 'string' ? sessionReadRequest(values.taskActivity, sessionId) : null
+            if (request) {
+                actions.markSessionRead(request.marker, request.activityIds)
+            }
+        }
+        return {
+            locationChanged: markOpenSessionRead,
+            loadTaskActivitySuccess: markOpenSessionRead,
+            loadRecentTasks: () => actions.loadTaskActivity(),
+            markSessionRead: async ({ marker, activityIds }) => {
+                try {
+                    await taskActivityMarkReadCreate(String(values.currentTeamId), { activities: [marker] })
+                } catch {
+                    actions.markSessionReadFailed(activityIds)
+                    toast.error({ title: 'Couldn’t mark this session as read.' })
+                }
+            },
+        }
+    }),
+    listeners(({ actions, values }) => ({
+        loadPinnedTasksSuccess: ({ pinnedTasks }) =>
+            actions.loadPullRequestStates(sessionIdsWithPullRequests(pinnedTasks)),
+        loadRecentTasksSuccess: ({ recentTasks }) =>
+            actions.loadPullRequestStates(sessionIdsWithPullRequests(recentTasks)),
+        // One batched lookup per list.
+        loadPullRequestStates: async ({ sessionIds }) => {
+            if (!sessionIds.length || !values.currentTeamId) {
+                return
+            }
+            try {
+                const response = await tasksSummariesCreate(String(values.currentTeamId), { ids: sessionIds })
+                actions.setPullRequestStates(pullRequestStates(response.results))
+            } catch {
+                // A failed lookup only leaves the chips neutral, so it stays quiet.
+            }
+        },
+        toggleStar: async ({ spaceId, starred }) => {
+            try {
+                await taskChannelsStarCreate(String(values.currentTeamId), spaceId, { starred })
+                actions.loadSpaces()
+            } catch {
+                toast.error({ title: `Couldn’t ${starred ? 'star' : 'unstar'} this space. Try again.` })
+                actions.starFailed(spaceId)
+            }
+        },
+        copySpaceLink: async ({ spaceId }) => {
+            const outcome = await writeToClipboard(urls.absolute(urls.currentProject(urls.taskSpace(spaceId))))
+            if (outcome === 'copied') {
+                toast.success({ title: 'Link copied' })
+            } else {
+                toast.error({ title: 'Couldn’t copy the link. Copy it from the address bar instead.' })
+            }
+        },
+    })),
+    afterMount(({ actions, cache }) => {
+        actions.loadSpaces()
+        actions.loadPinnedTasks()
+        actions.loadRecentTasks()
+        // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
+        cache.disposables.add(() => {
+            actions.loadSpaceActivity()
+            const pollTimer = window.setInterval(() => actions.loadSpaceActivity(), SPACE_PRESENCE_POLL_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'spacePresencePoll')
+    }),
+])

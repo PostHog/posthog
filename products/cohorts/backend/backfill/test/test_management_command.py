@@ -19,6 +19,11 @@ from products.cohorts.backend.models.backfill import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 
+# The catalog drops a leaf with no bytecode or a `conditionHash` that is not 16 characters, and
+# `_calculate_realtime_support` grants `cohort_type=REALTIME` only when every leaf compiled to
+# bytecode. A fixture missing either is a cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
 
 @override_settings(
     REALTIME_COHORT_TEAM_ALLOWLIST="all",
@@ -42,9 +47,10 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
                             "key": event,
                             "event_type": "events",
                             "value": "performed_event",
-                            "conditionHash": f"hash-{event}",
+                            "conditionHash": f"hash-{event}"[:16].ljust(16, "0"),
                             "time_value": 7,
                             "time_interval": "day",
+                            "bytecode": _BYTECODE,
                         }
                     ],
                 }
@@ -59,6 +65,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
                 "value": ["person@example.com"],
                 "operator": "exact",
                 "conditionHash": "person0000000001",
+                "bytecode": _BYTECODE,
             }
         ]
         if person_metadata:
@@ -220,6 +227,63 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
 
         self.assertIn("Dry run", stdout.getvalue())
         self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).count(), 0)
+
+    def test_behavioral_dry_run_names_every_refusal(self) -> None:
+        eligible = self._cohort("$pageview")
+        static = self._cohort("signup-static")
+        Cohort.objects.filter(id=static.id).update(is_static=True)
+        refused = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "signup",
+                            "event_type": "events",
+                            "value": "performed_event",
+                            "conditionHash": "hash-signup00000",
+                            "bytecode": _BYTECODE,
+                        }
+                    ],
+                }
+            },
+        )
+        stdout = StringIO()
+
+        call_command(
+            "create_cohort_backfill_run",
+            team_id=self.team.id,
+            trigger="team_enablement",
+            dry_run=True,
+            stdout=stdout,
+        )
+
+        self.assertIn(
+            f"{refused.id} (has a filter the realtime catalog drops (unsupported_state_variant))",
+            stdout.getvalue(),
+        )
+        self.assertIn(f"{static.id} (static)", stdout.getvalue())
+        self.assertIn("Dry run: 1 cohorts", stdout.getvalue())
+        self.assertNotIn(f"{eligible.id} (", stdout.getvalue())
+
+    def test_behavioral_dry_run_refuses_a_team_with_nothing_runnable(self) -> None:
+        # The real command raises on the same team, so a dry run that exits 0 would tell
+        # exit-code-gated automation the run is possible.
+        static = self._cohort("signup")
+        static.is_static = True
+        static.save(update_fields=["is_static"])
+
+        with self.assertRaisesMessage(CommandError, "no eligible realtime behavioral cohorts"):
+            call_command(
+                "create_cohort_backfill_run",
+                team_id=self.team.id,
+                trigger="team_enablement",
+                dry_run=True,
+                stdout=StringIO(),
+            )
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
     def test_non_allowlisted_team_errors(self) -> None:

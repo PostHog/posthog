@@ -8193,3 +8193,37 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["count"] == expected_count
+
+
+class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
+    """Runs without override_settings(IN_UNIT_TESTING=True) so the queries go through the executor."""
+
+    def _run(self, series: list[EventsNode], breakdown: Optional[BreakdownFilter] = None):
+        return TrendsQueryRunner(
+            team=self.team,
+            query=TrendsQuery(
+                dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+                interval=IntervalType.DAY,
+                series=series,
+                breakdownFilter=breakdown,
+            ),
+        ).calculate()
+
+    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self):
+        _create_person(distinct_ids=["p1"], team=self.team)
+        for event in ("a", "b", "c"):
+            _create_event(team=self.team, event=event, distinct_id="p1", timestamp="2020-01-11T12:00:00Z")
+        flush_persons_and_events()
+
+        response = self._run([EventsNode(event=event) for event in ("a", "b", "c")])
+
+        self.assertEqual([result["label"] for result in response.results], ["a", "b", "c"])
+        self.assertEqual([sum(result["data"]) for result in response.results], [1, 1, 1])
+
+    def test_empty_cohort_breakdown_returns_no_results_instead_of_raising(self):
+        response = self._run(
+            [EventsNode(event="$pageview")],
+            breakdown=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[]),
+        )
+
+        self.assertEqual(response.results, [])

@@ -1,20 +1,13 @@
 import { useValues } from 'kea'
 
-import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-export interface NavLinkSideAction {
-    onClick: (e: React.MouseEvent) => void
-    tooltip: string
-    'data-attr'?: string
-}
 
 interface NavLinkProps {
     to: string
@@ -23,7 +16,7 @@ interface NavLinkProps {
     isCollapsed: boolean
     'data-attr'?: string
     onClick?: (e: React.MouseEvent) => void
-    sideAction?: NavLinkSideAction
+    sideAction?: React.ReactNode
     tag?: 'alpha' | 'beta' | 'new'
 }
 
@@ -89,32 +82,9 @@ export function NavLink({
                         {label}
                     </span>
                 )}
-                {!isCollapsed && tag && (
-                    <LemonTag
-                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                        size="small"
-                        className="relative top-[-1px]"
-                    >
-                        {tag.toUpperCase()}
-                    </LemonTag>
-                )}
+                {!isCollapsed && tag && <ProductTag tag={tag} className="relative top-[-1px]" />}
             </Link>
-            {hasSideActionRight && sideAction && (
-                <ButtonPrimitive
-                    className="-outline-offset-2"
-                    iconOnly
-                    isSideActionRight
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        sideAction.onClick(e)
-                    }}
-                    tooltip={sideAction.tooltip}
-                    tooltipPlacement="right"
-                    data-attr={sideAction['data-attr']}
-                >
-                    <IconGear className="size-3 text-tertiary opacity-70 group-hover/nav-link:text-primary group-hover/nav-link:opacity-100" />
-                </ButtonPrimitive>
-            )}
+            {hasSideActionRight && sideAction}
         </ButtonGroupPrimitive>
     )
 }

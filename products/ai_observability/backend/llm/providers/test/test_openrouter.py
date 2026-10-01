@@ -1,11 +1,23 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
+
 import httpx
 from parameterized import parameterized
 
+from products.ai_observability.backend.llm.errors import (
+    ModelNotFoundError,
+    StructuredOutputParseError,
+    UnsupportedModelError,
+)
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, OpenRouterAdapter
+from products.ai_observability.backend.llm.providers.openrouter import (
+    NON_CHAT_MODELS_CACHE_KEY,
+    OPENROUTER_HEADERS,
+    OpenRouterAdapter,
+    _non_chat_model_ids,
+)
 
 
 class TestOpenRouterValidateKey:
@@ -120,3 +132,74 @@ class TestOpenRouterHeaders:
 
         mock_constructor.assert_called_once()
         assert mock_constructor.call_args.kwargs["default_headers"] == OPENROUTER_HEADERS
+
+
+class TestOpenRouterNonChatModels:
+    @parameterized.expand(
+        [
+            (
+                "not_found_on_decision_model",
+                ModelNotFoundError("typesafe/jev-1.13"),
+                "typesafe/jev-1.13",
+                UnsupportedModelError,
+            ),
+            (
+                "parse_error_on_decision_model",
+                StructuredOutputParseError("bad"),
+                "typesafe/jev-1.13",
+                UnsupportedModelError,
+            ),
+            ("error_on_chat_model", ModelNotFoundError("openai/gpt-4o"), "openai/gpt-4o", ModelNotFoundError),
+        ]
+    )
+    def test_complete_maps_failures_of_non_chat_models(
+        self, _name: str, outcome: Exception, model: str, expected: type[Exception]
+    ) -> None:
+        request = MagicMock(model=model)
+        with (
+            patch.object(OpenAIAdapter, "complete", side_effect=outcome),
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids",
+                return_value=frozenset({"typesafe/jev-1.13"}),
+            ),
+            pytest.raises(expected),
+        ):
+            OpenRouterAdapter().complete(request, "sk-or-test-key", MagicMock())
+
+    def test_successful_complete_skips_the_catalogue(self) -> None:
+        with (
+            patch.object(OpenAIAdapter, "complete", return_value=MagicMock(parsed=MagicMock())),
+            patch("products.ai_observability.backend.llm.providers.openrouter._non_chat_model_ids") as mock_ids,
+        ):
+            OpenRouterAdapter().complete(MagicMock(model="openai/gpt-4o"), "sk-or-test-key", MagicMock())
+        mock_ids.assert_not_called()
+
+    def test_catalogue_keeps_only_models_without_text_output(self) -> None:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "openai/gpt-4o", "architecture": {"output_modalities": ["text"]}},
+                {"id": "google/image-model", "architecture": {"output_modalities": ["image", "text"]}},
+                {"id": "typesafe/jev-1.13", "architecture": {"output_modalities": ["decisions"]}},
+                {"id": "no-architecture/model"},
+            ]
+        }
+        with (
+            patch("products.ai_observability.backend.llm.providers.openrouter.cache.get", return_value=None),
+            patch("products.ai_observability.backend.llm.providers.openrouter.cache.set"),
+            patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get", return_value=mock_response),
+        ):
+            assert _non_chat_model_ids() == frozenset({"typesafe/jev-1.13"})
+
+    def test_catalogue_failure_is_cached_briefly(self) -> None:
+        cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+        try:
+            with patch(
+                "products.ai_observability.backend.llm.providers.openrouter.httpx.get",
+                side_effect=httpx.ConnectError("down"),
+            ) as mock_get:
+                assert _non_chat_model_ids() is None
+                assert _non_chat_model_ids() is None
+            assert mock_get.call_count == 1
+        finally:
+            cache.delete(NON_CHAT_MODELS_CACHE_KEY)

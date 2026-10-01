@@ -495,12 +495,12 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
 
         assert {r["distinct_id"] for r in rows} == {"user-1", "user-3"}
         sql, values = self._sent(mock_run)
-        assert "f.distinct_id IN (SELECT DISTINCT person_id FROM events WHERE" in sql
-        assert "person.properties[{pop_k_0}] = {pop_0}" in sql
+        assert "f.distinct_id IN (SELECT person_id FROM (SELECT id AS person_id" in sql
+        assert "argMax(ifNull((properties[{pop_k_0}] = {pop_0}), 0), version) = 1" in sql
         assert values["pop_0"] == "pro"
         assert sql.rstrip().endswith(f"LIMIT {_MATERIALIZE_ROW_LIMIT}")
         count_query = mock_run.call_args_list[1].kwargs["query"]
-        assert count_query.query.startswith("SELECT count() FROM (SELECT DISTINCT person_id FROM events WHERE")
+        assert count_query.query.startswith("SELECT count() FROM (SELECT person_id FROM (SELECT id AS person_id")
         assert count_query.values["pop_0"] == "pro"
         assert all(call.kwargs["user"] == self.user for call in mock_run.call_args_list)
 
@@ -514,7 +514,7 @@ class TestStubFeatureRows(TeamScopedTestMixin, BaseTest):
         _fetch_stub_feature_rows(team=self.team, pipeline=pipeline, recipe=_STUB_RECIPE, user=self.user)
 
         sql, values = self._sent(mock_run)
-        assert "person.is_identified" in sql
+        assert "argMax(is_identified, version) = 1" in sql
         assert f"event != '{PREDICTION_EVENT_NAME}'" in sql
         assert "timestamp < now()" in sql
         assert values["lookback"] == 30
@@ -765,6 +765,7 @@ class TestRecipeFit(SimpleTestCase):
         [
             ("seeded_from_the_pipeline", {}, 1234),
             ("recipe_seed_wins", {"random_state": 7}, 7),
+            ("null_seed_falls_back_to_the_pipeline", {"random_state": None}, 1234),
         ]
     )
     def test_stochastic_estimator_gets_a_stable_seed(self, _name, params, expected):

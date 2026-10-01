@@ -224,7 +224,7 @@ The watched surface is not analytics data at all — it's whatever that upstream
   - **Threaded / conversational sources — the thread is the unit, not the row.** For a Slack or Discord channel, a support thread, or any forum-shaped source, a single row is a tiny fragment ("they", "i made them") meaningless alone.
     Aggregate to the thread root (e.g. `coalesce(thread_ts, ts)` for Slack), **read the whole thread before judging it**, and dedupe on the thread root id, not the message row.
     A nice touch: reconstruct a permalink back to the source thread from its id so the finding links straight to it.
-  - **The table may not be in the project profile.** It's a warehouse table, not an event, so `project-profile-get` won't list it.
+  - **The table may not be in the project profile.** It's a warehouse table, not an event, so `scout-project-profile-get` won't list it.
     Rely on SQL; handle the "table missing entirely" case with a `not-in-use:<domain>:team{team_id}` close-out.
   - **Evidence citation:** cite the source record's id as the evidence `source_id` so a human can pivot to the original record.
 - **Worked example shape** — a scout over a Slack channel that's synced to the warehouse: the upstream tool posts pre-classified items into the channel, the channel syncs to a warehouse table every few hours, and the scout (running hourly) sweeps new rows past its cursor, anchors on the pre-classified discriminator, dedupes by the source post id, and files reports for the few that clear the bar.

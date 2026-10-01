@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
+use personhog_common::h2_window::{Http2Windows, WindowSize};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{
     PodConfig, DRAIN_SETUP_BOUND, REVOKE_TIMEOUT, SHUTDOWN_FENCE_BOUND,
@@ -23,13 +24,6 @@ pub struct Config {
     /// for key-dense documents.
     #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
-
-    /// Broker-enforced epoch fencing: the changelog is produced through
-    /// per-partition transactional producers, so a new owner's
-    /// acquisition fences every predecessor at the broker. Off by
-    /// default while the latency cost is being measured.
-    #[envconfig(default = "false")]
-    pub kafka_transactional_fencing: bool,
 
     /// How long a fencing transaction window admits joining writes
     /// before committing, when it does not fill first (see
@@ -83,6 +77,12 @@ pub struct Config {
     /// Timeout for a keepalive ping ack before considering the connection dead
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_stream_window_bytes: WindowSize,
+
+    #[envconfig(default = "0")]
+    pub grpc_initial_connection_window_bytes: WindowSize,
 
     /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
     #[envconfig(default = "134217728")]
@@ -334,13 +334,6 @@ pub struct Config {
     /// auto-reads from the service account mount.
     #[envconfig(default = "")]
     pub k8s_namespace: String,
-
-    /// Refuse strong reads and fence acquisition once this pod's lease
-    /// may have expired, instead of serving until the keepalive notices.
-    /// Trades availability during an etcd outage for never answering as
-    /// an owner the protocol may already have replaced.
-    #[envconfig(default = "false")]
-    pub lease_gated_authority: bool,
 
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
@@ -691,9 +684,6 @@ impl Config {
     /// startup: the derivation satisfies them wherever the lease TTL
     /// leaves room, and an operator can override either knob.
     pub fn validate_fencing_timescales(&self) -> Result<(), String> {
-        if !self.kafka_transactional_fencing {
-            return Ok(());
-        }
         if self.fencing_lanes < 1 {
             return Err("FENCING_LANES must be at least 1".to_string());
         }
@@ -702,20 +692,6 @@ impl Config {
                 "FENCING_LANES ({}) must be at most {MAX_FENCING_LANES}",
                 self.fencing_lanes
             ));
-        }
-        // Fencing without the lease gate is the combination the e2e
-        // zombie scenario breaks: acquisition takes the partition's epoch
-        // from whoever holds it, so a pod waking inside its lease window
-        // fences the legitimate owner on its way to noticing it is dead.
-        // The gate is what gives acquisition the standing to be safe, so
-        // the dependency is refused at startup rather than documented.
-        if !self.lease_gated_authority {
-            return Err(
-                "KAFKA_TRANSACTIONAL_FENCING requires LEASE_GATED_AUTHORITY: unless \
-                 acquisition is gated on holding the lease, a pod whose lease has lapsed \
-                 can take the changelog fence away from the partition's real owner"
-                    .to_string(),
-            );
         }
         if self.fencing_window_max_writes == 0 {
             return Err(
@@ -808,6 +784,13 @@ impl Config {
         } else {
             Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
         }
+    }
+
+    pub fn grpc_http2_windows(&self) -> Http2Windows {
+        Http2Windows::new(
+            self.grpc_initial_stream_window_bytes,
+            self.grpc_initial_connection_window_bytes,
+        )
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {
@@ -954,8 +937,6 @@ mod fencing_timescale_tests {
     fn fenced(lease_ttl: i64) -> Config {
         let mut config =
             Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
-        config.kafka_transactional_fencing = true;
-        config.lease_gated_authority = true;
         config.lease_ttl = lease_ttl;
         config.fencing_txn_timeout_ms = 0;
         config.fencing_message_timeout_ms = 0;
@@ -1327,18 +1308,5 @@ mod fencing_timescale_tests {
             .validate_fencing_timescales()
             .expect_err("must reject");
         assert!(err.contains("librdkafka"), "got: {err}");
-    }
-
-    /// The dependency is a startup failure, not a comment: fencing on a
-    /// pod that will acquire without checking its lease is the shape the
-    /// zombie gate reproduces.
-    #[test]
-    fn fencing_without_the_lease_gate_is_refused() {
-        let mut config = fenced(30);
-        config.lease_gated_authority = false;
-        let err = config
-            .validate_fencing_timescales()
-            .expect_err("fencing must require the gate");
-        assert!(err.contains("LEASE_GATED_AUTHORITY"), "got: {err}");
     }
 }

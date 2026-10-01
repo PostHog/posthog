@@ -196,6 +196,7 @@ export interface webAnalyticsLogicValues {
     currentFiltersConfig: WebAnalyticsFiltersConfig
     dateFilter: DateFilterState
     deviceTab: string
+    exportAllDisabledReason: string | null
     filters: {
         compareFilter: CompareFilter
         conversionGoal: WebAnalyticsConversionGoal | null
@@ -227,7 +228,6 @@ export interface webAnalyticsLogicValues {
     isGreaterThanMd: boolean
     isPathCleaningEnabled: boolean
     pathTab: string
-    preAggregatedEnabled: boolean | undefined
     preZoomDateFilter: {
         dateFrom: string | null
         dateTo: string | null
@@ -235,6 +235,7 @@ export interface webAnalyticsLogicValues {
     } | null
     productTab: ProductTab
     replayFilters: RecordingUniversalFilters
+    restrictedUiEnabled: boolean
     shouldAutoOpenFocusModeOnboarding: boolean
     shouldFilterTestAccounts: boolean
     shouldShowGeoIPQueries: any
@@ -398,6 +399,17 @@ export interface webAnalyticsLogicActions {
     removeIncompatibleFilters: () => {
         value: true
     }
+    reportWebAnalyticsDateRangeChanged: (props: {
+        date_from: string | null
+        date_to: string | null
+        interval: string
+    }) => {
+        props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }
+    }
     resetTileVisibility: () => boolean
     resetZoom: () => {
         value: true
@@ -535,13 +547,10 @@ export interface webAnalyticsLogicMeta {
     key: 'page-visibility' | 'web-analytics'
     __keaTypeGenInternalSelectorTypes: {
         compareFilter: (rawCompareFilter: CompareFilter, dateFilter: DateFilterState) => CompareFilter
-        preAggregatedEnabled: (
-            featureFlags: FeatureFlagsSet,
-            currentTeam: TeamPublicType | TeamType | null
-        ) => boolean | undefined
+        restrictedUiEnabled: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => boolean
         incompatibleFilters: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-            preAggregatedEnabled: boolean | undefined
+            restrictedUiEnabled: boolean
         ) => WebAnalyticsPropertyFilters
         hasIncompatibleFilters: (incompatibleFilters: WebAnalyticsPropertyFilters) => boolean
         graphsTab: (_graphsTab: string | null) => string
@@ -567,16 +576,16 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => WebAnalyticsFiltersConfig
         warmablePresetShortId: (
-            appliedPresetShortId: string | null, // webAnalyticsFilterLogic
-            appliedPresetFilters: WebAnalyticsFiltersConfig | null, // webAnalyticsFilterLogic
+            appliedPresetShortId: string | null,
+            appliedPresetFilters: WebAnalyticsFiltersConfig | null,
             currentFiltersConfig: WebAnalyticsFiltersConfig
         ) => string | null
         hasNonDefaultFilters: (
-            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters, // webAnalyticsFilterLogic
-            domainFilter: string | null, // webAnalyticsFilterLogic
-            deviceTypeFilter: DeviceType | null, // webAnalyticsFilterLogic
-            countryFilter: string | null, // webAnalyticsFilterLogic
-            referrerFilter: string | null, // webAnalyticsFilterLogic
+            rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
+            domainFilter: string | null,
+            deviceTypeFilter: DeviceType | null,
+            countryFilter: string | null,
+            referrerFilter: string | null,
             conversionGoal: WebAnalyticsConversionGoal | null
         ) => boolean
         webAnalyticsFilters: (
@@ -652,6 +661,7 @@ export interface webAnalyticsLogicMeta {
             shouldFilterTestAccounts: boolean
         ) => InsightVizNode<TrendsQuery>
         showFocusMode: (featureFlags: FeatureFlagsSet, productTab: ProductTab) => boolean
+        exportAllDisabledReason: (productTab: ProductTab) => string | null
         hasSavedFocusMode: (focusModeConcerns: WebAnalyticsConcern[]) => boolean
         hasSeenFocusModeOnboarding: (user: UserType | null, currentTeam: TeamPublicType | TeamType | null) => boolean
         shouldAutoOpenFocusModeOnboarding: (
@@ -697,7 +707,7 @@ export interface webAnalyticsLogicMeta {
             featureFlags: FeatureFlagsSet,
             isGreaterThanMd: boolean,
             tileVisualizations: Record<TileId, TileVisualizationOption>,
-            preAggregatedEnabled: boolean | undefined,
+            restrictedUiEnabled: boolean,
             hiddenTiles: TileId[],
             warmablePresetShortId: string | null
         ) => WebAnalyticsTile[]
@@ -783,6 +793,11 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         ],
     })),
     actions({
+        reportWebAnalyticsDateRangeChanged: (props: {
+            date_from: string | null
+            date_to: string | null
+            interval: string
+        }) => ({ props }),
         removeIncompatibleFilters: true,
         setGraphsTab: (tab: string) => ({ tab }),
         setSourceTab: (tab: string) => ({ tab }),
@@ -1185,22 +1200,31 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 // again as soon as the range becomes a bounded one.
                 dateFilter.dateFrom === 'all' ? { compare: false } : rawCompareFilter,
         ],
-        preAggregatedEnabled: [
+        restrictedUiEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
             (featureFlags: Record<string, boolean>, currentTeam: TeamPublicType | TeamType | null) => {
+                // Two independent levers restrict the UI to the precompute-servable
+                // vocabulary (tile allowlist, filter pruning, property allowlist):
+                // the standalone restricted-UI flag, which implies nothing about the
+                // query engine and exists so heavy teams stay restricted while the
+                // legacy pre-aggregated tables retire, and the legacy pair (settings
+                // flag + team modifier) that also switches the engine.
                 return (
-                    featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
-                    currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RESTRICTED_UI] ||
+                    !!(
+                        featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
+                        currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
+                    )
                 )
             },
         ],
         incompatibleFilters: [
-            (s) => [s.rawWebAnalyticsFilters, s.preAggregatedEnabled],
+            (s) => [s.rawWebAnalyticsFilters, s.restrictedUiEnabled],
             (
                 rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
-                preAggregatedEnabled: boolean
+                restrictedUiEnabled: boolean
             ): WebAnalyticsPropertyFilters => {
-                if (!preAggregatedEnabled) {
+                if (!restrictedUiEnabled) {
                     return []
                 }
 
@@ -1660,6 +1684,13 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet, productTab: ProductTab): boolean =>
                 featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
+        exportAllDisabledReason: [
+            (s) => [s.productTab],
+            (productTab: ProductTab): string | null =>
+                productTab === ProductTab.ANALYTICS || productTab === ProductTab.WEB_VITALS
+                    ? null
+                    : 'Switch to the Web analytics or Web vitals tab to export as CSV',
+        ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
             (focusModeConcerns: WebAnalyticsConcern[]): boolean => focusModeConcerns.length > 0,
@@ -1693,7 +1724,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 s.featureFlags,
                 s.isGreaterThanMd,
                 s.tileVisualizations,
-                s.preAggregatedEnabled,
+                s.restrictedUiEnabled,
                 s.hiddenTiles,
                 s.warmablePresetShortId,
             ],
@@ -1720,7 +1751,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 isGreaterThanMd: boolean,
                 tileVisualizations: Record<TileId, TileVisualizationOption>,
-                preAggregatedEnabled: boolean | undefined,
+                restrictedUiEnabled: boolean | undefined,
                 hiddenTiles: TileId[],
                 warmablePresetShortId: string | null
             ): WebAnalyticsTile[] => {
@@ -3153,7 +3184,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     allTiles
                         .filter(isNotNil)
                         .filter((tile) =>
-                            preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
+                            restrictedUiEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                         )
                         .filter((tile) => !hiddenTiles.includes(tile.tileId)),
                     warmablePresetShortId
@@ -3750,7 +3781,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
 
         return {
             setDates: ({ dateFrom, dateTo }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval: values.dateFilter.interval,
@@ -3758,12 +3789,15 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
             setDatesAndInterval: ({ dateFrom, dateTo, interval }) => {
-                eventUsageLogic.actions.reportWebAnalyticsDateRangeChanged({
+                actions.reportWebAnalyticsDateRangeChanged({
                     date_from: dateFrom,
                     date_to: dateTo,
                     interval,
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
+            },
+            reportWebAnalyticsDateRangeChanged: ({ props }) => {
+                posthog.capture('web analytics date range changed', props)
             },
             zoomIntoPeriod: ({ dateFrom, dateTo }) => {
                 if (values.preZoomDateFilter === null) {
@@ -3853,12 +3887,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             startFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingStarted()
+                posthog.capture('web analytics focus mode onboarding started')
                 actions.openFocusModeModal(true)
             },
             dismissFocusModeOnboarding: () => {
                 actions.markFocusModeOnboardingSeen()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingSkipped()
+                posthog.capture('web analytics focus mode onboarding skipped')
             },
             enterFocusMode: () => {
                 if (!values.showFocusMode || values.focusModeConcerns.length === 0) {
@@ -3883,7 +3917,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 actions.setFocusModeEnabled(true)
                 actions.closeFocusModeModal()
                 if (wasOnboarding) {
-                    eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingCompleted({
+                    posthog.capture('web analytics focus mode onboarding completed', {
                         concern_count: concernCount,
                     })
                 }
@@ -3908,7 +3942,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     } else if (conversionGoal && 'customEventName' in conversionGoal) {
                         goalType = 'custom_event'
                     }
-                    eventUsageLogic.actions.reportWebAnalyticsConversionGoalSet({ goal_type: goalType })
+                    posthog.capture('web analytics conversion goal set', { goal_type: goalType })
                 },
                 ({ conversionGoal }) => {
                     if (conversionGoal) {
@@ -3947,7 +3981,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         shouldAutoOpenFocusModeOnboarding: (shouldOpen: boolean) => {
             if (shouldOpen && !values.focusModeOnboardingModalOpen) {
                 actions.openFocusModeOnboarding()
-                eventUsageLogic.actions.reportWebAnalyticsFocusModeOnboardingShown()
+                posthog.capture('web analytics focus mode onboarding shown')
             }
         },
     })),

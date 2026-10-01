@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BUDGET_KEY_PREFIX,
+    BUDGET_REDIS_TIMEOUT_SECONDS,
     BudgetSpec,
     QueryCost,
     budget_spec_for,
@@ -34,6 +35,8 @@ SPEC = BudgetSpec(bytes_per_hour=3600.0, capacity_bytes=7200.0)
     API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70_000_000_000,
     API_QUERIES_BUDGET_PAID_MULTIPLIER=10,
     API_QUERIES_BUDGET_CAPACITY_HOURS=24,
+    API_QUERIES_BUDGET_BYTES_PER_EVENT_PER_HOUR=1_000,
+    API_QUERIES_BUDGET_MAX_BYTES_PER_HOUR=5_000e9,
 )
 class TestBudgetSpecFor(SimpleTestCase):
     @parameterized.expand(
@@ -47,9 +50,31 @@ class TestBudgetSpecFor(SimpleTestCase):
         organization = SimpleNamespace(has_active_subscription=has_active_subscription)
         assert budget_spec_for(organization) == BudgetSpec(bytes_per_hour=per_hour, capacity_bytes=capacity)
 
+    @parameterized.expand(
+        [
+            ("unknown_volume_keeps_floor", True, None, 700e9),
+            ("small_volume_keeps_floor", True, 1_000, 700e9),
+            ("volume_scales_above_floor", True, 1_000_000_000, 1_000e9),
+            ("volume_is_capped", True, 100_000_000_000, 5_000e9),
+            ("free_scales_from_its_own_floor", False, 100_000_000, 100e9),
+        ]
+    )
+    def test_spec_scales_with_events_last_year(self, _name, has_active_subscription, events_last_year, per_hour):
+        organization = SimpleNamespace(has_active_subscription=has_active_subscription)
+        assert budget_spec_for(organization, events_last_year).bytes_per_hour == per_hour
+
 
 @override_settings(API_QUERIES_BUDGET_FREE_BYTES_PER_HOUR=70, API_QUERIES_BUDGET_CAPACITY_HOURS=24)
 class TestTokenBucket(BaseTest):
+    def test_budget_redis_calls_use_a_one_second_timeout(self):
+        with patch("posthog.api_queries_budget.get_client") as get_client:
+            refill_and_read("team-a", SPEC)
+
+        get_client.assert_called_once_with(
+            socket_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+            socket_connect_timeout=BUDGET_REDIS_TIMEOUT_SECONDS,
+        )
+
     def test_fresh_bucket_starts_full(self):
         assert refill_and_read("team-a", SPEC, now=1000.0) == 7200.0
 

@@ -24,7 +24,9 @@ Nothing here requires a parameter-group change or a reboot.
 
 * `pg_stat_statements` — already in `shared_preload_libraries` on every
   cluster, but `CREATE EXTENSION` is per database and the collector reads
-  cluster-wide stats from the **maintenance database (`postgres`)**. Run
+  cluster-wide stats through the **database named in the server URL** (the
+  `aurora_user_management` credentials point at the application database, so
+  `d63d9unoslck8q` on the PostHog clusters, not `postgres`). Run
   `CREATE EXTENSION IF NOT EXISTS pg_stat_statements` there (DDL user) if it
   hasn't been. This is the only step that is genuinely required.
   A cluster upgraded in place keeps the old extension definition, so also run
@@ -33,11 +35,13 @@ Nothing here requires a parameter-group change or a reboot.
   `pgss_stale` event (plus a warning log) until the extension catches up.
   Below 1.8 (the PG13 definition) `query_stats` and `aurora_plans` collect
   nothing until the extension is updated.
-* `pg_proctab` — optional. Not installed anywhere today; `CREATE EXTENSION
-  pg_proctab` in the maintenance database enables `system_cpu`,
-  `system_memory`, `system_disk`, `backend_cpu`. Until then those four log one
-  `skipping: prerequisite not met` line and re-check every 10 minutes. Its
-  functions may need `GRANT EXECUTE ... TO pgcollector`.
+* `pg_proctab` — optional, supported on both Aurora and RDS for PostgreSQL.
+  `CREATE EXTENSION pg_proctab` in the same database as above enables
+  `system_cpu`, `system_memory`, `system_disk`, `backend_cpu` (host CPU, memory,
+  load, disk counters and CPU per backend, grouped by user, code path and query
+  in pgapi). Until then those four log one `skipping: prerequisite not met`
+  line and re-check every 10 minutes. Its functions may need
+  `GRANT EXECUTE ... TO pgcollector`.
 * `aurora_stat_*` / `aurora_replica_status` — built in, no setup.
   `aurora_compute_plan_id` (default on, 14.10+/15.5+) must stay on for
   `aurora_plans` and `plan_id` in activity samples.
