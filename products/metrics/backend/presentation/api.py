@@ -546,6 +546,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in parsed.validated_data
         )
+
     dateFrom = serializers.DateTimeField(
         required=False,
         allow_null=True,
@@ -601,6 +602,7 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
             MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
             for f in parsed.validated_data
         )
+
     value = serializers.CharField(
         required=False,
         allow_blank=True,
