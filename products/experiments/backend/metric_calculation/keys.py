@@ -31,9 +31,10 @@ def metric_calculation_keys_for_experiments(
     keys = {experiment_id: MetricCalculationKeys(inline={}, saved={}) for experiment_id in team_id_by_experiment_id}
     if not keys:
         return keys
-    experiments = [
-        experiment
-        for experiment in Experiment.objects.filter(
+    # The read spans teams by design. `team_id__in` and the team check on each row keep every id to the
+    # team that the caller named for it, but the IDOR rule only recognizes a single-team filter.
+    rows = (
+        Experiment.objects.filter(  # nosemgrep: idor-lookup-without-team
             id__in=team_id_by_experiment_id, team_id__in=set(team_id_by_experiment_id.values())
         )
         .select_related("team", "feature_flag")
@@ -43,8 +44,8 @@ def metric_calculation_keys_for_experiments(
                 queryset=ExperimentToSavedMetric.objects.select_related("saved_metric"),
             )
         )
-        if experiment.team_id == team_id_by_experiment_id[experiment.id]
-    ]
+    )
+    experiments = [experiment for experiment in rows if experiment.team_id == team_id_by_experiment_id[experiment.id]]
     team_configs = team_experiments_configs({experiment.team_id for experiment in experiments})
     for experiment in experiments:
         settings = ExperimentCalculationSettings.of_experiment(experiment, team_config=team_configs[experiment.team_id])
