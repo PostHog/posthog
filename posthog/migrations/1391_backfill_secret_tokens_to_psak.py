@@ -9,8 +9,10 @@ logger = structlog.get_logger(__name__)
 BATCH_SIZE = 500
 
 # The surfaces that keep accepting PSAKs after the legacy verifiers go away. Much
-# narrower than the legacy token, which authorized every surface at once.
-MIGRATED_SCOPES = ["feature_flag:read", "support_ticket:read", "account:read"]
+# narrower than the legacy token, which authorized every surface at once. account:read
+# is deliberately absent: it would also open the customer-analytics bulk account export,
+# which refuses the team-wide legacy token on purpose.
+MIGRATED_SCOPES = ["feature_flag:read", "support_ticket:read"]
 
 
 def backfill_tokens(apps, schema_editor):

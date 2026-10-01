@@ -629,6 +629,37 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
+    def test_leaked_team_token_with_backfilled_psak_rolls_the_row_and_still_notifies(
+        self, mock_psak_exposed, mock_ff_exposed, mock_verify
+    ):
+        # A backfilled PSAK (#63111) shares the team token's hash. Rolling that row alone
+        # leaves the team token valid, so the admin notification must still go out.
+        from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+        from posthog.models.utils import hash_key_value
+
+        mock_verify.return_value = None
+        token = "phs_legacy_team_secret_token_123"
+        self.team.secret_api_token = token
+        self.team.save()
+        row = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="Migrated legacy secret API key",
+            secure_value=hash_key_value(token),
+            scopes=["feature_flag:read"],
+        )
+
+        response = self._post_alert([token])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["label"], "true_positive")
+        row.refresh_from_db()
+        self.assertNotEqual(row.secure_value, hash_key_value(token))
+        mock_psak_exposed.assert_called_once()
+        mock_ff_exposed.assert_called_once()
+
+    @patch("posthog.api.github.verify_github_signature")
+    @patch("posthog.api.github.send_feature_flags_secure_api_key_exposed")
+    @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
     def test_unknown_phs_token_is_false_positive(self, mock_psak_exposed, mock_ff_exposed, mock_verify):
         mock_verify.return_value = None
 
