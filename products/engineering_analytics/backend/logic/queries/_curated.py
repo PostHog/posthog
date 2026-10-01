@@ -244,7 +244,9 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
+            self._runs_table(),
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
         )
         return f"({query})"
 
@@ -272,11 +274,14 @@ class CuratedGitHubSource:
 
     def _runs_table(self) -> str:
         return depot_ci.with_depot_runs(
-            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+            self._tables.workflow_runs,
+            self._depot_job_attempts(),
+            self._tables.pull_requests,
+            self._tables.workflow_jobs,
         )
 
     def _jobs_table(self, workflow_jobs_table: str) -> str:
-        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the

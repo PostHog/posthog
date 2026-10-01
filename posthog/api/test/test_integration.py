@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import quote, urlencode
@@ -27,6 +28,7 @@ from fakeredis import FakeConnection
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from redis.exceptions import RedisError
+from requests_oauthlib import OAuth1
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
@@ -63,6 +65,7 @@ from posthog.models.integration import (
     github_account_type,
 )
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
+from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1870,6 +1873,60 @@ class TestIntegrationAPIKeyAccess:
         mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
 
     @pytest.mark.parametrize(
+        "compact,expected_keys",
+        [
+            (True, {"id", "name", "full_name"}),
+            (False, {"id", "name", "full_name", "private", "default_branch", "archived", "can_push"}),
+        ],
+    )
+    def test_github_repos_next_offset_walks_roster_larger_than_one_page(
+        self, client: HttpClient, compact: bool, expected_keys: set[str]
+    ):
+        self.github_integration.repository_cache = [
+            {
+                "id": i,
+                "name": f"repo{i}",
+                "full_name": f"org/repo{i}",
+                "private": True,
+                "default_branch": "main",
+                "archived": False,
+                "can_push": True,
+            }
+            for i in range(250)
+        ]
+        self.github_integration.repository_cache_updated_at = timezone.now()
+        self.github_integration.save()
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        seen: list[str] = []
+        offset: int | None = 0
+        pages = 0
+        while offset is not None:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["total"] == 250
+            assert data["has_more"] is (data["next_offset"] is not None)
+            assert all(set(repo) == expected_keys for repo in data["repositories"])
+            seen.extend(repo["full_name"] for repo in data["repositories"])
+            offset = data["next_offset"]
+            pages += 1
+
+        assert pages == 3
+        assert seen == [f"org/repo{i}" for i in range(250)]
+
+    @pytest.mark.parametrize(
         "query_string,mock_return,expected_call",
         [
             (
@@ -3031,6 +3088,150 @@ class TestGitHubIntegrationCreatedReporting:
         GitHubIntegration.integration_from_installation_id("12345", self.team.id, self.user)
 
         assert mock_report.call_count == 1
+
+
+class TestTwitterAdsIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @pytest.mark.parametrize("key,secret", [("", "secret"), ("key", ""), ("", "")])
+    def test_twitter_authorize_requires_app_settings(self, client: HttpClient, key: str, secret: str) -> None:
+        client.force_login(self.user)
+        with (
+            override_settings(TWITTER_ADS_CONSUMER_KEY=key, TWITTER_ADS_CONSUMER_SECRET=secret),
+            patch("posthog.models.integration.twitter_ads.requests.post") as http,
+        ):
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/authorize/", {"kind": "twitter-ads"})
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Kind not configured"
+        http.assert_not_called()
+
+    @override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret")
+    @patch("posthog.models.integration.twitter_ads.requests.post")
+    def test_twitter_authorize_binds_and_callback_consumes_grant(self, http: MagicMock, client: HttpClient) -> None:
+        client.force_login(self.user)
+        request_token = MagicMock(
+            status_code=200,
+            text="oauth_token=fake-temporary&oauth_token_secret=fake-temporary-secret&oauth_callback_confirmed=true",
+        )
+        access_token = MagicMock(
+            status_code=200,
+            text="oauth_token=fake-access&oauth_token_secret=fake-access-secret&user_id=123&screen_name=example_ads",
+        )
+        http.side_effect = [request_token, access_token]
+        next_url = "/data-warehouse/new?source=TwitterAds"
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/authorize/", {"kind": "twitter-ads", "next": next_url}
+        )
+        assert response.status_code == 302
+        assert response.headers["Location"] == "https://api.x.com/oauth/authorize?oauth_token=fake-temporary"
+        assert cache.get(TwitterAdsIntegration.binding_key("fake-temporary")) == {
+            "oauth_token_secret": "fake-temporary-secret",
+            "team_id": self.team.pk,
+            "user_id": self.user.pk,
+            "next": next_url,
+        }
+        auth = http.call_args.kwargs["auth"]
+        assert isinstance(auth, OAuth1)
+        assert auth.client.callback_uri.endswith("/integrations/twitter-ads/callback")
+        payload = {
+            "kind": "twitter-ads",
+            "config": {"oauth_token": "fake-temporary", "oauth_verifier": "fake-verifier"},
+        }
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/", payload, content_type="application/json"
+        )
+        assert response.status_code == 201
+        integration = Integration.objects.get(pk=response.json()["id"])
+        assert integration.integration_id == "123"
+        assert integration.config == {"screen_name": "example_ads", "user_id": "123", "next": next_url}
+        assert integration.sensitive_config == {
+            "oauth_token": "fake-access",
+            "oauth_token_secret": "fake-access-secret",
+        }
+        assert "fake-access" not in response.content.decode()
+        assert "fake-temporary" not in response.content.decode()
+        assert cache.get(TwitterAdsIntegration.binding_key("fake-temporary")) is None
+        auth = http.call_args.kwargs["auth"]
+        assert auth.client.resource_owner_key == "fake-temporary"
+        assert auth.client.resource_owner_secret == "fake-temporary-secret"
+        assert auth.client.verifier == "fake-verifier"
+        repeated = client.post(
+            f"/api/environments/{self.team.pk}/integrations/", payload, content_type="application/json"
+        )
+        assert repeated.status_code == 400
+        assert http.call_count == 2
+
+    @pytest.mark.parametrize(
+        "binding_case", ["different-user", "different-team", "unknown", "expired", "concurrent-use"]
+    )
+    @override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret")
+    def test_twitter_callback_rejects_unbound_tokens(self, client: HttpClient, binding_case: str) -> None:
+        client.force_login(self.user)
+        key = TwitterAdsIntegration.binding_key("fake-unbound")
+        cache.delete(key)
+        binding = {"oauth_token_secret": "fake-secret", "team_id": self.team.pk, "user_id": self.user.pk, "next": ""}
+        if binding_case == "different-user":
+            other = User.objects.create_and_join(self.organization, "other@example.com", "test")
+            binding["user_id"] = other.pk
+        elif binding_case == "different-team":
+            other_team = Team.objects.create(organization=self.organization, name="Other project")
+            binding["team_id"] = other_team.pk
+        if binding_case != "unknown":
+            cache.set(key, binding, timeout=0 if binding_case == "expired" else 600)
+        with (
+            patch("posthog.models.integration.twitter_ads.requests.post") as http,
+            patch("posthog.models.integration.twitter_ads.cache.delete", return_value=False)
+            if binding_case == "concurrent-use"
+            else nullcontext(),
+        ):
+            response = client.post(
+                f"/api/environments/{self.team.pk}/integrations/",
+                {"kind": "twitter-ads", "config": {"oauth_token": "fake-unbound", "oauth_verifier": "fake-verifier"}},
+                content_type="application/json",
+            )
+        assert response.status_code == 400
+        assert not Integration.objects.filter(team=self.team, kind="twitter-ads").exists()
+        http.assert_not_called()
+        cache.delete(key)
+
+    @pytest.mark.parametrize("next_url", ["https://example.com/", "//example.com/", "/\\example.com/"])
+    @override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret")
+    def test_twitter_authorize_rejects_external_next_url(self, client: HttpClient, next_url: str) -> None:
+        client.force_login(self.user)
+        with patch("posthog.models.integration.twitter_ads.requests.post") as http:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/authorize/", {"kind": "twitter-ads", "next": next_url}
+            )
+        assert response.status_code == 400
+        http.assert_not_called()
+
+    @pytest.mark.parametrize("provider_response", ["denied", "missing-secret", "unconfirmed", "network"])
+    @override_settings(TWITTER_ADS_CONSUMER_KEY="fake-key", TWITTER_ADS_CONSUMER_SECRET="fake-secret")
+    def test_twitter_provider_failure_exposes_no_credentials(self, client: HttpClient, provider_response: str) -> None:
+        client.force_login(self.user)
+        payload = "oauth_token=fake-temporary&oauth_token_secret=fake-secret&oauth_callback_confirmed=true"
+        if provider_response == "missing-secret":
+            payload = "oauth_token=fake-temporary&oauth_callback_confirmed=true"
+        elif provider_response == "unconfirmed":
+            payload = payload.replace("confirmed=true", "confirmed=false")
+        provider = requests.Response()
+        provider.status_code = 401 if provider_response == "denied" else 200
+        provider._content = payload.encode()
+        with patch(
+            "posthog.models.integration.twitter_ads.requests.post",
+            return_value=provider,
+            side_effect=requests.ConnectionError("fake-secret") if provider_response == "network" else None,
+        ):
+            response = client.get(f"/api/environments/{self.team.pk}/integrations/authorize/", {"kind": "twitter-ads"})
+        assert response.status_code == 400
+        assert "fake-secret" not in response.content.decode()
+        assert "fake-temporary" not in response.content.decode()
 
 
 class TestGitHubIntegrationStateValidation:
