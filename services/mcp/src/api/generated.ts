@@ -39121,7 +39121,7 @@ export namespace Schemas {
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
       /**
-         * Volume buckets. Maximum 200.
+         * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.
          * @minimum 0
          * @maximum 200
          */
@@ -39310,7 +39310,7 @@ export namespace Schemas {
          */
       offset?: number;
       /**
-         * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
+         * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
          * @minimum 0
          * @maximum 200
          */
@@ -41175,6 +41175,20 @@ export namespace Schemas {
       Recording: 'recording',
       Session: 'session',
     } as const;
+
+    export interface EventPropertyValue {
+      /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+      name: string;
+      /** How many times the value occurs, when the lookup counts values. */
+      count?: number;
+    }
+
+    export interface EventPropertyValuesResponse {
+      /** Values of the property that match the request. */
+      results: EventPropertyValue[];
+      /** True when these results come from a stale cache and a refresh runs in the background. */
+      refreshing: boolean;
+    }
 
     /**
      * * `DateTime` - DateTime
@@ -68019,7 +68033,12 @@ export namespace Schemas {
       name: string;
       /** @maxLength 500 */
       property_name: string;
+      /** 'manual-options' shows the options you define. 'auto-discovery' shows property values found in recent events, and ignores 'options'.
+       *
+       * * `manual-options` - manual-options
+       * * `auto-discovery` - auto-discovery */
       type?: QuickFilterTypeEnum;
+      /** Options to show in the dropdown. Each option is an object with 'id', 'value', 'label', and 'operator'. Required for 'manual-options', stored as an empty list for 'auto-discovery'. */
       options?: unknown;
       readonly contexts: readonly string[];
       readonly created_at: string;
@@ -79617,7 +79636,12 @@ export namespace Schemas {
       name?: string;
       /** @maxLength 500 */
       property_name?: string;
+      /** 'manual-options' shows the options you define. 'auto-discovery' shows property values found in recent events, and ignores 'options'.
+       *
+       * * `manual-options` - manual-options
+       * * `auto-discovery` - auto-discovery */
       type?: QuickFilterTypeEnum;
+      /** Options to show in the dropdown. Each option is an object with 'id', 'value', 'label', and 'operator'. Required for 'manual-options', stored as an empty list for 'auto-discovery'. */
       options?: unknown;
       readonly contexts?: readonly string[];
       readonly created_at?: string;
@@ -115530,7 +115554,23 @@ export namespace Schemas {
     export type EventsRetrieve200Two = { [key: string]: unknown };
 
     export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[];
     format?: EventsValuesRetrieveFormat;
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean;
+    /**
+     * The property to list values for.
+     */
+    key: string;
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string;
     };
 
     export type EventsValuesRetrieveFormat = typeof EventsValuesRetrieveFormat[keyof typeof EventsValuesRetrieveFormat];
