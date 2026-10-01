@@ -401,41 +401,31 @@ Once your workflow and activities have been written, it's time to decide which w
 
 Since each product has its own requirements when it comes to worker resources and behavior, each product has its own set of workers, and the product team manages the deployment of said workers. For in-development workflows and activities, there exists a set of workers listening on a shared task queue (called `general-purpose-task-queue`). Anybody may use this general task queue, so you can assign your workflows to it while they are still in development. Once your workflows have moved past the prototyping stage, I recommend looking in the [charts](https://github.com/PostHog/charts) repository for the `temporal-worker` package you can use to create your own deployment. With your own set of workers, you can define resource limits of your own, and avoid conflicts with other workflows running in the shared task queue.
 
-Regardless of which task queue and workers are chosen to run your workflows, all workers are configured right here in the code. So, you need to get your workflow classes and your activity functions in the worker configuration based on the task queue you have chosen. This is done by adding your workflows and activities to mappings in the `posthog/management/command/start_temporal_worker.py` script. I recommend that you group all your workflows and activities in a single collection at the top level `__init__.py` of your product package, so that then they can be imported in `start_temporal_worker.py` and added to the mappings.
+Add or extend a `WorkerBagSource` in `create_worker_bag_collector()` in [`registry.py`](./registry.py) to assign your workflow classes and activity functions to task queues.
+The `start_temporal_worker` command collects these definitions for its selected queue before creating the worker.
+It imports only the sources that match that queue, so use module paths rather than importing the definitions into the registry.
 
-For example, let's say I have implemented a product in `products/travelling_salesman_solver/` my `products/travelling_salesman_solver/__init__.py` looks like:
-
-```python
-from products.travelling_salesman_solver.temporal.workflows import MyWorkflow
-from products.travelling_salesman_solver.temporal.activity import my_first_activity, my_second_activity
-
-WORKFLOWS = [MyWorkflow]
-ACTIVITIES = [my_first_activity, my_second_activity]
-```
-
-Then, I can import these in `start_temporal_worker.py` and add them to `WORKFLOWS_DICT` and `ACTIVITIES_DICT`:
+For example, batch exports exposes `WORKFLOWS` and `ACTIVITIES` collections through its Temporal facade and registers them on two queues:
 
 ```python
-from products.travelling_salesman_solver import WORKFLOWS as TS_WORKFLOWS, ACTIVITIES as TS_ACTIVITIES
-
-...
-
-WORKFLOWS_DICT = {
-    ...
-    # Or, use a product-specific task queue if it already has its own deployment!
-    GENERAL_PURPOSE_TASK_QUEUE: TS_WORKFLOWS
-    + ...
-}
-
-ACTIVITIES_DICT = {
-    ...
-    # Or, use a product-specific task queue if it already has its own deployment!
-    GENERAL_PURPOSE_TASK_QUEUE: TS_ACTIVITIES
-    + ...
-}
+WorkerBagSource(
+    modules=("products.batch_exports.backend.facade.temporal",),
+    task_queues=(settings.SYNC_BATCH_EXPORTS_TASK_QUEUE, settings.BATCH_EXPORTS_TASK_QUEUE),
+    names=("WORKFLOWS", "ACTIVITIES"),
+),
 ```
 
-Once the workers are deployed, they will be able to run your workflows and activities.
+- `modules` is a tuple of module paths to load. Use the product's Temporal facade when it exposes registration collections.
+- `task_queues` is a tuple of queue names from Django settings. Use `settings.GENERAL_PURPOSE_TASK_QUEUE` for workflows assigned to the shared worker, or the setting for your dedicated fleet.
+- `names` selects collections to scan in those modules. Use it for collections exposed lazily through `__getattr__`, or when a module contains definitions for multiple queues.
+
+When `names` is omitted, the collector scans module globals, including imported workflow and activity definitions.
+Choose modules that expose only the definitions intended for the selected queues, or specify the appropriate collections with `names`.
+Each configured module must yield at least one workflow or activity.
+
+Multiple sources can contribute to the same queue.
+The collector combines their definitions and removes duplicates, including when different settings resolve to the same local queue name.
+After updating registration, update the deployment filters below so workers receive the new definitions.
 
 ### Trigger deployments for workers
 
@@ -443,7 +433,11 @@ This step is not optional, and it is not a follow-up: the charts deployment's im
 
 To add one, edit the `container-images-cd.yml` GitHub workflow and copy an existing narrow worker's check + trigger step pair (the `release` name must match the charts state-file key).
 
-Notice that every trigger step comes after a check step. This step ensures that only certain module changes trigger a worker re-deployment, and not every single change. This is done because restarting workers can be disruptive to workflows running in it, so as a general rule try to minimize the changes that will trigger a re-deployment of workers. You will probably only need the common temporal modules + your product specific modules in the check — including modules your code imports from elsewhere in the repo (grep your entrypoint's imports).
+Every trigger step uses a change filter to limit worker deployments to relevant changes.
+Include `posthog/temporal/registry.py`, `posthog/management/commands/start_temporal_worker.py`, `posthog/temporal/common/**`, and your product's modules in the fleet's filter under `check_temporal_worker_changes`.
+Also include modules your code imports from elsewhere in the repo.
+The registry path ensures that a registration-only change deploys the worker, even when no workflow or activity implementation changes.
+Workers with a separate image workflow also need these paths in that workflow's trigger filters.
 
 After the first deployment, verify by execution, not by dashboard health: temporal worker deployments disable liveness/readiness probes, so a crash-looping fleet still shows Healthy in ArgoCD, and Python startup tracebacks reach the logs pipeline at info severity (no error-level signal). Check the fleet's logs (`service.name = <worker>`) for the startup banner repeating every few minutes, and confirm one real workflow completed end to end.
 
