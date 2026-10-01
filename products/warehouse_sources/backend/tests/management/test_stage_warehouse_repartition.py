@@ -137,3 +137,17 @@ class TestStageWarehouseRepartition(BaseTest):
         assert "no_delta_table" in output
         schema.refresh_from_db()
         assert schema.repartition_pending is None
+
+    def test_a_table_that_cannot_be_read_does_not_stop_the_batch(self) -> None:
+        # One bucket error would otherwise end the run with a traceback and no report for the rest.
+        unreadable = self._schema()
+        readable = self._schema()
+
+        with patch(f"{_COMMAND_MODULE}.delta_storage_options", side_effect=[OSError("access denied"), {}]):
+            output = self._run([unreadable, readable], execute=True)
+
+        assert "read_failed" in output
+        unreadable.refresh_from_db()
+        readable.refresh_from_db()
+        assert unreadable.repartition_pending is None
+        assert readable.repartition_pending is not None

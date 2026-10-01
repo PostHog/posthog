@@ -90,7 +90,11 @@ class Command(BaseCommand):
         if refusal is not None:
             return f"REFUSED {refusal}", None
 
-        partition_bytes = self._measure(schema)
+        try:
+            partition_bytes = self._measure(schema)
+        except Exception as e:
+            # A bucket or credential error on one table must not end the batch with no report for the rest.
+            return f"REFUSED read_failed: {type(e).__name__}: {e}", None
         if not partition_bytes:
             return "REFUSED no_delta_table: nothing on disk to rewrite", None
         simulated = simulate_datetime_coarsening(partition_bytes, schema.partition_format or "month", target_format)
@@ -125,7 +129,7 @@ class Command(BaseCommand):
             for schema in ExternalDataSchema.objects.filter(id__in=schema_ids, deleted=False).select_related("source")
         }
         self.stdout.write(f"Target tier: {target_format}. Budget per partition: {budget:,} bytes\n")
-        # Every table is measured before anything is written, so a failure to read one stages nothing.
+        # Every table is planned before anything is written, so a crash part way through stages nothing.
         targets: dict[str, dict[str, Any]] = {}
         for schema_id in schema_ids:
             schema = schemas.get(schema_id)
