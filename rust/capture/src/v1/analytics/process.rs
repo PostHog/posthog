@@ -410,10 +410,14 @@ fn emit_drop_warnings(state: &router::State, context: &Context, events: &[Wrappe
         return;
     }
 
+    struct DroppedEvent<'a> {
+        distinct_id: &'a str,
+        uuid: Uuid,
+    }
     struct DropGroup<'a> {
         count: u64,
-        /// Identifiers of the dropped event, kept only while the group has one event.
-        single_event: Option<(&'a str, Uuid)>,
+        /// The dropped event, kept only while the group has one event.
+        single_event: Option<DroppedEvent<'a>>,
         failed_options: OptionKeys,
     }
     let mut grouped: HashMap<WarningType, DropGroup> = HashMap::new();
@@ -426,7 +430,10 @@ fn emit_drop_warnings(state: &router::State, context: &Context, events: &[Wrappe
         };
         let group = grouped.entry(warning).or_insert(DropGroup {
             count: 0,
-            single_event: Some((ev.event.distinct_id.as_str(), ev.uuid)),
+            single_event: Some(DroppedEvent {
+                distinct_id: ev.event.distinct_id.as_str(),
+                uuid: ev.uuid,
+            }),
             failed_options: OptionKeys::default(),
         });
         group.count += 1;
@@ -453,7 +460,7 @@ fn emit_drop_warnings(state: &router::State, context: &Context, events: &[Wrappe
                 serde_json::json!(failed_options.names().collect::<Vec<_>>()),
             );
         }
-        if let Some((distinct_id, uuid)) = single_event {
+        if let Some(DroppedEvent { distinct_id, uuid }) = single_event {
             // A public request can submit a `distinct_id` far larger than
             // CAPTURE_V1_DISTINCT_ID_MAX_SIZE (that oversized value is exactly
             // what triggers `distinct_id_too_large`), so bound what enters the
