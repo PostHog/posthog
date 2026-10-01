@@ -134,12 +134,13 @@ from products.feature_flags.backend.facade import (
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
     UnsupportedConfig,
+    V1Config,
     decode_config,
     detect_config_format,
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
-from products.feature_flags.backend.facade.references import references
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -2838,7 +2839,9 @@ class FeatureFlagSerializer(
         if isinstance(config, UnsupportedConfig):
             # A stored document no reader can read names no dependency; the write checks that follow reject it.
             return []
-        dependency_ids = references(config, invalid_flag_ids="raise").flag_ids
+        # A non-integer flag id raises in v1, as it always did; v2 skips it and leaves the 400 to the validator.
+        invalid_ids: InvalidIds = "raise" if isinstance(config, V1Config) else "skip"
+        dependency_ids = references(config, invalid_flag_ids=invalid_ids).flag_ids
         if not dependency_ids:
             return []
 

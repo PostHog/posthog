@@ -480,7 +480,13 @@ class TestFeatureFlagDependencyDisabling(APIBaseTest):
                                     "type": "flag",
                                     "value": True,
                                     "operator": "flag_evaluates_to",
-                                }
+                                },
+                                {
+                                    "key": "checkout-flow",
+                                    "type": "flag",
+                                    "value": True,
+                                    "operator": "flag_evaluates_to",
+                                },
                             ]
                         },
                         "value": True,

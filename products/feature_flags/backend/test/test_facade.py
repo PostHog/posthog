@@ -1123,6 +1123,19 @@ class TestGetCohortIdsReadsEitherFormat:
         filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
         assert FeatureFlag(filters=filters).get_cohort_ids() == []
 
+    def test_a_non_integer_cohort_id_raises_in_v1_and_is_skipped_in_v2(self):
+        prop = {"key": "id", "type": "cohort", "value": "abc"}
+        with pytest.raises(ValueError):
+            FeatureFlag(filters={"groups": [{"properties": [prop]}]}).get_cohort_ids()
+        rule = {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {"properties": [prop]},
+            "value": True,
+        }
+        filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": [rule]}
+        assert FeatureFlag(filters=filters).get_cohort_ids() == []
+
 
 class TestScheduledChangeBuilderRequiresV1:
     @parameterized.expand(UNSUPPORTED_DOCUMENTS)
