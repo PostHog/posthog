@@ -108,6 +108,41 @@ def flagged_urlopen_request():
     return urlopen(urllib.request.Request(GITHUB_USER_URL))
 
 
+def flagged_requests_options():
+    # ruleid: github-api-calls-go-through-egress
+    return requests.options("https://api.github.com/user")
+
+
+def flagged_session_request_method_first():
+    session = requests.Session()
+    # ruleid: github-api-calls-go-through-egress-wide
+    return session.request("POST", GITHUB_USER_URL)
+
+
+async def flagged_aiohttp_request_method_first():
+    async with aiohttp.ClientSession() as session:
+        # ruleid: github-api-calls-go-through-egress-wide
+        return await session.request("POST", GITHUB_USER_URL)
+
+
+async def flagged_aiohttp_module_request():
+    # ruleid: github-api-calls-go-through-egress-wide
+    return aiohttp.request("GET", GITHUB_USER_URL)
+
+
+async def flagged_aiohttp_assigned_session():
+    session = aiohttp.ClientSession()
+    # ruleid: github-api-calls-go-through-egress-wide
+    return await session.get(GITHUB_USER_URL)
+
+
+def ok_wide_url_helpers():
+    # ok: github-api-calls-go-through-egress-wide
+    httpx.URL(GITHUB_USER_URL)
+    session = requests.Session()
+    # ok: github-api-calls-go-through-egress-wide
+    session.mount(GITHUB_USER_URL, adapter)
+
 def ok_wide_other_host():
     url = "https://example.com/api"
     # ok: github-api-calls-go-through-egress-wide

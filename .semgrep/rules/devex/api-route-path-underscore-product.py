@@ -19,3 +19,8 @@ webhook_urlpatterns = [
     # ok: api-route-path-underscore-product
     re_path(r"^vapi-webhook/?$", VapiWebhookView.as_view()),
 ]
+
+webhook_urlpatterns: list[URLPattern] = [
+    # ok: api-route-path-underscore-product
+    path("annotated-events", SesEventsView.as_view()),
+]

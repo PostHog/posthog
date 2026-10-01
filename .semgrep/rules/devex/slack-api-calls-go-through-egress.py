@@ -93,6 +93,41 @@ def flagged_urlopen():
     return urllib.request.urlopen(SLACK_POST_MESSAGE)
 
 
+def flagged_requests_options():
+    # ruleid: slack-api-calls-go-through-egress-wide
+    return requests.options(SLACK_POST_MESSAGE)
+
+
+def flagged_session_request_method_first():
+    session = requests.Session()
+    # ruleid: slack-api-calls-go-through-egress-wide
+    return session.request("POST", SLACK_POST_MESSAGE)
+
+
+async def flagged_aiohttp_request_method_first():
+    async with aiohttp.ClientSession() as session:
+        # ruleid: slack-api-calls-go-through-egress-wide
+        return await session.request("POST", SLACK_POST_MESSAGE)
+
+
+async def flagged_aiohttp_module_request():
+    # ruleid: slack-api-calls-go-through-egress-wide
+    return aiohttp.request("GET", SLACK_POST_MESSAGE)
+
+
+async def flagged_aiohttp_assigned_session():
+    session = aiohttp.ClientSession()
+    # ruleid: slack-api-calls-go-through-egress-wide
+    return await session.get(SLACK_POST_MESSAGE)
+
+
+def ok_wide_url_helpers():
+    # ok: slack-api-calls-go-through-egress-wide
+    httpx.URL(SLACK_POST_MESSAGE)
+    session = requests.Session()
+    # ok: slack-api-calls-go-through-egress-wide
+    session.mount(SLACK_POST_MESSAGE, adapter)
+
 def ok_wide_webhook():
     # ok: slack-api-calls-go-through-egress-wide
     httpx.post("https://hooks.slack.com/services/example")
@@ -103,3 +138,8 @@ def ok_wide_webhook():
 def ok_wide_egress_client(token: str):
     # ok: slack-api-calls-go-through-egress-wide
     return SlackWebClient(token=token, source="test")
+
+
+def flagged_urlopen_request():
+    # ruleid: slack-api-calls-go-through-egress-wide
+    return urllib.request.urlopen(urllib.request.Request(SLACK_POST_MESSAGE))

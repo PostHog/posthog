@@ -30,6 +30,15 @@ const h = await fetch('/static/example.json')
 // ok: no-raw-fetch-to-api-outside-api-layer
 const i = await fetch(`https://example.com/api/items`)
 
+// A literal URL held in a local constant is still a raw call.
+const apiUrl = '/api/projects/1/things/'
+// ruleid: no-raw-fetch-to-api-outside-api-layer
+const j = await fetch(apiUrl)
+
+const staticUrl = '/static/example.json'
+// ok: no-raw-fetch-to-api-outside-api-layer
+const k = await fetch(staticUrl)
+
 // ruleid: no-axios-in-frontend
 import axios from 'axios'
 

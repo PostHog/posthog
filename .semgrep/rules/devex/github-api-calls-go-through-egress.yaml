@@ -30,7 +30,7 @@ rules:
                       - pattern: requests.$METHOD($URL, ...)
                       - metavariable-regex:
                             metavariable: $METHOD
-                            regex: ^(get|post|put|patch|delete|head)$
+                            regex: ^(get|post|put|patch|delete|head|options)$
                 - pattern: requests.request($METHOD, $URL, ...)
           - metavariable-regex:
                 metavariable: $URL
@@ -69,19 +69,55 @@ rules:
       severity: ERROR
       patterns:
           - pattern-either:
-                - pattern: requests.$METHOD($URL, ...)
-                - pattern: requests.request($M, $URL, ...)
-                - pattern: requests.Session().$METHOD($URL, ...)
-                - pattern: requests.Session().request($M, $URL, ...)
-                - pattern: httpx.$METHOD($URL, ...)
-                - pattern: httpx.request($M, $URL, ...)
-                - pattern: httpx.Client(...).$METHOD($URL, ...)
-                - pattern: httpx.AsyncClient(...).$METHOD($URL, ...)
-                - pattern: aiohttp.ClientSession(...).$METHOD($URL, ...)
-                - pattern: urllib.request.urlopen($URL, ...)
-                - pattern: urlopen($URL, ...)
                 - patterns:
-                      - pattern: $S.$METHOD($URL, ...)
+                      - pattern-either:
+                            - pattern: requests.$METHOD($URL, ...)
+                            - pattern: requests.Session().$METHOD($URL, ...)
+                            - pattern: httpx.$METHOD($URL, ...)
+                            - pattern: httpx.Client(...).$METHOD($URL, ...)
+                            - pattern: httpx.AsyncClient(...).$METHOD($URL, ...)
+                            - pattern: aiohttp.ClientSession(...).$METHOD($URL, ...)
+                            - patterns:
+                                  - pattern: $S.$METHOD($URL, ...)
+                                  - pattern-either:
+                                        - pattern-inside: |
+                                              $S = requests.Session()
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.Client(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = httpx.AsyncClient(...)
+                                              ...
+                                        - pattern-inside: |
+                                              $S = aiohttp.ClientSession(...)
+                                              ...
+                                        - pattern-inside: |
+                                              with requests.Session() as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              with httpx.Client(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with httpx.AsyncClient(...) as $S:
+                                                  ...
+                                        - pattern-inside: |
+                                              async with aiohttp.ClientSession(...) as $S:
+                                                  ...
+                      # Only the HTTP verbs send a request. `httpx.URL(...)` and `Session().mount(...)`
+                      # take a URL and send nothing.
+                      - metavariable-regex:
+                            metavariable: $METHOD
+                            regex: ^(get|post|put|patch|delete|head|options)$
+                - pattern: requests.request($M, $URL, ...)
+                - pattern: requests.Session().request($M, $URL, ...)
+                - pattern: httpx.request($M, $URL, ...)
+                - pattern: httpx.Client(...).request($M, $URL, ...)
+                - pattern: httpx.AsyncClient(...).request($M, $URL, ...)
+                - pattern: aiohttp.request($M, $URL, ...)
+                - pattern: aiohttp.ClientSession(...).request($M, $URL, ...)
+                - patterns:
+                      - pattern: $S.request($M, $URL, ...)
                       - pattern-either:
                             - pattern-inside: |
                                   $S = requests.Session()
@@ -91,6 +127,9 @@ rules:
                                   ...
                             - pattern-inside: |
                                   $S = httpx.AsyncClient(...)
+                                  ...
+                            - pattern-inside: |
+                                  $S = aiohttp.ClientSession(...)
                                   ...
                             - pattern-inside: |
                                   with requests.Session() as $S:
@@ -104,13 +143,21 @@ rules:
                             - pattern-inside: |
                                   async with aiohttp.ClientSession(...) as $S:
                                       ...
-          # Skip what `github-api-calls-go-through-egress` already reports: a `requests` call whose
-          # argument text names the host.
+                - pattern: urllib.request.urlopen($URL, ...)
+                - pattern: urlopen($URL, ...)
+          # Skip what `github-api-calls-go-through-egress` already reports: a `requests` call whose argument text names the host.
           - pattern-not:
                 patterns:
-                    - pattern-either:
-                          - pattern: requests.$METHOD($URL, ...)
-                          - pattern: requests.request($M, $URL, ...)
+                    - pattern: requests.$METHOD($URL, ...)
+                    - metavariable-regex:
+                          metavariable: $METHOD
+                          regex: ^(get|post|put|patch|delete|head|options)$
+                    - metavariable-regex:
+                          metavariable: $URL
+                          regex: .*(api|uploads)\.github\.com.*
+          - pattern-not:
+                patterns:
+                    - pattern: requests.request($M, $URL, ...)
                     - metavariable-regex:
                           metavariable: $URL
                           regex: .*(api|uploads)\.github\.com.*

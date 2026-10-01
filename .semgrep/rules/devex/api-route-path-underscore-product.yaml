@@ -33,6 +33,8 @@ rules:
           # A product mounts `webhook_urlpatterns` at `webhooks/<product>/`: not an API route.
           - pattern-not-inside: |
                 webhook_urlpatterns = [...]
+          - pattern-not-inside: |
+                webhook_urlpatterns: $T = [...]
           # Same segment check as `api-path-underscore`. Product modules declare routes relative
           # to an API mount, so every route counts. `^` may start a `re_path` pattern.
           - metavariable-regex:

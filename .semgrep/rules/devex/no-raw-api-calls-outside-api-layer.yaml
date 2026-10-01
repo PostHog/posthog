@@ -80,9 +80,14 @@ rules:
                 - pattern: window.fetch($URL, ...)
                 - pattern: globalThis.fetch($URL, ...)
           # A string or template literal that starts with `/api/`, optionally after a `${host}` part.
-          - metavariable-regex:
+          # The URL is a literal at the call, or a local constant that holds a literal
+          # (constant propagation).
+          - metavariable-pattern:
                 metavariable: $URL
-                regex: '^[`''"](?:\$\{[^}]*\})?/api/'
+                pattern-either:
+                    - pattern-regex: '^[`''"](?:\$\{[^}]*\})?/api/'
+                    - pattern: |
+                          "=~/^\/api\//"
       metadata:
           category: best-practice
 
