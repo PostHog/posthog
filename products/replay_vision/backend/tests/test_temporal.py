@@ -3634,15 +3634,18 @@ class TestUploadedFileNotActive:
 
         assert run_scan.call_args.kwargs["video_bytes"] == b"mp4-bytes"
 
-    async def _inline_scan_failing_with(self, error: APIError) -> tuple[AsyncMock, AsyncMock, AsyncMock]:
+    async def _inline_scan_failing_with(
+        self, error: APIError | None, heartbeat_details: tuple[str, ...] = ()
+    ) -> tuple[AsyncMock, AsyncMock, AsyncMock, MagicMock]:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
         module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
-        run_scan = AsyncMock(side_effect=[error, MagicMock()])
+        run_scan = AsyncMock(side_effect=[error, MagicMock()] if error else [MagicMock()])
         upload = AsyncMock(
             return_value=UploadedVideo(file_uri="gemini://files/fb", mime_type="video/mp4", gemini_file_name="files/fb")
         )
         delete = AsyncMock()
+        heartbeater = MagicMock(details=())
         with (
             patch(f"{module}._load_snapshot"),
             patch(f"{module}._load_team_name", return_value="team"),
@@ -3652,7 +3655,11 @@ class TestUploadedFileNotActive:
             patch(f"{module}._inject_known_freeform_tags", new=AsyncMock()),
             patch(f"{module}._load_video_clock"),
             patch(f"{module}.run_scan", new=run_scan),
-            patch(f"{module}.activity.info", return_value=MagicMock(workflow_id="wf-inline")),
+            patch(f"{module}.activity.in_activity", return_value=True),
+            patch(
+                f"{module}.activity.info",
+                return_value=MagicMock(workflow_id="wf-inline", heartbeat_details=list(heartbeat_details)),
+            ),
             patch(f"{module}.GoogleGenAIClient"),
             patch(f"{module}.delete_and_untrack", new=delete),
             patch(
@@ -3669,24 +3676,42 @@ class TestUploadedFileNotActive:
                     file_uri="",
                     mime_type="video/mp4",
                     inline_video=True,
-                )
+                ),
+                heartbeater,
             )
-        return run_scan, upload, delete
+        return run_scan, upload, delete, heartbeater
 
     @pytest.mark.asyncio
     async def test_an_inline_scan_over_the_gateway_body_limit_reruns_over_an_uploaded_file(self) -> None:
-        run_scan, upload, delete = await self._inline_scan_failing_with(APIError(413, {"error": {"code": 413}}))
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
+            APIError(413, {"error": {"code": 413}})
+        )
 
         upload.assert_awaited_once_with(b"mp4-bytes", "video/mp4", "wf-inline")
         retry = run_scan.call_args_list[1].kwargs
         assert (retry["file_uri"], retry["video_bytes"]) == ("gemini://files/fb", None)
         assert delete.call_args.args[1] == "files/fb"
+        assert heartbeater.details == ("inline_too_large",)
+
+    @pytest.mark.asyncio
+    async def test_a_retry_after_an_inline_413_uploads_without_another_inline_pass(self) -> None:
+        run_scan, upload, delete, _ = await self._inline_scan_failing_with(
+            None, heartbeat_details=("inline_too_large",)
+        )
+
+        upload.assert_awaited_once()
+        assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
+        assert run_scan.call_args.kwargs["file_uri"] == "gemini://files/fb"
+        assert delete.call_args.args[1] == "files/fb"
 
     @pytest.mark.asyncio
     async def test_other_inline_client_errors_do_not_upload(self) -> None:
-        run_scan, upload, delete = await self._inline_scan_failing_with(APIError(400, {"error": {"code": 400}}))
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
+            APIError(400, {"error": {"code": 400}})
+        )
 
         assert run_scan.await_count == 1
+        assert heartbeater.details == ()
         upload.assert_not_called()
         delete.assert_not_called()
 

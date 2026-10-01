@@ -17,6 +17,7 @@ from google.genai import (
 
 from products.replay_vision.backend import (
     feedback_themes,
+    prompt_questions,
     prompt_suggestions,
     scanner_draft,
     search_suggestions,
@@ -240,6 +241,24 @@ def test_text_call_sites_use_the_gateway_when_configured(module: Any, call: Call
     assert labels["team_id"] == "1"
     assert labels["feature"]
     assert request_headers["X-PostHog-Distinct-Id"] == "u"
+
+
+def test_prompt_questions_use_the_gateway_when_configured() -> None:
+    # `_generate` falls back on any error, so the routing shows in the calls, not a raise.
+    with (
+        override_settings(**_GATEWAY),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
+        patch.object(prompt_questions.genai, "Client") as direct_client,
+    ):
+        gateway_client.return_value.models.generate_content.side_effect = RuntimeError("stop")
+        assert prompt_questions._generate(prompt="p", scanner_type="monitor", team_id=1) is None
+
+    direct_client.assert_not_called()
+    assert gateway_client.call_args.kwargs["http_options"].timeout == prompt_questions._MODEL_CALL_TIMEOUT_MS
+    request_headers = gateway_client.return_value.models.generate_content.call_args.kwargs[
+        "config"
+    ].http_options.headers
+    assert json.loads(request_headers["X-PostHog-Properties"])["feature"] == "prompt_question"
 
 
 def test_a_stream_assembles_into_the_buffered_response() -> None:

@@ -113,6 +113,7 @@ async def _run(
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
     on_round: Callable[[int], None] | None = None,
+    inline_video: bool = False,
 ):
     return await _run_steps(
         client=client,
@@ -127,6 +128,7 @@ async def _run(
         metric_labels=_LABELS,
         trace_id="trace-1",
         on_round=on_round,
+        inline_video=inline_video,
     )
 
 
@@ -539,6 +541,30 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("inline_video", [True, False])
+async def test_an_inline_413_on_a_non_required_step_reaches_the_upload_fallback(inline_video: bool) -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
+    ]
+
+    class _TooLargeModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise APIError(413, {"error": {"code": 413}})
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([])
+    client.models = _TooLargeModels([_Resp(text='{"verdict":"yes"}')])
+
+    if inline_video:
+        with pytest.raises(APIError):
+            await _run(client, steps, inline_video=True)
+    else:
+        assert "signals" not in await _run(client, steps)
+
+
+@pytest.mark.asyncio
 async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
     steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
 
@@ -875,6 +901,16 @@ class TestVerifyPositives:
         )
         assert len(run.calls) == 3
         assert run.counted == {("enforce", "draw_failed"): 1.0}
+
+    @pytest.mark.asyncio
+    async def test_an_inline_413_on_the_draw_reaches_the_upload_fallback(self) -> None:
+        with pytest.raises(APIError):
+            await self._scan(
+                mode="enforce",
+                answers=["yes", APIError(413, {"error": {"code": 413}})],
+                cached=False,
+                inline_video=True,
+            )
 
     @pytest.mark.asyncio
     async def test_without_a_cache_the_first_pass_stands(self) -> None:

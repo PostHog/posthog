@@ -128,6 +128,8 @@ _VERIFY_MODES = ("shadow", "enforce")
 _VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
+# Heartbeat detail an attempt leaves when its inline request hit the gateway's body cap, so the retry skips inline.
+_INLINE_TOO_LARGE = "inline_too_large"
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
@@ -155,9 +157,9 @@ class _MissionOutcome:
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
     # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 20-min timeout.
-    async with Heartbeater(factor=4):
+    async with Heartbeater(factor=4) as heartbeater:
         try:
-            return await _call_scanner_provider(inputs)
+            return await _call_scanner_provider(inputs, heartbeater)
         except Exception as e:
             # Classify at the activity boundary, not inside the mission, so the cached-run fallback below can
             # inspect the raw provider error and decide which layer owns the retry.
@@ -176,7 +178,9 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
             raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
 
 
-async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
+async def _call_scanner_provider(
+    inputs: CallScannerProviderInputs, heartbeater: Heartbeater | None = None
+) -> ScannerCallOutput:
     # Re-check consent right before the provider generation — a separate egress step from the upload, so revocation
     # in the window between them must still abort before any recording data reaches the model. Fail closed.
     if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
@@ -221,11 +225,16 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
     )
-    try:
-        return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=video_bytes)
-    except APIError as e:
-        if video_bytes is None or e.code != 413:
-            raise
+    if video_bytes is None:
+        return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=None)
+    if not (activity.in_activity() and _INLINE_TOO_LARGE in activity.info().heartbeat_details):
+        try:
+            return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=video_bytes)
+        except APIError as e:
+            if e.code != 413:
+                raise
+        if heartbeater is not None:
+            heartbeater.details = (_INLINE_TOO_LARGE,)
     # The gateway caps the request body, and each tool round adds to the request that carries the video.
     logger.warning("replay_vision.call_scanner_provider.inline_too_large_uploading", size_bytes=len(video_bytes))
     # Imported here: at module level it runs before `conversation` and re-enters the `types`/`scanners` import cycle.
@@ -673,6 +682,7 @@ async def _run_mission(
         trace_id=trace_id,
         tools=tools,
         on_round=on_round,
+        inline_video=inline_video,
     )
     verification: VerificationRecord | None = None
     try:
@@ -753,6 +763,8 @@ async def _verify_positive_verdict(
                     raise TypeError(f"verify draw returned {type(draw).__name__}")
                 draws.append(draw)
             except Exception as exc:
+                if _inline_too_large(exc, inline_video):
+                    raise
                 # No traceback or message: a provider error body can quote the prompt, as at the activity boundary.
                 logger.warning(
                     "replay_vision.call_scanner_provider.verify_draw_failed",
@@ -868,6 +880,7 @@ async def _run_steps(
     trace_id: str,
     tools: list[types.Tool],
     on_round: Callable[[int], None] | None = None,
+    inline_video: bool = False,
 ) -> dict[str, BaseModel]:
     """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
@@ -893,7 +906,7 @@ async def _run_steps(
                 on_round=on_round,
             )
         except Exception as exc:
-            if step.required:
+            if step.required or _inline_too_large(exc, inline_video):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
@@ -908,6 +921,11 @@ async def _run_steps(
             continue
         step_outputs[step.name] = result.output
     return step_outputs
+
+
+def _inline_too_large(exc: Exception, inline: bool) -> bool:
+    """An inline request over the gateway's body cap: the activity reruns it over an upload, so it must reach there."""
+    return inline and isinstance(exc, APIError) and exc.code == 413
 
 
 def _exhausted_step_error(step: MissionStep, result: "_StepResult") -> ScannerFailureError:
