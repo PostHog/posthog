@@ -1,7 +1,7 @@
 import { TodayWorkItem } from './todayWorkItems'
 
 export interface TodaySessionDot {
-    /** `hollow` is settled, `solid` wants a look, `failed` is red, `spinner` is still starting. */
+    /** `hollow` is settled, `solid` wants a look, `failed` is red, `spinner` is starting or working. */
     mark: 'hollow' | 'solid' | 'failed' | 'spinner'
     /** Barely there, for a run somebody stopped. */
     faint: boolean
@@ -28,7 +28,7 @@ export function todaySessionDot(
         return { mark: 'spinner', faint: false, label: startingLabel }
     }
     if (status === 'in_progress') {
-        return { mark: 'solid', faint: false, label: 'Running' }
+        return { mark: 'spinner', faint: false, label: 'Working' }
     }
     if (unread) {
         return { mark: 'solid', faint: false, label: 'Unread' }
