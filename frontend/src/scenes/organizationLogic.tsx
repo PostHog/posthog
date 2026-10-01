@@ -14,6 +14,8 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
+import { cancelDeletionCreate } from 'products/platform_features/frontend/generated/api'
+
 import { urls } from './urls'
 import { userLogic } from './userLogic'
 
@@ -94,6 +96,21 @@ export interface organizationLogicActions {
     loadUser: (resetOnFailure?: boolean | undefined) => {
         resetOnFailure: boolean | undefined
     } // userLogic
+    cancelOrganizationDeletion: () => any
+    cancelOrganizationDeletionFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    cancelOrganizationDeletionSuccess: (
+        currentOrganization: OrganizationType | null,
+        payload?: any
+    ) => {
+        currentOrganization: OrganizationType | null
+        payload?: any
+    }
     completeOnboarding: () => any
     completeOnboardingFailure: (
         error: string,
@@ -284,6 +301,12 @@ export const organizationLogic = kea<organizationLogicType>([
                     userLogic.actions.loadUser()
                     return updatedOrganization
                 },
+                cancelOrganizationDeletion: async () => {
+                    if (!values.currentOrganization) {
+                        throw new Error('Current organization has not been loaded yet.')
+                    }
+                    return (await cancelDeletionCreate(values.currentOrganization.id)) as unknown as OrganizationType
+                },
                 completeOnboarding: async () =>
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
@@ -401,6 +424,15 @@ export const organizationLogic = kea<organizationLogicType>([
             const apiError = errorObject as ApiError | undefined
             lemonToast.error(`Failed to update organization: ${apiError?.detail || error || 'Unknown error'}`)
         },
+        cancelOrganizationDeletionSuccess: () => {
+            lemonToast.success('Organization deletion canceled')
+            // Full reload so the server lets the user back into the organization
+            window.location.href = urls.default()
+        },
+        cancelOrganizationDeletionFailure: ({ error, errorObject }: { error: string; errorObject?: unknown }) => {
+            const apiError = errorObject as ApiError | undefined
+            lemonToast.error(apiError?.detail || error || 'The organization deletion could not be canceled')
+        },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. destroy() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
@@ -412,7 +444,7 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
-            lemonToast.success('Organization deletion has been initiated', {
+            lemonToast.success('Organization deletion has been scheduled', {
                 toastId: 'deleteOrganization',
             })
 

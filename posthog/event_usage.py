@@ -709,6 +709,20 @@ def report_organization_deletion_initiated(user: User, organization: Organizatio
     )
 
 
+def report_organization_deletion_canceled(user: User, organization: Organization, outcome: str) -> None:
+    if _is_hosted_dev_deployment():
+        return
+
+    if not user.distinct_id:
+        return
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="organization deletion canceled",
+        properties={**organization.get_analytics_metadata(), "outcome": outcome},
+        groups=groups(organization),
+    )
+
+
 def report_organization_deletion_completed(user_id: int, organization_id: str) -> None:
     from posthog.models import User as UserModel
     from posthog.ph_client import ph_scoped_capture

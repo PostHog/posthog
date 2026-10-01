@@ -50,3 +50,26 @@ export default meta
 type Story = StoryObj<{}>
 
 export const PendingDeletion: Story = { render: () => <App /> }
+
+export const ScheduledDeletion: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': () => [
+                    200,
+                    {
+                        id: '018e1b6b-0000-0000-0000-000000000002',
+                        name: 'Test org',
+                        membership_level: 15,
+                        is_pending_deletion: true,
+                        deletion_scheduled_at: '2023-02-03T00:00:00Z',
+                        can_cancel_deletion: true,
+                        teams: [],
+                        projects: [],
+                    },
+                ],
+            },
+        }),
+    ],
+}

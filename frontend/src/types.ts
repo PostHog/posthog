@@ -625,6 +625,8 @@ export interface OrganizationType extends OrganizationBasicType {
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null
+    deletion_scheduled_at?: string | null
+    can_cancel_deletion?: boolean
 }
 
 export interface OrganizationDomainType {

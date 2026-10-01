@@ -54,8 +54,9 @@ export function DeleteOrganizationModal({
             isOpen={isOpen}
         >
             <p>
-                Organization deletion <b>cannot be undone</b>. You will lose all data, <b>including all events</b>,
-                related to all projects within this organization.
+                You will lose all data, <b>including all events</b>, related to all projects within this organization.
+                We delete the organization 48 hours after you confirm. Until then, an admin can cancel the deletion.
+                After that, it <b>cannot be undone</b>.
             </p>
             <p>
                 Please type <strong>{organization ? organization.name : "this organization's name"}</strong> to confirm.
@@ -87,7 +88,7 @@ export function OrganizationDangerZone(): JSX.Element {
             <div className="text-danger">
                 {!restrictionReason && (
                     <p className="text-danger">
-                        This is <b>irreversible</b>. Please be certain.
+                        After 48 hours this is <b>irreversible</b>. Please be certain.
                     </p>
                 )}
                 <LemonButton

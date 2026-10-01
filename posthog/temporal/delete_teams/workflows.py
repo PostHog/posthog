@@ -6,6 +6,7 @@ import temporalio.exceptions
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_teams.activities import (
+    check_organization_pending_deletion_activity,
     check_project_pending_deletion_activity,
     delete_batch_exports_activity,
     delete_cohort_members_activity,
@@ -233,6 +234,20 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeleteOrganizationWorkflowInputs) -> None:
+        # A canceled deletion clears `is_pending_deletion`, so a run that starts after the
+        # cancellation stops here. Gated with `patched` so in-flight deletions from before this
+        # deploy don't fail replay on a changed command sequence.
+        if temporalio.workflow.patched("check-organization-pending-deletion"):
+            organization_is_pending_deletion = await temporalio.workflow.execute_activity(
+                check_organization_pending_deletion_activity,
+                OrganizationRecordInputs(organization_id=inputs.organization_id, user_id=inputs.user_id),
+                start_to_close_timeout=LIGHT_ACTIVITY_TIMEOUT,
+                heartbeat_timeout=LIGHT_HEARTBEAT_TIMEOUT,
+                retry_policy=DELETE_RETRY_POLICY,
+            )
+            if not organization_is_pending_deletion:
+                return
+
         # Deprovision the org's managed warehouse (duckgres) first: the org-record cascade
         # below destroys the DuckgresServer pointer, and without this the warehouse would
         # survive the org fully alive — external writers keep ingesting, storage keeps being

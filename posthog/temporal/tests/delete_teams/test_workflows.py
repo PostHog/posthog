@@ -45,9 +45,7 @@ CORE_ACTIVITY_ORDER = [
 ]
 
 
-def _recording_activities(
-    calls: list[str], exclude: frozenset[str] = frozenset(), project_pending: bool = True
-) -> list:
+def _recording_activities(calls: list[str], exclude: frozenset[str] = frozenset(), pending: bool = True) -> list:
     """Mock every delete_teams activity by name; each records its invocation order."""
 
     def _team_activity(name: str):
@@ -64,7 +62,12 @@ def _recording_activities(
     @activity.defn(name="check_project_pending_deletion_activity")
     async def check_project_pending_deletion_activity(inputs: ProjectRecordInputs) -> bool:
         calls.append("check_project_pending_deletion_activity")
-        return project_pending
+        return pending
+
+    @activity.defn(name="check_organization_pending_deletion_activity")
+    async def check_organization_pending_deletion_activity(inputs: OrganizationRecordInputs) -> bool:
+        calls.append("check_organization_pending_deletion_activity")
+        return pending
 
     @activity.defn(name="delete_project_record_activity")
     async def delete_project_record_activity(inputs: ProjectRecordInputs) -> None:
@@ -86,6 +89,7 @@ def _recording_activities(
         *[_team_activity(name) for name in CORE_ACTIVITY_ORDER],
         deprovision_managed_warehouse_activity,
         check_project_pending_deletion_activity,
+        check_organization_pending_deletion_activity,
         delete_project_record_activity,
         delete_organization_record_activity,
         send_project_deleted_email_activity,
@@ -94,14 +98,14 @@ def _recording_activities(
     return [fn for fn in mocks if fn.__name__ not in exclude]
 
 
-async def _run(workflow, inputs, calls: list[str], project_pending: bool = True) -> None:
+async def _run(workflow, inputs, calls: list[str], pending: bool = True) -> None:
     task_queue = str(uuid.uuid4())
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=WORKFLOWS,
-            activities=_recording_activities(calls, project_pending=project_pending),
+            activities=_recording_activities(calls, pending=pending),
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -145,7 +149,7 @@ async def test_project_workflow_stops_when_project_is_not_pending_deletion():
         DeleteProjectDataWorkflow.run,
         DeleteProjectDataWorkflowInputs(team_ids=[1], project_id=42, user_id=7, project_name="proj"),
         calls,
-        project_pending=False,
+        pending=False,
     )
     assert calls == ["check_project_pending_deletion_activity"]
 
@@ -175,11 +179,29 @@ async def test_organization_workflow_deletes_record_then_emails():
         calls,
     )
     assert calls == [
+        "check_organization_pending_deletion_activity",
         "deprovision_managed_warehouse_activity",
         *CORE_ACTIVITY_ORDER,
         "delete_organization_record_activity",
         "send_organization_deleted_email_activity",
     ]
+
+
+async def test_organization_workflow_stops_when_organization_is_not_pending_deletion():
+    calls: list[str] = []
+    await _run(
+        DeleteOrganizationWorkflow.run,
+        DeleteOrganizationWorkflowInputs(
+            team_ids=[1, 2],
+            organization_id="11111111-1111-1111-1111-111111111111",
+            user_id=7,
+            organization_name="org",
+            project_names=["a", "b"],
+        ),
+        calls,
+        pending=False,
+    )
+    assert calls == ["check_organization_pending_deletion_activity"]
 
 
 def _core_activities_with(target_name: str, target_fn) -> list:
@@ -288,7 +310,7 @@ async def test_warehouse_deprovision_failure_blocks_org_record_deletion():
                 )
 
     assert len(attempts) > 1  # durably retried until the test-only execution timeout
-    assert calls == []  # nothing else ran — the pointer-destroying cascade never started
+    assert calls == ["check_organization_pending_deletion_activity"]  # the pointer-destroying cascade never started
 
 
 async def test_recording_deletion_failure_does_not_block_workflow():
