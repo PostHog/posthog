@@ -48,10 +48,10 @@ from products.alerts.backend.facade.temporal import (
 from products.alerts.backend.temporal import postgres, workflows
 from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 from products.alerts.backend.temporal.workflows import (
-    AlertsProductEvaluateWorkflow,
-    AlertsProductInputs,
-    AlertsProductOrchestrateWorkflow,
-    AlertsProductSourceDispatchWorkflow,
+    AlertsPlatformEvaluateWorkflow,
+    AlertsPlatformInputs,
+    AlertsPlatformOrchestrateWorkflow,
+    AlertsPlatformSourceDispatchWorkflow,
 )
 
 _team_id = 0
@@ -74,11 +74,11 @@ def scenario_team() -> None:
     _team_id += 1
 
 
-ORCHESTRATION_QUEUE = settings.ALERTS_PRODUCT_SHARED_ORCHESTRATION_TASK_QUEUE
-EVALUATION_QUEUE = settings.ALERTS_PRODUCT_EVALUATION_TASK_QUEUE
+ORCHESTRATION_QUEUE = settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE
+EVALUATION_QUEUE = settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE
 
 
-@workflow.defn(name="alerts-product-source-dispatch")
+@workflow.defn(name="alerts-platform-source-dispatch")
 class PagingDispatcher:
     """Stands in for the real dispatcher: takes one ID per run, reports the rest. Same child edge."""
 
@@ -89,8 +89,8 @@ class PagingDispatcher:
         )
         evaluation_workflow_id = f"{workflow.info().workflow_id}-eval"
         await workflow.start_child_workflow(
-            AlertsProductEvaluateWorkflow.run,
-            AlertsProductInputs(),
+            AlertsPlatformEvaluateWorkflow.run,
+            AlertsPlatformInputs(),
             id=evaluation_workflow_id,
             task_queue=EVALUATION_QUEUE,
             parent_close_policy=workflow.ParentClosePolicy.ABANDON,
@@ -104,7 +104,7 @@ class PagingDispatcher:
         )
 
 
-@workflow.defn(name="alerts-product-source-dispatch")
+@workflow.defn(name="alerts-platform-source-dispatch")
 class BrokenLogsDispatcher:
     """Registered under the real dispatcher's name. Fails for logs, dispatches for every other
     source, the way a broken source adapter would."""
@@ -167,7 +167,7 @@ GateActivity = Callable[[list[str]], Awaitable[None]]
 def demand_activity(
     demand: dict[SourceKind, list[AlertBatchKey]], omitted: dict[SourceKind, int] | None = None
 ) -> DiscoverActivity:
-    @activity.defn(name="alerts_product_discover_demand_activity")
+    @activity.defn(name="alerts_platform_discover_demand_activity")
     async def discover(inputs: DemandDiscoveryInputs) -> AlertDemand:
         return AlertDemand(batch_keys_by_source=demand, omitted_by_source=omitted or {})
 
@@ -190,7 +190,7 @@ def workers(
     name, so it takes its place on the fleet the tick dispatches to."""
     runner = UnsandboxedWorkflowRunner()
     orchestration_workflows: list[type] = (
-        [AlertsProductOrchestrateWorkflow, dispatcher] if dispatcher else list(SHARED_ORCHESTRATION_WORKFLOWS)
+        [AlertsPlatformOrchestrateWorkflow, dispatcher] if dispatcher else list(SHARED_ORCHESTRATION_WORKFLOWS)
     )
     return (
         Worker(
@@ -216,7 +216,7 @@ def events_of(history: WorkflowHistory, event_type: int) -> list[HistoryEvent]:
 
 async def run_tick(client: Client, tick_id: str) -> OrchestrateResult:
     return await client.execute_workflow(
-        AlertsProductOrchestrateWorkflow.run,
+        AlertsPlatformOrchestrateWorkflow.run,
         OrchestrateInputs(),
         id=tick_id,
         task_queue=ORCHESTRATION_QUEUE,
@@ -230,7 +230,7 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
     orchestration_worker, evaluation_worker = workers(client)
     async with orchestration_worker, evaluation_worker:
         report: SourceDispatchReport = await client.execute_workflow(
-            AlertsProductSourceDispatchWorkflow.run,
+            AlertsPlatformSourceDispatchWorkflow.run,
             SourceDispatchInputs(
                 tick_id="tick",
                 source=SourceKind.LOGS,
@@ -259,7 +259,7 @@ async def test_real_dispatcher_takes_everything_and_abandons_one_evaluation(envi
         # One evaluation per key the dispatcher took, each named by the key it holds.
         assert len(initiated) == 3
         child = initiated[0].start_child_workflow_execution_initiated_event_attributes
-        assert child.workflow_type.name == "alerts-product-evaluate"
+        assert child.workflow_type.name == "alerts-platform-evaluate"
         assert child.parent_close_policy == ParentClosePolicy.PARENT_CLOSE_POLICY_ABANDON
         assert child.workflow_execution_timeout.ToTimedelta() == workflows.SOURCE_EVALUATION_TIMEOUT
         # One task per child start, plus the one that completed the run. A dispatcher that awaited an
@@ -282,7 +282,7 @@ async def test_a_key_whose_evaluation_still_runs_is_skipped_without_losing_the_p
         blocker = await client.start_workflow(BlockingEvaluation.run, id=held_id, task_queue=EVALUATION_QUEUE)
         try:
             report: SourceDispatchReport = await client.execute_workflow(
-                AlertsProductSourceDispatchWorkflow.run,
+                AlertsPlatformSourceDispatchWorkflow.run,
                 SourceDispatchInputs(
                     tick_id="tick",
                     source=SourceKind.LOGS,
@@ -363,7 +363,7 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
         ).replay_workflow(history)
         scheduled = events_of(history, EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED)
         assert [event.activity_task_scheduled_event_attributes.activity_type.name for event in scheduled] == [
-            "alerts_product_discover_demand_activity"
+            "alerts_platform_discover_demand_activity"
         ]
         started = events_of(history, EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED)
         children = {
@@ -373,10 +373,10 @@ async def test_tick_pages_until_demand_is_exhausted(environment: WorkflowEnviron
             for event in started
         }
         assert children == {
-            f"{tick_id}-insight-p0": "alerts-product-source-dispatch",
-            f"{tick_id}-logs-p0": "alerts-product-source-dispatch",
-            f"{tick_id}-logs-p1": "alerts-product-source-dispatch",
-            f"{tick_id}-logs-p2": "alerts-product-source-dispatch",
+            f"{tick_id}-insight-p0": "alerts-platform-source-dispatch",
+            f"{tick_id}-logs-p0": "alerts-platform-source-dispatch",
+            f"{tick_id}-logs-p1": "alerts-platform-source-dispatch",
+            f"{tick_id}-logs-p2": "alerts-platform-source-dispatch",
         }
         for event in events_of(history, EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED):
             attributes = event.start_child_workflow_execution_initiated_event_attributes
@@ -457,7 +457,7 @@ async def test_overrunning_dispatcher_times_out_before_the_tick_hard_stop(
     )
     async with orchestration, evaluation:
         handle = await client.start_workflow(
-            AlertsProductOrchestrateWorkflow.run,
+            AlertsPlatformOrchestrateWorkflow.run,
             OrchestrateInputs(),
             id=tick_id,
             task_queue=ORCHESTRATION_QUEUE,

@@ -464,6 +464,7 @@ describe('engineeringAnalyticsLogic', () => {
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
         ['tests', () => urls.engineeringAnalyticsTests()],
         ['teams', () => urls.engineeringAnalyticsTeams()],
+        ['authors', () => urls.engineeringAnalyticsAuthors()],
         ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
         ['deploys', () => urls.engineeringAnalyticsDeploys()],
     ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {

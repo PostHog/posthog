@@ -80,6 +80,15 @@ def create_insight_variable(
     return _to_variable_definition(variable)
 
 
+def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
+    """Hold the insight definition stable while saving a dependent evaluation.
+
+    Call inside a transaction, before locking dependent rows. Returns False if the insight
+    does not exist in this team. The lock remains until the caller's transaction ends.
+    """
+    return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 
@@ -142,14 +151,22 @@ def get_query_specific_instructions(kind: str) -> str:
 def get_or_create_saved_insight(
     *,
     team_id: int,
-    user_id: int,
+    user_id: int | None,
     short_id: str,
     name: str | None,
     description: str | None,
     query: dict[str, object] | None,
+    revive_deleted: bool = True,
 ) -> tuple[int, bool]:
+    """Create a saved insight, optionally restoring a soft-deleted short-ID collision."""
     return logic.get_or_create_saved_insight(
-        team_id=team_id, user_id=user_id, short_id=short_id, name=name, description=description, query=query
+        team_id=team_id,
+        user_id=user_id,
+        short_id=short_id,
+        name=name,
+        description=description,
+        query=query,
+        revive_deleted=revive_deleted,
     )
 
 

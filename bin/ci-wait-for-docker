@@ -24,10 +24,12 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
 # Registries that mirror Docker Hub, such as mirror.gcr.io, separated by whitespace and tried
-# in order. When set, launch pulls each Docker Hub image from the first mirror that has it, so
-# `compose up` finds the image locally and never asks Docker Hub. A Depot Registry host
-# (*.registry.depot.dev) is logged into with DEPOT_TOKEN, which every Depot CI job carries.
-REGISTRY_MIRRORS="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
+# in order. When set, launch pulls each Docker Hub image from the first mirror that has it and
+# tags it with the Docker Hub name, so `compose up` finds the image locally and never asks
+# auth.docker.io for a token. The daemon config stays untouched, so Docker Hub credentials are
+# never sent to a mirror. A Depot Registry host (*.registry.depot.dev) is logged into with
+# DEPOT_TOKEN, which every Depot CI job carries.
+read -r -a REGISTRY_MIRRORS <<< "${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
@@ -169,28 +171,6 @@ missing_services() {
     printf '%s\n' "${missing[@]}"
 }
 
-run_launch_once() {
-    local down_mode="$1"
-    shift
-
-    case "$down_mode" in
-        current)
-            compose down
-            ;;
-        all_profiles)
-            compose --profile '*' down
-            ;;
-        none)
-            ;;
-        *)
-            echo "Unknown down mode: $down_mode" >&2
-            return 2
-            ;;
-    esac
-
-    compose_up "$@"
-}
-
 login_to_depot_mirrors() {
     local mirror
 
@@ -214,31 +194,48 @@ pull_from_first_mirror() {
     echo "No mirror has ${image}; compose pulls it from Docker Hub."
 }
 
-pull_through_registry_mirror() {
+pull_from_registry_mirror() {
     local image
     local path
     local host
-    local pids=()
 
-    [ -n "$REGISTRY_MIRRORS" ] || return 0
-    read -r -a REGISTRY_MIRRORS <<< "$REGISTRY_MIRRORS"
+    [ "${#REGISTRY_MIRRORS[@]}" -gt 0 ] || return 0
     login_to_depot_mirrors
     while read -r image; do
-        [[ -z "$image" || "$image" == *@* ]] && continue
         path="${image#docker.io/}"
-        if [[ "$path" == */* ]]; then
-            host="${path%%/*}"
-            # Images from other registries (ghcr.io, quay.io, ...) pull as usual.
-            [[ "$path" == "$image" && ( "$host" == *.* || "$host" == *:* || "$host" == localhost ) ]] && continue
-        else
-            path="library/${path}"
+        host="${path%%/*}"
+        # Digest-pinned images and images from other registries (ghcr.io, quay.io) pull as usual.
+        if [[ "$path" == *@* ]] \
+            || [[ "$path" == "$image" && "$path" == */* && ( "$host" == *[.:]* || "$host" == localhost ) ]]; then
+            continue
         fi
+        [[ "$path" == */* ]] || path="library/${path}"
         pull_from_first_mirror "$path" "$image" &
-        pids+=("$!")
     done < <(compose config --images "$@" 2>/dev/null)
-    for pid in "${pids[@]}"; do
-        wait "$pid" || true
-    done
+    wait
+}
+
+run_launch_once() {
+    local down_mode="$1"
+    shift
+
+    case "$down_mode" in
+        current)
+            compose down
+            ;;
+        all_profiles)
+            compose --profile '*' down
+            ;;
+        none)
+            ;;
+        *)
+            echo "Unknown down mode: $down_mode" >&2
+            return 2
+            ;;
+    esac
+
+    pull_from_registry_mirror "$@"
+    compose_up "$@"
 }
 
 run_launch() {
@@ -282,7 +279,6 @@ run_launch() {
         local inner_attempt=1
         local inner_sleep_time
 
-        pull_through_registry_mirror "${launch_services[@]}"
         while [ "$inner_attempt" -le "$LAUNCH_RETRIES" ]; do
             if run_launch_once "$down_mode" "${launch_services[@]}"; then
                 echo "Docker Compose launch succeeded"

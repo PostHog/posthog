@@ -4,7 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -28,11 +28,20 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
-from products.ai_observability.backend.prompt_references import MAX_PROMPT_REFERENCES
+from products.ai_observability.backend.prompt_references import (
+    MAX_ACTIVE_REFERENCE_RESULTS,
+    MAX_PROMPT_REFERENCES,
+    get_active_parents_referencing_label,
+)
 
 
 class TestLLMPromptAPI(APIBaseTest):
@@ -943,15 +952,15 @@ class TestLLMPromptAPI(APIBaseTest):
         assert isinstance(throttles[1], BurstRateThrottle)
         assert isinstance(throttles[2], SustainedRateThrottle)
 
-    def test_get_by_name_uses_default_burst_and_sustained_throttles(self):
+    @parameterized.expand(["list", "get_by_name", "resolve_by_name"])
+    def test_fetch_actions_use_dedicated_throttle_instead_of_shared_budget(self, action):
         view = LLMPromptViewSet()
-        view.action = "get_by_name"
+        view.action = action
 
         throttles = view.get_throttles()
 
-        assert len(throttles) == 2
-        assert isinstance(throttles[0], BurstRateThrottle)
-        assert isinstance(throttles[1], SustainedRateThrottle)
+        assert len(throttles) == 1
+        assert isinstance(throttles[0], LLMPromptFetchRateThrottle)
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
@@ -2351,3 +2360,90 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
                 f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full&resolve=false"
             )
         assert raw.json()["results"][0]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"
+
+    def test_label_cannot_activate_a_version_whose_references_went_dead(self):
+        self._make_prompt("dep")
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "base", "prompt": "@@@prompt:name=dep|version=1@@@"},
+            format="json",
+        )
+        # v2 drops the reference, so archiving dep is legal: only the inactive v1 points at it.
+        self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/base/",
+            data={"prompt": "standalone", "base_version": 1},
+            format="json",
+        )
+        assert (
+            self.client.post(f"/api/environments/{self.team.id}/llm_prompts/name/dep/archive/").status_code
+            == status.HTTP_204_NO_CONTENT
+        )
+
+        response = self.client.put(
+            f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/production/",
+            data={"version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_not_found"
+
+    def test_label_move_deadlock_is_a_retryable_conflict(self):
+        self._make_prompt("base")
+        with patch(
+            "posthog.api.llm_prompt.set_prompt_label",
+            side_effect=OperationalError("deadlock detected"),
+        ):
+            response = self.client.put(
+                f"/api/environments/{self.team.id}/llm_prompts/name/base/labels/production/",
+                data={"version": 1},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "Try again" in response.json()["detail"]
+
+    def test_create_rejects_references_inside_json_payloads(self):
+        self._make_prompt("guardrails", label="production")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={
+                "name": "structured",
+                "prompt": {
+                    "messages": [{"role": "system", "content": "@@@prompt:name=guardrails|label=production@@@"}]
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "reference_in_non_text_prompt"
+
+        tag_free = self.client.post(
+            f"/api/environments/{self.team.id}/llm_prompts/",
+            data={"name": "structured", "prompt": {"messages": [{"role": "system", "content": "hi"}]}},
+            format="json",
+        )
+        assert tag_free.status_code == status.HTTP_201_CREATED
+
+    def test_label_parent_listing_is_capped(self):
+        base = self._make_prompt("base", label="production")
+        assert base is not None
+        parents = LLMPrompt.objects.bulk_create(
+            LLMPrompt(team=self.team, name=f"parent-{i}", prompt="x", version=1, is_latest=True, created_by=self.user)
+            for i in range(MAX_ACTIVE_REFERENCE_RESULTS + 1)
+        )
+        LLMPromptDependency.objects.bulk_create(
+            LLMPromptDependency(
+                team=self.team,
+                prompt=parent,
+                parent_name=parent.name,
+                child_name="base",
+                child_label="production",
+            )
+            for parent in parents
+        )
+
+        names = get_active_parents_referencing_label(self.team.id, "base", "production")
+
+        assert len(names) == MAX_ACTIVE_REFERENCE_RESULTS
+        assert names == sorted(names)

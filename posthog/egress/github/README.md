@@ -27,6 +27,9 @@ Deferrable background callers construct their client on the `BATCH` lane (`GitHu
 A shed sweep stops for the cycle and resumes on the next scheduled run.
 A caller that walks pages, such as the warehouse source, paces with `github_installation_pace_seconds` instead of getting denied.
 The warehouse source's page fetches run on `BATCH`, while its repository validation and webhook management run on `NORMAL`, because a person waits on them. Customer Analytics feature-request link and resume lookups also run on `NORMAL` because an editor waits for the current issue state. Signals refreshes the stored pull request review decision from GitHub webhooks on `BATCH`; the inbox can keep the last known value when the lane is shed and update it after a retry.
+The ownership file reader (`posthog/ownership/`, source `ownership_github_api`) runs on `NORMAL` where a person waits for a board or a snapshot list, and on `BATCH` for the scheduled digests and report generation. Its GraphQL reads charge `core`, as every GraphQL call does, and so does the one compare call per new head commit that lets it reuse cached files.
+Stamphog reads the author-familiarity blame and history (GraphQL) and the pull request's commit messages on `BATCH`, because both signals are advisory: a shed call leaves them out of that review.
+Its merge base read (compare) stays on the default lane, because the review checkout needs it.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.

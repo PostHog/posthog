@@ -29,6 +29,7 @@ export async function findGroups(
     const results = await Promise.all(
         groupKeys.map(async (groupKey) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use groupsFindRetrieve() from 'products/groups/frontend/generated/api' instead.
                 const response: Group = await api.get(
                     `api/projects/${teamId}/groups/find/?${new URLSearchParams({
                         group_type_index: String(groupTypeIndex),
@@ -158,6 +159,7 @@ export const groupKeySelectLogic = kea<groupKeySelectLogicType>([
                     if (search) {
                         params.search = search
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use groupsList() from 'products/groups/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/groups/?${new URLSearchParams(
                             Object.entries(params).map(([k, v]) => [k, String(v)])

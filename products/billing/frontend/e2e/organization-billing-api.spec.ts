@@ -56,11 +56,25 @@ test.describe('Organization billing API', () => {
                 expect(product.kind).toBe('product')
                 expect(product).toHaveProperty('key')
                 expect(product).not.toHaveProperty('type')
+                for (const entry of [product, ...product.addons]) {
+                    expect(entry.image_url, entry.key).not.toBe('None')
+                    expect(entry.docs_url, entry.key).not.toBe('None')
+                }
                 for (const addon of product.addons) {
                     expect(addon.kind).toBe('addon')
                 }
             }
             expect((await (await get('products/product_analytics/')).json()).key).toBe('product_analytics')
+
+            const summary = (await (await get('products/summary/')).json()).results
+            expect(summary.map((product: { key: string }) => product.key)).toEqual(
+                products.results.map((product: { key: string }) => product.key)
+            )
+            for (const product of summary) {
+                expect(product).not.toHaveProperty('tiers')
+                expect(product).not.toHaveProperty('plans')
+                expect(Array.isArray(product.features)).toBe(true)
+            }
 
             const usage = await (await get('usage/')).json()
             expect(usage).toHaveProperty('usage_summary')
@@ -77,6 +91,12 @@ test.describe('Organization billing API', () => {
 
             const invoices = await (await get('invoices/')).json()
             expect(invoices).toEqual({ next: null, previous: null, results: [] })
+
+            const csv = await get('usage/export/', { ...SERIES, breakdowns: '["type","team"]' })
+            expect(csv.status()).toBe(200)
+            expect(csv.headers()['content-type']).toContain('text/csv')
+            expect(csv.headers()['content-disposition']).toContain('attachment; filename="posthog_usage_')
+            expect((await csv.text()).split('\n')[0]).toMatch(/^Product,Project,Project ID,Total/)
         })
 
         test('invoice parameters are validated before billing is asked', async ({ request, playwrightSetup }) => {
@@ -161,6 +181,7 @@ test.describe('Organization billing API', () => {
             for (const path of ['subscription/', 'features/', 'products/', 'usage/status/']) {
                 expect((await get(path)).status(), path).toBe(200)
             }
+            expect((await get('products/summary/')).status()).toBe(200)
             for (const path of ['forecast/', 'invoices/', 'limits/']) {
                 expect((await get(path)).status(), path).toBe(403)
             }
@@ -169,6 +190,7 @@ test.describe('Organization billing API', () => {
             expect((await get('spend/')).status()).toBe(403)
             const withFlag = memberHasReadFlag ? 200 : 403
             expect((await get('usage/timeseries/', SERIES)).status()).toBe(withFlag)
+            expect((await get('usage/export/', SERIES)).status()).toBe(withFlag)
             expect((await get('projects/')).status()).toBe(withFlag)
         })
     })

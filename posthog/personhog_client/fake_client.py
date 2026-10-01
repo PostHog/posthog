@@ -70,6 +70,8 @@ class FakePersonHogClient:
         self._distinct_ids: dict[tuple[int, int], list[person_pb2.DistinctIdWithVersion]] = {}
         # keyed by (team_id, distinct_id): mappings tombstoned alongside their person
         self._tombstoned_distinct_ids: set[tuple[int, str]] = set()
+        self.tombstone_queue: dict[tuple[int, str], int] = {}
+        self.tombstone_queued_at_ms: dict[tuple[int, str], int] = {}
         # Mirrors the replica's TOMBSTONED_DELETE_MAX_ROWS clamp. The fake tracks distinct ids
         # only, so the row budget counts them alone.
         self.tombstoned_delete_max_rows = 5000
@@ -645,6 +647,8 @@ class FakePersonHogClient:
                 continue
             response.deleted_count += 1
             tombstoned.version = self._tombstone_person(request.team_id, person, tombstoned)
+            self.tombstone_queue[(request.team_id, str(person.uuid))] = tombstoned.version
+            self.tombstone_queued_at_ms.setdefault((request.team_id, str(person.uuid)), int(time.time() * 1000))
         response.tombstones.sort(key=lambda t: t.person_uuid)
         return response
 
@@ -663,6 +667,55 @@ class FakePersonHogClient:
             self._tombstoned_distinct_ids.add((team_id, did.distinct_id))
             tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
         return version
+
+    def ack_person_tombstones(
+        self, request: person_pb2.AckPersonTombstonesRequest, timeout: float | None = None
+    ) -> person_pb2.AckPersonTombstonesResponse:
+        self.calls.append(_Call("ack_person_tombstones", request))
+        cleared = 0
+        for acked in request.tombstones:
+            key = (request.team_id, acked.person_uuid)
+            if key in self.tombstone_queue and self.tombstone_queue[key] <= acked.version:
+                del self.tombstone_queue[key]
+                self.tombstone_queued_at_ms.pop(key, None)
+                cleared += 1
+        return person_pb2.AckPersonTombstonesResponse(cleared_count=cleared)
+
+    def list_person_tombstone_queue(
+        self, request: person_pb2.ListPersonTombstoneQueueRequest, timeout: float | None = None
+    ) -> person_pb2.ListPersonTombstoneQueueResponse:
+        self.calls.append(_Call("list_person_tombstone_queue", request))
+        after = (request.after_team_id, request.after_person_uuid)
+        keys = sorted(
+            key
+            for key in self.tombstone_queue
+            if key > after and (not request.HasField("team_id") or key[0] == request.team_id)
+        )
+        response = person_pb2.ListPersonTombstoneQueueResponse()
+        for team_id, person_uuid in keys[: request.limit or 1000]:
+            response.entries.add(
+                team_id=team_id,
+                person_uuid=person_uuid,
+                person_version=self.tombstone_queue[(team_id, person_uuid)],
+                tombstoned_at=self.tombstone_queued_at_ms.get((team_id, person_uuid), 0),
+            )
+        return response
+
+    def get_person_tombstones(
+        self, request: person_pb2.GetPersonTombstonesRequest, timeout: float | None = None
+    ) -> person_pb2.GetPersonTombstonesResponse:
+        self.calls.append(_Call("get_person_tombstones", request))
+        response = person_pb2.GetPersonTombstonesResponse()
+        for uuid in request.person_uuids:
+            person = self._persons_by_uuid.get((request.team_id, uuid))
+            if person is None or not person.is_deleted:
+                continue
+            tombstoned = response.tombstones.add(person_uuid=person.uuid, version=person.version)
+            for did in sorted(self._distinct_ids.get((request.team_id, person.id), []), key=lambda d: d.distinct_id):
+                if (request.team_id, did.distinct_id) in self._tombstoned_distinct_ids:
+                    tombstoned.distinct_ids.add(distinct_id=did.distinct_id, version=did.version)
+        response.tombstones.sort(key=lambda t: t.person_uuid)
+        return response
 
     def delete_tombstoned_persons(
         self, request: person_pb2.DeleteTombstonedPersonsRequest, timeout: float | None = None

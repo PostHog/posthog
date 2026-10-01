@@ -38,7 +38,7 @@ from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.editor_assist_metrics import EDITOR_ASSIST_DURATION_SECONDS, EDITOR_ASSIST_RESPONSES_TOTAL
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.language_service import (
-    WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX,
+    CATALOG_REVISION_PREFIX,
     CatalogMissing,
     LanguageServiceClient,
     LanguageServiceError,
@@ -98,8 +98,8 @@ class _EditorAssistRoute:
     malformed_stage: _MalformedResponseStage | None = None
 
 
-def _is_alias_capable_catalog_revision(revision: object) -> bool:
-    return isinstance(revision, str) and revision.startswith(WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX)
+def _is_current_catalog_revision(revision: object) -> bool:
+    return isinstance(revision, str) and revision.startswith(CATALOG_REVISION_PREFIX)
 
 
 def _language_service_eligible(query: HogQLAutocomplete | HogQLMetadata) -> bool:
@@ -144,7 +144,7 @@ def _language_service_call(
         return _EditorAssistRoute(enabled=True, result=None, reason="service_error")
 
     if result is not None:
-        if _is_alias_capable_catalog_revision(result.body.get("catalogRevision")):
+        if _is_current_catalog_revision(result.body.get("catalogRevision")):
             return _EditorAssistRoute(enabled=True, result=result, reason="served")
 
     publication_succeeded = False
@@ -153,7 +153,7 @@ def _language_service_call(
         nonlocal publication_succeeded
         with timings.measure("catalog_schema") if timings is not None else nullcontext():
             schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
-        revision = f"{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}{time.time_ns()}"
+        revision = f"{CATALOG_REVISION_PREFIX}{time.time_ns()}"
         with timings.measure("catalog_build") if timings is not None else nullcontext():
             catalog = build_catalog(
                 team,
@@ -170,7 +170,7 @@ def _language_service_call(
             current = call()
         except CatalogMissing:
             return None
-        if not _is_alias_capable_catalog_revision(current.body.get("catalogRevision")):
+        if not _is_current_catalog_revision(current.body.get("catalogRevision")):
             if publication_succeeded:
                 raise MalformedLanguageServiceResponse("language service returned an incompatible catalog revision")
             return None
@@ -280,6 +280,10 @@ def _metadata_response_from_language_service(
     body = language_result.body
     if not isinstance(body.get("diagnostics"), list):
         raise TypeError("diagnostics must be a list")
+    raw_notices = body.get("notices", [])
+    if not isinstance(raw_notices, list):
+        raise TypeError("notices must be a list")
+    query_length_utf16 = len(query.query.encode("utf-16-le", errors="surrogatepass")) // 2
     errors: list[HogQLNotice] = []
     warnings: list[HogQLNotice] = []
     for diagnostic in body["diagnostics"]:
@@ -293,12 +297,33 @@ def _metadata_response_from_language_service(
             warnings.append(notice)
         else:
             errors.append(notice)
+    notices: list[HogQLNotice] = []
+    for raw_notice in raw_notices:
+        if not isinstance(raw_notice, dict):
+            raise TypeError("notice must be an object")
+        message = raw_notice["message"]
+        start = raw_notice["start"]
+        end = raw_notice["end"]
+        fix = raw_notice.get("fix")
+        if (
+            not isinstance(message, str)
+            or not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start < 0
+            or end <= start
+            or end > query_length_utf16
+            or (fix is not None and not isinstance(fix, str))
+        ):
+            raise TypeError("invalid notice")
+        notices.append(HogQLNotice(message=message, start=start, end=end, fix=fix))
     return HogQLMetadataResponse(
         isValid=not errors,
         query=query.query,
         errors=errors,
         warnings=warnings,
-        notices=[],
+        notices=notices,
         table_names=body.get("tableNames", []),
     )
 

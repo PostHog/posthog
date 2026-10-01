@@ -1,1 +1,1 @@
-0330_trace_spans_retention_days
+0341_drop_trace_spans_old_projections

@@ -72,7 +72,7 @@ The integration does not provision catalogs, alter deployments, or make source-o
 
 ## Managed Trino connections
 
-Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then combines them with the root password already stored for the managed warehouse. The connection contract redacts that password from its representation.
+Call `resolve_managed_warehouse_trino_connection(...)` through the managed-warehouse client facade when a backend job needs a live Trino target. The resolver accepts a target only when the control plane reports the organization as enabled and ready. It reads the catalog plus non-secret host, port, and username from `status.connection`, then uses the encrypted `DuckgresServer.trino_password` when one is configured. Existing rows fall back to the stored Duckgres password until a Trino password is set. Staff can set or replace the Trino password in the Duckgres server Django admin form; the saved value is never displayed there. The connection contract redacts that password from its representation.
 
 Call `connect_managed_warehouse_trino(...)` to open the Python Trino client with basic authentication, HTTPS, certificate verification, and a bounded request timeout. The connector has no Duckgres fallback. A disabled target, non-ready state, organization mismatch, malformed endpoint, or missing stored credential fails before opening a socket.
 
@@ -220,10 +220,9 @@ Trino enforces tenant capacity and query queueing.
 Model builds and alias passes submit work without application-level global or organization admission limits.
 Their synchronous client calls use a dedicated executor with Python's default pool size, separate from the general database thread pool.
 
-Build sessions set `query_max_run_time` to 15 minutes.
-The client also enforces a total execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
+The client enforces a 15-minute execution deadline and sends cancellation through the active Trino cursor when the activity is canceled or its deadline expires.
 Activities heartbeat every second under a two-minute heartbeat timeout, and workflow cancellation waits for activity cleanup.
-Alias passes use a five-minute total deadline and cap each metadata statement at 30 seconds.
+Alias passes use a five-minute total deadline and cancel the active Trino cursor when the deadline expires.
 
 ### Readable model names
 

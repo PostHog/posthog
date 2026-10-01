@@ -347,17 +347,24 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
 
 
 @pytest.mark.django_db
-def test_hogql_event_deletion_executor_rejects_multiple_columns_before_insert(team, user):
+@pytest.mark.parametrize(
+    ("query", "error"),
+    [
+        ("SELECT uuid, event FROM events", "exactly one event UUID column"),
+        ("SELECT event FROM events", "selected column must contain event UUIDs"),
+    ],
+)
+def test_hogql_event_deletion_executor_rejects_invalid_output_before_insert(team, user, query, error):
     deletion_request = HogQLEventRemovalContext(
         request_id=str(uuid4()),
         team_id=team.pk,
         created_by_id=user.pk,
-        query="SELECT uuid, event FROM events",
+        query=query,
         variables={},
     )
 
     with patch("posthog.dags.data_deletion_requests.sync_execute") as execute:
-        with pytest.raises(dagster.Failure, match="exactly one event UUID column"):
+        with pytest.raises(dagster.Failure, match=error):
             HogQLEventDeletionExecutor(deletion_request).execute()
 
     execute.assert_not_called()
@@ -2406,34 +2413,40 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
 
 
 @pytest.mark.django_db
-def test_execute_event_deletion_refuses_hogql_predicate_when_flag_evaluations_holds_matching_rows(
-    cluster: ClickhouseCluster,
-) -> None:
-    # flag_evaluations has no HogQL table definition, so it cannot accept the compiled predicate
-    # and falls into the unsweepable branch of _event_removal_placements. A matching row there must
-    # refuse the request rather than let it complete while HogQL-matched rows survive.
+def test_immediate_event_deletion_skips_flag_evaluations(cluster: ClickhouseCluster) -> None:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-immediate-flag-evaluations")
+    team = Team.objects.create(organization=org, name="test-team-immediate-flag-evaluations")
     now = datetime.now()
-    start_time = now - timedelta(days=7)
-    end_time = now + timedelta(minutes=1)
 
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
+            _insert_events_with_properties,
+            [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid4(), now, '{"$browser": "Chrome"}')],
+        )
+    ).result()
+    cluster.any_host(
+        partial(
             _insert_flag_evaluations_with_properties,
-            [(PROP_TEAM_ID, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+            [(team.id, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
         )
     ).result()
 
     deletion_ctx = DeletionRequestContext(
         request_id=str(uuid4()),
-        team_id=PROP_TEAM_ID,
-        start_time=start_time,
-        end_time=end_time,
+        team_id=team.id,
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         hogql_predicate="properties.$browser = 'Chrome'",
     )
-    with pytest.raises(dagster.Failure, match="cannot be deleted"):
-        execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+
+    assert cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == 0
+    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == 1
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
@@ -2790,6 +2803,38 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failed_step,raises",
+    [
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, True),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, False),
+    ],
+)
+def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(failed_step, raises):
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0 if raises else 1,
+            failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
+        )
+        if raises:
+            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+                delete_person_profiles_op(build_op_context(), ctx)
+        else:
+            assert delete_person_profiles_op(build_op_context(), ctx) is ctx
 
 
 @pytest.mark.parametrize(

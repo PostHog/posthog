@@ -288,7 +288,7 @@ def s3_default_fields() -> list[BatchExportField]:
     Starting from the common default fields, we add and tweak some fields for
     backwards compatibility.
     """
-    batch_export_fields = default_fields()
+    batch_export_fields = [field for field in default_fields() if field["alias"] != "person_id"]
     batch_export_fields.append({"expression": "elements_chain", "alias": "elements_chain"})
     batch_export_fields.append({"expression": "person_id", "alias": "person_id"})
 
@@ -302,11 +302,11 @@ def s3_default_fields() -> list[BatchExportField]:
 class S3BatchExportWorkflow(PostHogWorkflow):
     """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
 
-    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
-    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
-    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
-    serializes them to JSON, and on deserialization fields not present on the narrower
-    input class fall through to their `S3BatchExportInputs` defaults.
+    This Workflow is shared by the `AwsS3` and `S3Compatible` destinations. The API surface
+    validates per-destination input dataclasses (`AwsS3BatchExportInputs`,
+    `S3CompatibleBatchExportInputs`); Temporal's data converter serializes them to JSON, and on
+    deserialization fields not present on the narrower input class fall through to their
+    `S3BatchExportInputs` defaults.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the

@@ -71,7 +71,7 @@ The Python test suite (needs `deltalake`, `pyarrow`, `duckdb`, `pytest` —
 versions matching the repo's `pyproject.toml` pins):
 
 ```bash
-uv venv /tmp/deltalite-venv --python 3.13
+uv venv /tmp/deltalite-venv --python 3.14
 VIRTUAL_ENV=/tmp/deltalite-venv uv pip install maturin pytest \
     'deltalake==1.6.1' 'pyarrow==23.0.1' 'duckdb~=1.5.2'
 VIRTUAL_ENV=/tmp/deltalite-venv /tmp/deltalite-venv/bin/python -m maturin develop \
@@ -87,7 +87,7 @@ path-filtered to `rust/deltalite/**`.
 Mirrors `hogql-parser-rs` (see `.github/workflows/build-hogql-parser-rs.yml`):
 
 - maturin builds a single `cp312-abi3` wheel per platform that works on every
-  Python 3.12+ (including the pinned prod 3.13). `[project] name = "deltalite"`,
+  Python 3.12+ (including the pinned prod 3.14). `[project] name = "deltalite"`,
   module name `deltalite`.
 - When a release is cut, a `build-deltalite` workflow (to be cloned from
   `build-hogql-parser-rs.yml` at rollout time: version-bump detection on

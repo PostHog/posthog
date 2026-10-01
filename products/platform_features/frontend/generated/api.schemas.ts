@@ -1359,6 +1359,7 @@ export type ActivityLogListParams = {
      * * `OAuthApplication` - OAuthApplication
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -1376,6 +1377,7 @@ export type ActivityLogListParams = {
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
+     * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
@@ -1460,6 +1462,7 @@ export const ActivityLogListScope = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1477,6 +1480,7 @@ export const ActivityLogListScope = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
@@ -1548,6 +1552,7 @@ export const ActivityLogListScope = {
  * * `OAuthApplication` - OAuthApplication
  * * `User` - User
  * * `Action` - Action
+ * * `AccountView` - AccountView
  * * `AlertConfiguration` - AlertConfiguration
  * * `Threshold` - Threshold
  * * `AlertSubscription` - AlertSubscription
@@ -1565,6 +1570,7 @@ export const ActivityLogListScope = {
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
+ * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
@@ -1637,6 +1643,7 @@ export const ActivityLogListScopesItem = {
     OAuthApplication: 'OAuthApplication',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1654,6 +1661,7 @@ export const ActivityLogListScopesItem = {
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
+    TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
@@ -1851,7 +1859,7 @@ export type CommentsListParams = {
      */
     source_comment?: string
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.
      */
     task_id?: string
 }

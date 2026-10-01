@@ -43,7 +43,6 @@ SIGNAL_HEADLINE_MAX_LENGTH = 80
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.
 STEP_CORE = "core"
 STEP_SIGNALS = "signals"
-STEP_MEDIA = "media"
 
 # Ceiling on one step's response, thought tokens included, because Gemini counts thinking against the cap.
 # Every response schema is a few hundred tokens of JSON, so this only bounds the tail: a model that thinks
@@ -51,10 +50,6 @@ STEP_MEDIA = "media"
 # loose enough that dynamic thinking on a long video is not cut off, which would bill the thoughts and force
 # a re-prompt that bills them again.
 STEP_MAX_OUTPUT_TOKENS = 16_384
-
-# The media turn answers with one integer, so its whole cost is the thinking in front of it. Held well
-# below the shared cap, because this turn rides every scan in the product.
-MEDIA_STEP_MAX_OUTPUT_TOKENS = 2_048
 
 
 class SignalFinding(BaseModel, frozen=True):
@@ -82,7 +77,11 @@ class SignalFinding(BaseModel, frozen=True):
         ge=0, description="When the issue ends, in whole seconds of video time — the same scale as `start_time`."
     )
     url: str = Field(
-        description="The page the issue happened on — copy the `URL:` value shown in the video footer at that moment."
+        description=(
+            "The page the issue happened on: the navigation timeline's URL for that window at that moment, or the "
+            "`URL:` in the video footer when the timeline has none (the footer drops the query string and cuts long "
+            "URLs short)."
+        )
     )
     description: str = Field(
         description=(
@@ -135,18 +134,6 @@ class SignalsResponse(BaseModel, frozen=True):
         return self
 
 
-class MediaResponse(BaseModel, frozen=True):
-    """The media turn's structured output: which frame of the video illustrates the finding."""
-
-    thumbnail_t: int = Field(
-        ge=0,
-        description=(
-            "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the "
-            "video file — the same scale you cite moments in, not the footer's `REC_T`."
-        ),
-    )
-
-
 @dataclass(frozen=True)
 class MissionStep:
     """One structured turn in a scanner's conversation: an instruction, the schema the model must answer with,
@@ -162,7 +149,6 @@ class MissionStep:
     response_model: type[BaseModel]
     required: bool = True
     validate: Callable[[BaseModel], str | None] | None = field(default=None)
-    max_output_tokens: int = STEP_MAX_OUTPUT_TOKENS
 
 
 _CONFIDENCE_DESCRIPTION = (
@@ -196,6 +182,36 @@ def notability_reason_field() -> Any:
     return Field(default=None, description=_NOTABILITY_REASON_DESCRIPTION)
 
 
+_THUMBNAIL_DESCRIPTION = (
+    "The moment to cut the thumbnail from, in whole seconds of video time counted from the start of the video "
+    "file, the same scale you cite moments in, not the footer's `REC_T`."
+)
+
+
+def thumbnail_field() -> Any:
+    """`thumbnail_t` field for LLM-response schemas, declared last so the pick never precedes the answer.
+
+    Optional for the same reason as `notability`: a skipped pick must not fail a paid-for scan. Readers fall back
+    to a cited or signal moment when absent.
+    """
+    return Field(default=None, ge=0, description=_THUMBNAIL_DESCRIPTION)
+
+
+_KEY_MOMENT_DESCRIPTION = (
+    "The single moment your answer rests on most, in whole seconds of video time counted from the start of "
+    "the video file, the same scale you cite moments in, not the footer's `REC_T`."
+)
+
+
+def key_moment_field() -> Any:
+    """`key_moment_t` field for LLM-response schemas, declared after the answer so the pick never precedes it.
+
+    Optional for the same reason as `thumbnail_t`: a skipped pick must not fail a paid-for scan. Readers open the
+    recording from its start when absent.
+    """
+    return Field(default=None, ge=0, description=_KEY_MOMENT_DESCRIPTION)
+
+
 def notability_field() -> Any:
     """`notability` field for LLM-response schemas.
 
@@ -223,6 +239,9 @@ class BaseScannerOutput(BaseModel, frozen=True):
     # shared field so direct construction is bound to 0-1, not just the LLM-response step schemas.
     notability: float | None = notability_field()
     notability_reason: str | None = notability_reason_field()
+    # Session-clock offset of `key_moment_t`, stamped after the scan. None when the model skipped the pick or
+    # named a time past the video, and on observations scanned before key moments shipped.
+    key_moment_ms: int | None = Field(default=None, ge=0)
 
     def to_event_properties(self) -> dict[str, Any]:
         """Flatten with `scanner_output_*` keys for the event; `scanner_type` is excluded (already a top-level property via the snapshot)."""
@@ -311,23 +330,11 @@ class BaseScanner(BaseModel, frozen=True):
         ]
 
     def mission_steps(self) -> list[MissionStep]:
-        """The full ordered turn list: the core task, the signals side mission when enabled, then the media turn."""
+        """The full ordered turn list: the core task, then the signals side mission when enabled."""
         steps = self.core_steps()
         if self.emits_signals:
             steps.append(self._signals_step())
-        steps.append(self._media_step())
         return steps
-
-    def _media_step(self) -> MissionStep:
-        instruction = render_prompt("media_step.jinja")
-        # Best-effort, and last, so the thumbnail can never move a calibrated answer or sink a paid-for scan.
-        return MissionStep(
-            name=STEP_MEDIA,
-            instruction=instruction,
-            response_model=MediaResponse,
-            required=False,
-            max_output_tokens=MEDIA_STEP_MAX_OUTPUT_TOKENS,
-        )
 
     def _signals_step(self) -> MissionStep:
         instruction = render_prompt("signals_step.jinja", min_signal_confidence=MIN_SIGNAL_CONFIDENCE)

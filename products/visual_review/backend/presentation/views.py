@@ -409,6 +409,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=TolerationPileupsQuerySerializer,
         responses={200: OpenApiResponse(response=TolerationPileupsSerializer)},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["get"], url_path="toleration-pileups", pagination_class=None)
     def toleration_pileups(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         repo_id = _parse_uuid(pk)
@@ -672,6 +673,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={200: ToleratedHashEntrySerializer(many=True)},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["get"], url_path="tolerated-hashes")
     def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
         """List known tolerated hashes for a snapshot identifier."""
@@ -689,6 +691,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="add-snapshots")
     @validated_request(AddSnapshotsInputSerializer)
     def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
@@ -712,6 +715,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={200: SnapshotHistoryEntrySerializer(many=True)},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["get"], url_path="snapshot-history")
     def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
         """Recent change history for a snapshot identifier across runs."""

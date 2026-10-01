@@ -203,6 +203,14 @@ export enum SignalSourceConfigStatus {
 export const SOURCE_STEERING_KEY = 'steering'
 export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
+/** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
+export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+
+// Anything that is not a list of ids reads as "every team", matching the backend's fallback.
+export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
+    const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
+    return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+}
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 

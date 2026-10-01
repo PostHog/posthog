@@ -60,10 +60,6 @@ export function buildAgentHelp(tools: Tool<ZodObjectAny>[]): string {
         })
 
     const ctx: InstructionsContext = { guidelines: '', tools: toolInfos, queryTools }
-    const sections = [
-        AGENT_HELP_HEADER,
-        formatter.buildExecToolDescription(),
-        formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
-    ]
+    const sections = [AGENT_HELP_HEADER, formatter.buildExecToolDescription(), formatter.buildExecCommandReference(ctx)]
     return toCliSyntax(sections.join('\n\n'))
 }

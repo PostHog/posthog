@@ -484,10 +484,21 @@ Otherwise resolve a `github_login`, cheapest source first:
    Reuse that reviewer for the same area — the safest general recipe, available to every scout.
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
-   Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
+   Neither hands you a reviewer directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email. A reviewer is always an individual, so resolve either to people with `scout-members-list` before you write it.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner, and the way a team slug becomes reviewers.
+   It returns this project's members, each with `user_uuid`, email, name, a resolved `github_login`, and the `teams` they're on. Pass `search=` to narrow by name or email. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
+
+**Resolving a team slug to reviewers.** Call `scout-members-list` with `team=<slug>` (bare slug, no `@your-org/` prefix, case-insensitive). It returns the members of that team with its maintainers first, so:
+
+- Take the **first 1 to 3** rows and route them. Three is the cap `suggested_reviewers` enforces anyway, and past the maintainers the order carries no ownership signal, so a longer list dilutes rather than widens.
+- Prefer **one** reviewer when a maintainer is clearly the owner of the area. Add the next one or two only when the work spans the team.
+- Route each with `user_uuid`, the same as any other reviewer.
+
+Two things the roster can't tell you, which change what you should do rather than what you should report:
+
+- **A slug with no rows means "not synced here", not "no such team".** The GitHub `teams` and `team_members` schemas are off by default and need the organization Members permission, so coverage is partial on most projects. The tool returns an error saying which case it hit. Fall back to matching the owner by name or email, and don't write a report claiming the team doesn't exist.
+- **The roster is a snapshot, so it can lag the live team.** Someone who joined or left since the last sync is wrong here. Treat a surprising result as stale data, and cross-check against a recent author or an inbox precedent before routing on it alone.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
 **Never guess a handle**: a wrong login mis-assigns the report (or silently fails to assign), which is worse than leaving it open.

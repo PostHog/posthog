@@ -2,7 +2,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconClock, IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconClock,
+    IconInfo,
+    IconPulse,
+    IconThumbsDown,
+    IconThumbsUp,
+    IconWarning,
+} from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -621,7 +629,9 @@ export function InsightMeta({
                                         fallbackPlacements={['left-start']}
                                         closeParentPopoverOnClickInside
                                     >
-                                        <LemonButton fullWidth>Set color</LemonButton>
+                                        <LemonButton fullWidth sideIcon={<IconChevronRight className="size-3" />}>
+                                            Set color
+                                        </LemonButton>
                                     </LemonMenu>
                                 )}
                                 {hasDashboardPlacementActions && (
@@ -671,6 +681,7 @@ export function InsightMeta({
                                 <LemonDivider />
                                 <ExportButton
                                     fullWidth
+                                    sideIcon={<IconChevronRight className="size-3" />}
                                     items={[
                                         {
                                             export_format: ExporterFormat.PNG,

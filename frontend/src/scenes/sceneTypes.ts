@@ -17,6 +17,9 @@ export enum Scene {
     AIGateway = 'AIGateway',
     Alerts = 'Alerts',
     Annotations = 'Annotations',
+    Autoresearch = 'Autoresearch',
+    AutoresearchNew = 'AutoresearchNew',
+    AutoresearchPipeline = 'AutoresearchPipeline',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
@@ -71,7 +74,6 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
-    ExperimentsStaffTools = 'ExperimentsStaffTools',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -95,11 +97,13 @@ export enum Scene {
     IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
+    Library = 'Library',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -171,6 +175,7 @@ export enum Scene {
     Skill = 'Skill',
     Skills = 'Skills',
     Coupons = 'Coupons',
+    PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Stamphog = 'Stamphog',
@@ -184,6 +189,8 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
+    TracingRetentionNew = 'TracingRetentionNew',
+    TracingRetentionDetail = 'TracingRetentionDetail',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
@@ -210,6 +217,7 @@ export enum Scene {
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
+    Broadcasts = 'Broadcasts',
     Workflows = 'Workflows',
     Broadcast = 'Broadcast',
     Wizard = 'Wizard',
@@ -223,6 +231,10 @@ export enum Scene {
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
+    AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
+    AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
     AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
     AIObservabilityTag = 'AIObservabilityTag',
@@ -246,6 +258,8 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
+    TaskSpace = 'TaskSpace',
+    TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
@@ -349,7 +363,9 @@ export interface SceneConfig {
 }
 
 // Map scenes to their access control resource types
-export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+export const sceneToAccessControlResourceType: Partial<
+    Record<Scene, AccessControlResourceType | AccessControlResourceType[]>
+> = {
     // Actions
     [Scene.Action]: AccessControlResourceType.Action,
     [Scene.Actions]: AccessControlResourceType.Action,
@@ -426,6 +442,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
     [Scene.Broadcast]: AccessControlResourceType.Workflow,
 
@@ -455,7 +472,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
-    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
+    [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,

@@ -80,6 +80,26 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == comment.created_at
         assert self.ticket.unread_customer_count == 0  # Customer messages don't increment this
 
+    @patch("products.conversations.backend.signals.capture_message_received")
+    @patch("products.conversations.backend.signals.capture_message_sent")
+    def test_public_workflow_message_counts_without_emitting_a_trigger_event(
+        self, mock_sent, mock_received, mock_on_commit
+    ):
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Automated reply",
+            item_context={"author_type": "workflow", "is_private": False},
+        )
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 1
+        assert self.ticket.last_message_text == "Automated reply"
+        assert self.ticket.unread_customer_count == 1
+        mock_sent.assert_not_called()
+        mock_received.assert_not_called()
+
     def test_team_message_updates_stats_and_unread(self, mock_on_commit):
         comment = self._create_team_message("Response from team")
 
@@ -641,6 +661,7 @@ class TestEmailReplySignalGuard(BaseTest):
             ("inbound_team_email_blocked", "support", True, True, 0),
             ("in_app_agent_reply_sent", "support", False, True, 1),
             ("customer_email_blocked", "customer", True, True, 0),
+            ("workflow_public_reply_sent", "workflow", False, False, 1),
         ]
     )
     def test_email_outbox_guard(self, _mock_on_commit, _name, author_type, from_email, has_created_by, expected_count):
@@ -665,6 +686,8 @@ class TestIsOutboundReply:
         [
             ("private_ai_note", {"author_type": "AI", "is_private": True}, None, False),
             ("public_ai_reply", {"author_type": "AI", "is_private": False}, None, True),
+            ("public_workflow_reply", {"author_type": "workflow", "is_private": False}, None, True),
+            ("private_workflow_note", {"author_type": "workflow", "is_private": True}, None, False),
             ("human_team_reply", {"author_type": "support", "is_private": False}, 42, True),
             ("private_human_note", {"author_type": "support", "is_private": True}, 42, False),
             ("customer_message", {"author_type": "customer", "is_private": False}, None, False),
