@@ -29,6 +29,7 @@ from django.db.models import (
     F,
     Func,
     IntegerField,
+    Max,
     Min,
     Model,
     OuterRef,
@@ -9591,6 +9592,49 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         else set()
     )
     return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
+
+
+def list_channel_contributors(team_id: int, user_id: int | None) -> list[contracts.ChannelContributorsDTO]:
+    """The people who own a task or a canvas in each channel the requester can see.
+
+    Archived tasks count, because their owners still worked in the channel. Deleted tasks
+    and canvases do not. A channel with no owner has no entry."""
+    channel_ids = list(_team_channels(team_id).filter(Channel.visible_to_q(user_id)).values_list("id", flat=True))
+    if not channel_ids:
+        return []
+    task_rows = (
+        Task.objects.filter(
+            task_visibility_q(user_id),
+            team_id=team_id,
+            channel_id__in=channel_ids,
+            deleted=False,
+            internal=False,
+            created_by_id__isnull=False,
+        )
+        .values("channel_id", "created_by_id")
+        .annotate(last_active=Max(Coalesce("last_activity_at", "created_at")))
+    )
+    canvas_rows = (
+        Canvas.objects.for_team(team_id)
+        .filter(channel_id__in=channel_ids, deleted=False, created_by_id__isnull=False)
+        .values("channel_id", "created_by_id")
+        .annotate(last_active=Max("updated_at"))
+    )
+    last_active: dict[UUID, dict[int, datetime]] = {}
+    for row in [*task_rows, *canvas_rows]:
+        per_channel = last_active.setdefault(row["channel_id"], {})
+        previous = per_channel.get(row["created_by_id"])
+        if previous is None or row["last_active"] > previous:
+            per_channel[row["created_by_id"]] = row["last_active"]
+    user_ids = {owner_id for owners in last_active.values() for owner_id in owners}
+    users = {user.id: user for user in User.objects.filter(id__in=user_ids)}
+    contributors: list[contracts.ChannelContributorsDTO] = []
+    for channel_id, owners in last_active.items():
+        ranked = sorted(owners.items(), key=lambda owner: (-owner[1].timestamp(), owner[0]))
+        people = [info for owner_id, _ in ranked if (info := _user_basic_info(users.get(owner_id))) is not None]
+        if people:
+            contributors.append(contracts.ChannelContributorsDTO(channel=channel_id, people=people))
+    return contributors
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:

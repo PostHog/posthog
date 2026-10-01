@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelContextGenerationApi,
+    ChannelContributorsDTOApi,
     ChannelDTOApi,
     ChannelFeedMessageDTOApi,
     ChannelFeedMessageWriteApi,
@@ -1185,6 +1186,24 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsContributorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/contributors/`
+}
+
+/**
+ * For each channel the requester can access, list the people who own at least one task or canvas in it, most recently active first. Channels with no owners are left out.
+ * @summary List who worked in each channel
+ */
+export const taskChannelsContributorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ChannelContributorsDTOApi[]> => {
+    return apiMutator<ChannelContributorsDTOApi[]>(getTaskChannelsContributorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

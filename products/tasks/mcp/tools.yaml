@@ -391,6 +391,9 @@ tools:
     task-channels-context-generation-update:
         operation: task_channels_context_generation_update
         enabled: false
+    task-channels-contributors-retrieve:
+        operation: task_channels_contributors_retrieve
+        enabled: false
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
