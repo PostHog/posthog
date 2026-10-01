@@ -312,7 +312,6 @@ export function TodaySpacesSidebar(): JSX.Element {
                                                 active={location.pathname.includes(urls.taskSpace(space.id))}
                                                 dataAttr="today-space-row"
                                                 action={<TodaySpaceActions space={space} />}
-                                                actionCount={2}
                                                 badge={presence ? <SpacePresenceAvatars presence={presence} /> : null}
                                                 badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
                                                 unread={unreadSpaceIds.has(space.id)}
