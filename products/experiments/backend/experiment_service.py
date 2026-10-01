@@ -61,6 +61,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_calculation.spec import (
+    CalculationSpec,
     ExperimentCalculationSettings,
     plan_metric,
     plan_primary,
@@ -4395,18 +4396,7 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = (
-            ExperimentTimeseriesRecalculation.objects.filter(
-                experiment=experiment,
-                fingerprint=spec.calculation_key(),
-                status__in=[
-                    ExperimentTimeseriesRecalculation.Status.PENDING,
-                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-                ],
-            ).first()
-            if spec is not None
-            else None
-        )
+        active_recalculation = self._active_timeseries_backfill(experiment, spec) if spec is not None else None
 
         response = {
             "experiment_id": experiment.id,
@@ -4452,14 +4442,7 @@ class ExperimentService:
         metric = spec.definition
         fingerprint = spec.calculation_key()
 
-        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        existing_recalculation = self._active_timeseries_backfill(experiment, spec)
 
         if existing_recalculation:
             return {
@@ -4491,6 +4474,24 @@ class ExperimentService:
             "created_at": recalculation_request.created_at.isoformat(),
             "is_existing": False,
         }
+
+    @staticmethod
+    def _active_timeseries_backfill(
+        experiment: Experiment, spec: CalculationSpec
+    ) -> ExperimentTimeseriesRecalculation | None:
+        """The pending or running backfill of the metric that `spec` describes.
+
+        A backfill requested before calculation key version 2 carries the legacy key and writes the same days. It
+        counts as the active backfill, so that a second backfill does not race it for the rows of those days.
+        """
+        return ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint__in=[spec.calculation_key(), spec.legacy_key()],
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
 
     # ------------------------------------------------------------------
     # Velocity stats

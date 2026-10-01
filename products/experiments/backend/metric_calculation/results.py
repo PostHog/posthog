@@ -13,7 +13,15 @@ The calculation key includes the start date, so no reader needs `query_from` to 
 Rows written before calculation key version 2 carry the legacy key (`CalculationSpec.legacy_key`), which leaves out
 several analytical inputs. No reuse check accepts them. The readers that show results (the run read, the cold-start
 read, the chart and the current outcome) fall back to them only where no row under the current key covers the same
-metric, window or day, and they mark such a result `legacy`.
+metric, window or day, and they mark such a result `legacy`. The run read does so only for a run that finished
+before the first write under the current keys. The daily significance check never reads them.
+
+Every write also stores the legacy key of its spec in `display_key`, salted like the fingerprint on a run row. The
+legacy key hashes only inputs that the experiment owns. So after a team setting changes the current key, the chart
+and the current outcome still find the rows written under the earlier key, and show them as `legacy` history. For
+rows from before key version 2, the fingerprint itself is the legacy key, so one rule covers both. The run read and
+the cold-start read do not use `display_key`: after such a change they must leave the metric uncovered, so that the
+results page computes it under the new settings.
 
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
@@ -94,8 +102,8 @@ class StoredResult:
     """A stored result row and the key family a reader found it under."""
 
     row: ExperimentMetricResult
-    # True when the row carries the legacy key of the spec. Its result may come from other settings than the spec's,
-    # so it is shown as history and never reused.
+    # True when the row does not carry the current key of the spec. Its result may come from other settings than the
+    # spec's, so it is shown as history and never reused.
     legacy: bool
 
 
@@ -104,7 +112,7 @@ class DailyTimeseries:
     """The stored results of one metric, one row per day."""
 
     by_day: dict[date, ExperimentMetricResult]
-    # The days whose row carries the legacy key, because no row under the current key covers them.
+    # The days whose row does not carry the current key, because no row under the current key covers them.
     legacy_days: frozenset[date]
     earliest: ExperimentMetricResult | None
     latest: ExperimentMetricResult | None
@@ -121,7 +129,7 @@ class ResultSummary:
     baseline_samples: str | None
     baseline_sum: str | None
     variant_results: tuple[dict[str, Any], ...]
-    # True when the result carries the legacy key, because no result under the current key exists.
+    # True when the result does not carry the current key, because no result under the current key exists.
     legacy: bool
 
 
@@ -141,7 +149,11 @@ class MetricResultStore:
 
         A run from before key version 2 holds rows under the legacy keys. Such a row is returned as legacy when the
         metric has no row under its current key at the window, so that the results page shows the run complete
-        instead of starting a new run to fill the gaps.
+        instead of starting a new run to fill the gaps. Only a run that finished before the first write under its
+        metrics' current keys gets legacy rows. A run in progress has not computed its metrics yet, so a legacy row
+        would show an old result as a new one. A run that finished later recomputed every metric it reached, because
+        no legacy row counts for reuse, so a metric it left without a row under the current key is one it did not
+        compute.
         """
         if run.query_to is None:
             return []
@@ -163,12 +175,29 @@ class MetricResultStore:
         rows = ExperimentMetricResult.objects.filter(
             filed_under_run_keys, experiment_id=self.experiment_id, query_to=run.query_to
         )
-        return [
+        stored = [
             StoredResult(row=row, legacy=row.fingerprint not in current_keys)
             for row in _newest_write_first(rows, "metric_uuid", _current_key_first(current_keys)).distinct(
                 "metric_uuid"
             )
         ]
+        if any(item.legacy for item in stored) and not self._finished_before_current_keys(run, run_specs):
+            return [item for item in stored if not item.legacy]
+        return stored
+
+    def _finished_before_current_keys(self, run: ExperimentMetricsRecalculation, specs: list[CalculationSpec]) -> bool:
+        """Whether the run finished before any row of its metrics was written under a current key, bare or salted."""
+        if run.status not in _TERMINAL_RECALC_STATUSES or run.completed_at is None:
+            return False
+        current_keys = [
+            key for spec in specs for key in (spec.calculation_key(), _recalc_fingerprint(spec.calculation_key()))
+        ]
+        return not ExperimentMetricResult.objects.filter(
+            experiment_id=self.experiment_id,
+            metric_uuid__in=[spec.metric_id for spec in specs],
+            fingerprint__in=current_keys,
+            updated_at__lte=run.completed_at,
+        ).exists()
 
     def has_completed(self, spec: CalculationSpec, *, window: datetime) -> bool:
         """Whether a recalculation already stored a completed result for this spec at this window. A result under
@@ -206,16 +235,18 @@ class MetricResultStore:
         """The daily rows of one metric, whatever their status, one per day of `timezone`.
 
         Only daily rows carry the bare key, because a recalculation salts it. The latest query_to inside a day
-        stands for that day. A day without a row under the current key shows its row under the legacy key, if it
-        has one, so the history from before key version 2 still renders.
+        stands for that day. A day without a row under the current key shows a row whose fingerprint or display key
+        is the legacy key, if it has one. So the history from before key version 2, and the history from before a
+        team setting changed, still render.
         """
         current_key = spec.calculation_key()
+        legacy_key = spec.legacy_key()
         rows = list(
             _newest_write_first(
                 ExperimentMetricResult.objects.filter(
+                    Q(fingerprint__in=[current_key, legacy_key]) | Q(display_key=legacy_key),
                     experiment_id=self.experiment_id,
                     metric_uuid=spec.metric_id,
-                    fingerprint__in=[current_key, spec.legacy_key()],
                 ),
                 _current_key_first([current_key]),
                 "-query_to",
@@ -321,6 +352,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
+            display_key=self._daily_display_key(metric_uuid, calculation_key),
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -337,6 +369,7 @@ class MetricResultStore:
             metric_uuid,
             window,
             fingerprint=calculation_key,
+            display_key=self._daily_display_key(metric_uuid, calculation_key),
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -359,6 +392,7 @@ class MetricResultStore:
                 spec.metric_id,
                 window,
                 fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                display_key=_recalc_fingerprint(spec.legacy_key()),
                 query_from=query_from,
                 status=_COMPLETED,
                 result=point.result,
@@ -408,6 +442,7 @@ class MetricResultStore:
                 spec.metric_id,
                 window,
                 fingerprint=_recalc_fingerprint(spec.calculation_key()),
+                display_key=_recalc_fingerprint(spec.legacy_key()),
                 query_from=query_from,
                 status=status,
                 result=result,
@@ -422,6 +457,7 @@ class MetricResultStore:
         window: datetime,
         *,
         fingerprint: str,
+        display_key: str | None,
         query_from: datetime,
         status: str,
         result: dict[str, Any] | None,
@@ -438,6 +474,7 @@ class MetricResultStore:
             query_to=window,
             defaults={
                 "fingerprint": fingerprint,
+                "display_key": display_key,
                 "query_from": query_from,
                 "status": status,
                 "result": result,
@@ -446,6 +483,21 @@ class MetricResultStore:
                 "error_message": error_message,
             },
         )
+
+    def _daily_display_key(self, metric_uuid: str, calculation_key: str) -> str | None:
+        """The legacy key of the experiment's metric whose current key is `calculation_key`. None when no metric has
+        that key, for example when a setting changed after the caller computed it. Inline and saved metrics can share
+        a uuid, so the uuid alone does not decide."""
+        experiment = Experiment.objects.select_related("team", "feature_flag").filter(id=self.experiment_id).first()
+        if experiment is None:
+            return None
+        settings = ExperimentCalculationSettings.of_experiment(experiment)
+        for metric in resolve_experiment_metrics(experiment):
+            if metric.uuid == metric_uuid:
+                spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+                if spec.calculation_key() == calculation_key:
+                    return spec.legacy_key()
+        return None
 
     @staticmethod
     def sync_copy_window(newest_point: datetime) -> datetime:
@@ -461,7 +513,8 @@ class MetricResultStore:
         another configuration, for example from the start date before a relaunch, so it does not count. The newest
         window counts, not the newest write, because a backfill writes past windows after the newer ones.
 
-        When no row carries the calculation key, the newest row under the legacy key stands in, marked legacy.
+        When no row carries the calculation key, the newest row whose fingerprint or display key is the legacy key stands
+        in, marked legacy.
         """
         if not spec_by_experiment:
             return {}
@@ -469,11 +522,10 @@ class MetricResultStore:
         current_keys: set[str] = set()
         for experiment_id, spec in spec_by_experiment.items():
             key, legacy_key = spec.calculation_key(), spec.legacy_key()
+            legacy_keys = [legacy_key, _recalc_fingerprint(legacy_key)]
             current_keys |= {key, _recalc_fingerprint(key)}
-            filed_under_spec |= Q(
-                experiment_id=experiment_id,
-                metric_uuid=spec.metric_id,
-                fingerprint__in=[key, _recalc_fingerprint(key), legacy_key, _recalc_fingerprint(legacy_key)],
+            filed_under_spec |= Q(experiment_id=experiment_id, metric_uuid=spec.metric_id) & (
+                Q(fingerprint__in=[key, _recalc_fingerprint(key), *legacy_keys]) | Q(display_key__in=legacy_keys)
             )
         rows = (
             ExperimentMetricResult.objects.filter(filed_under_spec, status=_COMPLETED)
@@ -510,39 +562,18 @@ class MetricResultStore:
         return summaries
 
 
-def _legacy_key_of(experiment: Experiment, *, metric_uuid: str, calculation_key: str) -> str | None:
-    """The legacy key of the experiment's metric whose calculation key is `calculation_key`, or None when no metric
-    with this uuid has that key. Inline and saved metrics can share a uuid, so the uuid alone does not decide."""
-    settings = ExperimentCalculationSettings.of_experiment(experiment)
-    for metric in resolve_experiment_metrics(experiment):
-        if metric.uuid == metric_uuid:
-            spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
-            if spec.calculation_key() == calculation_key:
-                return spec.legacy_key()
-    return None
-
-
 def previous_completed_metric_result(
     experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str, before: datetime
 ) -> dict[str, Any] | None:
     """The stored result of the completed daily point under this key with the latest query_to before `before`,
     for callers outside the product. None when there is no such point or the experiment is not in the team.
 
-    When no point carries the key, the latest point under the metric's legacy key stands in. The daily significance
-    check compares a new result with this one, and without the fallback every significant variant would read as
-    newly significant on the first daily run under key version 2.
+    A point under another key, the legacy key included, never stands in. It can come from other settings, so a
+    comparison with it would not tell whether the current settings crossed a threshold.
     """
-    experiment = (
-        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
-    )
-    if experiment is None:
+    if not Experiment.objects.filter(id=experiment_id, team_id=team_id).exists():
         return None
-    store = MetricResultStore(experiment_id=experiment_id)
-    row = store.previous_completed(metric_uuid, calculation_key, before=before)
-    if row is None:
-        legacy_key = _legacy_key_of(experiment, metric_uuid=metric_uuid, calculation_key=calculation_key)
-        if legacy_key is not None:
-            row = store.previous_completed(metric_uuid, legacy_key, before=before)
+    row = MetricResultStore(experiment_id=experiment_id).previous_completed(metric_uuid, calculation_key, before=before)
     return row.result if row is not None else None
 
 

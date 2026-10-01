@@ -41,8 +41,9 @@ The write looks the row up on `(experiment, metric_uuid, query_to)` and stores t
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 
 The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
-When no point carries that key, it compares with the previous point under the metric's legacy key (calculation key version 1).
-Without that fallback, the first daily run after the key version changed would report every significant variant as newly significant.
+Without such a point there is no transition, so nothing is sent.
+That covers the first point of a new experiment, the first point after a settings change, and the first daily run after the calculation key version changed.
+A point under another key, the legacy key (version 1) included, can come from other settings, so it never stands in.
 
 ### Handing fresh points to the recalculation reader
 

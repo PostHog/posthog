@@ -55,13 +55,25 @@ class TestCheckSignificanceTransition(BaseTest):
             metrics=[METRIC_DICT],
         )
 
+    def _store_previous_point(self, experiment: Experiment, metric_uuid: str, fingerprint: str) -> None:
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid=metric_uuid,
+            fingerprint=fingerprint,
+            query_from=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            query_to=datetime(2024, 1, 9, tzinfo=ZoneInfo("UTC")),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result=_make_result([]),
+        )
+
     @parameterized.expand(
         [
-            ("no_previous_significant", None, ["test"], True),
+            # Without a previous point under the same key there is nothing to compare with, so nothing is sent.
+            ("no_previous_significant", None, ["test"], False),
             ("no_previous_not_significant", None, [], False),
             ("previous_not_significant_new_significant", [], ["test"], True),
             ("previous_significant_new_significant", ["test"], ["test"], False),
-            ("previous_failed_new_significant", "no_result", ["test"], True),
+            ("previous_failed_new_significant", "no_result", ["test"], False),
             ("previous_significant_new_not_significant", ["test"], [], False),
         ]
     )
@@ -171,6 +183,7 @@ class TestCheckSignificanceTransition(BaseTest):
             start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
             metrics=[{**METRIC_DICT, "goal": goal}],
         )
+        self._store_previous_point(experiment, "metric-123", "fp")
 
         result_dict = _make_result(["test"])
         check_significance_transition(
@@ -308,6 +321,7 @@ class TestCheckSignificanceTransition(BaseTest):
         mock_produce: MagicMock,
     ) -> None:
         experiment = self._create_experiment()
+        self._store_previous_point(experiment, "metric-123", "fp")
 
         check_significance_transition(
             experiment,
@@ -338,6 +352,7 @@ class TestCheckSignificanceTransition(BaseTest):
             metrics=[{**METRIC_DICT, "goal": goal}],
         )
 
+        self._store_previous_point(experiment, "metric-123", "fp")
         result_dict = _make_result(["test"])
         for variant in result_dict["variant_results"]:
             variant.pop("chance_to_win")
@@ -376,6 +391,7 @@ class TestCheckSignificanceTransition(BaseTest):
             ],
         )
 
+        self._store_previous_point(experiment, "metric-456", "fp")
         result_dict = _make_result(["test"])
         check_significance_transition(
             experiment, "metric-456", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))

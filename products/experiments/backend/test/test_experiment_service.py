@@ -5323,22 +5323,42 @@ class TestExperimentService(APIBaseTest):
             "$pageview",
         )
 
-    def test_request_timeseries_recalculation_idempotent(self):
-        self._create_flag(key="ts-idempotent")
+    @parameterized.expand(
+        [
+            ("same_request", False),
+            # A backfill requested before calculation key version 2 writes the same days, so a second one would race it.
+            ("backfill_requested_before_key_version_2", True),
+        ]
+    )
+    def test_request_timeseries_recalculation_idempotent(self, _name: str, first_under_legacy_key: bool) -> None:
+        self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Idempotent",
-            feature_flag_key="ts-idempotent",
+            feature_flag_key=f"ts-idempotent-{_name}",
             start_date=timezone.now(),
             metrics=[self._DEFAULT_METRIC],
             allow_unknown_events=True,
         )
+        if first_under_legacy_key:
+            spec = plan_metric(experiment, "m1")
+            assert spec is not None
+            first_id = ExperimentTimeseriesRecalculation.objects.create(
+                team=self.team,
+                experiment=experiment,
+                metric=spec.definition,
+                fingerprint=spec.legacy_key(),
+                status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ).id
+        else:
+            first_id = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})["id"]
 
-        result1 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
-        result2 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
+        second = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"})
 
-        assert result1["id"] == result2["id"]
-        assert result2["is_existing"] is True
+        assert (second["id"], second["is_existing"]) == (first_id, True)
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 1
+        chart = service.get_timeseries_results(experiment, metric_uuid="m1")
+        assert chart["recalculation_status"] is not None
 
     @parameterized.expand(
         [("not_started", False, "m1", "hasn't started"), ("unknown_metric", True, "nope", "not on the experiment")]
