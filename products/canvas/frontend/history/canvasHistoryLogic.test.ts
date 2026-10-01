@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { CanvasBuildsResponseApi } from '../generated/api.schemas'
 import { canvasHistoryLogic } from './canvasHistoryLogic'
 
 describe('canvasHistoryLogic', () => {
@@ -22,6 +23,25 @@ describe('canvasHistoryLogic', () => {
             },
         })
         initKeaTests()
+    })
+
+    it('refreshes loaded history only when a polled build changes', async () => {
+        const logic = canvasHistoryLogic({ id: 'canvas' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess'])
+        const history = {
+            current_version_id: 'head',
+            published_build_id: null,
+            builds: [{ id: 'build', source_version_id: 'head', build_status: 'queued' }],
+        } as CanvasBuildsResponseApi
+        logic.actions.loadBuildHistorySuccess(history)
+
+        await expectLogic(logic, () => logic.actions.loadBuildsSuccess(history)).toNotHaveDispatchedActions([
+            'loadBuildHistory',
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.loadBuildsSuccess({ ...history, builds: [{ ...history.builds[0], build_status: 'failed' }] })
+        ).toDispatchActions(['loadBuildHistory', 'loadBuildHistorySuccess'])
     })
 
     test.each([true, false])('loads a preview when a retained build exists: %s', async (built) => {

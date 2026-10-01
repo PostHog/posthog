@@ -388,8 +388,19 @@ export const canvasHistoryLogic = kea<canvasHistoryLogicType>([
                 actions.setBrowseVersion(values.navigation.redoTargetId)
             }
         },
-        loadBuildsSuccess: () => {
-            if (values.buildHistory && !values.buildHistoryLoading) {
+        loadBuildsSuccess: ({ builds }) => {
+            const history = values.buildHistory
+            if (!builds || !history || values.buildHistoryLoading) {
+                return
+            }
+            if (
+                builds.current_version_id !== history.current_version_id ||
+                builds.published_build_id !== history.published_build_id ||
+                builds.builds.some(
+                    (build) =>
+                        history.builds.find((entry) => entry.id === build.id)?.build_status !== build.build_status
+                )
+            ) {
                 actions.loadBuildHistory()
             }
         },

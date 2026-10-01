@@ -26,6 +26,8 @@ describe('DraftCanvas capabilities', () => {
                     files={{ 'src/canvas.tsx': 'export default function Canvas() { return null }' }}
                     entry="src/canvas.tsx"
                     theme="light"
+                    commentHighlights={[]}
+                    clearTextSelectionKey={0}
                     hasUserActivation={() => false}
                     onOpenExternal={jest.fn()}
                     onDataRequest={onDataRequest}
