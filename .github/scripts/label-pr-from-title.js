@@ -174,7 +174,9 @@ function flagsWithoutGeneratedFiles(files) {
         const fields = output.split('\0')
         const generated = new Set()
         for (let i = 0; i + 2 < fields.length; i += 3) {
-            if (fields[i + 2] === 'set') {
+            // A bare `linguist-generated` reads as `set`, and the
+            // `linguist-generated=true` form reads as `true`.
+            if (fields[i + 2] === 'set' || fields[i + 2] === 'true') {
                 generated.add(fields[i])
             }
         }
@@ -193,13 +195,14 @@ function isFlagsLowHangingFruit(files) {
     if (files.length >= FLAGS_FILES_PAGE_SIZE) {
         return false
     }
+    // Check the risky paths before the generated files are removed, because
+    // .gitattributes also marks files under `.github/` as generated.
+    if (files.some((file) => FLAGS_RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))) {
+        return false
+    }
     const reviewedFiles = flagsWithoutGeneratedFiles(files)
     const changedLines = reviewedFiles.reduce((sum, file) => sum + file.additions + file.deletions, 0)
-    return (
-        reviewedFiles.length <= FLAGS_MAX_CHANGED_FILES &&
-        changedLines <= FLAGS_MAX_CHANGED_LINES &&
-        !reviewedFiles.some((file) => FLAGS_RISKY_PATH_PATTERNS.some((pattern) => pattern.test(file.filename)))
-    )
+    return reviewedFiles.length <= FLAGS_MAX_CHANGED_FILES && changedLines <= FLAGS_MAX_CHANGED_LINES
 }
 
 // The job applies every label after this request, and it has a five-minute

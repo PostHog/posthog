@@ -235,6 +235,11 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
         description: 'small workflow change',
     },
     {
+        files: [file('.github/actions/paths-filter/dist/index.js', 2, 2)],
+        expected: false,
+        description: 'small change to a generated file under .github/',
+    },
+    {
         files: [...generatedFiles(98), file('a.tsx', 10)],
         expected: true,
         description: 'generated files below a full page do not count',
@@ -260,6 +265,7 @@ test('flagsWithoutGeneratedFiles drops generated files and keeps hand-written on
     const files = [
         file('frontend/src/generated/core/api.schemas.ts', 300),
         file('products/feature_flags/frontend/generated/api.ts', 120),
+        file('products/desktop/packages/ui/src/router/routeTree.gen.ts', 40),
         file('frontend/src/scenes/feature-flags/FeatureFlag.tsx', 10),
     ]
     assert.deepEqual(flagsWithoutGeneratedFiles(files), [
