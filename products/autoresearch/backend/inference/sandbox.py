@@ -466,13 +466,9 @@ def measure_training_sample(
     Count the whole labeled population and its positives, and choose the negative sample rate
     that fits it under the training budget. The counts are aggregates, so no row cap applies.
     """
-    rows = _count_rows(
-        team=team,
-        sql_and_values=_labeler_sql(team=team, pipeline=pipeline, anchor_ts=anchor_ts),
-        user=user,
-        what="Training population",
-    )
-    population, positives = int(rows[0] or 0), int((rows[1] if len(rows) > 1 else 0) or 0)
+    sql, values = _labeler_sql(team=team, pipeline=pipeline, anchor_ts=anchor_ts)
+    row = _count_rows(team=team, sql=sql, values=values, user=user, what="Training population")
+    population, positives = int(row[0] or 0), int(row[1] or 0)
     try:
         return TrainingSample.plan(population=population, positives=positives)
     except TrainingSampleTooLarge as exc:
@@ -537,12 +533,11 @@ def count_inference_anchors(
 
 def _count(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> int:
     """Run a query whose first column of its first row is the count the caller wants."""
-    return int(_count_rows(team=team, sql_and_values=(sql, values), user=user, what=what)[0])
+    return int(_count_rows(team=team, sql=sql, values=values, user=user, what=what)[0])
 
 
-def _count_rows(*, team: Team, sql_and_values: tuple[str, dict[str, Any]], user: User | None, what: str) -> list[Any]:
+def _count_rows(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> list[Any]:
     """Run a query that returns one aggregate row, and return that row."""
-    sql, values = sql_and_values
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         result = run_hogql(
