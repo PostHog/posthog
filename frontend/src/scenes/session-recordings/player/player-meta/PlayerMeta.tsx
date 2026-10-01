@@ -22,8 +22,10 @@ import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
+import { PlayerInspectorButton } from './PlayerInspectorButton'
 import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
 import { playerMetaLogic } from './playerMetaLogic'
+import { InspectDOM, SetPlaybackSpeed, usePlayerChromeMenuItems } from './PlayerMetaTopSettings'
 import { PlayerPersonMeta } from './PlayerPersonMeta'
 
 export function parseUrl(lastUrl: unknown): { urlToUse: string | undefined; isValidUrl: boolean; isWebUrl: boolean } {
@@ -92,7 +94,24 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
 
 export type PlayerMetaBreakpoints = 'small' | 'normal'
 
-export function PlayerMeta(): JSX.Element {
+function PlayerMetaConsolidatedControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+    const {
+        logicProps: { withSidebar },
+    } = useValues(sessionRecordingPlayerLogic)
+    const chromeItems = usePlayerChromeMenuItems()
+
+    return (
+        <div className="flex items-center gap-0.5">
+            <SetPlaybackSpeed />
+            {withSidebar && <InspectDOM />}
+            {withSidebar && <PlayerInspectorButton />}
+            <PlayerMetaLinks size={size} menuExtraItems={chromeItems} />
+            {!withSidebar && <PlayerPersonMeta />}
+        </div>
+    )
+}
+
+export function PlayerMeta({ consolidated = false }: { consolidated?: boolean }): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
     const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
@@ -183,8 +202,14 @@ export function PlayerMeta(): JSX.Element {
                     )}
                     <PlayerMetaExperimentTags />
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
-                    <PlayerMetaLinks size={size} />
-                    <PlayerPersonMeta />
+                    {consolidated ? (
+                        <PlayerMetaConsolidatedControls size={size} />
+                    ) : (
+                        <>
+                            <PlayerMetaLinks size={size} />
+                            <PlayerPersonMeta />
+                        </>
+                    )}
                 </div>
             </div>
         </DraggableToNotebook>

@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
-import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenuItems, Link } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsButton, SettingsMenu, SettingsToggle } from 'lib/components/PanelSettings/PanelSettings'
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
@@ -39,7 +39,7 @@ function PlayerControlsLayoutToggle(): JSX.Element {
     )
 }
 
-function SetPlaybackSpeed(): JSX.Element {
+export function SetPlaybackSpeed(): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
@@ -69,7 +69,7 @@ function SetPlaybackSpeed(): JSX.Element {
     )
 }
 
-function InspectDOM(): JSX.Element {
+export function InspectDOM(): JSX.Element {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
 
@@ -87,7 +87,7 @@ function InspectDOM(): JSX.Element {
     )
 }
 
-function TTLWarning(): JSX.Element | null {
+export function TTLWarning({ variant = 'button' }: { variant?: 'button' | 'inline' }): JSX.Element | null {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const lowTtl =
         sessionPlayerMetaData?.recording_ttl &&
@@ -101,6 +101,17 @@ function TTLWarning(): JSX.Element | null {
 
     if (!lowTtl) {
         return null
+    }
+
+    if (variant === 'inline') {
+        return (
+            <div className="text-xs text-danger">
+                Expires in {sessionPlayerMetaData.recording_ttl} days.{' '}
+                <Link to={urls.settings('project-replay', 'replay-retention')} data-attr="player-ttl-open-settings">
+                    Extend retention
+                </Link>
+            </div>
+        )
     }
 
     return (
@@ -150,6 +161,35 @@ function TTLWarning(): JSX.Element | null {
             </LemonButton>
         </div>
     )
+}
+
+export function usePlayerChromeMenuItems(): LemonMenuItems {
+    const {
+        logicProps: { mode },
+        playerControlsOverlay,
+    } = useValues(sessionRecordingPlayerLogic)
+    const { setPlayerControlsOverlay, setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+    const { modalContext } = useValues(sessionPlayerModalLogic)
+
+    const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
+
+    return [
+        showControlsLayoutToggle && {
+            label: playerControlsOverlay ? 'Pin controls below recording' : 'Float controls over recording',
+            icon: <IconBottomPanel />,
+            onClick: () => setPlayerControlsOverlay(!playerControlsOverlay),
+            'data-attr': 'toggle-player-controls-overlay',
+        },
+        modalContext?.type !== 'heatmap-background-selection' && {
+            label: 'Use as heatmap background',
+            icon: <IconHeatmap />,
+            onClick: () => {
+                setPause()
+                openHeatmap()
+            },
+            'data-attr': 'player-view-heatmap',
+        },
+    ]
 }
 
 export function PlayerMetaTopSettings(): JSX.Element {
