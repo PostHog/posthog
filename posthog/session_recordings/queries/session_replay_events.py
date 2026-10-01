@@ -262,12 +262,17 @@ class SessionReplayEvents:
         python_now = datetime.now(pytz.timezone("UTC"))
         # The start bound lets ClickHouse prune on the sort key; a session cannot run longer than a day.
         query = """
-            SELECT count(DISTINCT session_id)
-            FROM session_replay_events
-            PREWHERE
-                team_id = %(team_id)s
-                AND _timestamp >= %(ingested_after)s
-            WHERE min_first_timestamp >= %(started_after)s
+            SELECT count()
+            FROM (
+                SELECT session_id
+                FROM session_replay_events
+                PREWHERE
+                    team_id = %(team_id)s
+                    AND _timestamp >= %(ingested_after)s
+                WHERE min_first_timestamp >= %(started_after)s
+                GROUP BY session_id
+                HAVING max(is_deleted) = 0
+            )
             """
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
         result = sync_execute(

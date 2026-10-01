@@ -2217,20 +2217,29 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         current_time = now()
         other_team = Team.objects.create(organization=self.organization)
         sessions = [
-            # (team_id, session_id, first_timestamp, kafka_timestamp)
-            (self.team.pk, "live_session", current_time - timedelta(minutes=10), current_time - timedelta(minutes=1)),
-            (self.team.pk, "live_session", current_time - timedelta(minutes=10), current_time - timedelta(minutes=9)),
-            (self.team.pk, "long_live_session", current_time - timedelta(hours=20), current_time),
-            (self.team.pk, "idle_session", current_time - timedelta(minutes=30), current_time - timedelta(minutes=6)),
-            (other_team.pk, "other_team_session", current_time, current_time),
+            # (team_id, session_id, first_timestamp, kafka_timestamp, is_deleted)
+            (self.team.pk, "live", current_time - timedelta(minutes=10), current_time - timedelta(minutes=1), False),
+            (self.team.pk, "live", current_time - timedelta(minutes=10), current_time - timedelta(minutes=9), False),
+            (self.team.pk, "long_live", current_time - timedelta(hours=20), current_time, False),
+            (self.team.pk, "idle", current_time - timedelta(minutes=30), current_time - timedelta(minutes=6), False),
+            (
+                self.team.pk,
+                "deleted",
+                current_time - timedelta(minutes=30),
+                current_time - timedelta(minutes=20),
+                False,
+            ),
+            (self.team.pk, "deleted", current_time - timedelta(minutes=30), current_time, True),
+            (other_team.pk, "other_team", current_time, current_time, False),
         ]
-        for team_id, session_id, first_timestamp, kafka_timestamp in sessions:
+        for team_id, session_id, first_timestamp, kafka_timestamp, is_deleted in sessions:
             produce_replay_summary(
                 team_id=team_id,
                 session_id=session_id,
                 first_timestamp=first_timestamp,
                 last_timestamp=first_timestamp,
                 kafka_timestamp=kafka_timestamp,
+                is_deleted=is_deleted,
                 ensure_analytics_event_in_session=False,
             )
 
