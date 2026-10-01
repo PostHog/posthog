@@ -870,6 +870,21 @@ def test_generate_usage_trends_lookup_waits_out_a_busy_clickhouse(team, redis_se
 
 
 @pytest.mark.django_db
+def test_generate_recording_lookup_waits_out_a_busy_clickhouse(team, redis_servers, common_input, digest):
+    with (
+        patch(
+            "posthog.temporal.weekly_digest.activities.sync_execute",
+            side_effect=[ClickHouseAtCapacity(), [(team.id, 2)]],
+        ),
+        patch("posthog.temporal.common.utils.time.sleep"),
+    ):
+        run_sync(generate_recording_lookup, batch_input(team, digest, common_input))
+
+    stored = json.loads(redis_servers.digest.get(team_data_key(digest.key, TeamDataKey.EXPIRING_RECORDINGS, team.id)))
+    assert stored == {"recording_count": 2}
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "side_effects,should_raise",
     [
