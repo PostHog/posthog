@@ -78,7 +78,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                 </span>
                 {isWebUrl ? (
                     <Tooltip title={`Click to open url: ${urlToUse}`}>
-                        <Link to={urlToUse} target="_blank" className="truncate">
+                        <Link data-attr="player-meta-open-url" to={urlToUse} target="_blank" className="truncate">
                             {urlToUse}
                         </Link>
                     </Tooltip>

@@ -250,11 +250,11 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 A PR can route its backend tests to Depot CI.
 Then the GitHub Actions run holds only the relay: `Django Tests Pass` fails with "Backend tests on Depot CI concluded failure", and the GitHub run logs show nothing more.
-`gh run rerun` reads the same Depot result again.
-The log of the `Relay the Depot verdict` step prints the Depot run URL, the `depot ci` commands that diagnose and retry it, and the retry options that need no Depot access.
+A re-run of that job is not read-only: it retries the failed Depot jobs and reports the new verdict, so the rule against re-running CI applies to it.
+The log of the `Relay the Depot verdict` step prints the Depot run URL, each failed step with its log lines, and the label that sends the PR back to GitHub Actions.
 
-Read the failure from Depot with the `depot` CLI, which the flox environment installs.
-Run the `depot ci diagnose` command from the relay log, which already fills in the org and workflow ids.
+Read more of the failure from Depot with the `depot` CLI, which the flox environment installs.
+Run `depot ci diagnose --org <org> --workflow <workflow>` with the two ids from the Depot run URL in the relay log.
 For logs, artifacts, and test results, load the `depot-ci` skill.
 Its `references/posthog-check-run-semantics.md` gets Depot ids from a commit's check runs when you have no relay log.
 If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overrides the saved login, so a wrong one fails every command.

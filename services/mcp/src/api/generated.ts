@@ -42684,7 +42684,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42775,7 +42775,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42858,7 +42858,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -80506,6 +80506,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     /**
@@ -85767,9 +85772,9 @@ export namespace Schemas {
     }
 
     export interface PullRequestList {
-      /** Pull requests, newest first, capped at `limit`. */
+      /** This page of pull requests, newest first, capped at `limit`. */
       items: PullRequestListItem[];
-      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      /** True when more pull requests match after this page; call again with `offset` increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`. */
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
@@ -103539,6 +103544,17 @@ export namespace Schemas {
     }
 
     /**
+     * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+     */
+    export interface TasksAgentInstructions {
+      /**
+         * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+         * @maxLength 20000
+         */
+      agent_instructions: string;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -103588,6 +103604,8 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+      agent_instructions: string;
     }
 
     /**
@@ -103598,6 +103616,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+      agent_instructions: string;
     }
 
     export interface TeachingCanvas {
@@ -105230,7 +105250,7 @@ export namespace Schemas {
     } as const;
 
     export interface ValidationWarning {
-      /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
       code: string;
       /** Human-readable warning description. */
       message: string;
@@ -105243,7 +105263,7 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineResponse {
-      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
       can_proceed: boolean;
       /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
       requires_acknowledgement: boolean;
@@ -108390,7 +108410,7 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct values for this attribute in recent series metadata. */
+      /** Number of distinct values for this attribute in recent data. */
       value_count: number;
     }
 
@@ -114861,6 +114881,18 @@ export namespace Schemas {
      */
     date_from?: string;
     /**
+     * Optional exclusive upper bound for merged_at / closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.
+     */
+    date_to?: string;
+    /**
+     * Page size, 1 to 1000. Defaults to 1000.
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.
+     */
+    offset?: number;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -114868,7 +114900,20 @@ export namespace Schemas {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
+    /**
+     * Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window.
+     */
+    state?: EngineeringAnalyticsPullRequestsState;
     };
+
+    export type EngineeringAnalyticsPullRequestsState = typeof EngineeringAnalyticsPullRequestsState[keyof typeof EngineeringAnalyticsPullRequestsState];
+
+
+    export const EngineeringAnalyticsPullRequestsState = {
+      Closed: 'closed',
+      Merged: 'merged',
+      Open: 'open',
+    } as const;
 
     export type EngineeringAnalyticsQuarantineParams = {
     /**
