@@ -1,19 +1,9 @@
-import { StdinBuffer } from "@earendil-works/pi-tui";
 import type { CloudRegion, Task } from "@posthog/shared";
-import {
-  Box,
-  type DOMElement,
-  measureElement,
-  useApp,
-  useBoxMetrics,
-  useInput,
-} from "ink";
+import { Box, type DOMElement, useApp, useBoxMetrics, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import { REGIONS } from "../auth";
 import { currentRepository, type PiChats } from "../chats";
-import type { ChatView } from "../chatView";
-import { copyToClipboard } from "../clipboard";
 import { isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
 import { useChatPlace } from "../hooks/useChatPlace";
@@ -21,9 +11,11 @@ import { useLocalChats } from "../hooks/useLocalChats";
 import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
+import { usePointer } from "../hooks/usePointer";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
+import { useTerminalInput } from "../hooks/useTerminalInput";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
@@ -33,7 +25,6 @@ import {
   cycleFocus,
   findPane,
   focusPane,
-  focusSidebar,
   initialLayout,
   type LayoutNode,
   type LayoutState,
@@ -47,30 +38,17 @@ import {
 } from "../layout";
 import type { LocalSession } from "../local";
 import { type PiControl, parseSlash } from "../models";
-import {
-  type Click,
-  hitTest,
-  type MouseEvents,
-  type Box as ScreenBox,
-  type Wheel,
-} from "../mouse";
-import { openUrl } from "../openUrl";
+import type { MouseEvents } from "../mouse";
 import type { CloudRuns } from "../runs";
-import { Gesture } from "../selection";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
 import { parseShell } from "../shell";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
-import { HEADER_GAP, Sidebar } from "./Sidebar";
+import { Sidebar } from "./Sidebar";
 
 const CLOSE_CONFIRM_MS = 1_000;
-
-function boxOf(element: DOMElement): ScreenBox {
-  const { x, y, width, height } = measureElement(element);
-  return { left: x + 1, top: y + 1, right: x + width, bottom: y + height };
-}
 
 // A split draws one line between neighbours: left of each column after the first, above each row after the first.
 function dividerProps(divider: "left" | "top" | null) {
@@ -160,15 +138,11 @@ export function App({
   const runningTurns = useRef(
     new Map<string, { taskId: string; runId: string } | null>(),
   );
-  const sidebarBox = useRef<DOMElement | null>(null);
-  const paneBoxes = useRef(new Map<string, DOMElement>());
-  const chatBoxes = useRef(new Map<string, DOMElement>());
-  const prChips = useRef(
-    new Map<string, { element: DOMElement; url: string }>(),
-  );
   const newChatRepository = useMemo(() => currentRepository(), []);
   const chatArea = useRef<DOMElement | null>(null);
   const area = useBoxMetrics(chatArea);
+  // Composers outlive renders, so they submit through the latest onSubmit.
+  const latestSubmit = useRef<(paneId: string, text: string) => void>(() => {});
   const {
     chatFor,
     chatIn,
@@ -180,7 +154,7 @@ export function App({
     repaint,
   } = usePaneViews({
     layout,
-    onSubmit: (paneId, text) => handlers.current.onSubmit(paneId, text),
+    onSubmit: (paneId, text) => latestSubmit.current(paneId, text),
   });
 
   useEffect(() => saveLayout(layout), [layout]);
@@ -475,67 +449,6 @@ export function App({
     }
   });
 
-  // Clicking a row opens it like Enter; clicking elsewhere in the sidebar focuses it; clicking a pane focuses that pane.
-  const onClick = (click: Click): void => {
-    const sidebar = sidebarBox.current && boxOf(sidebarBox.current);
-    if (sidebar && hitTest(click, [["sidebar", sidebar]])) {
-      const onScreen = click.row - sidebar.top;
-      const index = onScreen === 0 ? 0 : Math.max(0, onScreen - HEADER_GAP);
-      const row = rows[index];
-      if (
-        row?.kind === "task" ||
-        row?.kind === "workspace" ||
-        row?.kind === "viewMore"
-      ) {
-        setNavigating(row.kind !== "viewMore");
-        activate(index);
-      } else {
-        setLayout(focusSidebar);
-      }
-      return;
-    }
-    const pr = hitTest(
-      click,
-      [...prChips.current.values()].map(
-        ({ element, url }) => [url, boxOf(element)] as [string, ScreenBox],
-      ),
-    );
-    if (pr) {
-      openUrl(pr[0]);
-      return;
-    }
-    const panes = [...paneBoxes.current].map(
-      ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
-    );
-    const hit = hitTest(click, panes);
-    if (hit) {
-      setNavigating(false);
-      setLayout((current) => focusPane(current, hit[0]));
-      const chatBox = chatBoxes.current.get(hit[0]);
-      const box = chatBox && boxOf(chatBox);
-      const chat = chatIn(hit[0]);
-      if (!box || !hitTest(click, [["chat", box]])) return;
-      const link = chat.linkAt(click.row - box.top, click.column - box.left);
-      if (link) openUrl(link);
-      else if (chat.toggleAt(click.row - box.top)) repaint();
-    }
-  };
-  const onMove = (move: Click): void => {
-    let changed = false;
-    for (const [paneId, element] of chatBoxes.current) {
-      const box = boxOf(element);
-      const row = hitTest(move, [["chat", box]]) ? move.row - box.top : null;
-      if (chatIn(paneId).hoverAt(row)) changed = true;
-    }
-    if (changed) repaint();
-  };
-  const onWheel = (wheel: Wheel): void => {
-    const panes = [...paneBoxes.current].map(
-      ([paneId, element]) => [paneId, boxOf(element)] as [string, ScreenBox],
-    );
-    const hit = hitTest(wheel, panes);
-    if (hit) scrollPane(hit[0], wheel.delta * 3);
-  };
   // Typing in a focused pane goes to its composer; the app's own keys stay with the app.
   const onKey = (sequence: string): void => {
     if (isAppKey(sequence)) return;
@@ -615,96 +528,19 @@ export function App({
     }
   };
 
-  // A press starts a click or, once the pointer moves, a selection in the chat it landed on.
-  const gesture = useRef(new Gesture());
-  const selecting = useRef<{ chat: ChatView; box: ScreenBox } | null>(null);
-  const selectIn = (from: Click, to: Click): void => {
-    const target = selecting.current;
-    if (!target) return;
-    const local = (at: Click): Click => ({
-      row: at.row - target.box.top,
-      column: at.column - target.box.left,
-    });
-    target.chat.select(local(from), local(to));
-    repaint();
-  };
-  const onPress = (at: Click): void => {
-    gesture.current.press(at);
-    for (const chat of allChats()) chat.clearSelection();
-    selecting.current = null;
-    for (const [paneId, element] of chatBoxes.current) {
-      const box = boxOf(element);
-      if (hitTest(at, [["chat", box]]))
-        selecting.current = {
-          chat: chatIn(paneId),
-          box,
-        };
-    }
-    repaint();
-  };
-  const onDrag = (at: Click): void => {
-    const range = gesture.current.drag(at);
-    if (range) selectIn(range.from, range.to);
-  };
-  const onRelease = (at: Click): void => {
-    const end = gesture.current.release(at);
-    if (end?.kind === "click") onClick(end.at);
-    if (end?.kind !== "select" || !selecting.current) return;
-    selectIn(end.from, end.to);
-    const text = selecting.current.chat.selectedText();
-    if (!text.trim()) return;
-    copyToClipboard(text);
-    flashNotice("Copied to clipboard");
-  };
-
-  const handlers = useRef({
-    onPress,
-    onDrag,
-    onRelease,
-    onMove,
-    onWheel,
-    onKey,
-    onSubmit,
+  const { boxes, ...pointer } = usePointer({
+    rows,
+    activate,
+    setNavigating,
+    setLayout,
+    chatIn,
+    chats: allChats,
+    scrollPane,
+    repaint,
+    flashNotice,
   });
-  handlers.current = {
-    onPress,
-    onDrag,
-    onRelease,
-    onMove,
-    onWheel,
-    onKey,
-    onSubmit,
-  };
-
-  useEffect(() => {
-    if (!mouse) return;
-    const press = (at: Click): void => handlers.current.onPress(at);
-    const drag = (at: Click): void => handlers.current.onDrag(at);
-    const release = (at: Click): void => handlers.current.onRelease(at);
-    const wheel = (at: Wheel): void => handlers.current.onWheel(at);
-    const move = (at: Click): void => handlers.current.onMove(at);
-    const keys = new StdinBuffer();
-    keys.on("data", (sequence) => handlers.current.onKey(sequence));
-    keys.on("paste", (text) =>
-      handlers.current.onKey(`\x1b[200~${text}\x1b[201~`),
-    );
-    const raw = (data: string): void => keys.process(data);
-    mouse.on("press", press);
-    mouse.on("drag", drag);
-    mouse.on("release", release);
-    mouse.on("wheel", wheel);
-    mouse.on("move", move);
-    mouse.on("keys", raw);
-    return () => {
-      mouse.off("press", press);
-      mouse.off("drag", drag);
-      mouse.off("release", release);
-      mouse.off("wheel", wheel);
-      mouse.off("move", move);
-      mouse.off("keys", raw);
-      keys.destroy();
-    };
-  }, [mouse]);
+  useTerminalInput(mouse, { ...pointer, onKey });
+  latestSubmit.current = onSubmit;
 
   const titleOf = (pane: PaneNode): string => {
     if (pane.taskId === null) return "New chat";
@@ -722,10 +558,7 @@ export function App({
       return (
         <Box
           key={node.id}
-          ref={(element) => {
-            if (element) paneBoxes.current.set(node.id, element);
-            else paneBoxes.current.delete(node.id);
-          }}
+          ref={(element) => boxes.setPane(node.id, element)}
           width={width}
           height={height}
           flexDirection="column"
@@ -766,15 +599,8 @@ export function App({
                   ? statusChips(taskOf(node.taskId), newChatRepository)
                   : []
             }
-            onPrChip={(element, url) => {
-              if (element && url)
-                prChips.current.set(node.id, { element, url });
-              else prChips.current.delete(node.id);
-            }}
-            onChatBox={(element) => {
-              if (element) chatBoxes.current.set(node.id, element);
-              else chatBoxes.current.delete(node.id);
-            }}
+            onPrChip={(element, url) => boxes.setPrChip(node.id, element, url)}
+            onChatBox={(element) => boxes.setChat(node.id, element)}
             focused={!sidebarFocused && node.id === workspace.focusedPaneId}
           />
         </Box>
@@ -812,7 +638,7 @@ export function App({
   return (
     <Box flexGrow={1} paddingBottom={1}>
       <Sidebar
-        boxRef={sidebarBox}
+        boxRef={boxes.sidebar}
         notice={notice.notice}
         rows={rows}
         focused={sidebarFocused}
