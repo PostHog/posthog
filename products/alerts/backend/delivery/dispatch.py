@@ -5,10 +5,10 @@ it. Which destinations an alert has is resolved before this, so a change to that
 reaches no transport.
 """
 
-from products.alerts.backend.delivery.message import build_message
+from products.alerts.backend.delivery.message import AlertMessage, build_message
 from products.alerts.backend.delivery.telemetry import record_delivery
-from products.alerts.backend.delivery.thread_store import ThreadKey, ThreadStore
-from products.alerts.backend.delivery.transport import DeliveryTransport
+from products.alerts.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
+from products.alerts.backend.delivery.transport import DeliveryTransport, MessageHandle
 from products.alerts.backend.facade.contracts import AlertDestinationData, AnnouncedTransition, EvaluationAnnouncement
 
 
@@ -18,6 +18,7 @@ def deliver(
     thread_store: ThreadStore,
     team_id: int,
     configuration_id: str,
+    evaluation_key: str,
     target: AlertDestinationData,
     announcement: EvaluationAnnouncement,
 ) -> None:
@@ -30,25 +31,61 @@ def deliver(
             channel_target=channel_target,
             transition=transition,
         )
-        handle = thread_store.handle_for(key) if key is not None else None
-        message = build_message(announcement, transition)
-        try:
-            sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=handle)
-        except Exception:
-            # Every failure class. Counting only the refusals a provider names leaves an outage
-            # reading as no delivery attempted at all.
-            record_delivery(
+        if key is None:
+            _send(
+                transport=transport,
                 team_id=team_id,
                 configuration_id=configuration_id,
-                provider=transport.provider,
-                succeeded=False,
+                target=target,
+                message=build_message(announcement, transition),
+                in_reply_to=None,
             )
+            continue
+
+        try:
+            claim = thread_store.claim(key, evaluation_key)
+        except ThreadBusy:
+            # Another attempt of this send is still posting. Leaving it is what stops the two
+            # of them putting the same message in the channel twice.
+            continue
+        if claim is None:
+            continue
+
+        try:
+            sent = _send(
+                transport=transport,
+                team_id=team_id,
+                configuration_id=configuration_id,
+                target=target,
+                message=build_message(announcement, transition),
+                in_reply_to=claim.handle,
+            )
+        except Exception:
+            thread_store.release(claim)
             raise
-        record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
-        # Only the first message of a conversation is remembered. Remembering a reply would move
-        # the thread onto itself, so a later message would reply to a reply.
-        if sent is not None and handle is None and key is not None:
-            thread_store.remember(key, sent)
+        thread_store.delivered(claim, sent)
+
+
+def _send(
+    *,
+    transport: DeliveryTransport,
+    team_id: int,
+    configuration_id: str,
+    target: AlertDestinationData,
+    message: AlertMessage,
+    in_reply_to: MessageHandle | None,
+) -> MessageHandle | None:
+    try:
+        sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=in_reply_to)
+    except Exception:
+        # Every failure class. Counting only the refusals a provider names leaves an outage
+        # reading as no delivery attempted at all.
+        record_delivery(
+            team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=False
+        )
+        raise
+    record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
+    return sent
 
 
 def _thread_key(
