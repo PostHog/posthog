@@ -50,9 +50,11 @@ interface ScoutConfigControlsProps {
 // validates pins against — growing this list is a frontend-only change.
 const SCOUT_MODEL_IDS = [
     'claude-sonnet-5',
-    'claude-opus-5',
+    'claude-opus-5-5',
+    'gpt-6-luna',
     'gpt-5.6-luna',
     'gpt-5.6-terra',
+    'gpt-6-sol',
     'gpt-5.6-sol',
     'gpt-6-astra',
 ]
