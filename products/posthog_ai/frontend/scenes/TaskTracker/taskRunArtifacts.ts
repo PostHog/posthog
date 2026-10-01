@@ -1,4 +1,8 @@
-import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunArtifactResponseApi,
+    TaskRunLivingArtifactResponseApi,
+    TaskRunLivingArtifactsResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 export type TaskRunTab = 'conversation' | 'artifacts'
 
@@ -42,7 +46,12 @@ export function postHogObjectRef(artifact: TaskRunArtifactResponseApi): PostHogO
     return { objectKind: metadata.object_kind, objectId: metadata.object_id }
 }
 
-export function artifactPreviewKind(artifact: TaskRunArtifactResponseApi): ArtifactPreviewKind {
+export function artifactPreviewKind(
+    artifact: TaskRunArtifactResponseApi & { living?: LivingVersion }
+): ArtifactPreviewKind {
+    if (artifact.living && artifact.living.text === null) {
+        return 'none'
+    }
     if (artifact.type === 'reference') {
         return 'reference'
     }
@@ -143,6 +152,8 @@ export function parseCsv(text: string): string[][] {
 /** A file the agent wrote, with the run that holds it. Downloads must name that run, not the open one. */
 export interface RunArtifact extends TaskRunArtifactResponseApi {
     runId: string
+    /** Set on a version of a living document. Absent for uploaded files and cited objects. */
+    living?: LivingVersion
 }
 
 interface RunWithArtifacts {
@@ -206,4 +217,87 @@ export function groupArtifactVersions(artifacts: readonly RunArtifact[]): Artifa
                 Number(a.latest.type === 'reference') - Number(b.latest.type === 'reference') ||
                 b.latest.uploaded_at.localeCompare(a.latest.uploaded_at)
         )
+}
+
+/** One version of a document the agent edits in place, such as a Slack canvas. */
+export interface LivingVersion {
+    /** The living artifact id. All versions of one document share it. */
+    artifactId: string
+    adapter: string
+    /** `null` when PostHog keeps no text for the version, for example a file sent to Slack. */
+    text: string | null
+}
+
+export const LIVING_ADAPTER_LABEL: Record<string, string> = {
+    slack_message: 'Slack message',
+    slack_canvas: 'Slack canvas',
+    slack_file: 'Slack file',
+    document_connector: 'Document',
+    github_pr: 'Pull request',
+}
+
+/**
+ * The generated client types the list response as an array of envelopes, but the endpoint returns one
+ * envelope. Both shapes are read so the list keeps working after the schema is fixed.
+ */
+export function livingArtifactsFromResponse(
+    response: TaskRunLivingArtifactsResponseApi | readonly TaskRunLivingArtifactsResponseApi[] | null | undefined
+): TaskRunLivingArtifactResponseApi[] {
+    const envelopes: readonly TaskRunLivingArtifactsResponseApi[] = Array.isArray(response)
+        ? response
+        : response
+          ? [response as TaskRunLivingArtifactsResponseApi]
+          : []
+    const byId = new Map<string, TaskRunLivingArtifactResponseApi>()
+    for (const artifact of envelopes.flatMap((envelope) => envelope.artifacts ?? [])) {
+        if (artifact.id && !byId.has(artifact.id)) {
+            byId.set(artifact.id, artifact)
+        }
+    }
+    return [...byId.values()]
+}
+
+function stringField(record: Record<string, unknown>, field: string): string | undefined {
+    const value = record[field]
+    return typeof value === 'string' && value ? value : undefined
+}
+
+/** The registry types each version record as an open object, so every field is checked before use. */
+function livingVersionArtifact(
+    artifact: TaskRunLivingArtifactResponseApi,
+    record: Record<string, unknown>,
+    versionNumber: number
+): RunArtifact {
+    return {
+        // The prefix keeps a document apart from an uploaded file or a cited object in `?artifact=`.
+        id: `living-${artifact.id}-v${versionNumber}`,
+        name: artifact.name,
+        type: 'living',
+        content_type: stringField(record, 'content_type'),
+        size: typeof record.size === 'number' ? record.size : undefined,
+        uploaded_at: stringField(record, 'created_at') ?? artifact.updated_at ?? artifact.created_at ?? '',
+        runId: stringField(record, 'run_id') ?? artifact.run_id,
+        living: {
+            artifactId: artifact.id,
+            adapter: artifact.adapter,
+            text: typeof record.content === 'string' ? record.content : null,
+        },
+    }
+}
+
+/** One entry per living document, with its versions newest first. */
+export function livingArtifactFiles(artifacts: readonly TaskRunLivingArtifactResponseApi[]): ArtifactFile[] {
+    return artifacts
+        .map((artifact) => {
+            const records = artifact.versions.length > 0 ? artifact.versions : [{}]
+            const versions = records
+                .map((record, index) => ({
+                    record,
+                    number: typeof record.version === 'number' ? record.version : index + 1,
+                }))
+                .sort((a, b) => b.number - a.number)
+                .map(({ record, number }) => livingVersionArtifact(artifact, record, number))
+            return { key: `living-${artifact.id}`, name: artifact.name, versions, latest: versions[0] }
+        })
+        .sort((a, b) => b.latest.uploaded_at.localeCompare(a.latest.uploaded_at))
 }

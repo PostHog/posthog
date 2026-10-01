@@ -1,13 +1,40 @@
-import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunArtifactResponseApi,
+    TaskRunLivingArtifactResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import {
     RunArtifact,
     artifactPreviewKind,
     collectRunArtifacts,
     groupArtifactVersions,
+    livingArtifactFiles,
+    livingArtifactsFromResponse,
     parseCsv,
     visibleRunArtifacts,
 } from './taskRunArtifacts'
+
+function livingArtifact(overrides: Partial<TaskRunLivingArtifactResponseApi>): TaskRunLivingArtifactResponseApi {
+    return {
+        id: 'doc-1',
+        task_id: 'task-1',
+        run_id: 'run-1',
+        team_id: 1,
+        name: 'report.md',
+        artifact_type: 'document',
+        adapter: 'slack_canvas',
+        status: 'active',
+        location: {},
+        metadata: {},
+        current_version: 2,
+        versions: [
+            { version: 1, run_id: 'run-1', content: '# Draft', created_at: '2026-09-30T17:00:00Z' },
+            { version: 2, run_id: 'run-2', content: '# Final', created_at: '2026-09-30T18:00:00Z' },
+        ],
+        updated_at: '2026-09-30T18:00:00Z',
+        ...overrides,
+    }
+}
 
 function artifact(overrides: Partial<TaskRunArtifactResponseApi>): TaskRunArtifactResponseApi {
     return {
@@ -163,5 +190,39 @@ describe('taskRunArtifacts', () => {
                 latestId: file.latest.id,
             }))
         ).toEqual(expected)
+    })
+
+    const slackFile = livingArtifact({
+        id: 'doc-2',
+        name: 'weeks.xlsx',
+        adapter: 'slack_file',
+        current_version: 1,
+        versions: [{ version: 1, run_id: 'run-1', size: 2048, created_at: '2026-09-30T16:00:00Z' }],
+    })
+    test.each([
+        ['the envelope the endpoint returns', { artifacts: [livingArtifact({}), slackFile] }],
+        [
+            'the array of envelopes the generated client types, with a repeated id',
+            [{ artifacts: [livingArtifact({})] }, { artifacts: [livingArtifact({}), slackFile] }],
+        ],
+    ])('living documents read from %s', (_, response) => {
+        const files = livingArtifactFiles(livingArtifactsFromResponse(response))
+        // An uploaded `report.md` keys by its name, so a living document with that name must not take the same key.
+        expect(
+            files.map((file) => ({
+                key: file.key,
+                versions: file.versions.map(({ id, living }) => ({ id, text: living?.text })),
+            }))
+        ).toEqual([
+            {
+                key: 'living-doc-1',
+                versions: [
+                    { id: 'living-doc-1-v2', text: '# Final' },
+                    { id: 'living-doc-1-v1', text: '# Draft' },
+                ],
+            },
+            { key: 'living-doc-2', versions: [{ id: 'living-doc-2-v1', text: null }] },
+        ])
+        expect(artifactPreviewKind(files[1].latest)).toBe('none')
     })
 })
