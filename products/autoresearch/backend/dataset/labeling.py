@@ -593,6 +593,7 @@ def _build_labeled_users_cte(
     lookback_days: int,
     training_population: dict[str, Any] | None,
     sample_limit: int | None,
+    anchor_ts: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the WITH clause that materialises the labeled_users table:
@@ -610,18 +611,26 @@ def _build_labeled_users_cte(
 
     sample_limit caps user_window for fast wizard previews; None = full
     materialization (trainer).
+
+    anchor_ts (unix seconds) is the instant every window ends at; None = now().
+    Queries that must agree on the anchor set, such as the training features and
+    the anchor count, bind the same anchor_ts, because each query reads its own
+    now() and a person at a window edge can fall in one and not the other.
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     compiled_filters = _compile_population_filters(training_properties)
     target_cond, target_values = build_target_condition(
         target_event=target_event, target_definition=target_definition, team=team
     )
-    compiled_kind = _build_population_kind_conditions(training_population, anchor_mode=True, target_cond=target_cond)
+    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else "now()"
+    compiled_kind = _build_population_kind_conditions(
+        training_population, now_expr=now_expr, anchor_mode=True, target_cond=target_cond
+    )
     member_clause = _member_clause(compiled_filters, compiled_kind)
     superset_clause = f" AND ({' AND '.join(compiled_kind.where_parts)})" if compiled_kind.where_parts else ""
     member_scan = (
-        "timestamp >= now() - toIntervalDay({lookback})"
-        f" AND timestamp < now(){_own_events_excluded_clause()}{member_clause}{superset_clause}"
+        f"timestamp >= {now_expr} - toIntervalDay({{lookback}})"
+        f" AND timestamp < {now_expr}{_own_events_excluded_clause()}{member_clause}{superset_clause}"
     )
     persons_sql = _person_rows_sql(
         f"SELECT person_id FROM events WHERE {member_scan}",
@@ -673,7 +682,7 @@ def _build_labeled_users_cte(
                 SELECT
                     person_id,
                     toInt(toUnixTimestamp(min(timestamp))) AS first_ts,
-                    toInt(toUnixTimestamp(now() - toIntervalDay({{horizon}}))) AS cutoff_ts
+                    toInt(toUnixTimestamp({now_expr} - toIntervalDay({{horizon}}))) AS cutoff_ts
                 FROM events
                 WHERE {member_scan}
                 GROUP BY person_id
@@ -701,8 +710,8 @@ def _build_labeled_users_cte(
                 ), 0) AS positive
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
-            WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
-              AND e.timestamp < now(){_own_events_excluded_clause("e.")}{label_scan_clause}
+            WHERE e.timestamp >= {now_expr} - toIntervalDay({{lookback}})
+              AND e.timestamp < {now_expr}{_own_events_excluded_clause("e.")}{label_scan_clause}
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
@@ -713,6 +722,8 @@ def _build_labeled_users_cte(
         **compiled_filters.values,
         **compiled_kind.values,
     }
+    if anchor_ts is not None:
+        values["anchor_ts"] = anchor_ts
     return cte, values
 
 
@@ -725,6 +736,7 @@ def build_random_t0_labeler_sql(
     sample_limit: int | None = None,
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    anchor_ts: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query that returns one row of (eligible, positives) for a
@@ -745,6 +757,7 @@ def build_random_t0_labeler_sql(
         lookback_days=lookback_days,
         training_population=training_population,
         sample_limit=sample_limit,
+        anchor_ts=anchor_ts,
     )
     sql = f"""
         {cte}
@@ -989,6 +1002,7 @@ def build_training_features_sql(
     training_population: dict[str, Any] | None,
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    anchor_ts: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the composite training-time query:
@@ -1008,6 +1022,7 @@ def build_training_features_sql(
         lookback_days=lookback_days,
         training_population=training_population,
         sample_limit=None,
+        anchor_ts=anchor_ts,
     )
     anchors_subquery = "(SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)"
     substituted_feature_sql = _substitute_anchors(feature_sql, anchors_subquery)

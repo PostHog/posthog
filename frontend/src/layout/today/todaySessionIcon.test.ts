@@ -16,6 +16,7 @@ const item = (kind: TodayWorkItem['kind'], status: string | null): TodayWorkItem
     originProduct: null,
     source: null,
     repository: null,
+    branch: null,
     pullRequests: [],
     finalMessage: null,
 })

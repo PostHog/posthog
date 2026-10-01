@@ -62,6 +62,11 @@ export function computeRangeSelection(
     return { ids: Array.from(new Set([...current, ...range])), anchorId: toId }
 }
 
+/** Like Desktop, a right-click on a row inside a selection acts on the selection, not on that one row. */
+export function rightClickActsOnSelection(selectedIds: string[], sessionId: string): boolean {
+    return selectedIds.length > 1 && selectedIds.includes(sessionId)
+}
+
 export function pruneToVisible(ids: string[], visibleIds: string[]): string[] {
     const visible = new Set(visibleIds)
     return ids.filter((id) => visible.has(id))
