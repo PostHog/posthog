@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    AttentionPullRequestListApi,
     GitHubSourceApi,
     PullRequestListApi,
     RepoOverviewApi,
@@ -232,6 +233,12 @@ const PULL_REQUESTS: PullRequestListApi = {
     limit: 1000,
 }
 
+const ATTENTION_PULL_REQUESTS: AttentionPullRequestListApi = {
+    items: PULL_REQUESTS.items.filter((item) => item.state === 'open'),
+    total: 1,
+    limit: 15,
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Repo Overview',
@@ -258,6 +265,7 @@ const meta: Meta = {
                     failing_ci: 4,
                 },
                 'api/projects/:team_id/engineering_analytics/pull_requests/': PULL_REQUESTS,
+                'api/projects/:team_id/engineering_analytics/attention_pull_requests/': ATTENTION_PULL_REQUESTS,
                 'api/projects/:team_id/engineering_analytics/workflow_health/': WORKFLOW_HEALTH,
             },
         }),
