@@ -254,6 +254,7 @@ export function usePhotoUrl(taskId: string, photo: PhotoRef | null) {
     enabled: !!session && !!photo,
     staleTime: PHOTO_URL_TTL,
     gcTime: PHOTO_URL_TTL,
+    refetchInterval: PHOTO_URL_TTL,
     retry: false,
   });
 }
