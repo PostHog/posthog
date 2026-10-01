@@ -61,8 +61,8 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <div>
                 <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or cohorts, or add people from a list. Without filters, the broadcast
-                    goes to everyone.
+                    Filter by person properties or cohorts, or upload a list. Without filters, the broadcast goes to
+                    everyone.
                 </p>
             </div>
             <div>
