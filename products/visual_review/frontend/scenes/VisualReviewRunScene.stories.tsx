@@ -270,6 +270,58 @@ const repeatedTolerations = {
     })),
 }
 
+const buttonQuarantine: QuarantinedIdentifierEntryApi = {
+    id: 'quarantine-button',
+    identifier: 'Components/Button--primary',
+    run_type: 'storybook',
+    reason: 'Hover state renders a frame late',
+    source: 'human',
+    expires_at: '2026-07-01T00:00:00Z',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+}
+
+const pendingLift: QuarantineLiftEntryApi = {
+    id: 'lift-button',
+    quarantine_id: buttonQuarantine.id,
+    identifier: buttonQuarantine.identifier,
+    run_type: 'storybook',
+    pr_number: 42,
+    expected_hash: 'curr_changed',
+    state: 'pending',
+    detail: 'Waiting for the pull request to merge',
+    source: 'human',
+    created_at: '2026-06-10T00:02:00Z',
+    updated_at: '2026-06-10T00:02:00Z',
+}
+
+const tooltipQuarantine: QuarantinedIdentifierEntryApi = {
+    ...buttonQuarantine,
+    id: 'quarantine-tooltip',
+    identifier: 'Components/Tooltip--hover',
+    reason: 'Tooltip fades in at a random frame',
+}
+
+const quarantinedButton = {
+    ...snapshots.results[0],
+    review_state: 'approved',
+    approved_hash: 'curr_changed',
+    is_quarantined: true,
+}
+
+// The fix for the tooltip flake renders the story as its baseline, so only the clean list reaches it.
+const cleanQuarantinedTooltip = snapshot({
+    id: 'snapshot-tooltip',
+    identifier: tooltipQuarantine.identifier,
+    result: 'unchanged',
+    diff_percentage: null,
+    diff_pixel_count: null,
+    review_state: '',
+    is_quarantined: true,
+    baseline_artifact: artifact('base_tooltip'),
+    current_artifact: artifact('base_tooltip'),
+})
+
 // A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
 export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     parameters: {
@@ -327,55 +379,3 @@ export const TolerateSuggestsQuarantine: StoryObj = {
         await userEvent.click(tolerateButton)
     },
 }
-
-const buttonQuarantine: QuarantinedIdentifierEntryApi = {
-    id: 'quarantine-button',
-    identifier: 'Components/Button--primary',
-    run_type: 'storybook',
-    reason: 'Hover state renders a frame late',
-    source: 'human',
-    expires_at: '2026-07-01T00:00:00Z',
-    created_at: '2026-06-01T00:00:00Z',
-    updated_at: '2026-06-01T00:00:00Z',
-}
-
-const pendingLift: QuarantineLiftEntryApi = {
-    id: 'lift-button',
-    quarantine_id: buttonQuarantine.id,
-    identifier: buttonQuarantine.identifier,
-    run_type: 'storybook',
-    pr_number: 42,
-    expected_hash: 'curr_changed',
-    state: 'pending',
-    detail: 'Waiting for the pull request to merge',
-    source: 'human',
-    created_at: '2026-06-10T00:02:00Z',
-    updated_at: '2026-06-10T00:02:00Z',
-}
-
-const tooltipQuarantine: QuarantinedIdentifierEntryApi = {
-    ...buttonQuarantine,
-    id: 'quarantine-tooltip',
-    identifier: 'Components/Tooltip--hover',
-    reason: 'Tooltip fades in at a random frame',
-}
-
-const quarantinedButton = {
-    ...snapshots.results[0],
-    review_state: 'approved',
-    approved_hash: 'curr_changed',
-    is_quarantined: true,
-}
-
-// The fix for the tooltip flake renders the story as its baseline, so only the clean list reaches it.
-const cleanQuarantinedTooltip = snapshot({
-    id: 'snapshot-tooltip',
-    identifier: tooltipQuarantine.identifier,
-    result: 'unchanged',
-    diff_percentage: null,
-    diff_pixel_count: null,
-    review_state: '',
-    is_quarantined: true,
-    baseline_artifact: artifact('base_tooltip'),
-    current_artifact: artifact('base_tooltip'),
-})
