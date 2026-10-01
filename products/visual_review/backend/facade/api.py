@@ -248,6 +248,7 @@ def _to_run(
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -607,32 +608,40 @@ def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+    run_id: UUID,
+    team_id: int | None = None,
+    include_quarantined: bool = True,
+    exclude_unchanged: bool = False,
+    snapshot_id: UUID | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> contracts.RunSnapshots:
+    """One page of a run's snapshots. `limit=None` returns every match from `offset` on.
+
+    Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
+    signs a download URL per artifact and a large run holds thousands of rows.
+    """
     if not include_quarantined and team_id is None:
         raise ValueError("team_id is required to exclude quarantined snapshots")
-    snapshots = run_queries.get_run_snapshots(run_id, team_id=team_id)
-    if not snapshots:
-        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
-    repo_id = snapshots[0].run.repo_id
-    run_type = snapshots[0].run.run_type
-    quarantined_identifiers = (
-        {q.identifier for q in quarantine.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
-        if team_id is not None
-        else set()
-    )
-    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
-    user_basic_infos = _fetch_user_basic_infos(user_ids)
-    dtos: list[contracts.Snapshot] = []
+    run = run_queries.get_run(run_id, team_id=team_id)
+    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
+
     quarantined_count = 0
-    for s in snapshots:
-        dto = _to_snapshot(s, repo_id, user_basic_infos)
-        if dto.identifier in quarantined_identifiers:
-            quarantined_count += 1
-            if not include_quarantined:
-                continue
-        dtos.append(dto)
-    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
+    if team_id is not None:
+        quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
+        quarantined_count = snapshots.filter(identifier__in=quarantined).count()
+        if not include_quarantined:
+            snapshots = snapshots.exclude(identifier__in=quarantined)
+
+    total_count = snapshots.count()
+    page = list(snapshots[offset : offset + limit if limit is not None else None])
+    user_ids = {s.reviewed_by_id for s in page if s.reviewed_by_id}
+    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    return contracts.RunSnapshots(
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos) for s in page],
+        quarantined_count=quarantined_count,
+        total_count=total_count,
+    )
 
 
 def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
@@ -687,14 +696,19 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None, check_run_id: str | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
     """
     if team_id is not None:
         run_queries.get_run(run_id, team_id=team_id)  # validates ownership
     run = runs.complete_run(run_id)
-    return _to_run(run)
+    # After `complete_run`, whose baseline healing saves a whole metadata dict it may have read stale.
+    if check_run_id is not None:
+        runs.record_completing_job(run_id, check_run_id)
+    # A re-run of the completing CI job lands here on a completed run, and the CLI gates on this
+    # number, so it must be the commit status verdict and not the unprefetched default of 0.
+    return _to_run(run, unresolved=gating.count_gating(run))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
@@ -855,6 +869,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)

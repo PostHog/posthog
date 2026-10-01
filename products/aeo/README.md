@@ -76,6 +76,10 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
   AND $start_timestamp >= now() - INTERVAL 30 DAY
 ```
 
+## Content autopilot
+
+Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+
 ## Cost
 
 Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at \$5 per 1,000 requests (`cost_usd` on the check event).

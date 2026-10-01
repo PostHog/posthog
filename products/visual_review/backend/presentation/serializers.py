@@ -51,7 +51,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, ShiftBandKind
+from ..facade.enums import FlakinessState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -143,6 +143,14 @@ class SnapshotSerializer(DataclassSerializer):
 
 class RunSerializer(DataclassSerializer):
     approved_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    purpose = serializers.ChoiceField(
+        choices=[p.value for p in RunPurpose],
+        read_only=True,
+        help_text=(
+            "Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are "
+            "tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved."
+        ),
+    )
     search_match_type = serializers.ChoiceField(
         choices=["exact", "similar"],
         allow_null=True,
@@ -327,6 +335,19 @@ class MarkToleratedInputSerializer(serializers.Serializer):
     )
 
 
+class CompleteRunInputSerializer(serializers.Serializer):
+    check_run_id = serializers.RegexField(
+        r"^\d+$",
+        max_length=32,
+        required=False,
+        help_text=(
+            "Numeric GitHub Actions job ID of the CI job that completes the run, from "
+            "`${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict "
+            "without capturing the snapshots again. Omit it outside GitHub Actions."
+        ),
+    )
+
+
 class QuarantineSourceRunSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineSourceRun
@@ -361,6 +382,15 @@ class QuarantineInputSerializer(DataclassSerializer):
         help_text=(
             "Optional pointer to the run whose failing snapshot prompted this quarantine — "
             "used to surface a 'view the failing run' link later."
+        ),
+    )
+    notify_owners = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Post the quarantine to the Slack channel of the team that owns the story, naming the user "
+            "who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when "
+            "the story has no owning team or the project has no Slack integration."
         ),
     )
 
@@ -589,6 +619,32 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class RunSnapshotsQuerySerializer(serializers.Serializer):
+    include_quarantined = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to include snapshots whose identifier is currently quarantined. "
+            "Defaults to false: quarantined snapshots are excluded from results and reported "
+            "in quarantined_count instead, since they are noise when reviewing real changes."
+        ),
+    )
+    exclude_unchanged = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to leave out snapshots whose result is `unchanged`. Defaults to false. "
+            "Pass true to list only the changed, new and removed snapshots, which is what a "
+            "review needs. A large run holds thousands of unchanged snapshots and few changes."
+        ),
+    )
+    snapshot_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Return only the snapshot with this id, read from the `id` field of a snapshot in "
+            "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
 
 
 class TolerationPileupsQuerySerializer(serializers.Serializer):
