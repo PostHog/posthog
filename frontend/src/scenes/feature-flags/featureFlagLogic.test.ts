@@ -573,7 +573,7 @@ describe('featureFlagLogic', () => {
         })
 
         // Silence here leaves the reader trusting a screen behind the server, then saving over it.
-        it('says the refresh failed and reloads the flag from the notice', async () => {
+        it('says the refresh failed and retries it from the notice', async () => {
             silenceKeaLoadersErrors()
             try {
                 useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
@@ -586,17 +586,25 @@ describe('featureFlagLogic', () => {
                 expect(lemonToast.error).toHaveBeenCalledTimes(1)
                 const [message, options] = jest.mocked(lemonToast.error).mock.calls[0]
                 expect(message).toContain('could not load the new values')
-                expect(options?.toastId).toBe('feature-flag-agent-refresh-failed-1')
+                expect(options?.toastId).toBe('feature-flag-agent-refresh-failed-1-1')
                 expect(options?.autoClose).toBe(false)
-                // The notice outlives the form state it was raised against, so the warning has to
-                // hold on a form that only goes dirty later.
-                expect(message).toContain('Reloading discards any unsaved edits.')
-                expect(options?.button?.label).toBe('Reload')
+                expect(options?.button?.label).toBe('Try again')
+
+                // A retry that fails again must not run the full loader, which would mark the flag
+                // missing and swap the page for Not Found.
+                await expectLogic(logic, () => void options?.button?.action())
+                    .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.featureFlagMissing).toBe(false)
+                expect(lemonToast.error).toHaveBeenCalledTimes(2)
+                const [, retryOptions] = jest.mocked(lemonToast.error).mock.calls[1]
+                expect(retryOptions?.toastId).toBe('feature-flag-agent-refresh-failed-1-2')
 
                 useMocks(serverFlagMock({ name: 'renamed by the agent' }))
 
-                await expectLogic(logic, () => void options?.button?.action())
-                    .toDispatchActions(['loadFeatureFlag', 'loadFeatureFlagSuccess'])
+                await expectLogic(logic, () => void retryOptions?.button?.action())
+                    .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
                     .toFinishAllListeners()
 
                 expect(logic.values.featureFlag.name).toBe('renamed by the agent')
@@ -617,6 +625,7 @@ describe('featureFlagLogic', () => {
                     .toDispatchActions(['refreshFeatureFlagFailure'])
                     .toFinishAllListeners()
 
+                const [, options] = jest.mocked(lemonToast.error).mock.calls[0]
                 dismiss.mockClear()
                 useMocks(serverFlagMock({ name: 'renamed by the agent' }))
 
@@ -624,7 +633,7 @@ describe('featureFlagLogic', () => {
                     .toDispatchActions(['refreshFeatureFlagSuccess'])
                     .toFinishAllListeners()
 
-                expect(dismiss).toHaveBeenCalledWith('feature-flag-agent-refresh-failed-1')
+                expect(dismiss).toHaveBeenCalledWith(options?.toastId)
             } finally {
                 dismiss.mockRestore()
                 resumeKeaLoadersErrors()

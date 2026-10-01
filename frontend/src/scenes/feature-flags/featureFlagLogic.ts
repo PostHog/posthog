@@ -836,15 +836,20 @@ function agentChangeToastId(id: FeatureFlagLogicProps['id']): string {
     return `feature-flag-agent-change-${id}`
 }
 
-function agentRefreshFailedToastId(id: FeatureFlagLogicProps['id']): string {
-    return `feature-flag-agent-refresh-failed-${id}`
+// Each raise of the failure notice gets its own id. Its button dismisses the notice on click, and
+// react-toastify keeps a dismissed id reserved until the exit animation ends and drops a toast raised
+// under it in that window, so a retry that fails fast would re-raise into nothing.
+function agentRefreshFailedToastId(id: FeatureFlagLogicProps['id'], attempt: number): string {
+    return `feature-flag-agent-refresh-failed-${id}-${attempt}`
 }
 
 // Plain toast.dismiss, not lemonToast.dismiss, because the latter marks the id cancelled and would
 // swallow the notice for the next agent change on this flag.
-function dismissAgentNotices(id: FeatureFlagLogicProps['id']): void {
+function dismissAgentNotices(id: FeatureFlagLogicProps['id'], cache: Record<string, any>): void {
     toast.dismiss(agentChangeToastId(id))
-    toast.dismiss(agentRefreshFailedToastId(id))
+    if (cache.agentRefreshFailedToastId) {
+        toast.dismiss(cache.agentRefreshFailedToastId)
+    }
 }
 
 // Shape a freshly-loaded server flag into the `originalFeatureFlag` baseline the dirty check
@@ -3621,7 +3626,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlagStatusFailure: () => null,
         },
     }),
-    listeners(({ actions, values, props, sharedListeners }) => ({
+    listeners(({ actions, values, props, sharedListeners, cache }) => ({
         loadCopyDependencyRequirements: async (_, breakpoint): Promise<void> => {
             const { copyDestinationProject, currentOrganizationId, currentProjectId, featureFlag } = values
 
@@ -3892,7 +3897,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            dismissAgentNotices(props.id)
+            dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
             actions.setOriginalFeatureFlag(toFeatureFlagBaseline(featureFlag))
@@ -4030,9 +4035,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return
             }
             const afterAgentChange = !!payload?.afterAgentChange
-            if (afterAgentChange) {
+            if (afterAgentChange && cache.agentRefreshFailedToastId) {
                 // This response carries what the failed one missed, so its notice is now wrong.
-                toast.dismiss(agentRefreshFailedToastId(props.id))
+                toast.dismiss(cache.agentRefreshFailedToastId)
             }
             const baseline = values.originalFeatureFlag
             // Replacing the whole flag would discard an edit made during the request and re-baseline
@@ -4083,18 +4088,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // This notice supersedes the one a successful refresh left open, and both reload the
             // same flag, so stacking them would offer the reader two buttons for one action.
             toast.dismiss(agentChangeToastId(props.id))
-            // The warning is unconditional because this notice never closes on its own: a form that
-            // goes dirty after it appears would otherwise get a Reload button that discards those
-            // edits without saying so. It sits in the message, not the button label, which the
-            // toast's fixed width would squeeze.
+            cache.agentRefreshFailedAttempt = (cache.agentRefreshFailedAttempt ?? 0) + 1
+            cache.agentRefreshFailedToastId = agentRefreshFailedToastId(props.id, cache.agentRefreshFailedAttempt)
+            // The button retries this refresh rather than running the full loader, which marks the
+            // flag missing on any error except access denied. Nothing resets that state, so the scene
+            // would show Not Found over the flag and any unsaved edits until it remounts.
             lemonToast.error(
-                'PostHog AI changed this flag, but the page could not load the new values. It still shows the old ones. Reloading discards any unsaved edits.',
+                'PostHog AI changed this flag, but the page could not load the new values. It still shows the old ones.',
                 {
                     autoClose: false,
-                    toastId: agentRefreshFailedToastId(props.id),
+                    toastId: cache.agentRefreshFailedToastId,
                     button: {
-                        label: 'Reload',
-                        action: () => actions.loadFeatureFlag(),
+                        label: 'Try again',
+                        action: () => actions.refreshFeatureFlag({ afterAgentChange: true }),
                         dataAttr: 'feature-flag-agent-refresh-failed-reload',
                     },
                 }
@@ -4170,7 +4176,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
-            dismissAgentNotices(props.id)
+            dismissAgentNotices(props.id, cache)
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
             // it once against the loaded flag; only on the first load, so a later reload (e.g.
@@ -5259,8 +5265,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         }
     }),
 
-    beforeUnmount(({ props }) => {
+    beforeUnmount(({ props, cache }) => {
         // A notice that survives navigation has a button that reloads an unmounted logic.
-        dismissAgentNotices(props.id)
+        dismissAgentNotices(props.id, cache)
     }),
 ])
