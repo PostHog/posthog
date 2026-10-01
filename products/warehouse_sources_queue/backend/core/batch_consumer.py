@@ -17,6 +17,7 @@ import psycopg
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources_queue.backend.core.batch_phase import (
     BatchPhaseProgress,
@@ -1476,13 +1477,23 @@ class BatchConsumer:
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"
-            logger.exception(
-                self._event("batch_failed_no_retries_left"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
+            if isinstance(err, NonReportableError):
+                # The engine runs outside Temporal, so no activity interceptor drops these for us.
+                logger.warning(
+                    self._event("batch_failed_no_retries_left_non_reportable"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
+            else:
+                logger.exception(
+                    self._event("batch_failed_no_retries_left"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                )
+                capture_exception(err)
             await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:

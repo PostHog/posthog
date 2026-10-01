@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -301,11 +304,18 @@ class TestProcessSingle:
         mock_fail.assert_called_once()
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
 
+    @pytest.mark.parametrize(
+        "error,expect_capture",
+        [
+            pytest.param(RuntimeError("crash"), True, id="reportable"),
+            pytest.param(TransientObjectStoreError("Generic S3 error: timeout"), False, id="non_reportable"),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_error_at_max_attempts_fails_run(self):
+    async def test_error_at_max_attempts_fails_run(self, error: Exception, expect_capture: bool):
         consumer = _make_consumer(max_attempts=2)
         batch = _make_batch(latest_attempt=1)
-        consumer._process_batch = AsyncMock(side_effect=RuntimeError("crash"))
+        consumer._process_batch = AsyncMock(side_effect=error)
 
         with (
             patch(
@@ -313,10 +323,13 @@ class TestProcessSingle:
                 new_callable=AsyncMock,
             ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
         ):
             await consumer._process_single(batch)
 
         mock_fail.assert_called_once()
+        assert mock_fail.call_args[1]["reason"] == f"max retries exceeded: {error}"
+        assert mock_capture.called is expect_capture
 
 
 class TestProcessGroup:
