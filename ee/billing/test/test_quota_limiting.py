@@ -16,6 +16,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.api.test.test_team import create_team
+from posthog.constants import FlagRequestType
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -300,6 +301,42 @@ class TestQuotaLimiting(BaseTest):
         assert self.redis_client.zrange(f"@posthog/quota-limits/api_queries_read_bytes", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/survey_responses", 0, -1) == []
         assert self.redis_client.zrange(f"@posthog/quota-limits/rows_exported", 0, -1) == []
+
+    @patch("posthoganalytics.capture")
+    def test_todays_usage_reads_every_legacy_row_shape(self, _capture) -> None:
+        def flag_requests(_begin, _end, request_type):
+            return [(str(self.team.id), 7 if request_type == FlagRequestType.DECIDE else 2)]
+
+        with (
+            self.settings(USE_TZ=False),
+            time_machine.travel("2021-01-25T00:00:00Z", tick=False),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_feature_flag_requests_count_in_period",
+                side_effect=flag_requests,
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_synced_in_period",
+                return_value=[{"team_id": self.team.id, "total": 5}],
+            ),
+            patch(
+                "posthog.tasks.usage_report.get_teams_with_rows_exported_in_period",
+                return_value=[{"team_id": self.team.id, "total": 3}],
+            ),
+        ):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "feature_flag_requests": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": None, "todays_usage": 0},
+                "rows_exported": {"usage": 0, "limit": None, "todays_usage": 0},
+            }
+            self.organization.save()
+            update_all_orgs_billing_quotas()
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["feature_flag_requests"]["todays_usage"] == 7 + 2 * 10
+        assert self.organization.usage["rows_synced"]["todays_usage"] == 5
+        assert self.organization.usage["rows_exported"]["todays_usage"] == 3
 
     @patch("posthoganalytics.capture")
     def test_billing_rate_limit(self, patch_capture) -> None:
