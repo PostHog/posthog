@@ -119,6 +119,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # An experiment that is over produces no new exposures worth spending credits on, and a
         # deleted one can't resolve a population at all. Disable rather than skip, so the
         # reconciler drops the schedule and the owner sees the scanner off instead of silently idle.
+        # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
         scanner.enabled = False
         scanner.save(update_fields=["enabled"])
         record_sweep_outcome("experiment_over")
