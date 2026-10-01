@@ -1,7 +1,6 @@
 import json
+from datetime import datetime
 from typing import Any
-
-from django.utils import timezone
 
 from structlog import get_logger
 
@@ -11,7 +10,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 
-from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher, escape_table_name
+from products.signals.backend.emission.fetchers.data_warehouse import escape_table_name
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
 from products.signals.backend.models import SignalEmissionRecord
 
@@ -67,8 +66,7 @@ EXTRA_FIELDS = (
     "synced_at",
 )
 
-# Upper bound on the issue ids read per sync before the dedupe. It is far above a realistic open backlog.
-ISSUE_ID_SCAN_LIMIT = 10_000
+ISSUE_PAGE_SIZE = 1_000
 
 
 def _parse_references(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -137,24 +135,29 @@ def _build_extra(record: dict[str, Any], references: list[dict[str, Any]]) -> di
     return extra
 
 
-def _fetch_issues_by_id(
-    team: Team, config: SignalSourceTableConfig, context: dict[str, Any], issue_ids: list[str]
+def _fetch_issue_page(
+    team: Team, config: SignalSourceTableConfig, context: dict[str, Any], after_id: str
 ) -> list[dict[str, Any]]:
-    # The warehouse merges on `id` only inside one weekly `synced_at` partition. An issue that stays
-    # open across a week boundary thus has one row per week, and only the latest row is current.
+    placeholders: dict[str, Any] = {"after_id": ast.Constant(value=after_id)}
+    if context.get("last_synced_at") is not None:
+        window = "parseDateTimeBestEffort(synced_at) > {last_synced_at}"
+        placeholders["last_synced_at"] = ast.Constant(value=datetime.fromisoformat(context["last_synced_at"]))
+    else:
+        window = f"parseDateTimeBestEffort(synced_at) > now() - interval {config.first_sync_lookback_days} day"
+    # Weekly warehouse partitions can retain older versions of the same issue.
     query = f"""
         SELECT {", ".join(config.fields)}
         FROM {escape_table_name(context["table_name"])}
-        WHERE id IN {{issue_ids}}
-        ORDER BY parseDateTimeBestEffort(synced_at) DESC
+        WHERE {window} AND id > {{after_id}}
+        ORDER BY id ASC, parseDateTimeBestEffort(synced_at) DESC
         LIMIT 1 BY id
-        LIMIT {len(issue_ids)}
+        LIMIT {ISSUE_PAGE_SIZE}
     """
-    parsed = parse_select(
-        query, placeholders={"issue_ids": ast.Tuple(exprs=[ast.Constant(value=issue_id) for issue_id in issue_ids])}
-    )
     result = execute_hogql_query(
-        query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_warehouse_access_control=True
+        query=parse_select(query, placeholders=placeholders),
+        team=team,
+        query_type="EmitSignalsNewRecords",
+        bypass_warehouse_access_control=True,
     )
     if not result.results or not result.columns:
         return []
@@ -166,53 +169,26 @@ def pganalyze_issue_record_fetcher(
     config: SignalSourceTableConfig,
     context: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Fetch pganalyze issues that were not emitted before.
-
-    pganalyze's getIssues returns no timestamps, so the warehouse source stamps each row with the
-    sync time and merges on `id`. Thus the `synced_at` cursor returns every open issue again on each
-    sync. The dedupe runs before `max_records` applies, so a backlog larger than one batch drains
-    over the next syncs.
-    """
-    id_config = config.model_copy(update={"fields": ("id",), "max_records": ISSUE_ID_SCAN_LIMIT})
-    candidate_ids = sorted(
-        {str(row["id"]) for row in data_warehouse_record_fetcher(team, id_config, context) if row.get("id")}
-    )
-    if not candidate_ids:
-        return []
-
-    already_emitted = set(
-        SignalEmissionRecord.objects.filter(
-            team=team,
-            source_product=config.source_product,
-            source_type=config.source_type,
-            source_id__in=candidate_ids,
-        ).values_list("source_id", flat=True)
-    )
-    new_ids = [issue_id for issue_id in candidate_ids if issue_id not in already_emitted][: config.max_records]
-    if not new_ids:
-        return []
-
-    try:
-        rows = _fetch_issues_by_id(team, config, context, new_ids)
-    except Exception as e:
-        logger.exception(f"Error querying pganalyze issues by id: {e}", **context.get("extra", {}))
-        raise
-
-    now = timezone.now()
-    SignalEmissionRecord.objects.bulk_create(
-        [
-            SignalEmissionRecord(
+    """pganalyze stamps open issues on every sync, so the time cursor alone cannot deduplicate them."""
+    records: list[dict[str, Any]] = []
+    after_id = ""
+    while len(records) < config.max_records:
+        rows = _fetch_issue_page(team, config, context, after_id)
+        if not rows:
+            break
+        already_emitted = set(
+            SignalEmissionRecord.objects.filter(
                 team=team,
                 source_product=config.source_product,
                 source_type=config.source_type,
-                source_id=str(row["id"]),
-                emitted_at=now,
-            )
-            for row in rows
-        ],
-        ignore_conflicts=True,
-    )
-    return rows
+                source_id__in=[str(row["id"]) for row in rows],
+            ).values_list("source_id", flat=True)
+        )
+        records.extend(row for row in rows if str(row["id"]) not in already_emitted)
+        after_id = str(rows[-1]["id"])
+        if len(rows) < ISSUE_PAGE_SIZE:
+            break
+    return records[: config.max_records]
 
 
 PGANALYZE_ISSUES_CONFIG = SignalSourceTableConfig(
@@ -220,6 +196,7 @@ PGANALYZE_ISSUES_CONFIG = SignalSourceTableConfig(
     source_type="issue",
     emitter=pganalyze_issue_emitter,
     record_fetcher=pganalyze_issue_record_fetcher,
+    record_processed_outputs=True,
     # The fetcher reads only the rows of the latest sync, which are the issues that are open now.
     partition_field="synced_at",
     partition_field_is_datetime_string=True,
