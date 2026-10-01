@@ -2,7 +2,7 @@ import unittest
 
 from parameterized import parameterized
 
-from posthog.object_tags.slack import rewrite_object_tags_for_slack
+from posthog.object_tags.slack import rewrite_object_tags_for_slack, split_incomplete_tag_suffix
 
 PROJECT = "https://us.posthog.com/project/2"
 UUID = "0190f8a1-7c3e-7b2a-9d4f-2a1b3c4d5e6f"
@@ -222,3 +222,49 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
         rendered = rewrite(text)
         assert rendered.endswith(f"[beta]({PROJECT}/feature_flags/42?unfurl=false)")
         assert rendered.count('<insight id="open">') == 300
+
+
+class TestSplitIncompleteTagSuffix(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("opener_cut_mid_attribute", 'The <insight id="9pQ', "The ", '<insight id="9pQ'),
+            ("opener_cut_before_name", "The <", "The ", "<"),
+            ("body_still_streaming", 'The <insight id="1">check', "The ", '<insight id="1">check'),
+            (
+                "complete_tag_is_sent",
+                'The <insight id="1">x</insight> dropped',
+                'The <insight id="1">x</insight> dropped',
+                "",
+            ),
+            ("self_closing_tag_is_sent", 'See <flag id="1"/> now', 'See <flag id="1"/> now', ""),
+            ("comparison_is_not_a_tag", "a < b and c", "a < b and c", ""),
+            ("unknown_tag_is_sent", "x <unknown>y", "x <unknown>y", ""),
+            ("unknown_partial_is_sent", "plain <widget", "plain <widget", ""),
+            ("unregistered_partial_with_id_is_held", 'x <inbox id="r', "x ", '<inbox id="r'),
+            ("unregistered_opener_with_id_is_held", 'x <inbox id="r1">lab', "x ", '<inbox id="r1">lab'),
+            ("opener_inside_inline_code_is_sent", 'Use `<insight id="a">` now', 'Use `<insight id="a">` now', ""),
+            (
+                "quoted_markup_inside_a_complete_tag_is_sent",
+                "<hogql>SELECT '<insight id=\"x\">'</hogql>",
+                "<hogql>SELECT '<insight id=\"x\">'</hogql>",
+                "",
+            ),
+            ("whole_text_is_held_when_it_is_all_one_open_tag", '<insight id="1">check', "", '<insight id="1">check'),
+            (
+                "open_fence_is_held",
+                'Example:\n```xml\n<insight id="1">x</insight>',
+                "Example:\n",
+                '```xml\n<insight id="1">x</insight>',
+            ),
+            ("closed_fence_is_sent", "```\nx\n```\ndone", "```\nx\n```\ndone", ""),
+        ]
+    )
+    def test_split(self, _name: str, text: str, sendable: str, held: str) -> None:
+        split = split_incomplete_tag_suffix(text)
+        assert (split.sendable, split.held) == (sendable, held)
+
+    def test_oversized_suffix_is_sent_rather_than_held(self) -> None:
+        text = "intro " + '<insight id="1">' + "x" * 5000
+        split = split_incomplete_tag_suffix(text)
+        assert split.held == ""
+        assert split.sendable == text

@@ -174,10 +174,6 @@ export function resolveEffectiveClientName(
 // sole consumer that gates UI-apps payload emission in single-exec mode.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
-// Value sent in `x-posthog-mcp-consumer` by Slack-launched PostHog Tasks runs. The Slack
-// reply draws a live progress checklist, so exec asks these runs to describe each call.
-export const SLACK_CONSUMER = 'slack'
-
 // Claude web/desktop and Cowork are MCP Apps hosts that render interactive UI
 // (iframes), so the `render-ui` tool is meaningful for them. They send
 // `x-anthropic-client: ClaudeAI` / `Cowork` (vs `ClaudeCode` for Claude Code) and
