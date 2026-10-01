@@ -2,6 +2,7 @@ import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -63,7 +64,7 @@ export const flatNavLogic = kea<flatNavLogicType>([
                     const product = catalog.get(productPath)
                     if (
                         !product?.href ||
-                        (product.flag && !(featureFlags as Record<string, boolean | string>)[product.flag]) ||
+                        !isFileSystemImportFlagEnabled(product, featureFlags) ||
                         // Products the user has no access to are hidden instead of shown disabled
                         getProductAccessDisabledReason(product)
                     ) {

@@ -20,6 +20,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { uuid } from 'lib/utils/dom'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
@@ -905,7 +906,7 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
-                    if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
+                    if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
                         return false
                     }
                     return true
@@ -973,7 +974,7 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
@@ -1032,7 +1033,7 @@ export const searchLogic = kea<searchLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (!isFileSystemImportFlagEnabled(item, featureFlags)) {
                         return false
                     }
                     return true
