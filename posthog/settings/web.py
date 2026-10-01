@@ -50,6 +50,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -633,6 +634,10 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
+            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
+            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
+            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
+            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",

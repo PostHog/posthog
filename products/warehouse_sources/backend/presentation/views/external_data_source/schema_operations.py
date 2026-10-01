@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
     RowFiltersField,
 )
@@ -97,6 +98,9 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
             "that run on new rows of the table run again for every row. Incremental, append, and xmin syncs only, "
             "and never shorter than the sync frequency."
         ),
+    )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
     )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
