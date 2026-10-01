@@ -1,6 +1,6 @@
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
-import { spaceCanvasSections } from './spaceCanvases'
+import { spaceCanvasSections } from './spaceCanvasDisplay'
 
 describe('spaceCanvasSections', () => {
     const canvas = (id: string, pinnedAt: string | null = null): CanvasApi =>

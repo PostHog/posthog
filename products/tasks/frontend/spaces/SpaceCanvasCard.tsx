@@ -8,7 +8,7 @@ import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { SpaceCanvasActions } from './SpaceCanvasActions'
-import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvases'
+import { spaceCanvasAuthor, spaceCanvasTemplateIcon } from './spaceCanvasDisplay'
 import { SpaceCanvasMenu } from './SpaceCanvasMenu'
 import { spaceCanvasUrl } from './spaceCanvasUrls'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'

@@ -34,7 +34,7 @@ import {
     tasksPullRequestTitlesCreate,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
-import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvases'
+import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvasDisplay'
 import { spaceCanvasUrl } from './spaceCanvasUrls'
 import {
     SpaceFeedFilters,
