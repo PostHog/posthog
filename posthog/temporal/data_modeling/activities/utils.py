@@ -8,6 +8,7 @@ from django.db import transaction
 from structlog.contextvars import bind_contextvars
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
 
@@ -104,6 +105,10 @@ EXTERNALLY_ABORTED_MARKERS = (
     ABANDONED_ERROR,
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
+    # the Arrow stream broke and carried no ClickHouse error, so nothing says the query failed
+    INVALID_MESSAGE_FORMAT_ERROR,
+    # older job rows record the same stream fault with this text
+    "Encapsulated IPC message format must begin with continuation bytes",
 )
 
 

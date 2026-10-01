@@ -6,7 +6,10 @@ import contextlib
 import pytest
 from unittest.mock import MagicMock, patch
 
+import pyarrow as pa
+
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import (
     ClickHouseAllReplicasAreStaleError,
     ClickHouseCheckQueryStatusError,
@@ -557,3 +560,64 @@ async def test_stream_query_as_jsonl_handles_whitespace_only_lines(clickhouse_cl
     assert results[0] == {"id": 1}
     assert results[1] == {"id": 2}
     assert results[2] == {"id": 3}
+
+
+class _FakeStreamReader:
+    def __init__(self, data: bytes, chunk_size: int = 64) -> None:
+        self._chunks = [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
+
+    async def readchunk(self) -> tuple[bytes, bool]:
+        if self._chunks:
+            return self._chunks.pop(0), True
+        return b"", False
+
+    def at_eof(self) -> bool:
+        return not self._chunks
+
+
+_MEMORY_LIMIT_ERROR = (
+    "Code: 241. DB::Exception: Query memory limit exceeded: would use 10.00 GiB, maximum: 10.00 GiB. "
+    "(MEMORY_LIMIT_EXCEEDED) (version x.x.x.x (official build))"
+)
+
+
+@pytest.mark.parametrize(
+    "tail,expected_exception,expected_message",
+    [
+        (f"{_MEMORY_LIMIT_ERROR}\n".encode(), ClickHouseMemoryLimitExceededError, _MEMORY_LIMIT_ERROR),
+        (
+            f"\r\n__exception__\r\nabcdefgh\r\n{_MEMORY_LIMIT_ERROR}\r\n{len(_MEMORY_LIMIT_ERROR)} abcdefgh\r\n__exception__\r\n".encode(),
+            ClickHouseMemoryLimitExceededError,
+            _MEMORY_LIMIT_ERROR,
+        ),
+        (b"not an arrow message and not an error", InvalidMessageFormat, None),
+    ],
+    ids=["plain_error_tail", "wrapped_error_tail", "no_error_in_tail"],
+)
+async def test_astream_query_as_arrow_raises_error_appended_to_stream(
+    clickhouse_client, tail, expected_exception, expected_message
+):
+    batch = pa.RecordBatch.from_pylist([{"id": i} for i in range(10)])
+    sink = pa.BufferOutputStream()
+    writer = pa.ipc.new_stream(sink, batch.schema)
+    writer.write_batch(batch)
+    # A failed query never writes the end-of-stream marker, so the error follows the last batch.
+    data = sink.getvalue().to_pybytes() + tail
+
+    mock_response = MagicMock()
+    mock_response.content = _FakeStreamReader(data)
+
+    @contextlib.asynccontextmanager
+    async def mock_post(*args, **kwargs):
+        yield mock_response
+
+    batches = []
+    with patch.object(clickhouse_client, "apost_query", mock_post):
+        with pytest.raises(expected_exception) as exc_info:
+            async for record_batch in clickhouse_client.astream_query_as_arrow("SELECT 1", query_id="test-query"):
+                batches.append(record_batch)
+
+    assert batches == [batch]
+    if expected_message is not None:
+        assert str(exc_info.value) == expected_message
+        assert exc_info.value.query_id == "test-query"

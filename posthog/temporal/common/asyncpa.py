@@ -8,10 +8,15 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 CONTINUATION_BYTES = b"\xff\xff\xff\xff"
+# A server that fails mid-stream appends its error text to the stream, so the tail is small.
+MAX_UNPARSED_BYTES = 1024 * 1024
+INVALID_MESSAGE_FORMAT_ERROR = "Arrow stream contains bytes that are not an IPC message"
 
 
 class InvalidMessageFormat(Exception):
-    pass
+    def __init__(self, message: str, unparsed: bytes = b"") -> None:
+        super().__init__(message)
+        self.unparsed = unparsed
 
 
 class AsyncMessageReader:
@@ -45,9 +50,9 @@ class AsyncMessageReader:
         await self.read_until(4)
 
         if self._buffer[:4] != CONTINUATION_BYTES:
-            raise InvalidMessageFormat(
-                f"Encapsulated IPC message format must begin with continuation bytes, received: '{self._buffer[:4]}'"
-            )
+            unparsed = await self.read_remaining()
+            preview = unparsed[:200].decode("utf-8", errors="replace")
+            raise InvalidMessageFormat(f"{INVALID_MESSAGE_FORMAT_ERROR}: {preview!r}", unparsed=unparsed)
 
         await self.read_until(8)
 
@@ -82,6 +87,16 @@ class AsyncMessageReader:
         while len(self._buffer) < n:
             bytes = await anext(self._bytes)
             self._buffer.extend(bytes)
+
+    async def read_remaining(self) -> bytes:
+        """Read the rest of the stream, up to MAX_UNPARSED_BYTES, and return it with the buffer."""
+        while len(self._buffer) < MAX_UNPARSED_BYTES:
+            try:
+                self._buffer.extend(await anext(self._bytes))
+            except Exception:
+                # The stream ended, or the server closed the connection after its error text.
+                break
+        return bytes(self._buffer[:MAX_UNPARSED_BYTES])
 
     def parse_body_size(self, metadata_flatbuffer: bytes | bytearray | memoryview) -> int:
         """Parse body size from metadata flatbuffer.
