@@ -12,6 +12,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.growth.backend.audit_execution import create_audit_task, finish_account_audit
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.growth.backend.tasks import reconcile_account_audits
@@ -168,6 +170,12 @@ class TestAuditExecution(BaseTest):
         self.task_run.completed_at -= timedelta(minutes=3)
         self.finish()
         self.assertEqual(self.capture.call_args.kwargs["properties"]["token_cost_cents"], None if expires else 27)
+
+    def test_finalizes_admission_after_project_deletion(self) -> None:
+        Team.objects.filter(id=self.team.id).delete()
+        self.finish()
+        self.assertIsNotNone(self.admission.finalized_at)
+        self.capture.assert_not_called()
 
     def test_retries_capture_failure_and_recovers_missed_notifications(self) -> None:
         self.capture.side_effect = RuntimeError("capture unavailable")

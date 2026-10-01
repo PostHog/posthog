@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from posthog.event_usage import groups
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
@@ -53,11 +54,19 @@ def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt, noteboo
 
 
 def finish_account_audit(*, team_id: int, task_run_id: UUID) -> None:
-    admission = (
-        AccountAuditAdmission.objects.for_team(team_id)
-        .filter(task_run_id=task_run_id, finalized_at__isnull=True)
-        .first()
-    )
+    try:
+        admission = (
+            AccountAuditAdmission.objects.for_team(team_id)
+            .filter(task_run_id=task_run_id, finalized_at__isnull=True)
+            .first()
+        )
+    except TeamScopeError:
+        # Project deletion removes the Team and cascades the run, but admissions have no FK to the Team.
+        # Close the admission so that reconciliation does not retry it every minute.
+        AccountAuditAdmission.objects.for_team(team_id, canonical=True).filter(
+            task_run_id=task_run_id, finalized_at__isnull=True
+        ).update(finalized_at=timezone.now())
+        return
     if admission is None:
         return
     run = tasks_facade.get_task_run(str(task_run_id), team_id=team_id)
