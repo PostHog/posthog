@@ -1665,6 +1665,7 @@ from = [
 [[modules]]
 path = "products.today"
 depends_on = [
+    "ee",
     "posthog",
     "products.signals",
     "products.tasks",

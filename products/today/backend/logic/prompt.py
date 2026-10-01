@@ -54,7 +54,7 @@ def _recent_rows(briefings: Sequence[DailyBriefing]) -> list[dict[str, object]]:
         rows.append(
             {
                 "local_day": previous.local_day.isoformat(),
-                "edition": previous.edition,
+                "viewed": previous.last_viewed_at is not None,
                 "headline": content.headline,
                 "items": [
                     {
@@ -89,7 +89,6 @@ def build_prompt(
         first_name=user.first_name or "there",
         team_id=briefing.team_id,
         local_day=briefing.local_day.isoformat(),
-        edition=briefing.edition,
         max_items=MAX_ITEMS,
         max_words=MAX_WORDS,
         max_link_words=MAX_LINK_WORDS,

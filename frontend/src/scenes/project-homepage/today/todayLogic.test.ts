@@ -16,7 +16,6 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
         id: 'briefing-1',
         local_day: '2026-09-30',
-        edition: 'morning',
         headline: 'One report needs your input',
         paragraphs: [[{ text: 'Signup form rejects emails', item_key: 'report:a', highlight: true }]],
         items: [
@@ -117,7 +116,7 @@ describe('todayLogic', () => {
     })
 
     it.each([
-        ['crosses noon', new Date(2026, 8, 30, 11, 59, 45), null],
+        ['crosses 8:00', new Date(2026, 8, 30, 7, 59, 45), null],
         ['sleeps from one afternoon to the next', new Date(2026, 8, 30, 14, 0, 0), new Date(2026, 9, 1, 14, 0, 0)],
     ])('reloads the briefing when an open tab %s', async (_name, start, wakeAt) => {
         jest.useFakeTimers()

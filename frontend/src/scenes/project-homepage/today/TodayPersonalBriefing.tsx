@@ -74,7 +74,7 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 <p>
                     <span>
                         Reports assigned to you, changes on dashboards you use, firing alerts, your tickets and your
-                        pull requests show up here. Your briefing updates at 8:00 and at noon.{' '}
+                        pull requests show up here. Your briefing updates every morning at 8:00.{' '}
                     </span>
                     <Link to={urls.inbox()} data-attr="today-empty-briefing-inbox">
                         Open the Inbox

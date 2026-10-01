@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Today's personal briefing: a short text about up to 5 items and the same items for the left bar. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet and returns it as 'collecting'. While a newer edition is being written, the day's last ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds.
+ * Today's personal briefing: a short text about up to 5 items and the same items for the left bar. A new one is written every morning from 8:00 local time. Starts generating today's when there is none yet and returns it as 'collecting'. While a refresh is being written, the ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds. 404 when the person gets no briefing: the flag is off, the organization has not approved AI data processing, or it is out of AI credits.
  * @summary Get today's briefing
  */
 export const TodayBriefingRetrieveParams = () => zod.object({
@@ -28,7 +28,7 @@ export const TodayBriefingRetrieveQueryParams = () => zod.object({
         .max(todayBriefingRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone."
         ),
 })
 
@@ -52,6 +52,6 @@ export const TodayCandidatesRetrieveQueryParams = () => zod.object({
         .max(todayCandidatesRetrieveQueryTimezoneMax)
         .optional()
         .describe(
-            "IANA timezone of the person's browser, for example Europe\/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone."
+            "IANA timezone of the person's browser, for example Europe\/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone."
         ),
 })

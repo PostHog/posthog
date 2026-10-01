@@ -143,17 +143,6 @@ export const WriterEnumApi = {
     Agent: 'agent',
 } as const
 
-/**
- * * `morning` - MORNING
- * * `midday` - MIDDAY
- */
-export type EditionEnumApi = (typeof EditionEnumApi)[keyof typeof EditionEnumApi]
-
-export const EditionEnumApi = {
-    Morning: 'morning',
-    Midday: 'midday',
-} as const
-
 export interface BriefingApi {
     /** Briefing id. */
     id: string
@@ -171,11 +160,6 @@ export interface BriefingApi {
     open_reports_count: number
     status: BriefingStatusEnumApi
     writer: WriterEnumApi | null
-    /** 'morning' from 8:00, or 'midday' from 12:00, in the person's timezone.
-     *
-     * * `morning` - MORNING
-     * * `midday` - MIDDAY */
-    edition: EditionEnumApi
     created_at: string
     /** @nullable */
     ready_at: string | null
@@ -215,7 +199,7 @@ export interface CandidateListApi {
 
 export type TodayBriefingRetrieveParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
      * @maxLength 64
      */
     timezone?: string
@@ -223,7 +207,7 @@ export type TodayBriefingRetrieveParams = {
 
 export type TodayBriefingRefreshCreateParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
      * @maxLength 64
      */
     timezone?: string
@@ -231,7 +215,7 @@ export type TodayBriefingRefreshCreateParams = {
 
 export type TodayCandidatesRetrieveParams = {
     /**
-     * IANA timezone of the person's browser, for example Europe/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone.
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
      * @maxLength 64
      */
     timezone?: string

@@ -2,7 +2,7 @@
 
 from posthog.models import Team, User
 
-from ..feature_flags import is_enabled_for as is_enabled_for
+from ..feature_flags import may_get_briefing as may_get_briefing
 from ..logic import briefings
 from . import contracts
 from .enums import BriefingStatus
@@ -17,7 +17,7 @@ def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contra
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
-    """Regenerate the current edition. The ready briefing stays until the new one is written."""
+    """Regenerate today's briefing. The ready one stays until the new one is written."""
     briefings.refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return get_briefing(team=team, user=user, timezone_name=timezone_name)
 

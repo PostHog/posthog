@@ -244,7 +244,6 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
 const PERSONAL_BRIEFING: BriefingApi = {
     id: 'briefing-1',
     local_day: '2026-09-28',
-    edition: 'morning',
     headline: 'Five items need your attention',
     paragraphs: [
         [

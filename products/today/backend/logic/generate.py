@@ -52,7 +52,7 @@ class _PreparedRun:
 
 
 def _title(briefing: DailyBriefing) -> str:
-    return f"Today briefing, {briefing.local_day.isoformat()} {briefing.edition}"
+    return f"Today briefing, {briefing.local_day.isoformat()}"
 
 
 def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
@@ -67,13 +67,13 @@ def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
 def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
     """The sandbox context and the prompt, or None when the person may not get a briefing.
 
-    The flag or the person's access can go after the row was created, so the row is deleted then:
+    Access, credits or the flag can go after the row was created, so the row is deleted then:
     a briefing nobody can open is not worth a sandbox.
     """
     briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
     team = Team.objects.select_related("organization").get(id=briefing.team_id)
     user = User.objects.get(id=briefing.user_id)
-    if not may_get_briefing(user, team) or not team.organization.is_ai_data_processing_approved:
+    if not may_get_briefing(user, team):
         briefing.delete()
         return None
     briefing.status = BriefingStatus.WRITING

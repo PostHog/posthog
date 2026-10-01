@@ -22,7 +22,6 @@ class Migration(migrations.Migration):
                 ),
                 ("user_id", models.BigIntegerField()),
                 ("local_day", models.DateField()),
-                ("edition", models.CharField(choices=[("morning", "morning"), ("midday", "midday")], max_length=16)),
                 ("timezone", models.CharField(max_length=64)),
                 (
                     "trigger",
@@ -60,7 +59,7 @@ class Migration(migrations.Migration):
                 "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(
-                        fields=["team_id", "user_id", "local_day", "edition", "-created_at"],
+                        fields=["team_id", "user_id", "local_day", "-created_at"],
                         name="today_briefing_day_idx",
                     ),
                     models.Index(fields=["last_viewed_at"], name="today_briefing_viewed_idx"),
@@ -73,7 +72,7 @@ class Migration(migrations.Migration):
                 "constraints": [
                     models.UniqueConstraint(
                         condition=models.Q(("status__in", ["collecting", "writing"])),
-                        fields=("team_id", "user_id", "local_day", "edition"),
+                        fields=("team_id", "user_id", "local_day"),
                         name="today_briefing_one_pending",
                     )
                 ],

@@ -1,17 +1,15 @@
-"""Who gets a Today briefing.
-
-The briefing is part of the new navigation, so it uses the same flag: a person gets a briefing
-only when `today-rail-nav` is on for them. The API checks the flag; the scheduler and the agent
-run, which act without a request, also check that the person can still open the project.
-"""
+"""Who gets a Today briefing. Everyone else sees the report list."""
 
 import structlog
 
 from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
 logger = structlog.get_logger(__name__)
 
+# The briefing is part of the new navigation, so it uses the same flag.
 TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 
 
@@ -34,6 +32,16 @@ def is_enabled_for(user: User, team: Team) -> bool:
 
 
 def may_get_briefing(user: User, team: Team) -> bool:
-    """Whether a run may start for this person outside a request. Someone who opened Today may have
-    left the organization or lost the project since, and must not get its data gathered for them."""
-    return user.teams.filter(id=team.id).exists() and is_enabled_for(user, team)
+    """Whether a briefing may be written for this person right now.
+
+    The organization must have approved AI data processing and have AI credits left, the person
+    must still be able to open the project, and the flag must be on for them. The API, the
+    scheduler and the agent run all ask this, so a person who fails it gets the report list and
+    no row, no workflow and no sandbox.
+    """
+    return bool(
+        team.organization.is_ai_data_processing_approved
+        and not is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        and user.teams.filter(id=team.id).exists()
+        and is_enabled_for(user, team)
+    )

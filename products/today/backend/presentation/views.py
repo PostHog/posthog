@@ -24,7 +24,8 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _user(self) -> User:
         user = cast(User, self.request.user)
-        if not api.is_enabled_for(user, self.team):
+        # No briefing for this person: the page shows the report list instead.
+        if not api.may_get_briefing(user, self.team):
             raise NotFound()
         return user
 
@@ -32,7 +33,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TodayQuerySerializer,
         responses={200: OpenApiResponse(response=BriefingSerializer)},
         summary="Get today's briefing",
-        description="Today's personal briefing: a short text about up to 5 items and the same items for the left bar. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet and returns it as 'collecting'. While a newer edition is being written, the day's last ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds.",
+        description="Today's personal briefing: a short text about up to 5 items and the same items for the left bar. A new one is written every morning from 8:00 local time. Starts generating today's when there is none yet and returns it as 'collecting'. While a refresh is being written, the ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds. 404 when the person gets no briefing: the flag is off, the organization has not approved AI data processing, or it is out of AI credits.",
     )
     @action(detail=False, methods=["get"], url_path="briefing")
     def briefing(self, request: Request, **kwargs) -> Response:
@@ -46,7 +47,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TodayQuerySerializer,
         responses={200: OpenApiResponse(response=BriefingSerializer)},
         summary="Refresh today's briefing",
-        description="Regenerate the current edition of today's briefing. The ready briefing stays on screen until the new one is written.",
+        description="Regenerate today's briefing. The ready briefing stays on screen until the new one is written.",
     )
     @action(detail=False, methods=["post"], url_path="briefing/refresh")
     def refresh(self, request: Request, **kwargs) -> Response:

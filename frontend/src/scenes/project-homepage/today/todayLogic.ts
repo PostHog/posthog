@@ -22,7 +22,7 @@ import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/gener
 import type { TeamPublicType } from '../../../types'
 import {
     TodayItemOpenSurface,
-    editionForHour,
+    briefingDayKey,
     hasBriefingText,
     isBriefingSettled,
     isExternalHref,
@@ -369,7 +369,7 @@ export const todayLogic = kea<todayLogicType>([
                 loadPersonalBriefingFailure: () => true,
             },
         ],
-        // The briefing the page stopped waiting for after the poll budget ran out, so a later edition still polls.
+        // The briefing the page stopped waiting for after the poll budget ran out, so a later one still polls.
         gaveUpWaitingFor: [
             null as string | null,
             {
@@ -378,7 +378,7 @@ export const todayLogic = kea<todayLogicType>([
             },
         ],
         // Polls spent on the briefing in progress. A settled briefing closes the count, so the next
-        // edition starts with the whole budget.
+        // one starts with the whole budget.
         briefingPolls: [
             0,
             {
@@ -462,14 +462,13 @@ export const todayLogic = kea<todayLogicType>([
             router.actions.push(urls.ai(undefined, prompt))
         },
         tick: () => {
-            // An open tab moves to the next edition at 8:00 and at noon without a reload. The day is part
-            // of the key, so a laptop that sleeps from one afternoon to the next reloads too.
-            // The first tick, at mount, only records the slot.
-            const slot = `${new Date(values.now).toDateString()} ${editionForHour(values.hour)}`
-            if (cache.slot !== undefined && slot !== cache.slot && !values.useSampleData) {
+            // An open tab moves to the new day's briefing at 8:00 without a reload, including a laptop
+            // that slept through it. The first tick, at mount, only records the day.
+            const day = briefingDayKey(values.now)
+            if (cache.day !== undefined && day !== cache.day && !values.useSampleData) {
                 actions.loadPersonalBriefing()
             }
-            cache.slot = slot
+            cache.day = day
         },
         openReport: ({ report, source }) => {
             router.actions.push(urls.todayReport(report.id))

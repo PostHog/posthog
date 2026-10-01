@@ -18,7 +18,7 @@ from ..facade.enums import BriefingStatus, BriefingTrigger
 from ..feature_flags import may_get_briefing
 from ..logic import generate
 from ..logic.briefings import create_briefing
-from ..logic.eligibility import due_edition
+from ..logic.eligibility import due_day
 from ..models import DailyBriefing
 from .inputs import (
     GENERATE_WORKFLOW_NAME,
@@ -30,7 +30,8 @@ from .inputs import (
 
 # The schedule runs every 15 minutes, so each person falls into exactly one window before 8:00.
 SCHEDULE_WINDOW_MINUTES = 15
-ACTIVE_VIEWER_DAYS = 14
+# Someone who has not opened Today for a week gets the report list until they come back; no briefing is written for them.
+ACTIVE_VIEWER_DAYS = 7
 MAX_STARTS_PER_RUN = 500
 # Longer than the run's budget, so a sweep never fails a run that is still inside it.
 STUCK_AFTER = generate.RUN_TIMEOUT + timedelta(minutes=5)
@@ -59,7 +60,7 @@ def _fail_stuck_briefings(now: datetime) -> int:
 
 
 def _due_briefings() -> list[DailyBriefing]:
-    """Create the rows for people whose next edition starts in this window and who opened Today recently."""
+    """Create the rows for people whose briefing day starts in this window and who opened Today recently."""
     now = timezone.now()
     _fail_stuck_briefings(now)
     since = now - timedelta(days=ACTIVE_VIEWER_DAYS)
@@ -72,9 +73,9 @@ def _due_briefings() -> list[DailyBriefing]:
         .values_list("team_id", "user_id", "timezone")
     )
     due = [
-        (team_id, user_id, timezone_name, slot)
+        (team_id, user_id, timezone_name, day)
         for team_id, user_id, timezone_name in viewers
-        if (slot := due_edition(now, timezone_name, SCHEDULE_WINDOW_MINUTES)) is not None
+        if (day := due_day(now, timezone_name, SCHEDULE_WINDOW_MINUTES)) is not None
     ]
     if not due:
         return []
@@ -84,20 +85,19 @@ def _due_briefings() -> list[DailyBriefing]:
     users = User.objects.filter(is_active=True).in_bulk(user_ids)
     existing = set(
         DailyBriefing.objects.unscoped()
-        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={slot.local_day for _, _, _, slot in due})
-        .values_list("team_id", "user_id", "local_day", "edition")
+        .filter(team_id__in=team_ids, user_id__in=user_ids, local_day__in={day for _, _, _, day in due})
+        .values_list("team_id", "user_id", "local_day")
     )
     created: list[DailyBriefing] = []
-    for team_id, user_id, timezone_name, slot in due:
+    for team_id, user_id, timezone_name, day in due:
         if len(created) >= MAX_STARTS_PER_RUN:
             break
         team, user = teams.get(team_id), users.get(user_id)
-        already_created = (team_id, user_id, slot.local_day, slot.edition) in existing
-        if already_created or team is None or user is None or not may_get_briefing(user, team):
+        if (team_id, user_id, day) in existing or team is None or user is None or not may_get_briefing(user, team):
             continue
-        # None when the person opened the edition themselves since the rows were read.
+        # None when the person opened Today themselves since the rows were read.
         briefing = create_briefing(
-            team=team, user=user, slot=slot, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
+            team=team, user=user, local_day=day, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
         )
         if briefing is not None:
             created.append(briefing)

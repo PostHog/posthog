@@ -33,7 +33,7 @@ export const getTodayBriefingRetrieveUrl = (projectId: string, params?: TodayBri
 }
 
 /**
- * Today's personal briefing: a short text about up to 5 items and the same items for the left bar. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet and returns it as 'collecting'. While a newer edition is being written, the day's last ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds.
+ * Today's personal briefing: a short text about up to 5 items and the same items for the left bar. A new one is written every morning from 8:00 local time. Starts generating today's when there is none yet and returns it as 'collecting'. While a refresh is being written, the ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds. 404 when the person gets no briefing: the flag is off, the organization has not approved AI data processing, or it is out of AI credits.
  * @summary Get today's briefing
  */
 export const todayBriefingRetrieve = async (
@@ -64,7 +64,7 @@ export const getTodayBriefingRefreshCreateUrl = (projectId: string, params?: Tod
 }
 
 /**
- * Regenerate the current edition of today's briefing. The ready briefing stays on screen until the new one is written.
+ * Regenerate today's briefing. The ready briefing stays on screen until the new one is written.
  * @summary Refresh today's briefing
  */
 export const todayBriefingRefreshCreate = async (

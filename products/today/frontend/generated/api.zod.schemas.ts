@@ -120,11 +120,6 @@ export const WriterEnumApi = zod.enum(['agent']).describe('\* `agent` - AGENT')
 export type WriterEnumApi = zod.input<typeof WriterEnumApi>
 export type WriterEnumApiOutput = zod.output<typeof WriterEnumApi>
 
-export const EditionEnumApi = zod.enum(['morning', 'midday']).describe('\* `morning` - MORNING\n\* `midday` - MIDDAY')
-
-export type EditionEnumApi = zod.input<typeof EditionEnumApi>
-export type EditionEnumApiOutput = zod.output<typeof EditionEnumApi>
-
 export const BriefingApi = zod.object({
     id: zod.string().describe('Briefing id.'),
     local_day: zod.iso.date().describe("The day this briefing is for, in the person's timezone."),
@@ -201,12 +196,6 @@ export const BriefingApi = zod.object({
         .enum(['collecting', 'writing', 'ready', 'failed'])
         .describe('\* `collecting` - COLLECTING\n\* `writing` - WRITING\n\* `ready` - READY\n\* `failed` - FAILED'),
     writer: zod.union([zod.enum(['agent']).describe('\* `agent` - AGENT'), zod.null()]),
-    edition: zod
-        .enum(['morning', 'midday'])
-        .describe('\* `morning` - MORNING\n\* `midday` - MIDDAY')
-        .describe(
-            "'morning' from 8:00, or 'midday' from 12:00, in the person's timezone.\n\n\* `morning` - MORNING\n\* `midday` - MIDDAY"
-        ),
     created_at: zod.iso.datetime({ offset: true }),
     ready_at: zod.iso.datetime({ offset: true }).nullable(),
 })

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import time_machine
@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.facade import api as signals
-from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
+from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
 from products.today.backend.logic.agent_output import BriefingOutput, to_fact_sheet
 from products.today.backend.logic.generate import MODEL, run_agent
 from products.today.backend.models import DailyBriefing
@@ -22,6 +22,7 @@ from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 
 FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
+LIMITED = "products.today.backend.feature_flags.is_team_limited"
 # The activity hops to a worker thread for the ORM; under the test transaction that thread would not
 # see the rows, so the hop runs on the test thread instead.
 ON_TEST_THREAD = "products.today.backend.logic.generate.database_sync_to_async"
@@ -89,8 +90,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         self.previous = DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
-            local_day=timezone.now().date(),
-            edition=BriefingEdition.MORNING,
+            local_day=timezone.now().date() - timedelta(days=1),
             timezone="UTC",
             trigger=BriefingTrigger.SCHEDULED,
             status=BriefingStatus.READY,
@@ -102,7 +102,6 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             team_id=self.team.id,
             user_id=self.user.id,
             local_day=timezone.now().date(),
-            edition=BriefingEdition.MIDDAY,
             timezone="UTC",
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.COLLECTING,
@@ -169,13 +168,17 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).exists()
 
 
-class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
+class TestWhoGetsABriefing(TodayTeamScopedTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
     def _viewer_row(self) -> DailyBriefing:
         return DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
             local_day=date(2026, 9, 29),
-            edition=BriefingEdition.MIDDAY,
             timezone="Europe/Prague",
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.READY,
@@ -184,28 +187,34 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # Prague is UTC+2, so 05:50 UTC is 07:50 and 09:50 UTC is 11:50 local time.
-            ("morning edition", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, True, [BriefingEdition.MORNING]),
-            ("midday edition", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), True, True, [BriefingEdition.MIDDAY]),
-            ("between editions", datetime(2026, 9, 30, 7, 0, tzinfo=UTC), True, True, []),
-            ("flag off", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), False, True, []),
-            ("left the organization", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, False, []),
+            # Prague is UTC+2, so 05:50 UTC is 07:50 local time: the day starts within the window.
+            ("before eight", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), {}, True),
+            ("later in the day", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), {}, False),
+            ("flag off", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), {"flag": False}, False),
+            ("left the organization", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), {"member": False}, False),
+            ("ai data processing not approved", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), {"approved": False}, False),
+            ("out of ai credits", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), {"limited": True}, False),
+            ("last opened Today over a week ago", datetime(2026, 10, 7, 5, 50, tzinfo=UTC), {}, False),
         ]
     )
-    def test_scheduler_writes_each_edition_ahead_only_for_people_who_may_get_one(
-        self, _name: str, now: datetime, enabled: bool, member: bool, expected: list[BriefingEdition]
+    def test_scheduler_writes_the_day_ahead_only_for_recent_viewers_who_may_get_one(
+        self, _name: str, now: datetime, case: dict[str, bool], expected: bool
     ) -> None:
         self._viewer_row()
-        if not member:
+        if not case.get("member", True):
             self.organization_membership.delete()
+        self.organization.is_ai_data_processing_approved = case.get("approved", True)
+        self.organization.save()
 
-        with time_machine.travel(now, tick=False), patch(FLAG, return_value=enabled):
+        with (
+            time_machine.travel(now, tick=False),
+            patch(FLAG, return_value=case.get("flag", True)),
+            patch(LIMITED, return_value=case.get("limited", False)),
+        ):
             created = _due_briefings()
             again = _due_briefings()
 
-        assert [(row.local_day, row.edition) for row in created] == [
-            (date(2026, 9, 30), edition) for edition in expected
-        ]
+        assert [row.local_day for row in created] == ([now.date()] if expected else [])
         assert again == []
 
     def test_the_run_deletes_the_row_when_the_flag_turned_off(self) -> None:

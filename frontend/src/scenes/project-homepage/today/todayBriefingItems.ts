@@ -32,9 +32,9 @@ export function hasBriefingText(briefing: BriefingApi | null): boolean {
     return !!briefing && (!!briefing.headline || briefing.paragraphs.length > 0)
 }
 
-/** The edition the browser's clock is in. It matches the backend: morning from 8:00, midday from 12:00. */
-export function editionForHour(hour: number): BriefingApi['edition'] {
-    return hour >= 8 && hour < 12 ? 'morning' : 'midday'
+/** The briefing day the browser's clock is in. It matches the backend: a day starts at 8:00, so 7:59 is still yesterday. */
+export function briefingDayKey(now: number): string {
+    return new Date(now - 8 * 60 * 60 * 1000).toDateString()
 }
 
 export function isBriefingSettled(briefing: Pick<BriefingApi, 'status'>): boolean {

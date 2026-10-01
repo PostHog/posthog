@@ -11,7 +11,7 @@ class TodayQuerySerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         max_length=64,
-        help_text="IANA timezone of the person's browser, for example Europe/Prague. Editions start at 8:00 and 12:00 in it. Defaults to the project timezone.",
+        help_text="IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.",
     )
 
 
@@ -67,9 +67,6 @@ class BriefingSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = Briefing
-        extra_kwargs = {
-            "edition": {"help_text": "'morning' from 8:00, or 'midday' from 12:00, in the person's timezone."},
-        }
 
 
 class CandidateFactSerializer(DataclassSerializer):
