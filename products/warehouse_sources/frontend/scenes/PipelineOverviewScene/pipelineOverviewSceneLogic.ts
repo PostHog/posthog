@@ -267,7 +267,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                         // In-flight runs come from a separate endpoint, so a sync that started
                         // seconds ago appears at the top rather than waiting until it finishes.
                         dataWarehouseRunningActivityRetrieve(String(values.currentTeamId), {
-                            limit: 50,
+                            // Imports only, for the same reason as above: a team with many view
+                            // refreshes in flight would otherwise fill this page with them.
+                            kind: 'import',
                         }),
                     ])
                     return {

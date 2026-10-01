@@ -63,6 +63,7 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     PipelineErrorSerializer,
     PipelineJobStatsResponseSerializer,
     PipelineRowsStatsResponseSerializer,
+    RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -465,10 +466,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return breakdown
 
     @extend_schema(
+        parameters=[RunningActivityQuerySerializer],
         responses={
             200: PipelineActivityResponseSerializer,
             500: OpenApiResponse(response=PipelineErrorSerializer, description="The activity query failed."),
-        }
+        },
     )
     @action(methods=["GET"], detail=False)
     def running_activity(self, request: Request, **kwargs) -> Response:
@@ -476,6 +478,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         Returns currently running activities (jobs with status 'Running').
         Supports pagination and cutoff time filtering.
         """
+        kind = request.GET.get("kind", ACTIVITY_KIND_ALL)
+        if kind not in ACTIVITY_KINDS:
+            supported = ", ".join(sorted(ACTIVITY_KINDS))
+            return Response(
+                {"error": f"Invalid kind parameter. Must be one of: {supported}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         DEFAULT_LIMIT = 20
         MAX_LIMIT = 50
         DEFAULT_CUTOFF_DAYS = 30
@@ -524,8 +533,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                           AND (dwsq.id IS NULL OR dwsq.id = ANY(%s::uuid[]))
                     )
                     SELECT * FROM external_jobs
+                    WHERE %s IN (%s, %s)
                     UNION ALL
                     SELECT * FROM modeling_jobs
+                    WHERE %s IN (%s, %s)
                     ORDER BY created_at DESC
                     LIMIT %s OFFSET %s
                 """,
@@ -537,6 +548,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         self.team_id,
                         cutoff_time,
                         saved_query_ids,
+                        # Placeholders bind in SQL text order, so both kind filters come after
+                        # every CTE parameter, not next to the CTE they read.
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_IMPORT,
+                        kind,
+                        ACTIVITY_KIND_ALL,
+                        ACTIVITY_KIND_MODEL,
                         limit + 1,
                         offset,
                     ],

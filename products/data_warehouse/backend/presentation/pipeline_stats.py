@@ -37,6 +37,18 @@ class PipelineActivityQuerySerializer(serializers.Serializer):
     )
 
 
+class RunningActivityQuerySerializer(PipelineActivityQuerySerializer):
+    kind = serializers.ChoiceField(
+        choices=["all", "import", "model"],
+        required=False,
+        default="all",
+        help_text=(
+            "Which runs to return: 'import' for warehouse source syncs, 'model' for materialized "
+            "view runs, 'all' for both. Defaults to 'all'."
+        ),
+    )
+
+
 class CompletedActivityQuerySerializer(PipelineActivityQuerySerializer):
     outcome = serializers.ChoiceField(
         choices=["completed", "failed", "all"],
