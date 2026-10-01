@@ -4,6 +4,7 @@ import { ReactNode, useCallback, useMemo, useRef, useState } from 'react'
 
 import { Card } from '@posthog/quill'
 
+import { TodayChatHoverCard } from './TodayChatHoverCard'
 import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardContext'
 import { TodayPreviewPayload } from './todayPreviewCards'
 import { TodaySessionHoverCard } from './TodaySessionHoverCard'
@@ -68,6 +69,8 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
                                     <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
                                         {payload.kind === 'space' ? (
                                             <TodaySpaceHoverCard preview={payload} onAction={close} />
+                                        ) : payload.kind === 'chat' ? (
+                                            <TodayChatHoverCard preview={payload} onAction={close} />
                                         ) : (
                                             <TodaySessionHoverCard
                                                 // Keyed on the row, so moving to another row unmounts the card and lowers the submenu flag.

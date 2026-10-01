@@ -486,11 +486,11 @@ type CapabilityLadders = ByRuntimeAdapter<readonly CapabilityNotch[]>;
 export const CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: CapabilityLadders = {
   claude: [
     {
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       effort: "medium",
     },
     {
-      model: "claude-sonnet-5",
+      model: "claude-sonnet-5-5",
       effort: "high",
     },
     {

@@ -890,7 +890,13 @@ class TestSignupAPI(APIBaseTest):
         )  # show the user an error; operation not permitted
 
     def run_test_for_allowed_domain(
-        self, mock_sso_providers, mock_request, mock_capture, use_invite: bool = False, expired_invite: bool = False
+        self,
+        mock_sso_providers,
+        mock_request,
+        mock_capture,
+        use_invite: bool = False,
+        expired_invite: bool = False,
+        asserted_email: str = "jane@hogflix.posthog.com",
     ):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
@@ -926,7 +932,7 @@ class TestSignupAPI(APIBaseTest):
         mock_request.return_value.json.return_value = {
             "email_verified": True,
             "access_token": "123",
-            "email": "jane@hogflix.posthog.com",
+            "email": asserted_email,
             "sub": "123",
         }
 
@@ -981,6 +987,18 @@ class TestSignupAPI(APIBaseTest):
     @pytest.mark.ee
     def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
+
+    @parameterized.expand(["jane@hogflix.posthog.com", "Jane@Hogflix.posthog.com"])
+    @patch("posthoganalytics.capture")
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_social_signup_with_allowed_domain_uses_invite(
+        self, asserted_email, mock_sso_providers, mock_request, mock_capture
+    ):
+        self.run_test_for_allowed_domain(
+            mock_sso_providers, mock_request, mock_capture, use_invite=True, asserted_email=asserted_email
+        )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
@@ -3497,13 +3515,14 @@ class TestSAMLInviteLookup(APIBaseTest):
         assert config.saml_relay_state is not None
         return config.saml_relay_state
 
-    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self):
+    @parameterized.expand(["joiner@saml-invite.example.com", "Joiner@SAML-Invite.example.com"])
+    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self, asserted_email):
         identifier = self._saml_identifier_for("saml-invite.example.com")
         invite = OrganizationInvite.objects.create(
             organization=self.organization, target_email="joiner@saml-invite.example.com"
         )
 
-        found = lookup_invite_for_saml("joiner@saml-invite.example.com", identifier)
+        found = lookup_invite_for_saml(asserted_email, identifier)
 
         assert found is not None
         assert found.id == invite.id
