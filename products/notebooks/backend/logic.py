@@ -7,7 +7,7 @@ should import this module — cross-product callers go through ``facade.api``.
 """
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
@@ -24,6 +24,9 @@ from .markdown_conversion import get_markdown_notebook_markdown, is_markdown_not
 from .markdown_migration import to_markdown_notebook_content
 from .models import Notebook, ResourceNotebook
 from .sql_v2_state import validate_cell_count
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 def _base_queryset(team_id: int, *, include_deleted: bool = False) -> Any:
@@ -58,6 +61,23 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
         return bool(user_access_control.check_access_level_for_object(notebook, "editor"))
 
     return await sync_to_async(check)()
+
+
+def make_notebook_listed(team_id: int, short_id: str, *, user: "User") -> None:
+    notebook = (
+        Notebook.objects.filter(
+            team_id=team_id, short_id=short_id, deleted=False, visibility=Notebook.Visibility.INTERNAL
+        )
+        .select_related("team")
+        .defer("content", "text_content")
+        .first()
+    )
+    if notebook is None or not UserAccessControl(user, team=notebook.team).check_access_level_for_object(
+        notebook, "viewer"
+    ):
+        return
+    notebook.visibility = Notebook.Visibility.DEFAULT
+    notebook.save(update_fields=["visibility"])
 
 
 async def aupdate_notebook_content(
