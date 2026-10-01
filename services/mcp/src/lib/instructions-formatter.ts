@@ -84,14 +84,13 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
 
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 
-/** Knowledge search never reads the team's GitHub repositories, so the repo tools need their own step.
- *  The exec line stays short: the exec description sits under Claude Code's 2048-char cap, and the
- *  agent reads the tool's own description through `info` before it calls it. */
+/** Knowledge search never reads the team's GitHub repositories, so code questions need the repo tools.
+ *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
 function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
-        return `- For this team's code, run \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\`.`
+        return `- For this team's code: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
     }
-    return `- If knowledge search does not answer a question about this team's code or product behavior, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or identifiers, not a sentence. Read a hit with \`business-knowledge-repositories-file-retrieve\` and cite its permalink.`
+    return `- For a question about this team's code, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or identifiers, not a sentence. Read a hit with \`business-knowledge-repositories-file-retrieve\` and cite its permalink.`
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that

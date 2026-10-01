@@ -218,7 +218,7 @@ describe('InstructionsFormatter', () => {
 
             expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
             expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(
-                result.indexOf('`call business-knowledge-repositories-search`')
+                result.indexOf('`call business-knowledge-repositories-search <json_input>`')
             )
             expect(result.indexOf('business-knowledge-repositories-search')).toBeLessThan(
                 result.indexOf('`call docs-search')
