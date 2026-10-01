@@ -26,7 +26,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    SETTLE_INTERVAL,
+    ReplayScanner,
+    ScannerModel,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -173,9 +178,10 @@ class TestFindScannerCandidatesActivity:
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     @parameterized.expand([("ended",), ("archived",), ("deleted",)])
-    def test_disables_a_scanner_whose_experiment_is_over(self, state: str) -> None:
-        # An experiment that is over produces no new exposures worth billing for, so the sweep must
-        # turn the scanner off rather than keep spending its ticks on an empty population.
+    def test_an_experiment_that_is_over_stops_the_sweep(self, state: str) -> None:
+        # Ended and archived experiments come back through reset and relaunch, and a disabled scanner
+        # has no schedule to notice that, so those skip the tick and stay enabled. Their watermarks
+        # move to now, or a relaunch would bill the whole gap. Only a deleted experiment disables.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
         experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
@@ -188,13 +194,20 @@ class TestFindScannerCandidatesActivity:
             experiment.deleted = True
         experiment.save()
 
-        result = find_scanner_candidates_activity(
-            FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-        )
+        with _patched_queries() as (fast_query, deep_query):
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
 
         assert result.candidates == []
+        assert not fast_query.called and not deep_query.called
         scanner.refresh_from_db()
-        assert scanner.enabled is False
+        assert scanner.enabled is (state != "deleted")
+        if state != "deleted":
+            settled_now = timezone.now() - SETTLE_INTERVAL
+            assert result.swept_through is not None and result.deep_swept_through is not None
+            assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
+            assert result.deep_swept_through == result.swept_through
 
     def test_a_legacy_column_targeted_scanner_is_never_disabled(self) -> None:
         # Scanners that target an experiment through the column predate the lifecycle gate;

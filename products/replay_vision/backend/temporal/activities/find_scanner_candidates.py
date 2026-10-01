@@ -18,7 +18,12 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import (
+    SETTLE_INTERVAL,
+    ReplayScanner,
+    ScannerType,
+    initial_watermark,
+)
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
@@ -119,20 +124,25 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     lifecycle_block = _experiment_lifecycle_block(scanner)
-    if lifecycle_block is not None:
-        # An experiment that is over produces no new exposures worth spending credits on, and a
-        # deleted one can't resolve a population at all. Disable rather than skip, so the
-        # reconciler drops the schedule and the owner sees the scanner off instead of silently idle.
+    if lifecycle_block == "deleted":
+        # A deleted experiment can't resolve a population again, so disable: the reconciler drops
+        # the schedule and the owner sees the scanner off instead of silently idle.
         # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
         scanner.enabled = False
         scanner.save(update_fields=["enabled"])
-        record_sweep_outcome("experiment_over")
-        activity.logger.info(
-            "replay_vision.sweep.disabled_experiment_scanner scanner_id=%s reason=%s",
-            inputs.scanner_id,
-            lifecycle_block,
-        )
+        record_sweep_outcome("experiment_deleted")
+        activity.logger.info("replay_vision.sweep.disabled_experiment_scanner scanner_id=%s", inputs.scanner_id)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    if lifecycle_block is not None:
+        # An ended or archived experiment comes back through reset and relaunch, and a disabled
+        # scanner has no schedule left to notice that. So skip the tick instead, before any
+        # ClickHouse read. Both watermarks move to now, as a re-enable does, so a relaunch sweeps
+        # from then on and never bills the gap the experiment was over for.
+        record_sweep_outcome("experiment_over")
+        horizon = initial_watermark()
+        return FindScannerCandidatesOutput(
+            candidates=[], saturated=False, swept_through=horizon, deep_swept_through=horizon
+        )
 
     try:
         query = scanner.targeted_recordings_query()
