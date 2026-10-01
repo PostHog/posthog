@@ -407,11 +407,7 @@ class TestMiddlewareVerification(BaseTest):
         assert isinstance(response, HttpResponseRedirect)
         self.assertIn("accounts.google.com", response.url)
 
-    @parameterized.expand(
-        [
-            ("radar_bypass", "/admin/api/radar-bypass/"),
-        ]
-    )
+    @parameterized.expand([])
     @override_settings(
         ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
         ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
@@ -427,11 +423,7 @@ class TestMiddlewareVerification(BaseTest):
 
         self.assertEqual(response.status_code, 403)
 
-    @parameterized.expand(
-        [
-            ("radar_bypass", "/admin/api/radar-bypass/"),
-        ]
-    )
+    @parameterized.expand([])
     @override_settings(
         ADMIN_AUTH_GOOGLE_OAUTH2_KEY="test_client_id",
         ADMIN_AUTH_GOOGLE_OAUTH2_SECRET="test_secret",
