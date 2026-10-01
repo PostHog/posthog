@@ -21,8 +21,8 @@ import { themeLogic } from './navigation-3000/themeLogic'
 import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {
-    const { superpowersEnabled, user } = useValues(superpowersLogic)
-    const { togglePostHogTeamCohort } = useActions(superpowersLogic)
+    const { superpowersEnabled, user, excludedFromPostHogTeamCohort } = useValues(superpowersLogic)
+    const { setExcludedFromPostHogTeamCohort } = useActions(superpowersLogic)
     const { shortcutMenuOpen } = useValues(shortcutLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { setShortcutMenuOpen } = useActions(shortcutLogic)
@@ -80,7 +80,7 @@ export function GlobalShortcuts(): null {
         keybind: [],
         intent: 'Toggle PostHog Team cohort',
         interaction: 'function',
-        callback: togglePostHogTeamCohort,
+        callback: () => setExcludedFromPostHogTeamCohort(!excludedFromPostHogTeamCohort),
         disabled: !user?.is_staff,
     })
 
