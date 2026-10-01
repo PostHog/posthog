@@ -259,8 +259,11 @@ def complete_run(run_id: UUID) -> Run:
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
         raise
     except errors.BaselineEntriesLostError as e:
+        from ..tasks.tasks import emit_run_processing_metrics  # noqa: PLC0415 — avoids the logic/tasks circular import
+
         logger.warning("visual_review.baseline_entries_lost", run_id=str(run_id), count=len(e.identifiers))
         finish_processing(run_id, error_message=str(e))
+        emit_run_processing_metrics.delay(run.team_id, str(run_id), "baseline_entries_lost", 0)
         return run_queries.get_run(run_id)
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count

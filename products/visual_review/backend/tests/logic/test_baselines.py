@@ -670,8 +670,9 @@ class TestMergeBaseBaselineHealing:
             review_state=prior_review_state,
         )
 
-        if not expect_tombstoned and run_branch.startswith("trunk-merge/"):
-            # The candidate still renders, so a queue branch missing its entry would delete it on merge.
+        if run_branch.startswith("trunk-merge/"):
+            # The candidate still renders, so a queue branch missing its entry would delete it on
+            # merge. A tombstone does not excuse that: a story that renders needs its baseline.
             with pytest.raises(errors.BaselineEntriesLostError):
                 baselines._resolve_baselines_with_merge_base(
                     repo, RunType.STORYBOOK, run_branch, rendered_identifiers={"candidate"}

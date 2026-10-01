@@ -214,7 +214,8 @@ def _resolve_baselines_with_merge_base(
 
     # The name check only adds failures, so trusting an unverified name cannot skip a gate.
     if on_merge_queue_branch or github_api._MERGE_QUEUE_BRANCH_RE.match(branch):
-        lost = healed & rendered_identifiers
+        # Raw key sets, not `healed`: a tombstoned story that renders again still needs its baseline.
+        lost = (set(merge_base_baseline) - set(branch_baseline)) & rendered_identifiers
         if lost:
             raise errors.BaselineEntriesLostError(sorted(lost))
 

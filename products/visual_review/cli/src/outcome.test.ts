@@ -111,18 +111,27 @@ describe('reportRunOutcome', () => {
     })
 
     // A run the server failed keeps zero counts, which used to read as a clean run and pass the gate.
-    it.each(['observe', 'review'])('fails a %s run the server marked failed', async (purpose) => {
-        const exitCode = await reportRunOutcome(
-            client,
-            run({}, { status: 'failed', error_message: 'The baseline file is missing 8 entries.' }),
-            'https://vr.example.com/run-1',
-            purpose
-        )
+    it.each([
+        { purpose: 'observe', tolerateDrift: false, exitCode: 1 },
+        { purpose: 'review', tolerateDrift: false, exitCode: 1 },
+        { purpose: 'review', tolerateDrift: true, exitCode: 1 },
+        { purpose: 'observe', tolerateDrift: true, exitCode: 0 },
+    ])(
+        'exits $exitCode for a failed $purpose run with tolerateDrift=$tolerateDrift',
+        async ({ purpose, tolerateDrift, exitCode }) => {
+            const result = await reportRunOutcome(
+                client,
+                run({}, { status: 'failed', error_message: 'The baseline file is missing 8 entries.' }),
+                'https://vr.example.com/run-1',
+                purpose,
+                tolerateDrift
+            )
 
-        expect(exitCode).toBe(1)
-        expect(output).toContain('Visual Review run failed: The baseline file is missing 8 entries.')
-        expect(output).not.toContain('No visual changes')
-    })
+            expect(result).toBe(exitCode)
+            expect(output).toContain('Visual Review run failed: The baseline file is missing 8 entries.')
+            expect(output).not.toContain('No visual changes')
+        }
+    )
 
     it('still reports when the snapshot listing fails', async () => {
         vi.spyOn(client, 'getRunSnapshots').mockRejectedValue(new Error('boom'))
