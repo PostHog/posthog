@@ -205,7 +205,7 @@ function SentPhoto({
   photo: PhotoRef;
   savedUri?: string;
 }) {
-  const localUri = sentPhotoUri(photo.artifactId) ?? savedUri;
+  const localUri = sentPhotoUri(taskId, photo.artifactId) ?? savedUri;
   const [localFailed, setLocalFailed] = useState(false);
   const [failedUri, setFailedUri] = useState<string | null>(null);
   const showLocal = !!localUri && !localFailed;
