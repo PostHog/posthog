@@ -19,18 +19,21 @@ import {
 } from "@posthog/ui/features/settings/settingsStore";
 import { logger } from "@posthog/ui/shell/logger";
 import { inject, injectable } from "inversify";
-import { nextInstructionsMoveStep } from "./serverAgentInstructions";
+import { nextInstructionsMove } from "./serverAgentInstructions";
 
 const log = logger.scope("server-agent-instructions");
 
 /**
- * Copies the local custom instructions into "My instructions" on the server
- * one time per project. After that, the server adds them to every cloud run,
- * so cloud tasks stop carrying a local copy.
+ * Adds the local custom instructions to "My instructions" on the server one
+ * time per project, after any text already there. After that, the server adds
+ * them to every cloud run, so cloud tasks stop carrying a local copy.
  */
 @injectable()
 export class ServerAgentInstructionsContribution implements Contribution {
   private readonly inFlight = new Set<number>();
+  // Projects whose merged text is too long for the server. Cloud tasks keep
+  // the local copy, and the next app start tries again.
+  private readonly keptLocal = new Set<number>();
 
   constructor(
     @inject(HOST_TRPC_CLIENT)
@@ -55,7 +58,8 @@ export class ServerAgentInstructionsContribution implements Contribution {
     if (!settings._hasHydrated || projectId == null) return;
     if (
       settings.customInstructionsOnServerProjectIds.includes(projectId) ||
-      this.inFlight.has(projectId)
+      this.inFlight.has(projectId) ||
+      this.keptLocal.has(projectId)
     ) {
       return;
     }
@@ -73,7 +77,7 @@ export class ServerAgentInstructionsContribution implements Contribution {
     try {
       const local = getEffectiveCustomInstructions(settings);
       const server = await client.getMyAgentInstructions(projectId);
-      const step = nextInstructionsMoveStep({
+      const move = nextInstructionsMove({
         // With file sync on, wait for the file snapshot, or only the
         // Simplified Technical English line would move.
         localReady:
@@ -82,9 +86,14 @@ export class ServerAgentInstructionsContribution implements Contribution {
         local,
         server,
       });
-      if (step === "wait") return;
-      if (step === "upload") {
-        await client.setMyAgentInstructions(projectId, local.trim());
+      if (move.step === "wait") return;
+      if (move.step === "keepLocal") {
+        this.keptLocal.add(projectId);
+        log.warn("Custom instructions are too long to move to the server");
+        return;
+      }
+      if (move.step === "upload") {
+        await client.setMyAgentInstructions(projectId, move.instructions);
       }
       useSettingsStore.getState().markCustomInstructionsOnServer(projectId);
     } catch (err) {
