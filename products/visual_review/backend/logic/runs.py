@@ -258,6 +258,10 @@ def complete_run(run_id: UUID) -> Run:
         # Roll back to PENDING so the caller can retry after the limit resets
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
         raise
+    except errors.BaselineEntriesLostError as e:
+        logger.warning("visual_review.baseline_entries_lost", run_id=str(run_id), count=len(e.identifiers))
+        finish_processing(run_id, error_message=str(e))
+        return run_queries.get_run(run_id)
     if healed_count:
         run.metadata["baseline_healed_from_merge_base"] = healed_count
         run.save(using=WRITER_DB, update_fields=["metadata"])

@@ -84,6 +84,12 @@ export async function reportRunOutcome(
     tolerateDrift = false
 ): Promise<number> {
     const runId = run.id
+    // A failed run has no settled counts, so its zero counts must not read as a clean run.
+    if (run.status === 'failed') {
+        warn(`Visual Review run failed: ${run.error_message || 'no reason given'} Review at: ${reviewUrl}`)
+        return tolerateDrift ? 0 : 1
+    }
+
     const s = run.summary
     const changes = s.changed + s.new + s.removed
 

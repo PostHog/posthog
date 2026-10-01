@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { VisualReviewClient, type Run } from './client.js'
 import { reportRunOutcome } from './outcome.js'
 
-function run(summary: Partial<Run['summary']> = {}): Run {
+function run(summary: Partial<Run['summary']> = {}, fields: Partial<Run> = {}): Run {
     return {
         id: 'run-1',
         branch: 'master',
+        status: 'completed',
         summary: { total: 10, unchanged: 10, changed: 0, new: 0, removed: 0, unresolved: 0, ...summary },
+        ...fields,
     } as Run
 }
 
@@ -106,6 +108,20 @@ describe('reportRunOutcome', () => {
 
         expect(exitCode).toBe(0)
         expect(output).toContain('No visual changes')
+    })
+
+    // A run the server failed keeps zero counts, which used to read as a clean run and pass the gate.
+    it.each(['observe', 'review'])('fails a %s run the server marked failed', async (purpose) => {
+        const exitCode = await reportRunOutcome(
+            client,
+            run({}, { status: 'failed', error_message: 'The baseline file is missing 8 entries.' }),
+            'https://vr.example.com/run-1',
+            purpose
+        )
+
+        expect(exitCode).toBe(1)
+        expect(output).toContain('Visual Review run failed: The baseline file is missing 8 entries.')
+        expect(output).not.toContain('No visual changes')
     })
 
     it('still reports when the snapshot listing fails', async () => {
