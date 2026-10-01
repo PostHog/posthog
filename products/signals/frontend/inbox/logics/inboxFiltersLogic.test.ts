@@ -30,6 +30,7 @@ const DEFAULT_STATE: InboxFilterState = {
     sortField: 'priority',
     sortDirection: 'asc',
     searchQuery: '',
+    createdWindow: null,
 }
 
 describe('inboxFiltersLogic', () => {
@@ -49,6 +50,12 @@ describe('inboxFiltersLogic', () => {
 
         it('leads with priority for "Priority first"', () => {
             expect(buildSignalReportListOrdering('priority', 'asc')).toBe('priority,status,-updated_at')
+        })
+
+        it('leads with the ranking field for a model sort', () => {
+            expect(buildSignalReportListOrdering('ranking_pr_merged', 'desc')).toBe(
+                '-ranking_pr_merged,status,-updated_at'
+            )
         })
     })
 
@@ -72,6 +79,7 @@ describe('inboxFiltersLogic', () => {
                     sortField: 'created_at',
                     sortDirection: 'desc',
                     searchQuery: 'checkout crash',
+                    createdWindow: null,
                 },
                 {
                     scope: 'entire-project',
@@ -91,6 +99,7 @@ describe('inboxFiltersLogic', () => {
             // An unchecked-everything selection means every state. It must survive the URL rewrite
             // that follows each toggle, or hydration would put the default selection straight back.
             ['an explicitly empty state selection', { ...DEFAULT_STATE, stateFilter: [] }, { state: 'all' }],
+            ['a created-in window', { ...DEFAULT_STATE, createdWindow: '7d' }, { created: '7d' }],
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
@@ -114,6 +123,17 @@ describe('inboxFiltersLogic', () => {
                 sourceProductFilter: ['error_tracking'],
                 priorityFilter: ['P1'],
                 stateFilter: ['monitoring'],
+            })
+        })
+
+        it.each([
+            ['keeps a model sort for a user who can use it', true, 'ranking_pr_merged', 'desc'],
+            ['falls back to the default sort for a user who cannot', false, 'priority', 'asc'],
+        ] as const)('%s', (_name, modelSortAvailable, sortField, sortDirection) => {
+            expect(parseFilterSearchParams({ sort: 'ranking_pr_merged:desc' }, { modelSortAvailable })).toEqual({
+                ...DEFAULT_STATE,
+                sortField,
+                sortDirection,
             })
         })
     })

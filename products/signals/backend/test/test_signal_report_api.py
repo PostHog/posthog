@@ -1058,6 +1058,50 @@ class TestSignalReportListAPI(APIBaseTest):
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(high_candidate.id)) < ids.index(str(low_ready.id))
 
+    @parameterized.expand([("descending", "-ranking_pr_merged"), ("ascending", "ranking_pr_merged")])
+    def test_ranking_ordering_sorts_by_the_served_head_with_unscored_last(self, _name, ordering):
+        self.user.is_staff = True
+        self.user.save()
+        low = self._create_report(title="Low")
+        high = self._create_report(title="High")
+        unscored = self._create_report(title="Unscored")
+        no_head = self._create_report(title="No head")
+        self._ranking_score_artefact(low, scores={"pr_merged": 0.1, "open": 0.9})
+        self._ranking_score_artefact(high, scores={"pr_merged": 0.7, "open": 0.1})
+        self._ranking_score_artefact(no_head, scores={"open": 0.5})
+        stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+        response = self.client.get(self._list_url(status="ready", ordering=f"{ordering},status,-updated_at"))
+        assert response.status_code == status.HTTP_200_OK
+        ids = [r["id"] for r in response.json()["results"]]
+        scored = [str(high.id), str(low.id)] if ordering.startswith("-") else [str(low.id), str(high.id)]
+        assert ids[:2] == scored
+        assert set(ids[2:]) == {str(unscored.id), str(no_head.id)}
+
+    @parameterized.expand(
+        [
+            ("ordering", {"ordering": "-ranking_open,status"}, "ordering"),
+            ("created_after", {"created_after": "last week"}, "created_after"),
+        ]
+    )
+    def test_list_rejects_invalid_params_with_400(self, _name, query, attr):
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.get(self._list_url(**query))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == attr
+
+    def test_created_after_keeps_reports_created_since(self):
+        recent = self._create_report(title="Recent")
+        old = self._create_report(title="Old")
+        SignalReport.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=5))
+        cutoff = (timezone.now() - timedelta(days=3)).isoformat()
+
+        response = self.client.get(self._list_url(created_after=cutoff, sort="newest"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["id"] for r in response.json()["results"]] == [str(recent.id)]
+
     @parameterized.expand(
         [
             ("immediately_actionable_before_not_actionable", "immediately_actionable", "not_actionable"),
