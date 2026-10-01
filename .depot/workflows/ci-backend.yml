@@ -10,10 +10,12 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - The `wait-for-handoff` job waits for GitHub Actions to hand the event off and exposes
 #   `handed_off`, true only when GitHub Actions handed the tests to this engine. Canonical's
-#   `Django Tests Pass` gate then relays this workflow's gate verdict. Neither the hand-off
-#   job nor the relay has a counterpart here. A GitHub rerun does not restart this workflow,
-#   so the relay's failure log prints the `depot ci` commands that retry it, and the label
-#   that sends the PR back to GitHub Actions.
+#   `Django Tests Pass` gate then relays this workflow's gate verdict. Its first step posts the
+#   `Depot run started` check that canonical's router waits for. Neither the router, the
+#   hand-off job, nor the relay has a counterpart here. A GitHub rerun does not restart this
+#   workflow, so the relay's failure log prints the `depot ci` commands that retry it, and the
+#   label that sends the PR back to GitHub Actions. It also prints each failed step and its log
+#   lines, read with `depot ci diagnose`, because Depot's own checks carry no output.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
 #   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
@@ -52,8 +54,16 @@
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
 #   The shadow routes cache writes to Depot Cache, so it must not fill the GitHub
 #   cache. This job and the mig_schema_key output that feeds it remain depot-exempt.
+# - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
+#   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
+#   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
+# - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
+#   Actions API by run id, and GitHub has no run for a Depot run id. Here
+#   .github/scripts/capture_depot_running_time.py reads the workflow with `depot ci workflow show`
+#   and DEPOT_CI_CANCEL_TOKEN, then sends the same events with the same property keys and
+#   runner `depot-ci`. Its attempt guard sits on the steps, as canonical's does.
 # - Workflow-name expressions remain literal, so the role cannot switch names through a
 #   variable; the cutover renames the workflow in a plain edit. The gate's hand-off `&&`
 #   is safe only while its status remains optional.
@@ -152,9 +162,9 @@ on:
         # the doubled matrices in place of that leg.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
-    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
+    # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
-    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -232,6 +242,7 @@ jobs:
             checks: read
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
+            github_run_url: ${{ steps.handoff.outputs.github_run_url }}
         steps:
             # Depot's ambient token can come from an installation spent for the hour. It answers 403,
             # and the wait would decline a real hand-off. The same token posts the relay's checks.
@@ -244,6 +255,19 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
+            # .github/scripts/ci_backend_route.py waits for this check. Depot posts its own check
+            # for this job only when the job ends, which is after the hand-off.
+            - name: Tell GitHub Actions that Depot started a run for this event
+              if: github.event_name == 'pull_request' && steps.handoff-token.outputs.token != ''
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ steps.handoff-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+                  SHA: ${{ github.event.pull_request.head.sha }}
+                  STARTED_CHECK: Backend CI on Depot / Depot run started (PR ${{ github.event.pull_request.number }}, event ${{ github.event.pull_request.updated_at }})
+              run: |
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$STARTED_CHECK" -f head_sha="$SHA" \
+                      -f status=completed -f conclusion=success -f details_url="$DEPOT_JOB_URL" --silent
             - name: Wait for the hand-off check from GitHub Actions
               id: handoff
               env:
@@ -265,6 +289,7 @@ jobs:
                   set -uo pipefail
                   handed_off=false
                   state=absent
+                  run_url=
                   # A person's run does not wait: it runs only when GitHub Actions already handed
                   # this commit off, so the tests never run on both engines.
                   attempts=30
@@ -288,7 +313,8 @@ jobs:
                                   # A cancelled hand-off comes from a GitHub run that was cancelled before its
                                   # hand-off job finished, so it carries no decision, as in ci_backend_route.py.
                                   # GitHub posts it with started_at set to the cancel time, which can follow this event.
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  # The hand-off check links its GitHub job. The gate check links the run instead.
+                                  IFS=$'\t' read -r state run_url < <(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | [(if . == null then "absent" elif .status == "completed" then .conclusion else .status end), (.details_url // "" | sub("/job/[0-9]+$"; ""))] | @tsv' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -303,6 +329,7 @@ jobs:
                       done
                       if [ "$handed_off" = true ]; then
                           echo "::notice::GitHub Actions handed the backend tests to Depot CI."
+                          echo "github_run_url=$run_url" >> "$GITHUB_OUTPUT"
                       else
                           echo "::notice::GitHub Actions kept the backend tests (hand-off check: $state). Depot CI runs nothing."
                       fi
@@ -327,6 +354,26 @@ jobs:
                   }
                   post "$WAIT_CHECK" success
                   [ "$HANDED_OFF" = true ] || post "$GATE_CHECK" skipped
+    cancel-superseded-runs:
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        name: Cancel superseded Backend CI runs
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/cancel_superseded_depot_runs.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+            - name: Cancel this PR's older runs
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: python3 .github/scripts/cancel_superseded_depot_runs.py
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
@@ -3907,9 +3954,9 @@ jobs:
               with:
                   junit-paths: junit-core.xml,junit-core-retry-failures.xml
                   org-slug: posthog-inc
-                  # A native-JSON row uploads under its own variant, so a failure in that mode
-                  # does not read as a flake of the legacy test with the same id.
-                  variant: ${{ matrix.new-events-schema && 'events-json' || '' }}
+                  # Non-default rows upload under their own variant, so a failure only that mode
+                  # hits does not quarantine the default test with the same id.
+                  variant: ${{ matrix.compat && format('compat-{0}', matrix.clickhouse-server-image) || matrix.person-on-events && (matrix.new-events-schema && 'poe-off-events-json' || 'poe-off') || matrix.new-events-schema && 'events-json' || '' }}
                   cli-version: '0.15.4'
                   quarantine: true
                   previous-step-outcome: ${{ steps.run-core-tests.outcome }}
@@ -4142,6 +4189,10 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true')
             && needs.wait-for-handoff.outputs.handed_off == 'true'
+        env:
+            # The gate check posts the summary as its output, titled by the first line of the title file.
+            GATE_SUMMARY: /tmp/gate-check-summary.md
+            GATE_TITLE: /tmp/gate-check-title
         steps:
             - name: Summarize dependency results
               run: |
@@ -4168,7 +4219,7 @@ jobs:
                       echo ""
                       echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
                     fi
-                  } | tee -a "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY" "$GATE_SUMMARY"
 
             - name: Download shard JUnit results
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
@@ -4245,10 +4296,11 @@ jobs:
                       if len(rows) > 100:
                           out += ["", f"…and {len(rows) - 100} more."]
                       text = "\n".join(out) + "\n"
-                      summary = os.environ.get("GITHUB_STEP_SUMMARY")
-                      if summary:
-                          with open(summary, "a") as fh:
+                      for path in (os.environ["GITHUB_STEP_SUMMARY"], os.environ["GATE_SUMMARY"]):
+                          with open(path, "a") as fh:
                               fh.write(text)
+                      with open(os.environ["GATE_TITLE"], "a") as fh:
+                          fh.write(f"{len(rows)} failing test{'s' if len(rows) != 1 else ''}\n")
                       print(text)
                       for shard, nodeid, repo_file, msg in rows[:30]:
                           title = f"Backend test failed ({shard})"
@@ -4271,6 +4323,7 @@ jobs:
 
                     if [[ "$result" != "success" && "$result" != "skipped" ]]; then
                       echo "::error::$label did not succeed (result: '$result')."
+                      echo "$label did not succeed on Depot" >> "$GATE_TITLE"
                       exit 1
                     fi
                   }
@@ -4306,6 +4359,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
             # Mirrors Depot's own check for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
+            # Depot's own checks carry no output and their pages need a Depot login, so this
+            # check carries the gate summary: GitHub shows the title on the PR's check row
+            # and the summary on the Checks tab.
             - name: Post the gate check for the relay
               if: ${{ always() && steps.gate-token.outputs.token != '' }}
               continue-on-error: true
@@ -4315,9 +4371,23 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
+                  RELAY_RUN_URL: ${{ needs.wait-for-handoff.outputs.github_run_url }}
               run: |
-                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
+                  case "$CONCLUSION" in
+                      success) title="Backend tests passed on Depot" ;;
+                      cancelled) title="Backend tests cancelled on Depot" ;;
+                      *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
+                  esac
+                  id=$(gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --jq .id)
+                  # The relay reads the check above for its verdict, so the output is attached afterwards
+                  # and cannot cost the check. GitHub rejects a summary over 65535 characters, and the
+                  # byte budget below stays under that however the characters are encoded.
+                  touch "$GATE_SUMMARY"
+                  jq -n --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
+                      '{output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
+                      | gh api "repos/$REPO/check-runs/$id" --method PATCH --input - --silent \
+                      || echo "::warning::Could not attach the gate summary to check $id"
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
@@ -4619,4 +4689,38 @@ jobs:
                   retention-days: 2
                   overwrite: true
 
-    # calculate-running-time is omitted so Depot runs are not recorded as canonical CI data.
+    calculate-running-time:
+        name: Calculate running time
+        needs: [changes, django_tests]
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        # Run on pull requests to PostHog/posthog + on PostHog/posthog outside of PRs - but never on forks or Dependabot (no secrets access)
+        if: >-
+            !cancelled() && github.actor != 'dependabot[bot]' && (
+            (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') ||
+            (github.event_name != 'pull_request' && github.repository == 'PostHog/posthog'))
+            && needs.changes.result == 'success'
+        permissions:
+            contents: read
+        steps:
+            # Depot evaluates github.run_attempt as empty in a job-level `if`, so the attempt guard sits on the steps.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              id: checkout
+              if: github.run_attempt == '1'
+              continue-on-error: true
+              with:
+                  sparse-checkout: .github/scripts/capture_depot_running_time.py
+                  sparse-checkout-cone-mode: false
+            - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+              id: setup-depot
+              if: github.run_attempt == '1' && steps.checkout.outcome == 'success'
+              continue-on-error: true
+            - name: Capture running time to PostHog and DevEx PostHog
+              if: github.run_attempt == '1' && steps.setup-depot.outcome == 'success'
+              continue-on-error: true
+              env:
+                  DEPOT_TOKEN: ${{ secrets.DEPOT_CI_CANCEL_TOKEN }}
+                  POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  STATUS_JOB: django_tests
+              run: python3 .github/scripts/capture_depot_running_time.py

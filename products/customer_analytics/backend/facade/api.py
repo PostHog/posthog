@@ -19,7 +19,7 @@ import asyncio
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
@@ -100,11 +100,13 @@ from products.customer_analytics.backend.facade.email_matching import schedule_e
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
+    AccountViewVisibility,
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
     account_presence as _account_presence_logic,
     account_track_rules as _account_track_rules_logic,
+    account_views as _account_views_logic,
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
@@ -147,6 +149,7 @@ from products.customer_analytics.backend.models import (
     AccountRelationship,
     AccountRelationshipControl,
     AccountRelationshipDefinition,
+    AccountView as AccountViewModel,
     Announcement,
     CustomerJourney,
     CustomerProfileConfig,
@@ -1213,22 +1216,149 @@ def delete_customer_profile_config(
     return True
 
 
+# --- AccountView ---
+
+
+InvalidAccountViewContent = _account_views_logic.InvalidAccountViewContent
+AccountViewVersionConflict = _account_views_logic.AccountViewVersionConflict
+AccountViewPermissionDenied = _account_views_logic.AccountViewPermissionDenied
+
+
+def _to_account_view(
+    view: AccountViewModel,
+    *,
+    actor_user_id: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView:
+    is_creator = view.created_by_id == actor_user_id
+    return contracts.AccountView(
+        id=view.id,
+        name=view.name,
+        visibility=cast(Literal["private", "team"], view.visibility),
+        content=view.content,
+        text_content=view.text_content,
+        version=view.version,
+        created_by=view.created_by_id,
+        last_modified_by=view.last_modified_by_id,
+        created_at=view.created_at,
+        updated_at=view.updated_at,
+        can_edit=(view.visibility == AccountViewVisibility.PRIVATE and is_creator)
+        or (view.visibility == AccountViewVisibility.TEAM and can_edit_team_views),
+        can_delete=is_creator or is_project_admin,
+        can_change_visibility=is_creator or is_project_admin,
+    )
+
+
+def list_account_views(
+    *, team_id: int, user_id: int, can_edit_team_views: bool, is_project_admin: bool
+) -> list[contracts.AccountView]:
+    return [
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
+    ]
+
+
+def get_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.get_account_view(team_id=team_id, user_id=user_id, view_id=view_id)
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
+    )
+
+
+def create_account_view(
+    *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
+) -> contracts.AccountView:
+    view = _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    return _to_account_view(view, actor_user_id=user_id, can_edit_team_views=True, is_project_admin=is_project_admin)
+
+
+def update_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    expected_version: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+    name: str | None = None,
+    content: dict[str, Any] | None = None,
+    visibility: str | None = None,
+) -> contracts.AccountView | None:
+    view = _account_views_logic.update_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        can_edit_team_views=can_edit_team_views,
+        is_project_admin=is_project_admin,
+        name=name,
+        content=content,
+        visibility=visibility,
+    )
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
+    )
+
+
+def delete_account_view(
+    *, team_id: int, user_id: int, view_id: UUID, expected_version: int, is_project_admin: bool
+) -> bool:
+    return _account_views_logic.delete_account_view(
+        team_id=team_id,
+        user_id=user_id,
+        view_id=view_id,
+        expected_version=expected_version,
+        is_project_admin=is_project_admin,
+    )
+
+
 # --- UserCustomerAnalyticsConfig ---
 
 
-InvalidPinnedAccountProperties = _user_customer_analytics_config_logic.InvalidPinnedAccountProperties
+InvalidPinnedAccountProperties = contracts.InvalidPinnedAccountProperties
 
 
 def _to_user_customer_analytics_config(
     config: UserCustomerAnalyticsConfigModel,
 ) -> contracts.UserCustomerAnalyticsConfig:
-    raw_references = config.properties[_user_customer_analytics_config_logic.PINNED_PROPERTIES_KEY]
+    raw_references = _user_customer_analytics_config_logic.read_pinned_properties(config)
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=UUID(str(reference["id"])))
+            contracts.PinnedAccountProperty(
+                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
+                id=UUID(str(reference["id"])),
+            )
             for reference in raw_references
         ],
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
+        account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
 
 
@@ -1244,6 +1374,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_account_detail_tabs(
+    *,
+    team_id: int,
+    user_id: int,
+    ordered_tab_ids: list[str],
+    hidden_tab_ids: list[str],
+    default_tab_id: str | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_account_detail_tabs(
+        team_id=team_id,
+        user_id=user_id,
+        ordered_tab_ids=ordered_tab_ids,
+        hidden_tab_ids=hidden_tab_ids,
+        default_tab_id=default_tab_id,
     )
     return _to_user_customer_analytics_config(config)
 
@@ -2981,8 +3129,8 @@ def _account_view_notebooks(account: Account) -> list[str]:
     return [link.notebook.short_id for link in account.notebooks.all()]
 
 
-def _to_account_view(account: Account) -> contracts.AccountView:
-    return contracts.AccountView(
+def _to_account_details(account: Account) -> contracts.AccountDetails:
+    return contracts.AccountDetails(
         id=account.id,
         name=account.name,
         external_id=account.external_id,
@@ -3103,10 +3251,36 @@ def _validate_account_table_definitions(
     return custom_property_display_types
 
 
-def _filters_account_table_field(
-    filters: tuple[contracts.AccountTableFilter, ...], field: contracts.AccountTableField
-) -> bool:
-    return any(isinstance(filter_, contracts.AccountTableFieldFilter) and filter_.field == field for filter_ in filters)
+LIFECYCLE_ACCOUNT_TABLE_FIELDS = frozenset(
+    {contracts.AccountTableField.CHURNED_AT, contracts.AccountTableField.IGNORED_AT}
+)
+
+
+def _selects_lifecycle_accounts(filters: tuple[contracts.AccountTableFilter, ...]) -> bool:
+    return any(
+        isinstance(filter_, contracts.AccountTableFieldFilter)
+        and filter_.field in LIFECYCLE_ACCOUNT_TABLE_FIELDS
+        and filter_.operator != contracts.AccountTableFieldOperator.IS_NOT_SET
+        for filter_ in filters
+    )
+
+
+def _filter_out_hidden_lifecycle_accounts(
+    queryset: QuerySet[Account],
+    filters: tuple[contracts.AccountTableFilter, ...],
+    *,
+    include_churned: bool,
+    include_ignored: bool,
+) -> QuerySet[Account]:
+    # Track Rules skip churned accounts, so a churned account keeps its ignored_at. Hiding either
+    # state here would drop accounts that a churned or ignored filter asks for.
+    if _selects_lifecycle_accounts(filters):
+        return queryset
+    if not include_churned:
+        queryset = queryset.filter(churned_at__isnull=True)
+    if not include_ignored:
+        queryset = queryset.filter(ignored_at__isnull=True)
+    return queryset
 
 
 def _apply_account_table_filters(
@@ -3115,7 +3289,10 @@ def _apply_account_table_filters(
     team_id: int,
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...],
     custom_property_display_types: dict[UUID, DisplayType],
+    include_churned: bool,
+    include_ignored: bool,
 ) -> QuerySet[Account]:
     member_external_ids_by_query: dict[str, tuple[str, ...]] = {}
     for filter_ in filters:
@@ -3128,13 +3305,31 @@ def _apply_account_table_filters(
                 break
 
     try:
-        return apply_account_filters(
+        queryset = apply_account_filters(
             queryset,
             team_id=team_id,
             filters=filters,
             custom_property_display_types=custom_property_display_types,
             member_external_ids_by_query=member_external_ids_by_query,
         )
+        if filter_groups:
+            matching_groups = Q()
+            for group in filter_groups:
+                group_query = _filter_out_hidden_lifecycle_accounts(
+                    queryset,
+                    filters + group,
+                    include_churned=include_churned,
+                    include_ignored=include_ignored,
+                )
+                group_query = apply_account_filters(
+                    group_query,
+                    team_id=team_id,
+                    filters=group,
+                    custom_property_display_types=custom_property_display_types,
+                )
+                matching_groups |= Q(pk__in=group_query.order_by().values("pk"))
+            queryset = queryset.filter(matching_groups)
+        return queryset
     except InvalidAccountFilter as error:
         raise InvalidAccountTableColumn(str(error)) from error
 
@@ -3251,6 +3446,7 @@ def query_accounts_metrics(
     user_access_control: "UserAccessControl",
     filters: tuple[contracts.AccountTableFilter, ...],
     metrics: tuple[contracts.AccountTableMetric, ...],
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> list[float | int | None]:
@@ -3262,7 +3458,7 @@ def query_accounts_metrics(
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
         selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
-        filters=filters,
+        filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=None,
     )
     for definition_id in definition_ids:
@@ -3270,16 +3466,19 @@ def query_accounts_metrics(
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
 
     accounts = _accounts_queryset(team_id, user_access_control)
-    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
-        accounts = accounts.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
-        accounts = accounts.filter(ignored_at__isnull=True)
+    if not filter_groups:
+        accounts = _filter_out_hidden_lifecycle_accounts(
+            accounts, filters, include_churned=include_churned, include_ignored=include_ignored
+        )
     accounts = _apply_account_table_filters(
         accounts,
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
+        filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
+        include_churned=include_churned,
+        include_ignored=include_ignored,
     )
     results: list[float | int | None] = [None] * len(metrics)
     for index, metric in enumerate(metrics):
@@ -3348,27 +3547,31 @@ def query_accounts_table(
     sort: contracts.AccountTableSort | None,
     offset: int,
     limit: int,
+    filter_groups: tuple[tuple[contracts.AccountTableFilter, ...], ...] = (),
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
     custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
         selection=selection,
-        filters=filters,
+        filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=sort,
     )
 
     queryset = _accounts_queryset(team_id, user_access_control)
-    if not include_churned and not _filters_account_table_field(filters, contracts.AccountTableField.CHURNED_AT):
-        queryset = queryset.filter(churned_at__isnull=True)
-    if not include_ignored and not _filters_account_table_field(filters, contracts.AccountTableField.IGNORED_AT):
-        queryset = queryset.filter(ignored_at__isnull=True)
+    if not filter_groups:
+        queryset = _filter_out_hidden_lifecycle_accounts(
+            queryset, filters, include_churned=include_churned, include_ignored=include_ignored
+        )
     queryset = _apply_account_table_filters(
         queryset,
         team_id=team_id,
         user_access_control=user_access_control,
         filters=filters,
+        filter_groups=filter_groups,
         custom_property_display_types=custom_property_display_types,
+        include_churned=include_churned,
+        include_ignored=include_ignored,
     )
     queryset = _apply_account_table_sort(
         queryset,
@@ -3497,7 +3700,7 @@ def list_accounts_for_view(
     include_churned: bool = False,
     include_ignored: bool = False,
     ordering: str | None = None,
-) -> tuple[list[contracts.AccountView], int]:
+) -> tuple[list[contracts.AccountDetails], int]:
     """The accounts list endpoint, behind the facade: team + object-level access filtering,
     the search / tags / unassigned / ordering query filters, notebook + tag prefetching, and
     pagination. Returns ``(page, total_count)``. ``tags``/``ordering`` are pre-validated by
@@ -3531,25 +3734,25 @@ def list_accounts_for_view(
 
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
-    return [_to_account_view(a) for a in page], total_count
+    return [_to_account_details(a) for a in page], total_count
 
 
 def get_account_for_view(
     *, team_id: int, account_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     """Fetch one team-scoped account with tags + notebooks, enforcing object-level access.
     Raises ``Account.DoesNotExist`` (→ 404) / ``ResourceForbiddenError`` (→ 403)."""
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def get_account_for_view_by_external_id(
     *, team_id: int, external_id: str, user_access_control: "UserAccessControl", required_level: str | None
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _account_detail_queryset(team_id).get(external_id=external_id)
     _enforce_object_access(account, user_access_control, required_level)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 class _Unset(Enum):
@@ -3677,7 +3880,7 @@ def create_account_for_view(
     input: contracts.CreateAccountInput,
     user: "User",
     was_impersonated: bool,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = create_account(
         team=team,
         created_by=user,
@@ -3689,7 +3892,7 @@ def create_account_for_view(
         churned_at=input.churned_at,
         was_impersonated=was_impersonated,
     )
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 def update_account_for_view(
@@ -3703,7 +3906,7 @@ def update_account_for_view(
     user: "User",
     was_impersonated: bool,
     allow_matching_updates: bool = False,
-) -> contracts.AccountView:
+) -> contracts.AccountDetails:
     account = _get_account_for_detail(team_id, account_id)
     _enforce_object_access(account, user_access_control, required_level)
     previous = Account.objects.unscoped().get(pk=account.pk)
@@ -3749,7 +3952,7 @@ def update_account_for_view(
     # and one backfill per switch is LLM spend nobody asked for.
     if not previous.slack_summary_cadence and account.slack_summary_cadence:
         _dispatch_initial_channel_summary(account)
-    return _to_account_view(account)
+    return _to_account_details(account)
 
 
 # Roughly 70 accounts opting into a daily cadence in one day, far above real use.

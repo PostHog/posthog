@@ -286,6 +286,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
+                .order_by("created_at")
                 .first()
             )
             dag_to_bootstrap = None

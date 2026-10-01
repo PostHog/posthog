@@ -997,11 +997,12 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
-        expect(allFlags).toContain('self-optimising-workflows')
-        // The flag this branch adds is asserted on the line above and held out of the list and
+        const branchFlags = ['self-optimising-workflows', 'business-knowledge-github-repos']
+        expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
+        // The flags branches add are asserted on the line above and held out of the list and
         // count below. Those belong to master and move with every flag master adds or drops, so a
         // stacked branch that adds one does not edit them.
-        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
+        const flags = allFlags.filter((flag) => !branchFlags.includes(flag))
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -1043,9 +1044,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
+                'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('every loops tool is gated on the loops flag', () => {
