@@ -20,7 +20,7 @@ from products.visual_review.backend.facade.contracts import (
     CreateRunInput,
     SnapshotManifestItem,
 )
-from products.visual_review.backend.facade.enums import RunPurpose, ActorType, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ActorType, RunPurpose, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
