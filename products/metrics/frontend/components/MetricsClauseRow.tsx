@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -8,10 +8,8 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { metricsSceneLogic } from '../metricsSceneLogic'
 import { MetricNameFilter } from './MetricNameFilter'
 import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
-import { metricsFundamentalsLogic } from './metricsFundamentalsLogic'
 import { MetricsGroupByButton } from './MetricsGroupByButton'
 import {
     MAX_CLAUSES,
@@ -77,8 +75,6 @@ export function MetricsClauseRow({
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
-    const { setActiveTab } = useActions(metricsSceneLogic)
-    const { explainMetric } = useActions(metricsFundamentalsLogic)
 
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
@@ -102,31 +98,12 @@ export function MetricsClauseRow({
                 </Tooltip>
             )}
             <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-1">
-                    <MetricNameFilter
-                        value={clause.metricName}
-                        onChange={withSelect(setMetricName)}
-                        disabled={!!disabledReason}
-                        disabledReason={disabledReason}
-                    />
-                    {clause.metricName && clause.selectedMetricType && (
-                        <Tooltip title="Take this metric apart: see how its chart value is recomputed from raw samples.">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                icon={<IconInfo />}
-                                onClick={() => {
-                                    explainMetric({
-                                        metricName: clause.metricName,
-                                        aggregation: clause.aggregation,
-                                    })
-                                    setActiveTab('fundamentals')
-                                }}
-                                data-attr="metrics-clause-explain"
-                            />
-                        </Tooltip>
-                    )}
-                </div>
+                <MetricNameFilter
+                    value={clause.metricName}
+                    onChange={withSelect(setMetricName)}
+                    disabled={!!disabledReason}
+                    disabledReason={disabledReason}
+                />
                 {clause.selectedMetricType &&
                     recommendedAggregation &&
                     (clause.aggregation !== recommendedAggregation ? (
