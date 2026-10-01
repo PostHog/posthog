@@ -380,6 +380,18 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         assert item_ids == {"flag-1"}
 
     def test_query_reads_filters_from_body(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "")
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=other_user,
+            was_impersonated=False,
+            item_id="flag-other-user",
+            scope="FeatureFlag",
+            activity="created",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
         url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/query/?page=1&page_size=100"
         users = [str(uuid4()) for _ in range(500)] + [str(self.user.uuid)]
 

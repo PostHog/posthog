@@ -10989,12 +10989,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `-created_at` - -created_at
-     * * `created_at` - created_at
-     */
-    export type OrderingEnum = string;
-
-    /**
      * * `ocsf` - ocsf
      */
     export type SchemaEnum = typeof SchemaEnum[keyof typeof SchemaEnum];
@@ -11004,7 +10998,7 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
-    export interface AdvancedActivityLogFilters {
+    export interface AdvancedActivityLogQueryBody {
       /** Lower bound on `created_at` (inclusive), ISO-8601. */
       start_date?: string;
       /** Upper bound on `created_at` (inclusive), ISO-8601. */
@@ -11039,30 +11033,12 @@ export namespace Schemas {
       is_system?: boolean | null;
       /** Filter by the `item_id` of the affected resource(s). */
       item_ids?: string[];
-      /** Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
-       *
-       * * `-created_at` - -created_at
-       * * `created_at` - created_at */
-      ordering?: OrderingEnum;
-      /** Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link. */
-      follow?: boolean;
       /** Response format. Set to ocsf to return Open Cybersecurity Schema Framework events for ingestion into a security tool. Omit for the default PostHog format.
        *
        * * `ocsf` - ocsf */
       schema?: SchemaEnum;
       /** Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool. */
       include_values?: boolean;
-      /**
-         * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
-         * @minimum 1
-         */
-      page?: number;
-      /**
-         * Number of results per page (default: 100, max: 1000).
-         * @minimum 1
-         * @maximum 1000
-         */
-      page_size?: number;
     }
 
     /**
@@ -109838,6 +109814,32 @@ export namespace Schemas {
       Ocsf: 'ocsf',
     } as const;
 
+    export type OrgOrganizationsAdvancedActivityLogsQueryCreateParams = {
+    /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean;
+    /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000).
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
+    };
+
     export type BillingAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -111292,6 +111294,32 @@ export namespace Schemas {
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
+
+    export type AdvancedActivityLogsQueryCreateParams = {
+    /**
+     * Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.
+     */
+    follow?: boolean;
+    /**
+     * Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.
+     *
+     * * `-created_at` - -created_at
+     * * `created_at` - created_at
+     * @minLength 1
+     */
+    ordering?: string;
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000).
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
+    };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**

@@ -305,7 +305,7 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
  * List activity logs with the filters in the request body instead of the query string.
  *
  * A long filter, such as many users, can make a GET URL longer than proxies accept. Send
- * `page`, `page_size` and `ordering` in the query string, because pagination reads them from there.
+ * `page`, `page_size`, `ordering` and `follow` in the query string.
  */
 export const advancedActivityLogsQueryCreateBodyUsersDefault = []
 export const advancedActivityLogsQueryCreateBodyScopesDefault = []
@@ -314,11 +314,7 @@ export const advancedActivityLogsQueryCreateBodyClientsDefault = []
 export const advancedActivityLogsQueryCreateBodyIpAddressesDefault = []
 export const advancedActivityLogsQueryCreateBodyTeamIdsDefault = []
 export const advancedActivityLogsQueryCreateBodyItemIdsDefault = []
-export const advancedActivityLogsQueryCreateBodyOrderingDefault = `-created_at`
-export const advancedActivityLogsQueryCreateBodyFollowDefault = false
 export const advancedActivityLogsQueryCreateBodyIncludeValuesDefault = false
-export const advancedActivityLogsQueryCreateBodyPageSizeDefault = 100
-export const advancedActivityLogsQueryCreateBodyPageSizeMax = 1000
 
 export const AdvancedActivityLogsQueryCreateBody = /* @__PURE__ */ zod.object({
     start_date: zod.iso
@@ -376,19 +372,6 @@ export const AdvancedActivityLogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .default(advancedActivityLogsQueryCreateBodyItemIdsDefault)
         .describe('Filter by the `item_id` of the affected resource(s).'),
-    ordering: zod
-        .string()
-        .describe('\* `-created_at` - -created_at\n\* `created_at` - created_at')
-        .default(advancedActivityLogsQueryCreateBodyOrderingDefault)
-        .describe(
-            'Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.\n\n\* `-created_at` - -created_at\n\* `created_at` - created_at'
-        ),
-    follow: zod
-        .boolean()
-        .default(advancedActivityLogsQueryCreateBodyFollowDefault)
-        .describe(
-            'Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.'
-        ),
     schema: zod
         .enum(['ocsf'])
         .describe('\* `ocsf` - ocsf')
@@ -402,19 +385,6 @@ export const AdvancedActivityLogsQueryCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Include the previous and new values of changed fields. Only applies when schema is ocsf. Values can contain the content of the changed object, which makes responses larger and sends that content to your security tool.'
         ),
-    page: zod
-        .number()
-        .min(1)
-        .optional()
-        .describe(
-            'Page number for pagination. When provided, uses page-based pagination ordered by most recent first.'
-        ),
-    page_size: zod
-        .number()
-        .min(1)
-        .max(advancedActivityLogsQueryCreateBodyPageSizeMax)
-        .default(advancedActivityLogsQueryCreateBodyPageSizeDefault)
-        .describe('Number of results per page (default: 100, max: 1000).'),
 })
 
 export const approvalPoliciesCreateBodyActionKeyMax = 128
