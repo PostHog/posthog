@@ -31,8 +31,8 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
+import { SpaceLoops } from './loops/SpaceLoops'
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceLoops } from './SpaceLoops'
 import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 

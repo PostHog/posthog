@@ -1,28 +1,33 @@
+import { useActions, useValues } from 'kea'
+
 import { IconRefresh } from '@posthog/icons'
-import { Badge, TableCell, TableRow, Text } from '@posthog/quill'
+import { Badge, Switch, TableCell, TableRow, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { SpaceLoop } from './spaceLoops'
+import { spaceLoopsLogic } from './spaceLoopsLogic'
 
-export function SpaceLoopRow({ loop }: { loop: SpaceLoop }): JSX.Element {
+export function SpaceLoopRow({ spaceId, loop }: { spaceId: string; loop: SpaceLoop }): JSX.Element {
+    const { pendingLoopIds } = useValues(spaceLoopsLogic({ id: spaceId }))
+    const { setLoopEnabled } = useActions(spaceLoopsLogic({ id: spaceId }))
+    const name = loop.name || 'Untitled loop'
+
     return (
-        <TableRow>
+        <TableRow className={loop.enabled ? undefined : 'opacity-70'}>
             <TableCell expand>
                 <div className="flex min-w-0 items-center gap-2">
                     <IconRefresh className="shrink-0 text-muted-foreground" aria-hidden />
                     <div className="flex min-w-0 flex-col gap-0.5">
                         <div className="flex min-w-0 items-center gap-2">
-                            {/* Loop details live in PostHog Desktop, so the name opens the loop there. */}
                             <LinkPrimitive
-                                to={urls.codeLoopLink(loop.id)}
-                                target="_blank"
+                                to={urls.taskSpaceLoop(spaceId, loop.id)}
                                 className="truncate font-medium text-foreground hover:underline"
                                 data-attr="today-space-loop-open"
                             >
-                                {loop.name || 'Untitled loop'}
+                                {name}
                             </LinkPrimitive>
                             <Badge variant={loop.status.variant} className="shrink-0">
                                 {loop.status.label}
@@ -36,12 +41,12 @@ export function SpaceLoopRow({ loop }: { loop: SpaceLoop }): JSX.Element {
                     </div>
                 </div>
             </TableCell>
-            <TableCell className="hidden @lg:table-cell">
+            <TableCell className="hidden @2xl:table-cell">
                 <Text render={<span />} size="xs" className="truncate">
                     {loop.trigger}
                 </Text>
             </TableCell>
-            <TableCell className="hidden @md:table-cell">
+            <TableCell className="hidden @xl:table-cell">
                 {loop.lastRunAt ? (
                     <Text
                         render={<span />}
@@ -58,6 +63,16 @@ export function SpaceLoopRow({ loop }: { loop: SpaceLoop }): JSX.Element {
                         Never ran
                     </Text>
                 )}
+            </TableCell>
+            <TableCell>
+                <Switch
+                    size="sm"
+                    checked={loop.enabled}
+                    disabled={pendingLoopIds.includes(loop.id)}
+                    onCheckedChange={(checked: boolean) => setLoopEnabled(loop.id, checked)}
+                    aria-label={loop.enabled ? `Pause ${name}` : `Resume ${name}`}
+                    data-attr="today-space-loop-enabled"
+                />
             </TableCell>
         </TableRow>
     )

@@ -285,6 +285,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/spaces': ['TaskSpaces', 'taskSpaces'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
     '/spaces/:id/loops': ['TaskSpace', 'taskSpaceLoops'],
+    '/spaces/:id/loops/:loopId': ['TaskSpaceLoop', 'taskSpaceLoop'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
@@ -1105,6 +1106,7 @@ export const productConfiguration: Record<string, any> = {
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     TaskSpaces: { name: 'Spaces', projectBased: true },
     TaskSpace: { name: 'Space', projectBased: true },
+    TaskSpaceLoop: { name: 'Loop', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
         projectBased: true,
@@ -1750,6 +1752,7 @@ export const productUrls = {
     taskSpaces: (): string => '/spaces',
     taskSpace: (id: string): string => `/spaces/${id}`,
     taskSpaceLoops: (id: string): string => `/spaces/${id}/loops`,
+    taskSpaceLoop: (id: string, loopId: string): string => `/spaces/${id}/loops/${loopId}`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',

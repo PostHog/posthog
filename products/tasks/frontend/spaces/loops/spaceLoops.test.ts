@@ -1,7 +1,7 @@
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { LoopDTOApi } from '../generated/api.schemas'
-import { spaceLoopsFromHogFlows, spaceLoopsFromLoops } from './spaceLoops'
+import type { LoopDTOApi } from '../../generated/api.schemas'
+import { spaceLoopFromHogFlow, spaceLoopFromLoop, spaceLoopsFromHogFlows, spaceLoopsFromLoops } from './spaceLoops'
 
 function hogFlow(
     id: string,
@@ -43,6 +43,11 @@ function loop(id: string, spaceId: string | null, extra: Partial<LoopDTOApi> = {
         last_run_status: null,
         consecutive_failures: 0,
         triggers: [],
+        instructions: '',
+        model: '',
+        reasoning_effort: null,
+        repositories: [],
+        notifications: { push: {}, email: {}, slack: {} },
         ...extra,
     } as unknown as LoopDTOApi
 }
@@ -91,5 +96,59 @@ describe('spaceLoops', () => {
             'space-a'
         )
         expect(rows.map((row) => [row.id, row.status.label])).toEqual([['a', label]])
+    })
+
+    it.each([
+        [
+            'a weekday workflow schedule',
+            spaceLoopFromHogFlow({
+                ...hogFlow('a', 'space-a', { type: 'schedule' }),
+                schedules: [
+                    {
+                        rrule: 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR',
+                        starts_at: '2026-10-05T16:00:00Z',
+                        timezone: 'America/Los_Angeles',
+                    },
+                ],
+            } as unknown as HogFlowMinimalApi),
+            'Weekdays at 9:00 AM PDT',
+        ],
+        [
+            'a workflow schedule with no schedule row',
+            spaceLoopFromHogFlow({ ...hogFlow('a', 'space-a', { type: 'schedule' }), schedules: [] }),
+            'No schedule set',
+        ],
+        [
+            'a Monday cron schedule',
+            spaceLoopFromLoop(
+                loop('a', 'space-a', {
+                    triggers: [
+                        {
+                            type: 'schedule',
+                            enabled: true,
+                            config: { cron_expression: '30 11 * * 1', timezone: 'Europe/Prague' },
+                        },
+                    ],
+                } as unknown as Partial<LoopDTOApi>)
+            ),
+            'Mondays at 11:30 AM (Europe/Prague)',
+        ],
+        [
+            'a paused GitHub trigger',
+            spaceLoopFromLoop(
+                loop('a', 'space-a', {
+                    triggers: [
+                        {
+                            type: 'github',
+                            enabled: false,
+                            config: { repository: 'example/repo', events: ['pull_request'] },
+                        },
+                    ],
+                } as unknown as Partial<LoopDTOApi>)
+            ),
+            'GitHub · example/repo (pull_request) (disabled)',
+        ],
+    ])('describes %s', (_, spaceLoop, trigger) => {
+        expect(spaceLoop.triggers).toEqual([trigger])
     })
 })
