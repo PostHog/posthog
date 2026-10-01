@@ -988,7 +988,9 @@ export interface dataVisualizationLogicMeta {
                 | null
         ) => ChartDisplayType
         needsHogVm: (
+            visualizationType: ChartDisplayType,
             effectiveVisualizationType: ChartDisplayType,
+            columns: Column[],
             conditionalFormattingRules: ConditionalFormattingRule[]
         ) => boolean
         hogVmLoadFailed: (needsHogVm: boolean, hogVmLoadError: unknown) => boolean
@@ -1914,10 +1916,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ): ChartDisplayType => getAutoVisualizationType(columns, rowCountFromResponse(response)),
         ],
         // The Hog VM and its crypto polyfills are large, so only a table that shows formatting rules loads them.
+        // Auto resolves to a table until columns arrive, so it waits for them before it decides.
         needsHogVm: [
-            (s) => [s.effectiveVisualizationType, s.conditionalFormattingRules],
-            (visualizationType: ChartDisplayType, rules: ConditionalFormattingRule[]): boolean =>
-                visualizationType === ChartDisplayType.ActionsTable && rules.length > 0,
+            (s) => [s.visualizationType, s.effectiveVisualizationType, s.columns, s.conditionalFormattingRules],
+            (
+                visualizationType: ChartDisplayType,
+                effectiveVisualizationType: ChartDisplayType,
+                columns: Column[],
+                rules: ConditionalFormattingRule[]
+            ): boolean =>
+                (visualizationType !== ChartDisplayType.Auto || columns.length > 0) &&
+                effectiveVisualizationType === ChartDisplayType.ActionsTable &&
+                rules.length > 0,
         ],
         hogVmLoadFailed: [
             (s) => [s.needsHogVm, s.hogVmLoadError],

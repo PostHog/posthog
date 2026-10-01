@@ -683,6 +683,12 @@ describe('dataVisualizationLogic', () => {
             hogVm: null,
         },
         {
+            name: 'does not load the Hog VM for an auto visualization before its data arrives',
+            display: ChartDisplayType.Auto,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+        {
             name: 'does not load the Hog VM for a chart that kept table formatting rules',
             display: ChartDisplayType.ActionsLineGraph,
             rules: [equalsRule],
