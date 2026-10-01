@@ -12,9 +12,10 @@ description: >
 # Triaging visual review runs
 
 Visual Review is PostHog's screenshot-regression product: CI captures storybook + playwright screenshots,
-diffs them against committed baseline hashes, and gates the PR until a human approves the visible changes.
-A PR with visual changes carries a `visual-review` GitHub status check that stays red until each diffed
-snapshot is approved or tolerated in the [VR UI](https://us.posthog.com/project/2/visual_review).
+diffs them against committed baseline hashes, and gates the PR until every changed snapshot is resolved.
+A PR with visual changes carries a `visual-review` GitHub status check and a required "Visual regression tests pass" job check.
+Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
+finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual_review) offers the same actions.
 A PR from a fork is the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
@@ -44,7 +45,7 @@ Judge the `--light` and `--dark` snapshots of a story separately, and quarantine
 Expect tolerations to be rare.
 The diff already absorbs most real render noise below the threshold, and a small diff percentage is often a real structural change.
 A toleration accepts one exact hash forever and cannot be undone through the API, so it is never a way past a gate.
-A story that renders differently from run to run gets a quarantine, which also protects every other developer.
+A story that renders differently from run to run and meets the quarantine row above gets a quarantine, which also protects every other developer. With less evidence, report it instead.
 
 ## When this skill applies
 
