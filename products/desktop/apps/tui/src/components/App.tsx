@@ -2,7 +2,6 @@ import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useApp, useBoxMetrics, useInput } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
-import { REGIONS } from "../auth";
 import { currentRepository, type PiChats } from "../chats";
 import { isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
@@ -12,6 +11,7 @@ import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
+import { useSend } from "../hooks/useSend";
 import { useSheets } from "../hooks/useSheets";
 import { useShell } from "../hooks/useShell";
 import { useSidebar } from "../hooks/useSidebar";
@@ -20,12 +20,9 @@ import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
   allPanes,
-  assignTask,
   closeFocused,
   cycleFocus,
-  findPane,
   focusPane,
-  initialLayout,
   type LayoutNode,
   type LayoutState,
   loadLayout,
@@ -37,11 +34,10 @@ import {
   splitSizes,
 } from "../layout";
 import type { LocalSession } from "../local";
-import { type PiControl, parseSlash } from "../models";
+import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
 import type { CloudRuns } from "../runs";
 import { moveCursor, type SheetKey, sheetKey } from "../sheet";
-import { parseShell } from "../shell";
 import { DoublePress, shortcutFor } from "../shortcuts";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
@@ -93,7 +89,7 @@ export function App({
     startLocal,
   } = session ?? {};
   const notice = useNotice();
-  const { flashNotice, showNotice, clearNotice } = notice;
+  const { flashNotice, clearNotice } = notice;
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
@@ -125,7 +121,6 @@ export function App({
     : undefined;
   const { placeFor, setPlace } = useChatPlace();
   const { exit } = useApp();
-  const [pending, setPending] = useState<Map<string, string>>(new Map());
   // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
   const offers = useRef(new Map<string, ActionsLine | null>());
   const [pickerIndex, setPickerIndex] = useState<Map<string, number>>(
@@ -196,39 +191,6 @@ export function App({
     notice,
   });
 
-  const openLoginSheet = (paneId: string, description: string): void => {
-    openModal(
-      paneId,
-      {
-        title: "Sign in to PostHog",
-        description,
-        items: REGIONS.map((region) => ({ label: region.label })),
-        footer: "Enter to open your browser · Esc to cancel",
-      },
-      (index) => {
-        const region = REGIONS[index];
-        showNotice("Finish signing in with your browser…");
-        login(region.id, () => {}).then(
-          () => flashNotice(`Signed in to ${region.label}`),
-          (error: unknown) =>
-            flashNotice(`Sign-in failed: ${messageOf(error)}`),
-        );
-      },
-    );
-  };
-
-  // A session's workspaces belong to its account, so signing out starts from one empty chat.
-  const signOut = (): void => {
-    logout();
-    const fresh = initialLayout();
-    setLayout(fresh);
-    saveLayout(fresh);
-    resetWork();
-    setFresh(new Map());
-    setPending(new Map());
-    flashNotice("Signed out");
-  };
-
   const { runShell, shellsFor } = useShell({
     taskOf,
     isLocal,
@@ -239,129 +201,24 @@ export function App({
     flashNotice,
   });
 
-  const onSubmit = (paneId: string, text: string): void => {
-    const pane = findPane(layout, paneId);
-    const current = taskOf(pane?.taskId ?? null);
-    const textPrompt = modalFor(paneId)?.submitText;
-    if (textPrompt) {
-      textPrompt(text);
-      return;
-    }
-    const slash = parseSlash(text);
-    if (slash?.command === "model") {
-      openModelSheet(paneId, current);
-      return;
-    }
-    if (slash?.command === "new") {
-      setLayout(newChat);
-      return;
-    }
-    if (slash?.command === "clear") {
-      const taskId = pane?.taskId ?? null;
-      if (!taskId) flashNotice("There's nothing to clear yet");
-      else if (!isLocal(taskId))
-        flashNotice(
-          "You can't clear a cloud run. Type /new to start a new chat",
-        );
-      else
-        clearLocal(taskId).then(
-          () => flashNotice("Cleared this chat"),
-          (error: unknown) =>
-            flashNotice(`Couldn't clear this chat: ${messageOf(error)}`),
-        );
-      return;
-    }
-    if (slash?.command === "local" || slash?.command === "cloud") {
-      const mode = slash.command;
-      setPlace(paneId, mode);
-      flashNotice(
-        mode === "local"
-          ? `New chats run on this machine, in ${process.cwd()}`
-          : "New chats run in the cloud",
-      );
-      return;
-    }
-    if (slash?.command === "login") {
-      openLoginSheet(paneId, "Pick the PostHog you sign in to.");
-      return;
-    }
-    if (slash?.command === "logout") {
-      signOut();
-      return;
-    }
-    const shell = parseShell(text);
-    if (shell) {
-      runShell(paneId, pane?.taskId ?? null, shell, text);
-      return;
-    }
-    // Signed out, a message waits in the composer while the user signs in.
-    if (!chats) {
-      composerFor(paneId).setText(text);
-      openLoginSheet(
-        paneId,
-        "Sign in to send this message. It stays in the composer.",
-      );
-      return;
-    }
-    setPending((messages) => new Map(messages).set(paneId, text));
-    const clearPending = (): void =>
-      setPending((messages) => {
-        const next = new Map(messages);
-        next.delete(paneId);
-        return next;
-      });
-    const promptLocal = (taskId: string): Promise<void> => {
-      markActive(taskId);
-      return localFor(taskId).then((local) => local.prompt(text));
-    };
-    if (isLocal(pane?.taskId ?? null)) {
-      promptLocal(pane?.taskId as string).catch((error: unknown) => {
-        clearPending();
-        flashNotice(`Couldn't send: ${messageOf(error)}`);
-      });
-      return;
-    }
-    // A local chat starts with its task row, so it is never only on this machine; without one, the message stays in the composer.
-    if (!pane?.taskId && placeFor(paneId) === "local") {
-      chats.createLocal(text).then(
-        (task) => {
-          setFresh((tasks) => new Map(tasks).set(task.id, task));
-          setLayout((state) =>
-            assignTask(state, paneId, task.id, task.title || text.slice(0, 80)),
-          );
-          promptLocal(task.id).catch((error: unknown) => {
-            clearPending();
-            flashNotice(`Couldn't send: ${messageOf(error)}`);
-          });
-        },
-        (error: unknown) => {
-          clearPending();
-          composerFor(paneId).setText(text);
-          flashNotice(
-            `Couldn't start the chat: ${messageOf(error)}. Your message is still in the composer.`,
-          );
-        },
-      );
-      return;
-    }
-    (current ? chats.reply(current, text) : chats.start(text)).then(
-      (task) => {
-        setFresh((tasks) => new Map(tasks).set(task.id, task));
-        if (!current) {
-          const title = task.title || text.slice(0, 80);
-          setLayout((state) => assignTask(state, paneId, task.id, title));
-        }
-      },
-      (error: unknown) => {
-        setPending((messages) => {
-          const next = new Map(messages);
-          next.delete(paneId);
-          return next;
-        });
-        flashNotice(`Couldn't send: ${messageOf(error)}`);
-      },
-    );
-  };
+  const { onSubmit, pending } = useSend({
+    layout,
+    setLayout,
+    setFresh,
+    chats,
+    taskOf,
+    resetWork,
+    local: { isLocal, localFor, clear: clearLocal, markActive },
+    places: { placeFor, setPlace },
+    composerFor,
+    modalFor,
+    openModal,
+    openModelSheet,
+    runShell,
+    notice,
+    login,
+    logout,
+  });
 
   const {
     rows,
