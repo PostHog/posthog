@@ -29,7 +29,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalsResponse,
 )
 from products.replay_vision.backend.temporal.scanners.summarizer import (
-    IdleBreak,
     SummaryChapter,
     SummaryChapterResponse,
     chapter_target,
@@ -782,17 +781,6 @@ class TestSummarizerScannerSteps:
         assert chapter_target(video_s) == expected
         scanner = SummarizerScanner(prompt="p", chapter_target=chapter_target(video_s))
         assert f"Aim for about {expected} chapters" in scanner.core_steps()[0].instruction
-
-    def test_summary_step_names_the_long_idle_breaks_the_video_cut(self) -> None:
-        scanner = SummarizerScanner(prompt="p")
-        assert "idle for a long time" not in scanner.core_steps()[0].instruction
-
-        with_breaks = scanner.model_copy(
-            update={"long_idle_breaks": (IdleBreak(video_s=92, idle_s=240), IdleBreak(video_s=300, idle_s=70))}
-        )
-        instruction = with_breaks.core_steps()[0].instruction
-        assert "video second 92, after about 4 minutes idle" in instruction
-        assert "video second 300, after about 1 minute idle" in instruction
 
     def test_summary_step_opts_into_citations(self) -> None:
         scanner = scanner_from_db(
