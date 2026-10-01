@@ -927,8 +927,9 @@ def _cache_key(
     # new fields.
     spec = json.dumps(
         [
-            # Which event the default exposure resolved to. Derived from start_date, but kept in
-            # the key so a change to the cutoff cannot serve cards for the other population.
+            # Which event the default exposure resolved to. It follows start_date and the
+            # EXPERIMENT_EXPOSURE_EVENT_INGESTED setting, and the setting can change while an
+            # entry is warm.
             default_exposure_event,
             # The window end moves with wall-clock time on a running experiment, so it is quantized
             # to the cache's own TTL rather than to the minute: at minute resolution the key changes

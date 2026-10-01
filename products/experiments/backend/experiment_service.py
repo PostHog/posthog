@@ -2209,7 +2209,7 @@ class ExperimentService:
 
         Runs a synchronous scan of the experiment's exposure events, honoring
         ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
-        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        $experiment_exposure cutoff resolution via the same helpers the metrics pipeline uses,
         and requiring the exposure to have landed a variant — so the snapshot is the analyzed
         population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most

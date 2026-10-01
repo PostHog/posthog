@@ -16,7 +16,6 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -230,8 +229,7 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
             select=["id", "person"],
         )
 
-        with patch("posthoganalytics.feature_enabled", return_value=True):
-            response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+        response = ActorsQueryRunner(query=actors_query, team=self.team).calculate()
 
         assert [row[1]["distinct_ids"][0] for row in response.results] == [distinct_id]
 
