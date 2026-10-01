@@ -662,6 +662,7 @@ describe('RecipientPreferencesService', () => {
     describe('isFrequencyCapped', () => {
         let redis: RedisV2
         let frequencyCap: { max_messages: number | null; window_days: number | null }
+        let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
 
         const emailAction = (
@@ -694,7 +695,7 @@ describe('RecipientPreferencesService', () => {
             })
             await deleteKeysWithPrefix(redis, `@posthog/workflows-frequency-cap/${team.id}/`)
             frequencyCap = { max_messages: 2, window_days: 7 }
-            const teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+            teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
             cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
                 teamWorkflowsConfig,
@@ -731,6 +732,17 @@ describe('RecipientPreferencesService', () => {
 
             invocation.state.actionStepCount = 3
             expect(await cappedService.isFrequencyCapped(invocation, action)).toBe(true)
+        })
+
+        it.each([
+            [
+                'the config lookup',
+                () => jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockRejectedValue(new Error('unavailable')),
+            ],
+            ['the Redis pool', () => jest.spyOn(redis, 'useClient').mockRejectedValue(new Error('unavailable'))],
+        ])('lets the send through when %s fails', async (_, fail) => {
+            fail()
+            expect(await sendAt(emailAction(), 1_800_000_000_000)).toBe(false)
         })
 
         it.each([
