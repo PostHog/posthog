@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from django.db.models import Q
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -100,3 +100,31 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
         else set()
     )
     return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
+
+
+BACKGROUND_RUN_METADATA = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
+
+
+def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> dict[str, SignalScoutRun]:
+    """Map each report a background-enrolled scout run authored to that run.
+
+    Only authorship counts: a background scout that edited a user scout's report does not make the
+    report a background one. The origin is the one stamped on the run at dispatch, so a person who
+    later takes over, switches off, or deletes the config does not clear it.
+    """
+    if not report_ids:
+        return {}
+    authored = Q()
+    for report_id in report_ids:
+        authored |= Q(emitted_report_ids__contains=[report_id])
+    runs = SignalScoutRun.objects.for_team(team_id).filter(authored, metadata__contains=BACKGROUND_RUN_METADATA)
+    wanted = set(report_ids)
+    resolved: dict[str, SignalScoutRun] = {}
+    for run in runs:
+        for report_id in wanted.intersection(run.emitted_report_ids or []):
+            resolved[report_id] = run
+    return resolved
+
+
+def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
+    return report_id in resolve_background_authoring_runs(team_id, [report_id])

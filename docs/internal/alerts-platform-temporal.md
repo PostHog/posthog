@@ -282,6 +282,41 @@ a real grouping key, and would bury them where Postgres cannot lift them into an
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
+### What a check leaves behind
+
+Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
+confirmed the alert.
+Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
+table needs no such flag, so nothing has to decide which checks are worth keeping.
+
+The row is self-sufficient.
+`alert_name`, `condition_snapshot` and `source_config_snapshot` are read when the outcome is
+recorded, so a threshold edited between a check and a retried send cannot change what a message
+claims was breached, and a rename cannot make one thread contradict itself.
+The snapshots are taken at write time rather than shipped with the outcome, because a source's copy
+of `source_config` is a filter tree and shipping one per outcome would cost Temporal payload on
+every batch.
+
+The write happens after the Postgres transaction commits, not inside it.
+`insert_events` never raises: the alert's state and schedule are already written by then, so a
+ClickHouse outage costs a gap in history rather than an alert left due with its state unwritten.
+`alerts_platform_history_rows_dropped_total` counts that gap.
+
+`platform_alert_events` is a plain `ReplicatedMergeTree`, because every row is a distinct check
+and nothing supersedes anything.
+A `ReplacingMergeTree` would have made every count over the table wrong on any part a merge had
+not reached, and ClickHouse never promises a merge will run.
+
+ClickHouse has no unique constraint, so the insert carries an `insert_deduplication_token` naming
+the batch by its contents.
+A retried batch arrives under a token the engine has already seen and is dropped.
+A reader still deduplicates on `(alert_id, evaluation_key)`, because the token only covers a retry
+of the same batch and the engine only remembers a bounded window of them.
+
+`labels` lands empty and stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; service and severity live in
+`source_config_snapshot`, which is where a message should read them.
+
 ### A mute holds the announcement, not the check
 
 A snooze and a schedule restriction both mute. Neither stops a check.
@@ -307,6 +342,16 @@ Three consequences worth stating:
 
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
+
+A fire a mute swallowed is still owed an announcement.
+`_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Production logs gets the same reset on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
 
 ### Evaluating and writing are separate activities
 

@@ -248,6 +248,7 @@ def _to_run(
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -855,6 +856,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)

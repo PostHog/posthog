@@ -16,6 +16,7 @@ from celery import shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from redis.exceptions import RedisError
 from rest_framework.exceptions import APIException
 from structlog import get_logger
 
@@ -34,6 +35,7 @@ from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
+from posthog.utils import safe_cache_delete
 
 logger = get_logger(__name__)
 
@@ -1255,7 +1257,10 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
     # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
-    autoretry_for=FEATURE_FLAG_SYNC_TRANSIENT_ERRORS,
+    # The lock and the checkpoint live in Redis. A retry resumes from the unmoved checkpoint within
+    # minutes instead of at the next scheduled run. django-redis re-raises the redis-py error that
+    # ConnectionInterrupted wraps. RedisError therefore also covers the cache calls on the lock.
+    autoretry_for=(*FEATURE_FLAG_SYNC_TRANSIENT_ERRORS, RedisError),
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1334,24 +1339,20 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     try:
         redis_client = get_client()
 
-        # Get last sync timestamp from Redis or use lookback
-        try:
-            last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
-            if last_sync_str:
+        # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
+        # that Celery retries the run. The lookback fallback would rescan up to
+        # FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS of chunks that the checkpoint already covers.
+        last_sync_str = redis_client.get(FEATURE_FLAG_LAST_CALLED_SYNC_KEY)
+        last_sync_timestamp = timezone.now() - timedelta(days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS)
+        if last_sync_str:
+            try:
                 parsed_timestamp = datetime.fromisoformat(last_sync_str.decode())
                 # Ensure timezone-aware to avoid comparison issues with timezone.now()
                 last_sync_timestamp = (
                     parsed_timestamp if parsed_timestamp.tzinfo else timezone.make_aware(parsed_timestamp)
                 )
-            else:
-                last_sync_timestamp = timezone.now() - timedelta(
-                    days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-                )
-        except Exception as e:
-            logger.warning("Failed to get or parse last sync timestamp", error=str(e))
-            last_sync_timestamp = timezone.now() - timedelta(
-                days=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS
-            )
+            except ValueError as e:
+                logger.warning("Failed to parse last sync timestamp", error=str(e))
 
         # Cap lookback to prevent excessive scanning when checkpoint is stale/missing.
         # Capture now once to avoid drift between max_lookback and current_sync_timestamp.
@@ -1637,8 +1638,9 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not run_failed and (self.request.retries or 0) > 0:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_RETRY_RECOVERY_COUNTER.inc()
 
-        # Always release the lock
-        cache.delete(LOCK_KEY)
+        # Always release the lock. A failed delete must not replace the exception that the try block
+        # raised. The lock expires on its own after LOCK_TIMEOUT.
+        safe_cache_delete(LOCK_KEY)
 
 
 @shared_task(ignore_result=True, time_limit=7200)

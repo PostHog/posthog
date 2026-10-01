@@ -165,7 +165,7 @@ from products.autoresearch.backend.facade.temporal import (
     ACTIVITIES as AUTORESEARCH_ACTIVITIES,
     WORKFLOWS as AUTORESEARCH_WORKFLOWS,
 )
-from products.batch_exports.backend.temporal import (
+from products.batch_exports.backend.facade.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
