@@ -2,6 +2,7 @@ import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/ta
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
 import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
 
@@ -20,6 +21,9 @@ export interface TodaySessionPreview {
     pullRequestState: PrStateEnumApi | null
     spaceName: string | null
     repository: string | null
+    branch: string | null
+    /** What filed the session, or null when a person made it by hand. */
+    source: string | null
     author: TaskUserBasicInfoApi | null
     timestamp: string | null
     message: string | null
@@ -80,6 +84,9 @@ export function sessionPreview(
         pullRequestState: pullRequest ? (pullRequestStates[pullRequest.url] ?? null) : null,
         spaceName: item.channel ? (spaceNames[item.channel] ?? null) : null,
         repository: item.repository,
+        branch: item.branch,
+        source:
+            item.originProduct && item.originProduct !== 'user_created' ? recentSourceLabel(item.originProduct) : null,
         author: item.author,
         timestamp: item.timestamp,
         message: item.finalMessage,
