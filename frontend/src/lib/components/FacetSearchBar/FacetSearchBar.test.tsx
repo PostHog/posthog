@@ -9,8 +9,8 @@ import { initKeaTests } from '~/test/init'
 import {
     ClientFacet,
     FacetSearchRows,
-    FacetSearchValue,
     FacetValueOption,
+    LoadFacetValues,
     ServerFacet,
     filterFacetRows,
     parseFacetSearch,
@@ -57,7 +57,7 @@ const DATA: FacetSearchRows<Row> = {
     matchesText: (row, text) => row.name.toLowerCase().includes(text.toLowerCase()),
 }
 
-function ClientConsumer({ url }: { url: string }): JSX.Element {
+function ClientConsumer({ url, data = DATA }: { url: string; data?: FacetSearchRows<Row> }): JSX.Element {
     const [value, setValue] = useState(() => parseFacetSearch(url, CLIENT_FACETS))
     return (
         <div>
@@ -66,7 +66,7 @@ function ClientConsumer({ url }: { url: string }): JSX.Element {
             </button>
             <FacetSearchBar
                 facets={CLIENT_FACETS}
-                data={DATA}
+                data={data}
                 value={value}
                 onChange={setValue}
                 placeholder="Search"
@@ -74,7 +74,7 @@ function ClientConsumer({ url }: { url: string }): JSX.Element {
             />
             <output data-attr="url">{serializeFacetSearch(value)}</output>
             <output data-attr="rows">
-                {filterFacetRows(DATA, value, CLIENT_FACETS)
+                {filterFacetRows(data, value, CLIENT_FACETS)
                     .map((row) => row.name)
                     .join(',')}
             </output>
@@ -85,8 +85,8 @@ function ClientConsumer({ url }: { url: string }): JSX.Element {
     )
 }
 
-function ServerConsumer({ facets }: { facets: ServerFacet[] }): JSX.Element {
-    const [value, setValue] = useState<FacetSearchValue>({ filters: [], text: '' })
+function ServerConsumer({ facets, url = '' }: { facets: ServerFacet[]; url?: string }): JSX.Element {
+    const [value, setValue] = useState(() => parseFacetSearch(url, facets))
     return (
         <div>
             <FacetSearchBar
@@ -97,6 +97,7 @@ function ServerConsumer({ facets }: { facets: ServerFacet[] }): JSX.Element {
                 dataAttr="server-search"
             />
             <output data-attr="query">{JSON.stringify(toFacetQuery(value))}</output>
+            <output data-attr="url">{serializeFacetSearch(value)}</output>
         </div>
     )
 }
@@ -179,6 +180,18 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.keyboard(typed)
             expect(suggestions()).toEqual(expected)
+        })
+
+        it('recounts open suggestions when the rows change', async () => {
+            const { rerender } = render(<ClientConsumer url="" />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('status:')
+            expect(suggestions()).toEqual(['Draft (2)', 'Active (1)', 'Archived (1)'])
+
+            const moreRows = { ...DATA, rows: [...DATA.rows, { name: 'Launch', status: 'active', subjects: [] }] }
+            rerender(<ClientConsumer url="" data={moreRows} />)
+            expect(suggestions()).toEqual(['Active (2)', 'Draft (2)', 'Archived (1)'])
         })
 
         it('offers "Not" values with how many rows they hide for a negated draft', async () => {
@@ -383,6 +396,58 @@ describe('FacetSearchBar', () => {
 
             await user.keyboard('g')
             await waitFor(() => expect(suggestions()).toEqual(['Growth']))
+        })
+
+        it('loads values for a search restored from the URL as soon as the bar opens', async () => {
+            const loadValues = jest.fn(async (): Promise<FacetValueOption[]> => [{ value: 't-1', label: 'Growth' }])
+            render(
+                <ServerConsumer url="gro" facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />
+            )
+            const user = userEvent.setup()
+            await user.click(input())
+            await waitFor(() => expect(suggestions()).toEqual(['Search for "gro"', 'Team: Growth']))
+        })
+
+        it('labels a pill restored from the URL once its value loads', async () => {
+            const loadValues = async (): Promise<FacetValueOption[]> => [{ value: 't-2', label: 'Platform' }]
+            render(
+                <ServerConsumer
+                    url="-team:t-2"
+                    facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]}
+                />
+            )
+            await waitFor(() => expect(pills()).toEqual(['Team is not: Platform']))
+        })
+
+        it('drops values from a replaced loader, including a load still in flight', async () => {
+            const oldTeams = deferred<FacetValueOption[]>()
+            const teamFacet = (loadValues: LoadFacetValues): ServerFacet[] => [
+                { key: 'team', label: 'Team', description: 'Owner', loadValues },
+            ]
+            const { rerender } = render(<ServerConsumer facets={teamFacet(() => oldTeams.promise)} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() => expect(listbox()).toHaveTextContent('Loading values…'))
+
+            rerender(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
+            oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
+            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+        })
+
+        it('keeps values that differ only by case apart, through the URL too', async () => {
+            const codes: ServerFacet = {
+                key: 'code',
+                label: 'Code',
+                description: 'Case-sensitive id',
+                values: [{ value: 'X' }, { value: 'x' }],
+            }
+            render(<ServerConsumer url="code:X" facets={[codes]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('code:{Enter}')
+            expect(shown('url')).toEqual('code:X code:x')
+            expect(parseFacetSearch(shown('url'), [codes]).filters).toHaveLength(2)
         })
     })
 })
