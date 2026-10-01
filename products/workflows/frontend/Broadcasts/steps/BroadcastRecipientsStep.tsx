@@ -1,15 +1,17 @@
 import { useActions, useValues } from 'kea'
 
 import { IconWarning } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonSelect, Link, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
+import { urls } from 'scenes/urls'
 
 import { PropertyFilterType } from '~/types'
 
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
@@ -42,6 +44,50 @@ function AudienceSizePreview(): JSX.Element | null {
                     The audience exceeds the limit of {humanFriendlyNumber(limit)} people. Add filters to narrow it
                     down.
                 </div>
+            )}
+        </div>
+    )
+}
+
+function MessageCategoryPicker(): JSX.Element {
+    const { emailSettings } = useValues(broadcastWizardLogic)
+    const { setEmailSettings } = useActions(broadcastWizardLogic)
+    const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
+    const selected = categories.find((category) => category.id === emailSettings.messageCategoryId)
+
+    return (
+        <div className="flex flex-col gap-1 mt-4">
+            <span className="font-semibold">Message category</span>
+            <span className="text-secondary text-sm">
+                People who unsubscribed from this category don't get the email.{' '}
+                <Link to={urls.workflows('opt-outs')} target="_blank">
+                    Manage categories
+                </Link>
+            </span>
+            <LemonSelect
+                className="max-w-100"
+                value={emailSettings.messageCategoryId}
+                loading={categoriesLoading}
+                onChange={(id) =>
+                    setEmailSettings({
+                        messageCategoryId: id,
+                        messageCategoryType: categories.find((category) => category.id === id)?.category_type ?? null,
+                    })
+                }
+                options={[
+                    { value: null, label: 'No category' },
+                    ...categories.map((category) => ({
+                        value: category.id,
+                        label: category.name,
+                        labelInMenu: `${category.name} (${category.category_type})`,
+                    })),
+                ]}
+                data-attr="broadcast-message-category"
+            />
+            {selected?.category_type === 'transactional' && (
+                <span className="text-xs text-warning">
+                    Transactional emails go to everyone in the audience, including people who unsubscribed.
+                </span>
             )}
         </div>
     )
@@ -86,6 +132,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
+            <MessageCategoryPicker />
         </div>
     )
 }

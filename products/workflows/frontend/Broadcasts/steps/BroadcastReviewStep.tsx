@@ -6,6 +6,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
 import { SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 
@@ -29,7 +30,10 @@ export function BroadcastReviewStep(): JSX.Element {
         emailRateLimit,
         rateLimitedSendDuration,
         stepValidationErrors,
+        emailSettings,
     } = useValues(broadcastWizardLogic)
+    const { categories } = useValues(optOutCategoriesLogic())
+    const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
 
@@ -63,6 +67,14 @@ export function BroadcastReviewStep(): JSX.Element {
                     ) : (
                         <div className="text-muted text-xs">No filters. This broadcast goes to everyone.</div>
                     )}
+                    {category && (
+                        <div className="text-xs text-secondary">
+                            Message category: {category.name}
+                            {category.category_type === 'transactional'
+                                ? '. Sent even to people who unsubscribed.'
+                                : '. People who unsubscribed from it are skipped.'}
+                        </div>
+                    )}
                 </ReviewRow>
 
                 <ReviewRow label="Goal">
@@ -78,6 +90,9 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email">
+                    {!emailSettings.trackingEnabled && (
+                        <div className="text-xs text-secondary">Open and click tracking is off.</div>
+                    )}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 
