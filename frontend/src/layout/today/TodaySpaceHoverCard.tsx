@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { IconGitRepository } from '@posthog/icons'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemSeparator, ItemTitle, Text } from '@posthog/quill'
 
@@ -5,7 +7,9 @@ import { dayjs } from 'lib/dayjs'
 
 import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
+import { cardMenuParts } from './todayMenuParts'
 import { TodaySpaceKind, TodaySpacePreview } from './todayPreviewCards'
+import { TodaySpaceActions } from './TodaySpaceActions'
 import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 
 const KIND_LABELS: Record<TodaySpaceKind, string> = {
@@ -14,8 +18,22 @@ const KIND_LABELS: Record<TodaySpaceKind, string> = {
     personal: 'Personal space',
 }
 
-/** A space row's hover card: what kind of space it is, who works in it, and which repositories it uses. */
-export function TodaySpaceHoverCard({ preview }: { preview: TodaySpacePreview }): JSX.Element {
+// A space's actions open no submenu, so nothing has to hold the card open.
+const NO_SUBMENU = (): void => {}
+
+/**
+ * A space row's hover card: what kind of space it is, who works in it, which repositories it uses, and its actions.
+ * Like PostHog Desktop, the row itself carries no buttons, so New session leads the list here.
+ */
+export function TodaySpaceHoverCard({
+    preview,
+    onAction,
+}: {
+    preview: TodaySpacePreview
+    /** Closes the card once an action is chosen. */
+    onAction: () => void
+}): JSX.Element {
+    const parts = useMemo(() => cardMenuParts(onAction, NO_SUBMENU), [onAction])
     return (
         <div className="flex flex-col" data-attr="today-space-hover-card">
             {/* `flex-nowrap` keeps the faces beside a long name. */}
@@ -67,6 +85,10 @@ export function TodaySpaceHoverCard({ preview }: { preview: TodaySpacePreview })
                     </Item>
                 </>
             )}
+            <ItemSeparator className="my-0" />
+            <div className="flex flex-col p-1">
+                <TodaySpaceActions parts={parts} space={preview.space} dataAttrPrefix="today-space-card" />
+            </div>
         </div>
     )
 }

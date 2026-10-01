@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
+import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
@@ -19,7 +20,7 @@ import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
 import { selectionClick } from './todaySessionSelection'
 import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
-import { TodaySpaceActions } from './TodaySpaceActions'
+import { TodaySpaceContextMenu } from './TodaySpaceContextMenu'
 import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
@@ -296,24 +297,27 @@ export function TodaySpacesSidebar(): JSX.Element {
                                 {visibleSpaces.map((space) => {
                                     const presence = spacePresence[space.id]
                                     return (
-                                        <TodayPreviewTrigger key={space.id} payload={spacePreviews[space.id]}>
-                                            <TodaySpacesRow
-                                                label={spaceLabel(space)}
-                                                icon={
-                                                    <TodaySpaceGlyph
-                                                        locked={isLockedSpace(space)}
-                                                        className="text-muted-foreground"
-                                                    />
-                                                }
-                                                to={urls.taskSpace(space.id)}
-                                                active={location.pathname.includes(urls.taskSpace(space.id))}
-                                                dataAttr="today-space-row"
-                                                action={<TodaySpaceActions space={space} />}
-                                                badge={presence ? <SpacePresenceAvatars presence={presence} /> : null}
-                                                badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
-                                                unread={unreadSpaceIds.has(space.id)}
-                                            />
-                                        </TodayPreviewTrigger>
+                                        <TodaySpaceContextMenu key={space.id} space={space}>
+                                            <TodayPreviewTrigger payload={spacePreviews[space.id]}>
+                                                <TodaySpacesRow
+                                                    label={spaceLabel(space)}
+                                                    icon={
+                                                        <TodaySpaceGlyph
+                                                            locked={isLockedSpace(space)}
+                                                            className="text-muted-foreground"
+                                                        />
+                                                    }
+                                                    to={urls.taskSpace(space.id)}
+                                                    active={location.pathname.includes(urls.taskSpace(space.id))}
+                                                    dataAttr="today-space-row"
+                                                    badge={
+                                                        presence ? <SpacePresenceAvatars presence={presence} /> : null
+                                                    }
+                                                    badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
+                                                    unread={unreadSpaceIds.has(space.id)}
+                                                />
+                                            </TodayPreviewTrigger>
+                                        </TodaySpaceContextMenu>
                                     )
                                 })}
                                 {visibleSpaces.length <= 1 && (
@@ -333,6 +337,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     </TodayPaneSection>
                 </div>
                 <TodaySessionBulkBar />
+                <TodayListAppearanceDialog />
             </div>
         </TooltipProvider>
     )
