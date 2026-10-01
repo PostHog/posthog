@@ -394,6 +394,8 @@ describe('taskTrackerSceneLogic', () => {
             repository: null,
             github_integration: null,
         })
+        // Only a host that passes `channelId` files the task in a channel.
+        expect(createBody).not.toHaveProperty('channel')
         // Interactive so the sandbox event stream survives across turns (follow-ups stream), and the
         // typed message is seeded as turn 1 (interactive runs boot with the agent pulling it from run
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
@@ -712,6 +714,45 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
+    })
+
+    // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
+    // keeps the shared last-used repo intact.
+    it('creates the task in the host channel from the host repository default', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
+                },
+            },
+        })
+        localStorage.setItem(
+            'posthog_ai.tasks.lastRepositoryConfig',
+            JSON.stringify({ integrationId: 7, repository: 'acme/remembered' })
+        )
+        const onTaskCreated = jest.fn()
+        logic = taskTrackerSceneLogic({
+            panelId: 'space-1',
+            channelId: 'channel-1',
+            initialRepositoryConfig: { integrationId: 7, repository: 'acme/space-repo' },
+            onTaskCreated,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.newTaskData.repositoryConfig).toEqual({ integrationId: 7, repository: 'acme/space-repo' })
+
+        logic.actions.setNewTaskData({ description: 'ship it' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({
+            channel: 'channel-1',
+            repository: 'acme/space-repo',
+            github_integration: 7,
+        })
+        expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
+        expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.

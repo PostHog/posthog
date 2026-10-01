@@ -98,12 +98,12 @@ async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview
     await LOGGER.ainfo(
         "alerts_platform_delivery_preview",
         source=preview.source.value,
-        alert_id=preview.alert_id,
+        configuration_id=preview.configuration_id,
         alert_name=preview.alert_name,
         evaluation_key=preview.evaluation_key,
         destinations=list(preview.destination_names),
         transitions=[
-            {"grouping_key": transition.grouping_key, "notification": transition.notification}
+            {"grouping_key": transition.grouping_key, "kind": transition.kind.value, "value": transition.value}
             for transition in preview.transitions
         ],
     )

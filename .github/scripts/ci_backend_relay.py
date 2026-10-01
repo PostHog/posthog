@@ -41,6 +41,8 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
+from ci_backend_depot_failures import explain
+
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
 # The PostHog tests GitHub App. Depot's wait and gate jobs post the same checks with it, because
@@ -143,8 +145,12 @@ class Progress:
     root_check_id: int = 0
 
 
+def event_check_name(job: str, pr_number: int, event_at: str) -> str:
+    return f"{DEPOT_WORKFLOW} / {job}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
+
+
 def wait_check_name(pr_number: int, event_at: str) -> str:
-    return f"{DEPOT_WORKFLOW} / {WAIT_JOB}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
+    return event_check_name(WAIT_JOB, pr_number, event_at)
 
 
 def current_check(checks: Iterable[CheckRun], workflow: str | None) -> CheckRun | None:
@@ -453,6 +459,8 @@ def main(argv: Sequence[str]) -> int:
         sys.stdout.write(f"::error::{error}\n")
         return 1
     code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
+    if code and result.phase == Phase.FINISHED and (match := DEPOT_RUN_URL.match(result.details_url)):
+        lines += explain(*match.groups())
     sys.stdout.writelines(f"{line}\n" for line in lines)
     return code
 
