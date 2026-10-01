@@ -20,6 +20,9 @@ from typing import TYPE_CHECKING
 from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -172,6 +175,7 @@ class CuratedGitHubSource:
         self._trunk_quarantine_resolved = False
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
+        self._database: Database | None = None
 
     @property
     def team(self) -> Team:
@@ -609,6 +613,17 @@ class CuratedGitHubSource:
                 raise QueryWorkLimitExceededError
             self._queries_remaining -= 1
         uac = self._user_access_control
+        user = uac.user if uac is not None else None
+        bypass_warehouse_access_control = uac is None
+        if self._database is None:
+            self._database = Database.create_for(
+                team=self._team,
+                user=user,
+                user_access_control=uac,
+                modifiers=create_default_modifiers_for_team(self._team),
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+                trigger="engineering_analytics",
+            )
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
@@ -617,15 +632,16 @@ class CuratedGitHubSource:
                 # The logs table lives on a separate ClickHouse cluster (Workload.LOGS); warehouse
                 # reads use the default. Callers pass the workload that matches the tables they query.
                 workload=workload,
-                # Forward the real user, not just the access control: a userless build drops the access
-                # control and fails closed (see _compute_system_table_access_decision), so the user is what
-                # lets HogQL honor the per-table warehouse ACL.
-                user=uac.user if uac is not None else None,
+                user=user,
                 user_access_control=uac,
-                # No user means a system / Temporal / CLI caller (the facade's documented userless path).
-                # There is no principal to honor the ACL with, so bypass it rather than fail closed and
-                # strip the tables — bypass is set ONLY in this genuinely userless case.
-                bypass_warehouse_access_control=uac is None,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+                context=HogQLContext(
+                    team_id=self._team.pk,
+                    user=user,
+                    user_access_control=uac,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
+                    database=self._database,
+                ),
             )
 
 
