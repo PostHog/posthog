@@ -65,6 +65,14 @@ class TestPromptJev(SimpleTestCase):
         budget.visit(parse_select(query))
         self.assertEqual(budget.decisions, expected)
 
+    @override_settings(HOGQL_JEV_MAX_ROWS=5000, HOGQL_JEV_MAX_DECISIONS=10000)
+    def test_raised_limits_reserve_and_allow_more_decisions(self) -> None:
+        budget = PromptJevBudget()
+        budget.visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q LIMIT 5000"))
+        self.assertEqual(budget.decisions, 10000)
+        with self.assertRaisesRegex(QueryError, "query budget of 10000"):
+            PromptJevBudget().visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q, jev('c', 'q') AS r"))
+
     def test_unused_ctes_do_not_reserve_budget(self) -> None:
         budget = PromptJevBudget()
         budget.visit(parse_select("WITH a AS (SELECT jev('a', 'q') AS p), b AS (SELECT jev('b', 'q') AS p) SELECT 1"))

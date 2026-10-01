@@ -1322,6 +1322,10 @@ AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
 HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
+# Limits for one `jev`/`decide` query: rows read per SELECT, and model decisions across the whole query.
+# Each decision is a billed gateway call, so these bound the cost of one query.
+HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
+HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
