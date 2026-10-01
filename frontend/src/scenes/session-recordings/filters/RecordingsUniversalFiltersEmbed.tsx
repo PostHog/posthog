@@ -330,7 +330,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const { activeFilterTab, templatesInFiltersPanel } = useValues(playlistFiltersLogic)
+    const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     const { savedFilters } = useValues(sessionRecordingSavedFiltersLogic)
@@ -357,26 +357,22 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             content: <SavedFilters setFilters={props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-        ...(templatesInFiltersPanel
-            ? [
-                  {
-                      key: 'templates',
-                      label: <div className="px-2">Templates</div>,
-                      content: (
-                          <div className="p-2">
-                              <FilterTemplates
-                                  source="filters_panel"
-                                  onApply={(filters) => {
-                                      props.setFilters(filters)
-                                      setActiveFilterTab('filters')
-                                  }}
-                              />
-                          </div>
-                      ),
-                      'data-attr': 'session-recordings-templates-tab',
-                  },
-              ]
-            : []),
+        {
+            key: 'templates',
+            label: <div className="px-2">Templates</div>,
+            content: (
+                <div className="p-2">
+                    <FilterTemplates
+                        source="filters_panel"
+                        onApply={(filters) => {
+                            props.setFilters(filters)
+                            setActiveFilterTab('filters')
+                        }}
+                    />
+                </div>
+            ),
+            'data-attr': 'session-recordings-templates-tab',
+        },
     ]
 
     return (
