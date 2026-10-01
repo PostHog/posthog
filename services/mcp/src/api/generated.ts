@@ -119738,6 +119738,11 @@ export namespace Schemas {
      */
     dateTo?: string | null;
     /**
+     * JSON array of the clause's filters ({key, op, value, scope}), ANDed. Filters on `key` itself are ignored. Narrows suggestions to matching series. Without metricName only service_name filters apply.
+     * @maxLength 16384
+     */
+    filters?: string;
+    /**
      * Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.
      * @minLength 1
      * @maxLength 255
@@ -119749,6 +119754,11 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Exact metric name to limit values to. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string;
     /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024
@@ -119767,6 +119777,11 @@ export namespace Schemas {
      * @nullable
      */
     dateTo?: string | null;
+    /**
+     * JSON array of the clause's filters ({key, op, value, scope}), ANDed. Narrows suggestions to matching series. Without metricName only service_name filters apply.
+     * @maxLength 16384
+     */
+    filters?: string;
     /**
      * Max number of keys to return. Defaults to 100; maximum 1000.
      * @minimum 1

@@ -4,6 +4,7 @@ Mirrors the shape of `products/logs/backend/api.py` so the two surfaces stay
 recognizable.
 """
 
+import json
 import datetime as dt
 from dataclasses import asdict
 from typing import cast
@@ -523,6 +524,29 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
     )
+    filters = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=16384,
+        help_text="JSON array of the clause's filters ({key, op, value, scope}), ANDed. Narrows suggestions to matching series. Without metricName only service_name filters apply.",
+    )
+
+    def validate_filters(self, value: str) -> tuple[MetricFilter, ...]:
+        if not value:
+            return ()
+        try:
+            raw = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("filters must be a JSON array.")
+        parsed = _MetricFilterSerializer(data=raw, many=True)
+        if not isinstance(raw, list) or not parsed.is_valid():
+            raise serializers.ValidationError("filters must be a JSON array of filter objects.")
+        return tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in parsed.validated_data
+        )
+
     dateFrom = serializers.DateTimeField(
         required=False,
         allow_null=True,
@@ -549,6 +573,36 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.",
     )
+    metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Exact metric name to limit values to. Omit to list values across all metrics.",
+    )
+    filters = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=16384,
+        help_text="JSON array of the clause's filters ({key, op, value, scope}), ANDed. Filters on `key` itself are ignored. Narrows suggestions to matching series. Without metricName only service_name filters apply.",
+    )
+
+    def validate_filters(self, value: str) -> tuple[MetricFilter, ...]:
+        if not value:
+            return ()
+        try:
+            raw = json.loads(value)
+        except json.JSONDecodeError:
+            raise serializers.ValidationError("filters must be a JSON array.")
+        parsed = _MetricFilterSerializer(data=raw, many=True)
+        if not isinstance(raw, list) or not parsed.is_valid():
+            raise serializers.ValidationError("filters must be a JSON array of filter objects.")
+        return tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in parsed.validated_data
+        )
+
     value = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1003,6 +1057,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 metric_name=params.validated_data["metricName"],
                 search=params.validated_data["search"],
+                filters=params.validated_data["filters"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
@@ -1034,7 +1089,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             results = list_metric_attribute_values(
                 team=self.team,
                 key=params.validated_data["key"],
+                metric_name=params.validated_data["metricName"],
                 search=params.validated_data["value"],
+                filters=params.validated_data["filters"],
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],

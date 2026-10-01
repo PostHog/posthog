@@ -19,6 +19,7 @@ import {
     MetricAggregation,
     MetricsViewerClause,
     RECOMMENDED_AGGREGATION_BY_TYPE,
+    metricFiltersForGroup,
     metricsViewerLogic,
 } from './metricsViewerLogic'
 
@@ -61,11 +62,17 @@ export function MetricsClauseRow({
         removeClause,
     } = useActions(metricsViewerLogic)
 
-    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name.
+    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name,
+    // and its existing filters narrow suggestions to series that still match, as in logs.
     const metricName = clause.metricName.trim()
+    const filters = useMemo(() => JSON.stringify(metricFiltersForGroup(clause.filterGroup)), [clause.filterGroup])
     const clauseEndpointFilters = useMemo(
-        () => (metricName ? { ...attributeEndpointFilters, metricName } : attributeEndpointFilters),
-        [attributeEndpointFilters, metricName]
+        () => ({
+            ...attributeEndpointFilters,
+            ...(metricName ? { metricName } : {}),
+            ...(filters !== '[]' ? { filters } : {}),
+        }),
+        [attributeEndpointFilters, metricName, filters]
     )
 
     const select = (): void => {
