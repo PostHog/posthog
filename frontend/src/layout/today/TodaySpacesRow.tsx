@@ -36,6 +36,10 @@ interface TodaySpacesRowProps {
     unreadDot?: boolean
     /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
     ticker?: boolean
+    /** Part of a multi-session selection, so the row takes Desktop's selected tint. */
+    selected?: boolean
+    /** Runs before the link navigates, so a modifier click can take the click over. */
+    onClickCapture?: (event: React.MouseEvent<HTMLElement>) => void
 }
 
 export function TodaySpacesRow({
@@ -51,6 +55,8 @@ export function TodaySpacesRow({
     unread = false,
     unreadDot = true,
     ticker = false,
+    selected = false,
+    onClickCapture,
 }: TodaySpacesRowProps): JSX.Element {
     const [hovered, setHovered] = useState(false)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
@@ -72,6 +78,7 @@ export function TodaySpacesRow({
                 render={<LinkPrimitive to={to} />}
                 aria-current={active ? 'page' : undefined}
                 data-attr={dataAttr}
+                onClickCapture={onClickCapture}
                 onFocus={
                     ticker
                         ? (e: React.FocusEvent<HTMLElement>) =>
@@ -81,7 +88,8 @@ export function TodaySpacesRow({
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
                     'min-w-0 text-xs font-medium text-foreground',
-                    active && 'bg-fill-selected',
+                    // Like Desktop, the open row takes a stronger tint than the other selected rows.
+                    selected ? (active ? 'bg-primary/20' : 'bg-primary/10') : active && 'bg-fill-selected',
                     TRAILING_PADDING[restSlots],
                     HOVER_TRAILING_PADDING[restSlots + actionSlots]
                 )}

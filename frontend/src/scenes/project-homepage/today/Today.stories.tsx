@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
+import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelectionLogic'
 import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
@@ -366,6 +367,15 @@ export const SpacesPane: Story = {
 
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+// A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
+export const SpacesPaneWithSelectedSessions: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
+    },
 }
 
 export const SpacesBrowse: Story = {
