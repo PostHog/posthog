@@ -92,6 +92,7 @@ import {
 import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
+import { CloudImagesSettings } from './environment/CloudImagesSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
@@ -616,6 +617,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Cloud runs start in a sandbox. An environment sets which repositories it applies to and which hosts the sandbox can reach.',
                 component: <CloudEnvironmentsSettings />,
                 keywords: ['sandbox', 'network', 'domains', 'firewall', 'repositories', 'cloud runs'],
+            },
+            {
+                id: 'ai-cloud-custom-images',
+                title: 'Custom images',
+                description:
+                    'An image is a sandbox with your tools already installed. A builder agent sets it up from your description.',
+                component: <CloudImagesSettings />,
+                keywords: ['image', 'custom image', 'sandbox image', 'tools', 'dependencies', 'setup'],
             },
         ],
     },

@@ -299,6 +299,7 @@ export type SettingId =
     | 'task-agent-project-instructions'
     | 'ai-usage-spend'
     | 'ai-cloud-environments'
+    | 'ai-cloud-custom-images'
     | 'task-comments-slack-dm'
     | 'task-agent-other-settings'
     | 'task-agent-project-default'
