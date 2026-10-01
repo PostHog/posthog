@@ -5,7 +5,6 @@ import {
     LemonButton,
     LemonInput,
     LemonInputSelect,
-    LemonLabel,
     LemonModal,
     LemonSelect,
     LemonTextArea,
@@ -13,6 +12,7 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { FeatureRequestEvidenceImagePicker } from './FeatureRequestEvidenceImagePicker'
 import { FEATURE_REQUEST_EVIDENCE_SOURCE_OPTIONS } from './featureRequestEvidenceOptions'
@@ -33,6 +33,8 @@ export function FeatureRequestCreateModal(): JSX.Element {
         productAreasError,
         submittingRequest,
         submitDisabledReason,
+        createFormErrors,
+        showCreateFormErrors,
         evidenceSummary,
         evidenceQuote,
         evidenceSource,
@@ -56,6 +58,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
         loadAccounts,
         loadProductAreas,
     } = useActions(featureRequestsLogic)
+    const createErrors = showCreateFormErrors ? createFormErrors : {}
 
     return (
         <LemonModal
@@ -99,10 +102,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         {productAreasError}
                     </LemonBanner>
                 )}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>
-                        Title <span className="text-danger">*</span>
-                    </LemonLabel>
+                <LemonField.Pure label="Title" error={createErrors.title}>
                     <LemonInput
                         value={title}
                         onChange={setTitle}
@@ -111,20 +111,16 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         autoFocus
                         fullWidth
                     />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel showOptional>Description</LemonLabel>
+                </LemonField.Pure>
+                <LemonField.Pure label="Description" showOptional>
                     <LemonTextArea
                         value={description}
                         onChange={setDescription}
                         placeholder="Describe the request in the customer's language"
                         minRows={5}
                     />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>
-                        Account <span className="text-danger">*</span>
-                    </LemonLabel>
+                </LemonField.Pure>
+                <LemonField.Pure label="Account" error={createErrors.accounts}>
                     <LemonInputSelect
                         mode="single"
                         value={accountId ? [accountId] : []}
@@ -135,11 +131,8 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         loading={accountsLoading}
                         fullWidth
                     />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>
-                        Product areas <span className="text-danger">*</span>
-                    </LemonLabel>
+                </LemonField.Pure>
+                <LemonField.Pure label="Product areas" error={createErrors.productAreas}>
                     <LemonInputSelect
                         mode="multiple"
                         value={productAreaIds}
@@ -148,38 +141,34 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         placeholder="Select one or more product areas"
                         loading={productAreasLoading}
                     />
-                </div>
+                </LemonField.Pure>
                 <div className="font-medium">Evidence (optional)</div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Summary</LemonLabel>
+                <LemonField.Pure label="Summary">
                     <LemonTextArea
                         value={evidenceSummary}
                         onChange={setEvidenceSummary}
                         placeholder="Summarize what this account needs"
                         minRows={3}
                     />
-                </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Customer quote</LemonLabel>
+                </LemonField.Pure>
+                <LemonField.Pure label="Customer quote">
                     <LemonTextArea
                         value={evidenceQuote}
                         onChange={setEvidenceQuote}
                         placeholder="Add the customer's words"
                         minRows={3}
                     />
-                </div>
+                </LemonField.Pure>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Source</LemonLabel>
+                    <LemonField.Pure label="Source">
                         <LemonSelect
                             value={evidenceSource}
                             onChange={setEvidenceSource}
                             options={FEATURE_REQUEST_EVIDENCE_SOURCE_OPTIONS}
                             fullWidth
                         />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Request date</LemonLabel>
+                    </LemonField.Pure>
+                    <LemonField.Pure label="Request date">
                         <LemonCalendarSelectInput
                             value={evidenceRequestedOn ? dayjs(evidenceRequestedOn) : null}
                             onChange={(value) => setEvidenceRequestedOn(value?.format('YYYY-MM-DD') ?? null)}
@@ -188,10 +177,9 @@ export function FeatureRequestCreateModal(): JSX.Element {
                             clearable
                             placeholder="Select a date"
                         />
-                    </div>
+                    </LemonField.Pure>
                 </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel>Source URL</LemonLabel>
+                <LemonField.Pure label="Source URL">
                     <LemonInput
                         type="url"
                         value={evidenceUrl}
@@ -199,7 +187,7 @@ export function FeatureRequestCreateModal(): JSX.Element {
                         placeholder="https://example.com/source"
                         fullWidth
                     />
-                </div>
+                </LemonField.Pure>
                 <FeatureRequestEvidenceImagePicker />
             </div>
         </LemonModal>

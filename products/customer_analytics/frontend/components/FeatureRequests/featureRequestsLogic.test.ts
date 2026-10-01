@@ -649,6 +649,42 @@ describe('featureRequestsLogic', () => {
         expect(router.values.searchParams.evidence_account).toBeUndefined()
     })
 
+    it('shows field errors instead of saving when required fields are missing', async () => {
+        const createSpy = jest.spyOn(generatedApi, 'featureRequestsCreate').mockResolvedValue(createdRequest)
+        const updateSpy = jest.spyOn(generatedApi, 'featureRequestsUpdate').mockResolvedValue(createdRequest)
+        logic.actions.openCreateRequest()
+        expect(logic.values.showCreateFormErrors).toBe(false)
+
+        await expectLogic(logic, () => logic.actions.submitRequest()).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(logic.values.showCreateFormErrors).toBe(true)
+        expect(logic.values.createFormErrors).toEqual({
+            title: 'Enter a title',
+            accounts: 'Select an account',
+            productAreas: 'Select at least one product area',
+        })
+
+        logic.actions.setTitle(createdRequest.title)
+        expect(logic.values.createFormErrors.title).toBeUndefined()
+
+        logic.actions.closeCreateRequest()
+        expect(logic.values.showCreateFormErrors).toBe(false)
+
+        logic.actions.openEditRequest(createdRequest)
+        logic.actions.setEditProductAreaIds([])
+
+        await expectLogic(logic, () => logic.actions.saveRequestChanges()).toFinishAllListeners()
+
+        expect(updateSpy).not.toHaveBeenCalled()
+        expect(logic.values.showEditFormErrors).toBe(true)
+        expect(logic.values.editFormErrors).toEqual({
+            title: undefined,
+            accounts: undefined,
+            productAreas: 'Select at least one product area',
+        })
+    })
+
     it('ignores a second submit while the first request is in flight', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {
