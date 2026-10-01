@@ -246,6 +246,7 @@ jobs:
             checks: read
         outputs:
             handed_off: ${{ steps.handoff.outputs.handed_off }}
+            github_run_url: ${{ steps.handoff.outputs.github_run_url }}
         steps:
             # Depot's ambient token can come from an installation spent for the hour. It answers 403,
             # and the wait would decline a real hand-off. The same token posts the relay's checks.
@@ -292,6 +293,7 @@ jobs:
                   set -uo pipefail
                   handed_off=false
                   state=absent
+                  run_url=
                   # A person's run does not wait: it runs only when GitHub Actions already handed
                   # this commit off, so the tests never run on both engines.
                   attempts=30
@@ -315,7 +317,8 @@ jobs:
                                   # A cancelled hand-off comes from a GitHub run that was cancelled before its
                                   # hand-off job finished, so it carries no decision, as in ci_backend_route.py.
                                   # GitHub posts it with started_at set to the cancel time, which can follow this event.
-                                  state=$(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | if . == null then "absent" elif .status == "completed" then .conclusion else .status end' /tmp/handoff-body)
+                                  # The hand-off check links its GitHub job. The gate check links the run instead.
+                                  IFS=$'\t' read -r state run_url < <(jq -r --arg since "$EVENT_AT" --argjson pr "${PR_NUMBER:-null}" '[.check_runs[] | select(.conclusion != "cancelled" and (.started_at // "") >= $since and ($pr == null or any(.pull_requests[]?; .number == $pr)))] | max_by(.id) | [(if . == null then "absent" elif .status == "completed" then .conclusion else .status end), (.details_url // "" | sub("/job/[0-9]+$"; ""))] | @tsv' /tmp/handoff-body)
                                   ;;
                               304) ;;
                               401|403) echo "::warning::check-runs API returned $code; cannot read the hand-off"; break ;;
@@ -330,6 +333,7 @@ jobs:
                       done
                       if [ "$handed_off" = true ]; then
                           echo "::notice::GitHub Actions handed the backend tests to Depot CI."
+                          echo "github_run_url=$run_url" >> "$GITHUB_OUTPUT"
                       else
                           echo "::notice::GitHub Actions kept the backend tests (hand-off check: $state). Depot CI runs nothing."
                       fi
@@ -4189,6 +4193,10 @@ jobs:
             || needs.repo-checks.outputs.deterministic_failure == 'true'
             || needs.check-openapi-types.outputs.deterministic_failure == 'true')
             && needs.wait-for-handoff.outputs.handed_off == 'true'
+        env:
+            # The gate check posts the summary as its output, titled by the first line of the title file.
+            GATE_SUMMARY: /tmp/gate-check-summary.md
+            GATE_TITLE: /tmp/gate-check-title
         steps:
             - name: Summarize dependency results
               run: |
@@ -4215,7 +4223,7 @@ jobs:
                       echo ""
                       echo "**Root cause:** OpenAPI type checks failed deterministically. Open the OpenAPI type check job logs; downstream cancelled jobs are expected."
                     fi
-                  } | tee -a "$GITHUB_STEP_SUMMARY"
+                  } | tee -a "$GITHUB_STEP_SUMMARY" "$GATE_SUMMARY"
 
             - name: Download shard JUnit results
               if: ${{ needs.wait-for-handoff.outputs.handed_off == 'true' && (always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')) }}
@@ -4292,10 +4300,11 @@ jobs:
                       if len(rows) > 100:
                           out += ["", f"…and {len(rows) - 100} more."]
                       text = "\n".join(out) + "\n"
-                      summary = os.environ.get("GITHUB_STEP_SUMMARY")
-                      if summary:
-                          with open(summary, "a") as fh:
+                      for path in (os.environ["GITHUB_STEP_SUMMARY"], os.environ["GATE_SUMMARY"]):
+                          with open(path, "a") as fh:
                               fh.write(text)
+                      with open(os.environ["GATE_TITLE"], "a") as fh:
+                          fh.write(f"{len(rows)} failing test{'s' if len(rows) != 1 else ''}\n")
                       print(text)
                       for shard, nodeid, repo_file, msg in rows[:30]:
                           title = f"Backend test failed ({shard})"
@@ -4318,6 +4327,7 @@ jobs:
 
                     if [[ "$result" != "success" && "$result" != "skipped" ]]; then
                       echo "::error::$label did not succeed (result: '$result')."
+                      echo "$label did not succeed on Depot" >> "$GATE_TITLE"
                       exit 1
                     fi
                   }
@@ -4353,6 +4363,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
                   permission-checks: write
             # Mirrors Depot's own check for .github/scripts/ci_backend_relay.py (see MIRROR_APP_ID).
+            # Depot's own checks carry no output and their pages need a Depot login, so this
+            # check carries the gate summary: GitHub shows the title on the PR's check row
+            # and the summary on the Checks tab.
             - name: Post the gate check for the relay
               if: ${{ always() && steps.gate-token.outputs.token != '' }}
               continue-on-error: true
@@ -4362,9 +4375,23 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   GATE_CHECK: Backend CI on Depot / Django Tests Pass on Depot
                   CONCLUSION: ${{ job.status == 'cancelled' && 'cancelled' || (steps.verdict.outcome == 'success' && 'success' || 'failure') }}
+                  RELAY_RUN_URL: ${{ needs.wait-for-handoff.outputs.github_run_url }}
               run: |
-                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
+                  case "$CONCLUSION" in
+                      success) title="Backend tests passed on Depot" ;;
+                      cancelled) title="Backend tests cancelled on Depot" ;;
+                      *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
+                  esac
+                  id=$(gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --jq .id)
+                  # The relay reads the check above for its verdict, so the output is attached afterwards
+                  # and cannot cost the check. GitHub rejects a summary over 65535 characters, and the
+                  # byte budget below stays under that however the characters are encoded.
+                  touch "$GATE_SUMMARY"
+                  jq -n --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
+                      '{output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
+                      | gh api "repos/$REPO/check-runs/$id" --method PATCH --input - --silent \
+                      || echo "::warning::Could not attach the gate summary to check $id"
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
