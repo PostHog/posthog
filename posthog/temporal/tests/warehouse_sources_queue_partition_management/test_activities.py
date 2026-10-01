@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from types import TracebackType
@@ -15,6 +16,7 @@ from unittest.mock import MagicMock, call, patch
 from django.db import connection
 
 import psycopg
+from asgiref.sync import sync_to_async
 from psycopg.conninfo import make_conninfo
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
@@ -321,6 +323,7 @@ class _FakePgConn:
         self.denied_drops = denied_drops
         self.dropped: list[str] = []
         self.deleted: list[tuple[str, datetime]] = []
+        self.execute_threads: set[int] = set()
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -329,6 +332,7 @@ class _FakePgConn:
         return False
 
     def execute(self, sql: Any, params: Any = None) -> MagicMock:
+        self.execute_threads.add(threading.get_ident())
         cursor = MagicMock()
         cursor.fetchall.return_value = []
         cursor.rowcount = 0
@@ -505,6 +509,21 @@ async def test_activity_terminalizes_only_sourcebatch_partitions_then_drops(acti
     assert OLD_BATCH_PART in result["dropped"]
     assert OLD_STATUS_PART in result["dropped"]
     assert result["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_activity_runs_queue_database_statements_on_a_pool_thread(activity_environment) -> None:
+    shared_thread_sensitive_ident = await sync_to_async(threading.get_ident)()
+
+    with (
+        _patched_pg({"sourcebatch": [OLD_BATCH_PART]}) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs"),
+    ):
+        await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert conn.dropped == [OLD_BATCH_PART]
+    assert conn.execute_threads.isdisjoint({threading.get_ident(), shared_thread_sensitive_ident})
 
 
 @pytest.mark.asyncio

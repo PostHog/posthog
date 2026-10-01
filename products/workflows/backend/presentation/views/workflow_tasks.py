@@ -28,8 +28,12 @@ from products.tasks.backend.facade.workflow_tasks import (
     build_output_schema,
     create_workflow_task,
 )
-from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
-from products.workflows.backend.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.facade.api import (
+    WorkflowNotFound,
+    get_workflow_owner_id,
+    get_workflow_task_daily_limits,
+)
+from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
 
 logger = structlog.get_logger(__name__)
 
@@ -218,15 +222,8 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
         if owner_id is None:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-        config = (
-            TeamWorkflowsConfig.objects.filter(team_id=team_id)
-            .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
-            .first()
-        )
-        rate_limits = WorkflowTaskRateLimits(
-            per_workflow=config.workflow_task_rate_limit_per_day if config is not None else None,
-            per_team=config.workflow_task_team_rate_limit_per_day if config is not None else None,
-        )
+        daily_limits = get_workflow_task_daily_limits(team_id=team_id)
+        rate_limits = WorkflowTaskRateLimits(per_workflow=daily_limits.per_workflow, per_team=daily_limits.per_team)
 
         try:
             result = create_workflow_task(
@@ -326,7 +323,7 @@ def _resolve_workflow_owner(team_id: int, hog_flow_id: uuid.UUID) -> int | None:
     """The workflow's creator, who the run executes as. Read from the row rather than the
     request so a token can never assert a different user. Eligibility (active account,
     current project access) is enforced in-transaction by the tasks service."""
-    hog_flow = HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).only("created_by_id").first()
-    if hog_flow is None or hog_flow.created_by_id is None:
+    try:
+        return get_workflow_owner_id(team_id=team_id, workflow_id=hog_flow_id)
+    except WorkflowNotFound:
         return None
-    return hog_flow.created_by_id

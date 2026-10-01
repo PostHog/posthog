@@ -15,9 +15,9 @@ each output, keyed by its repo-relative path. It never writes files and never pa
 arguments; this module does both, so ``--check`` and the write path cannot disagree.
 
 A renderer returns valid source and leaves the style to the formatter of the workspace
-that owns the output: oxfmt at the repo root, Biome under ``products/desktop``. The runner
-formats every output before it compares or writes, so a generated file looks like the
-code around it and no formatter needs an exemption for it.
+that owns the output: oxfmt at the repo root, Biome under ``products/desktop`` and
+``packages/agent``. The runner formats every output before it compares or writes, so a
+generated file looks like the code around it and no formatter needs an exemption for it.
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=("posthog/object_tags/*",),
         outputs=(
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
+            "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
         ),
     ),
@@ -80,7 +80,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=("products/tasks/backend/model_catalog.py",),
         outputs=(
             "products/tasks/frontend/modelCatalog.generated.ts",
-            "products/desktop/packages/shared/src/model-catalog.generated.ts",
+            "packages/agent/packages/agent-contracts/src/model-catalog.generated.ts",
         ),
     ),
     Projection(
@@ -120,10 +120,22 @@ BIOME = Formatter(
     lockfile="products/desktop/pnpm-lock.yaml",
     stdin_args=("format", "--stdin-file-path"),
 )
+AGENT_BIOME = Formatter(
+    package="@biomejs/biome",
+    binary="biome",
+    workspace="packages/agent",
+    config="packages/agent/biome.jsonc",
+    lockfile="packages/agent/pnpm-lock.yaml",
+    stdin_args=("format", "--stdin-file-path"),
+)
+FORMATTERS = (OXFMT, BIOME, AGENT_BIOME)
 
 
 def formatter_for(path: str) -> Formatter:
-    return BIOME if path.startswith(f"{BIOME.workspace}/") else OXFMT
+    for formatter in (BIOME, AGENT_BIOME):
+        if path.startswith(f"{formatter.workspace}/"):
+            return formatter
+    return OXFMT
 
 
 def all_triggers() -> tuple[str, ...]:
@@ -131,7 +143,7 @@ def all_triggers() -> tuple[str, ...]:
     # what a projection writes.
     return (
         REGISTRY,
-        *(path for formatter in (OXFMT, BIOME) for path in (formatter.config, formatter.lockfile)),
+        *(path for formatter in FORMATTERS for path in (formatter.config, formatter.lockfile)),
         *(trigger for projection in PROJECTIONS for trigger in projection.triggers),
     )
 

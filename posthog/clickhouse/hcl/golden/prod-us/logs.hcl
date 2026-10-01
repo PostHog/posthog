@@ -3187,13 +3187,6 @@ SQL
       type        = "bloom_filter(0.05)"
       granularity = 99999
     }
-    projection "projection_index_span_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY span_id
-SQL
-
-    }
     projection "projection_index_team_span_id" {
       query = <<SQL
 SELECT team_id, _part_offset
@@ -3221,16 +3214,6 @@ GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint
 SQL
 
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
-SQL
-
-      settings = {
-        index_granularity = "512"
-      }
     }
     projection "projection_aggregate_counts2" {
       query = <<SQL
