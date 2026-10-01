@@ -118,9 +118,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                     <LemonBanner type="warning">
                         For teams in the ingestion allowlist, ingestion writes $feature_flag_called only to
                         flag_evaluations, so a failed write there loses the event. Other teams still write to the events
-                        table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on. Lowering an
-                        organization from this mode restarts any events writes it stopped, but the events table keeps a
-                        gap for that time.
+                        table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
                     </LemonBanner>
                 )}
 
@@ -153,9 +151,9 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                         {summary.organizationsLoweredFromFlagEvaluationsOnly > 0 && (
                             <LemonBanner type="warning">
                                 Lowering{' '}
-                                {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from
-                                Flag evaluations only restarts any events writes ingestion stopped for them, but the
-                                events table keeps a gap for that time.
+                                {pluralize(summary.organizationsLoweredFromFlagEvaluationsOnly, 'organization')} from{' '}
+                                {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]} restarts any events
+                                writes ingestion stopped for them, but the events table keeps a gap for that time.
                             </LemonBanner>
                         )}
                         {summary.organizationsLeftAboveMode > 0 && (
