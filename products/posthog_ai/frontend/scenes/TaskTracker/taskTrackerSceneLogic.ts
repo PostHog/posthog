@@ -941,7 +941,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                         currentCodexModelAccess:
                             typeof createdRun?.state?.codex_model_access === 'string'
                                 ? createdRun.state.codex_model_access
-                                : interaction.props.currentCodexModelAccess,
+                                : (codexModelAccess ?? interaction.props.currentCodexModelAccess),
                     })
                     // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                     // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.

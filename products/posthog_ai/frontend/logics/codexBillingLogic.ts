@@ -135,14 +135,27 @@ export function usesChatGptPlan(runtimeAdapter: string | null | undefined): bool
 }
 
 /**
- * The billing the mounted picker shows now, or `null` when the choice is not offered. A resume starts from
- * the run composer, whose picker is mounted, so this is enough there and keeps the send synchronous.
+ * The billing the mounted picker shows now, or `null` to leave the field off. A resume starts from the run
+ * composer, whose picker is mounted, so this is enough there and keeps the send synchronous. While the
+ * ChatGPT connection still loads, a saved plan is not known to be usable yet, so the field stays off and the
+ * resumed run keeps the billing of the run it continues.
  */
 export function pickedCodexModelAccess(runtimeAdapter: string | null | undefined): ModelAccessEnumApi | null {
     if (!codexBillingEnabled()) {
         return null
     }
-    return usesChatGptPlan(runtimeAdapter) ? ModelAccessEnumApi.OwnSubscription : ModelAccessEnumApi.PosthogGateway
+    if (runtimeAdapter !== RuntimeAdapterEnumApi.Codex) {
+        return ModelAccessEnumApi.PosthogGateway
+    }
+    const billing = codexBillingLogic.findMounted()
+    if (
+        !billing ||
+        (billing.values.codexIntegration === null &&
+            billing.values.preferredCodexModelAccess === ModelAccessEnumApi.OwnSubscription)
+    ) {
+        return null
+    }
+    return billing.values.effectiveCodexModelAccess
 }
 
 /**

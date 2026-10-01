@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,7 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { codexBillingLogic, codexModelAccessForRun } from './codexBillingLogic'
+import { codexBillingLogic, codexModelAccessForRun, pickedCodexModelAccess } from './codexBillingLogic'
 
 const AUTH_FILE = JSON.stringify({
     tokens: { access_token: 'fake-access', refresh_token: 'fake-refresh', id_token: 'fake-id' },
@@ -92,6 +93,36 @@ describe('codexBillingLogic', () => {
                 await expect(codexModelAccessForRun(adapter)).resolves.toBe(expected)
                 logic.mount()
             }
+        )
+    })
+
+    it('leaves a resume billing off while the connection loads with the plan saved', async () => {
+        const FLAG = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        logic.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+        logic.unmount()
+        featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
+        let finishLoad!: () => void
+        const loaded = new Promise<void>((resolve) => {
+            finishLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/users/@me/integrations/codex/': async () => {
+                    await loaded
+                    return [200, { status: 'connected' }]
+                },
+            },
+        })
+        logic = codexBillingLogic()
+        logic.mount()
+        expect(codexBillingLogic.findMounted()).not.toBeNull()
+
+        expect(pickedCodexModelAccess(RuntimeAdapterEnumApi.Codex)).toBeNull()
+        expect(pickedCodexModelAccess(RuntimeAdapterEnumApi.Claude)).toBe(ModelAccessEnumApi.PosthogGateway)
+
+        finishLoad()
+        await waitFor(() =>
+            expect(pickedCodexModelAccess(RuntimeAdapterEnumApi.Codex)).toBe(ModelAccessEnumApi.OwnSubscription)
         )
     })
 })
