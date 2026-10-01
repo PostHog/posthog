@@ -34,6 +34,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
+from posthog.temporal.registry import create_worker_bag_collector
 
 from products.alerts.backend.facade.contracts import (
     AlertBatchKey,
@@ -563,26 +564,26 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
 
 
 def test_the_dispatcher_is_registered_on_the_fleet_the_tick_starts_it_on() -> None:
-    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
-
     from products.alerts.backend.temporal.workflows import AlertsPlatformSourceDispatchWorkflow
 
     # The tick awaits its dispatchers. One registered on a fleet the tick does not dispatch to
     # leaves every page queued until it times out, and fails the tick with it.
-    registered = WORKFLOWS_DICT[settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE]
+    registered = (
+        create_worker_bag_collector().collect(settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE).workflows
+    )
     assert AlertsPlatformSourceDispatchWorkflow in registered
 
 
 def test_every_source_evaluation_binding_names_a_registered_workflow() -> None:
     import temporalio.workflow
 
-    from posthog.management.commands.start_temporal_worker import WORKFLOWS_DICT
-
     from products.alerts.backend.temporal.sources import SOURCE_EVALUATION_WORKFLOWS
 
     definitions = (
         temporalio.workflow._Definition.from_class(registered_workflow)
-        for registered_workflow in WORKFLOWS_DICT[settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE]
+        for registered_workflow in create_worker_bag_collector()
+        .collect(settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE)
+        .workflows
     )
     registered = {definition.name for definition in definitions if definition is not None}
     # A binding naming a workflow no evaluation worker registers leaves every dispatch for

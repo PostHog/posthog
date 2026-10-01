@@ -1,14 +1,17 @@
+import asyncio
 import importlib
+import threading
 from collections.abc import Callable, Iterable, Sequence
 
 import pytest
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.test import override_settings
 
 from temporalio import activity, workflow
 
-from posthog.management.commands.start_temporal_worker import DATA_SYNC_WORKFLOWS, workflows_include_data_import_syncs
+from posthog.management.commands import start_temporal_worker
 from posthog.temporal.alerts import AI_QUEUE_ACTIVITIES as ALERT_AI_QUEUE_ACTIVITIES
 from posthog.temporal.registry import create_worker_bag_collector
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
@@ -30,10 +33,6 @@ from products.wizard.backend.facade.temporal import (
     ACTIVITIES as WIZARD_ACTIVITIES,
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
-
-
-class _NotADataSyncWorkflow:
-    pass
 
 
 def test_worker_source_catalog_is_valid() -> None:
@@ -100,22 +99,57 @@ def test_queue_registers_workflows_and_activities(
         assert set(bag.activities) == set(expected_activities)
 
 
-# Data-import sources import vendor SDKs (google-ads, etc.) that register protobuf descriptors into a
-# process-global pool exactly once. The worker eagerly loads them at boot only for queues that run
-# data syncs; everything else stays lazy to keep startup fast. Queue settings collapse to a single
-# dev queue under DEBUG, so assert the gating predicate directly against workflow sets.
 @pytest.mark.parametrize(
-    "workflows,expected",
+    "task_queue,shared_queue,expected_warmup",
     [
-        (list(DATA_SYNC_WORKFLOWS), True),
-        ([DATA_SYNC_WORKFLOWS[0]], True),
-        ([DATA_SYNC_WORKFLOWS[0], _NotADataSyncWorkflow], True),
-        ([_NotADataSyncWorkflow], False),
-        ([], False),
+        ("warehouse-registration-test", False, True),
+        ("cdp-registration-test", False, True),
+        ("health-registration-test", False, False),
+        ("health-registration-test", True, True),
     ],
 )
-def test_only_data_import_queues_warm_sources(workflows: list[type], expected: bool) -> None:
-    assert workflows_include_data_import_syncs(workflows) is expected
+def test_worker_startup_registers_definitions_and_warms_only_data_import_queues(
+    task_queue: str, shared_queue: bool, expected_warmup: bool
+) -> None:
+    def warm_sources() -> None:
+        assert threading.current_thread() is threading.main_thread()
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+
+    with (
+        override_settings(
+            DATA_WAREHOUSE_TASK_QUEUE="health-registration-test" if shared_queue else "warehouse-registration-test",
+            DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE="health-registration-test"
+            if shared_queue
+            else "cdp-registration-test",
+            HEALTH_CHECK_TASK_QUEUE="health-registration-test",
+            OTEL_SERVICE_NAME=None,
+        ),
+        patch(
+            "products.warehouse_sources.backend.facade.temporal.load_all_sources", side_effect=warm_sources
+        ) as warmup,
+        patch.object(start_temporal_worker, "configure_logger"),
+        patch.object(start_temporal_worker.structlog, "reset_defaults"),
+        patch.object(
+            start_temporal_worker,
+            "create_worker",
+            new=AsyncMock(side_effect=RuntimeError("stop before connecting to Temporal")),
+        ) as create_worker,
+    ):
+        bag = create_worker_bag_collector().collect(task_queue)
+        command = start_temporal_worker.Command()
+        options = vars(
+            command.create_parser("manage.py", "start_temporal_worker").parse_args(["--task-queue", task_queue])
+        )
+        with pytest.raises(RuntimeError, match="stop before connecting to Temporal"):
+            command.handle(**options)
+
+    assert warmup.call_count == int(expected_warmup)
+    create_worker.assert_awaited_once()
+    assert create_worker.await_args is not None
+    assert create_worker.await_args.kwargs["task_queue"] == task_queue
+    assert set(create_worker.await_args.kwargs["workflows"]) == set(bag.workflows)
+    assert set(create_worker.await_args.kwargs["activities"]) == set(bag.activities)
 
 
 # The WA digest schedules name their task queue explicitly, so if these workflows stop being

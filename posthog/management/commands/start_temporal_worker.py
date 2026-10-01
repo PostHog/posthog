@@ -7,13 +7,10 @@ import datetime as dt
 import threading
 import dataclasses
 import faulthandler
-import collections.abc
-from collections import defaultdict
 
 import structlog
 from temporalio import workflow
 
-from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.open_telemetry import initialize_otel
 from posthog.temporal.common.options import (
     ConcurrencyOptions,
@@ -30,614 +27,18 @@ with workflow.unsafe.imports_passed_through():
 
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
-from posthog.temporal.ai_observability import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
-)
-from posthog.temporal.alerts import (
-    ACTIVITIES as ALERT_ACTIVITIES,
-    AI_QUEUE_ACTIVITIES as ALERT_AI_QUEUE_ACTIVITIES,
-    WORKFLOWS as ALERT_WORKFLOWS,
-)
-from posthog.temporal.backfill_group_type_created_at import (
-    ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
-    WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
-)
-from posthog.temporal.backfill_materialized_property import (
-    ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
-    BackfillMaterializedPropertiesBatchWorkflow,
-)
-from posthog.temporal.cleanup_property_definitions import (
-    ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
-    WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
-)
 from posthog.temporal.common.health_server import HealthCheckServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
-from posthog.temporal.data_modeling import (
-    ACTIVITIES as DATA_MODELING_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_ACTIVITIES,
-    SEMANTIC_ENRICHMENT_WORKFLOWS,
-    WORKFLOWS as DATA_MODELING_WORKFLOWS,
-)
-from posthog.temporal.delete_persons import (
-    ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
-    WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
-)
-from posthog.temporal.delete_teams import (
-    ACTIVITIES as DELETE_TEAMS_ACTIVITIES,
-    WORKFLOWS as DELETE_TEAMS_WORKFLOWS,
-)
-from posthog.temporal.dlq_replay import (
-    ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
-    WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
-)
-from posthog.temporal.event_screenshots import (
-    ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
-    WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
-)
-from posthog.temporal.experiments import (
-    ACTIVITIES as EXPERIMENTS_ACTIVITIES,
-    WORKFLOWS as EXPERIMENTS_WORKFLOWS,
-)
-from posthog.temporal.exports import (
-    ACTIVITIES as EXPORT_ACTIVITIES,
-    WORKFLOWS as EXPORT_WORKFLOWS,
-)
-from posthog.temporal.health_checks import (
-    ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
-    WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
-)
-from posthog.temporal.ingestion_acceptance_test import (
-    ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
-    WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
-)
-from posthog.temporal.mcp_analytics.intent_clustering import (
-    MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
-    MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-)
-from posthog.temporal.proxy_service import (
-    ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
-    WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
-)
-from posthog.temporal.quota_limiting import (
-    ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
-    WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
-)
-from posthog.temporal.salesforce_enrichment import (
-    ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
-    WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
-)
-from posthog.temporal.session_replay.count_playlist_items import (
-    COUNT_PLAYLIST_ITEMS_ACTIVITIES,
-    COUNT_PLAYLIST_ITEMS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_ACTIVITIES, DELETE_RECORDINGS_WORKFLOWS
-from posthog.temporal.session_replay.enforce_max_replay_retention import (
-    ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
-    ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
-)
-from posthog.temporal.session_replay.rasterize_recording import (
-    RASTERIZE_RECORDING_ACTIVITIES,
-    RASTERIZE_RECORDING_WORKFLOWS,
-)
-from posthog.temporal.session_replay.replay_count_metrics import (
-    REPLAY_COUNT_METRICS_ACTIVITIES,
-    REPLAY_COUNT_METRICS_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_score_export_sweep import (
-    SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES,
-    SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep import (
-    SURFACING_SCORING_SWEEP_ACTIVITIES,
-    SURFACING_SCORING_SWEEP_WORKFLOWS,
-)
-from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_ACTIVITIES, SYNC_EVENTS_RETENTION_WORKFLOWS
-from posthog.temporal.sync_person_distinct_ids import (
-    ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
-    WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
-)
-from posthog.temporal.tests.utils.workflow import (
-    ACTIVITIES as TEST_ACTIVITIES,
-    WORKFLOWS as TEST_WORKFLOWS,
-)
-from posthog.temporal.usage_report import (
-    ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
-    WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
-)
-from posthog.temporal.warehouse_sources_queue_partition_management import (
-    ACTIVITIES as WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
-    WORKFLOWS as WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
-)
-from posthog.temporal.weekly_digest import (
-    ACTIVITIES as WEEKLY_DIGEST_ACTIVITIES,
-    WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS,
-)
-
-from products.alerts.backend.facade.temporal import (
-    DELIVERY_ACTIVITIES as ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
-    DELIVERY_WORKFLOWS as ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-    EVALUATION_ACTIVITIES as ALERTS_PLATFORM_EVALUATION_ACTIVITIES,
-    EVALUATION_WORKFLOWS as ALERTS_PLATFORM_EVALUATION_WORKFLOWS,
-    SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
-    SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
-)
-from products.autoresearch.backend.facade.temporal import (
-    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
-    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
-)
-from products.batch_exports.backend.temporal import (
-    ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
-    WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
-)
-from products.billing_alerts.backend.temporal import (
-    ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
-    WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
-)
-from products.business_knowledge.backend.temporal import (
-    ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
-    WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
-)
-from products.canvas.backend.temporal.registry import (
-    ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
-    WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
-)
-from products.context_layer.backend.temporal import (
-    ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
-    WORKFLOWS as CONTEXT_LAYER_WORKFLOWS,
-)
-from products.conversations.backend.temporal import (
-    ACTIVITIES as CONVERSATIONS_ACTIVITIES,
-    WORKFLOWS as CONVERSATIONS_WORKFLOWS,
-)
-from products.customer_analytics.backend.facade.temporal import (
-    ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
-    ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
-    ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
-)
-from products.data_catalog.backend.facade.temporal import (
-    ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
-    WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
-)
-from products.data_quality.backend.facade.temporal import (
-    ACTIVITIES as DATA_QUALITY_ACTIVITIES,
-    WORKFLOWS as DATA_QUALITY_WORKFLOWS,
-)
-from products.engineering_analytics.backend.facade.temporal import (
-    CI_SIGNALS_ACTIVITIES,
-    CI_SIGNALS_WORKFLOWS,
-    JOB_LOGS_ACTIVITIES,
-    JOB_LOGS_WORKFLOWS,
-)
-from products.error_tracking.backend.facade.temporal import (
-    ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
-    LIFECYCLE_ACTIVITIES as ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
-    LIFECYCLE_WORKFLOWS as ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
-    WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
-)
-from products.experiments.backend.temporal import (
-    ACTIVITIES as EXPERIMENTS_RECALCULATION_ACTIVITIES,
-    EXPERIMENT_CANARY_ACTIVITIES,
-    EXPERIMENT_CANARY_WORKFLOWS,
-    EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
-    EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
-    WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
-from products.growth.backend.temporal import (
-    ACTIVITIES as GROWTH_ACTIVITIES,
-    WORKFLOWS as GROWTH_WORKFLOWS,
-)
-from products.logs.backend.facade.temporal import (
-    ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
-    SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
-    SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
-    VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
-    VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
-    WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
-)
-from products.logs.backend.temporal.retention_entitlements import (
-    ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
-    WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
-)
-from products.managed_warehouse.backend.facade.temporal import (
-    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
-    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
-)
-from products.notebooks.backend.facade.temporal import (
-    ACTIVITIES as NOTEBOOKS_ACTIVITIES,
-    WORKFLOWS as NOTEBOOKS_WORKFLOWS,
-)
-from products.posthog_ai.backend.temporal.backfill import (
-    ACTIVITIES as CONVERSATION_BACKFILL_ACTIVITIES,
-    WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS,
-)
-from products.product_analytics.backend.facade.temporal import (
-    ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
-    WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
-)
-from products.pulse.backend.temporal.registry import (
-    ACTIVITIES as PULSE_ACTIVITIES,
-    WORKFLOWS as PULSE_WORKFLOWS,
-)
-from products.replay_vision.backend.temporal import (
-    ACTIVITIES as REPLAY_VISION_ACTIVITIES,
-    WORKFLOWS as REPLAY_VISION_WORKFLOWS,
-)
-from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.temporal import (
-    ACTIVITIES as REVIEW_HOG_ACTIVITIES,
-    WORKFLOWS as REVIEW_HOG_WORKFLOWS,
-)
-from products.security.backend.facade.temporal import (
-    ACTIVITIES as SECURITY_ACTIVITIES,
-    WORKFLOWS as SECURITY_WORKFLOWS,
-)
-from products.signals.backend.emission.temporal_settings import (
-    EMIT_SIGNALS_ACTIVITIES as DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
-    EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-)
-from products.signals.backend.temporal import (
-    ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
-    SELF_DRIVING_ACTIVITIES,
-    SELF_DRIVING_WORKFLOWS,
-    WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
-)
-from products.stamphog.backend.facade.temporal import (
-    ACTIVITIES as STAMPHOG_ACTIVITIES,
-    WORKFLOWS as STAMPHOG_WORKFLOWS,
-)
-from products.tasks.backend.facade.temporal import (
-    ACTIVITIES as TASKS_ACTIVITIES,
-    WORKFLOWS as TASKS_WORKFLOWS,
-)
-from products.warehouse_sources.backend.facade.temporal import (
-    ACTIVITIES as DATA_SYNC_ACTIVITIES,
-    METADATA_ACTIVITIES as DATA_WAREHOUSE_METADATA_ACTIVITIES,
-    METADATA_WORKFLOWS as DATA_WAREHOUSE_METADATA_WORKFLOWS,
-    PERSON_PROPERTY_BACKFILL_ACTIVITIES,
-    PERSON_PROPERTY_BACKFILL_WORKFLOWS,
-    PERSON_PROPERTY_SYNC_ACTIVITIES,
-    PERSON_PROPERTY_SYNC_WORKFLOWS,
-    WORKFLOWS as DATA_SYNC_WORKFLOWS,
-    load_all_sources,
-)
-from products.web_analytics.backend.temporal import (
-    ACTIVITIES as WA_DIGEST_ACTIVITIES,
-    WORKFLOWS as WA_DIGEST_WORKFLOWS,
-)
-from products.wizard.backend.facade.temporal import (
-    ACTIVITIES as WIZARD_ACTIVITIES,
-    WORKFLOWS as WIZARD_WORKFLOWS,
-)
+from posthog.temporal.registry import create_worker_bag_collector
 
 if typing.TYPE_CHECKING:
     import argparse
 
     from _typeshed import DataclassInstance
-
-
-# When adding modules to a queue, also add their paths to that fleet's filter in the
-# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
-_task_queue_specs = [
-    (
-        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
-        BATCH_EXPORTS_WORKFLOWS,
-        BATCH_EXPORTS_ACTIVITIES,
-    ),
-    (
-        settings.BATCH_EXPORTS_TASK_QUEUE,
-        BATCH_EXPORTS_WORKFLOWS,
-        BATCH_EXPORTS_ACTIVITIES,
-    ),
-    (
-        settings.DATA_WAREHOUSE_TASK_QUEUE,
-        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
-        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
-    ),
-    (
-        settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
-        DATA_SYNC_WORKFLOWS,
-        DATA_SYNC_ACTIVITIES,
-    ),
-    (
-        settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS
-        + SEMANTIC_ENRICHMENT_WORKFLOWS
-        + PERSON_PROPERTY_SYNC_WORKFLOWS
-        + PERSON_PROPERTY_BACKFILL_WORKFLOWS
-        + ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES
-        + SEMANTIC_ENRICHMENT_ACTIVITIES
-        + PERSON_PROPERTY_SYNC_ACTIVITIES
-        + PERSON_PROPERTY_BACKFILL_ACTIVITIES
-        + ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
-    ),
-    (
-        settings.DATA_MODELING_TASK_QUEUE,
-        DATA_MODELING_WORKFLOWS + DATA_QUALITY_WORKFLOWS,
-        DATA_MODELING_ACTIVITIES + DATA_QUALITY_ACTIVITIES,
-    ),
-    (
-        settings.GENERAL_PURPOSE_TASK_QUEUE,
-        PROXY_SERVICE_WORKFLOWS
-        + DELETE_PERSONS_WORKFLOWS
-        + DELETE_TEAMS_WORKFLOWS
-        + SALESFORCE_ENRICHMENT_WORKFLOWS
-        + PRODUCT_ANALYTICS_WORKFLOWS
-        + LLM_ANALYTICS_WORKFLOWS
-        + DLQ_REPLAY_WORKFLOWS
-        + SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
-        + EXPERIMENTS_WORKFLOWS
-        + EXPERIMENT_CANARY_WORKFLOWS
-        + EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS
-        + CLEANUP_PROPDEFS_WORKFLOWS
-        + [BackfillMaterializedPropertiesBatchWorkflow]
-        + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
-        + CONVERSATION_BACKFILL_WORKFLOWS
-        + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
-        + SYNC_EVENTS_RETENTION_WORKFLOWS
-        + JOB_LOGS_WORKFLOWS
-        + CI_SIGNALS_WORKFLOWS
-        + NOTEBOOKS_WORKFLOWS
-        + GROWTH_WORKFLOWS
-        + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
-        + CONTEXT_LAYER_WORKFLOWS
-        + SECURITY_WORKFLOWS,
-        PROXY_SERVICE_ACTIVITIES
-        + DELETE_PERSONS_ACTIVITIES
-        + DELETE_TEAMS_ACTIVITIES
-        + QUOTA_LIMITING_ACTIVITIES
-        + SALESFORCE_ENRICHMENT_ACTIVITIES
-        + PRODUCT_ANALYTICS_ACTIVITIES
-        + LLM_ANALYTICS_ACTIVITIES
-        + DLQ_REPLAY_ACTIVITIES
-        + SYNC_PERSON_DISTINCT_IDS_ACTIVITIES
-        + EXPERIMENTS_ACTIVITIES
-        + EXPERIMENT_CANARY_ACTIVITIES
-        + EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES
-        + CLEANUP_PROPDEFS_ACTIVITIES
-        + BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES
-        + BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES
-        + CONVERSATION_BACKFILL_ACTIVITIES
-        + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
-        + SYNC_EVENTS_RETENTION_ACTIVITIES
-        + JOB_LOGS_ACTIVITIES
-        + CONTEXT_LAYER_ACTIVITIES
-        + CI_SIGNALS_ACTIVITIES
-        + NOTEBOOKS_ACTIVITIES
-        + GROWTH_ACTIVITIES
-        + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
-        + SECURITY_ACTIVITIES,
-    ),
-    # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
-    # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
-    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
-    (
-        settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
-        GROWTH_WORKFLOWS,
-        GROWTH_ACTIVITIES,
-    ),
-    # Canvas builds. CANVAS_BUILD_TASK_QUEUE defaults to the general-purpose queue name (so it merges
-    # into that fleet until a dedicated worker exists).
-    (
-        settings.CANVAS_BUILD_TASK_QUEUE,
-        CANVAS_BUILD_WORKFLOWS,
-        CANVAS_BUILD_ACTIVITIES,
-    ),
-    (
-        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
-        EXPERIMENTS_RECALCULATION_WORKFLOWS,
-        EXPERIMENTS_RECALCULATION_ACTIVITIES,
-    ),
-    (
-        settings.HEALTH_CHECK_TASK_QUEUE,
-        HEALTH_CHECK_WORKFLOWS,
-        HEALTH_CHECK_ACTIVITIES,
-    ),
-    (
-        settings.DUCKLAKE_TASK_QUEUE,
-        DUCKLAKE_COPY_WORKFLOWS,
-        DUCKLAKE_COPY_ACTIVITIES,
-    ),
-    (
-        settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS + PULSE_WORKFLOWS + SYNC_EVENTS_RETENTION_WORKFLOWS,
-        EXPORT_ACTIVITIES
-        + SUBSCRIPTION_ACTIVITIES
-        + ALERT_ACTIVITIES
-        + PULSE_ACTIVITIES
-        + SYNC_EVENTS_RETENTION_ACTIVITIES,
-    ),
-    (
-        settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
-    ),
-    (
-        settings.WIZARD_TASK_QUEUE,
-        WIZARD_WORKFLOWS,
-        WIZARD_ACTIVITIES,
-    ),
-    (
-        settings.MAX_AI_TASK_QUEUE,
-        AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
-    ),
-    (
-        settings.TEST_TASK_QUEUE,
-        TEST_WORKFLOWS,
-        TEST_ACTIVITIES,
-    ),
-    (
-        settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
-        QUOTA_LIMITING_ACTIVITIES
-        + SALESFORCE_ENRICHMENT_ACTIVITIES
-        + USAGE_REPORTS_ACTIVITIES
-        + BILLING_ALERTS_ACTIVITIES,
-    ),
-    (
-        settings.VIDEO_EXPORT_TASK_QUEUE,
-        SIGNALS_PRODUCT_WORKFLOWS
-        + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS
-        + BUSINESS_KNOWLEDGE_WORKFLOWS
-        + CONVERSATIONS_WORKFLOWS
-        + CUSTOMER_ANALYTICS_WORKFLOWS
-        + REVIEW_HOG_WORKFLOWS,
-        SIGNALS_PRODUCT_ACTIVITIES
-        + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES
-        + BUSINESS_KNOWLEDGE_ACTIVITIES
-        + CONVERSATIONS_ACTIVITIES
-        + CUSTOMER_ANALYTICS_ACTIVITIES
-        + REVIEW_HOG_ACTIVITIES,
-    ),
-    (
-        settings.SESSION_REPLAY_TASK_QUEUE,
-        COUNT_PLAYLIST_ITEMS_WORKFLOWS
-        + DELETE_RECORDINGS_WORKFLOWS
-        + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-        + RASTERIZE_RECORDING_WORKFLOWS
-        + REPLAY_COUNT_METRICS_WORKFLOWS
-        + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
-        + SURFACING_SCORING_SWEEP_WORKFLOWS,
-        COUNT_PLAYLIST_ITEMS_ACTIVITIES
-        + DELETE_RECORDINGS_ACTIVITIES
-        + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
-        + RASTERIZE_RECORDING_ACTIVITIES
-        + REPLAY_COUNT_METRICS_ACTIVITIES
-        + SURFACING_SCORE_EXPORT_SWEEP_ACTIVITIES
-        + SURFACING_SCORING_SWEEP_ACTIVITIES,
-    ),
-    (
-        settings.REPLAY_VISION_TASK_QUEUE,
-        REPLAY_VISION_WORKFLOWS,
-        REPLAY_VISION_ACTIVITIES,
-    ),
-    # The web-analytics digests share this queue with the PostHog-wide weekly digest: both are
-    # weekly crons with the same shape, and the messaging queue they used to sit on has no other
-    # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
-    (
-        settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS + DATA_CATALOG_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
-    ),
-    (
-        settings.LLMA_EVALS_TASK_QUEUE,
-        LLM_ANALYTICS_EVAL_WORKFLOWS + LLM_ANALYTICS_TAGGER_WORKFLOWS,
-        LLM_ANALYTICS_EVAL_ACTIVITIES + LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    ),
-    (
-        settings.LLMA_TASK_QUEUE,
-        LLM_ANALYTICS_WORKFLOWS,
-        LLM_ANALYTICS_ACTIVITIES,
-    ),
-    (
-        # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the
-        # general-purpose queue (no dedicated worker deployed yet), so the
-        # defaultdict merge below folds these into the general-purpose
-        # registration; the env override routes them to a dedicated worker.
-        settings.MCPA_TASK_QUEUE,
-        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
-        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
-    ),
-    (
-        settings.ERROR_TRACKING_TASK_QUEUE,
-        ERROR_TRACKING_WORKFLOWS,
-        ERROR_TRACKING_ACTIVITIES,
-    ),
-    (
-        settings.ERROR_TRACKING_LIFECYCLE_TASK_QUEUE,
-        ERROR_TRACKING_LIFECYCLE_WORKFLOWS,
-        ERROR_TRACKING_LIFECYCLE_ACTIVITIES,
-    ),
-    (
-        settings.EVENT_SCREENSHOTS_TASK_QUEUE,
-        EVENT_SCREENSHOTS_WORKFLOWS,
-        EVENT_SCREENSHOTS_ACTIVITIES,
-    ),
-    (
-        settings.LOGS_ALERTING_TASK_QUEUE,
-        LOGS_ALERTING_WORKFLOWS,
-        LOGS_ALERTING_ACTIVITIES,
-    ),
-    # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
-    # rollup writer and must not share pods with the latency-sensitive alert checks.
-    (
-        settings.LOGS_VOLUME_TICK_TASK_QUEUE,
-        LOGS_VOLUME_TICK_WORKFLOWS,
-        LOGS_VOLUME_TICK_ACTIVITIES,
-    ),
-    (
-        settings.AUTORESEARCH_TASK_QUEUE,
-        AUTORESEARCH_WORKFLOWS,
-        AUTORESEARCH_ACTIVITIES,
-    ),
-    (
-        settings.SELF_DRIVING_TASK_QUEUE,
-        SELF_DRIVING_WORKFLOWS,
-        SELF_DRIVING_ACTIVITIES,
-    ),
-    (
-        settings.STAMPHOG_TASK_QUEUE,
-        STAMPHOG_WORKFLOWS,
-        STAMPHOG_ACTIVITIES,
-    ),
-    (
-        settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
-        ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
-        ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
-    ),
-    (
-        settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS,
-        ALERTS_PLATFORM_EVALUATION_ACTIVITIES + LOGS_SOURCE_EVALUATION_ACTIVITIES,
-    ),
-    (
-        settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
-    ),
-]
-
-# Note: When running locally, many task queues resolve to the same queue name.
-# If we used plain dict literals, later entries would overwrite earlier ones for
-# the same queue. We aggregate with defaultdict(set) so all workflows/activities
-# registered for a shared queue name are combined, ensuring the worker registers
-# everything it should.
-_workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
-_activities: defaultdict[str, set[typing.Callable[..., typing.Any]]] = defaultdict(set)
-for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
-    _workflows[task_queue_name].update(workflows_for_queue)
-    _activities[task_queue_name].update(activities_for_queue)
-
-WORKFLOWS_DICT = _workflows
-ACTIVITIES_DICT = _activities
-
-
-def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
-    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
-    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
 if settings.DEBUG:
@@ -832,11 +233,7 @@ class Command(BaseCommand):
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
-        try:
-            workflows = list(WORKFLOWS_DICT[worker_options.task_queue])
-            activities = list(ACTIVITIES_DICT[worker_options.task_queue])
-        except KeyError:
-            raise ValueError(f'Task queue "{worker_options.task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        bag = create_worker_bag_collector().collect(worker_options.task_queue)
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
@@ -845,7 +242,14 @@ class Command(BaseCommand):
         # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
         # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
         # import the vendor SDKs, so they keep their fast startup.
-        if workflows_include_data_import_syncs(workflows):
+        if worker_options.task_queue in (
+            settings.DATA_WAREHOUSE_TASK_QUEUE,
+            settings.DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,
+        ):
+            from products.warehouse_sources.backend.facade.temporal import (
+                load_all_sources,  # noqa: PLC0415 - keeps vendor SDK imports on data-import workers
+            )
+
             load_all_sources()
 
         structlog.reset_defaults()
@@ -924,9 +328,13 @@ class Command(BaseCommand):
 
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
-            otel_log_mirror = (
-                build_vision_log_mirror() if worker_options.task_queue == settings.REPLAY_VISION_TASK_QUEUE else None
-            )
+            otel_log_mirror = None
+            if worker_options.task_queue == settings.REPLAY_VISION_TASK_QUEUE:
+                from products.replay_vision.backend.temporal.logs import (
+                    build_vision_log_mirror,  # noqa: PLC0415 - keeps replay-vision dependencies off other workers
+                )
+
+                otel_log_mirror = build_vision_log_mirror()
             configure_logger(loop=loop, otel_log_mirror=otel_log_mirror)
 
             logger = LOGGER.bind(
@@ -961,8 +369,8 @@ class Command(BaseCommand):
                     server_root_ca_cert=mtls_options.server_root_ca_cert,
                     client_cert=mtls_options.client_cert,
                     client_key=mtls_options.client_private_key,
-                    workflows=workflows,
-                    activities=activities,
+                    workflows=bag.workflows,
+                    activities=bag.activities,
                     graceful_shutdown_timeout=worker_options.graceful_shutdown_timeout,
                     max_concurrent_workflow_tasks=concurrency_options.max_concurrent_workflow_tasks,
                     max_concurrent_activities=concurrency_options.max_concurrent_activities,
