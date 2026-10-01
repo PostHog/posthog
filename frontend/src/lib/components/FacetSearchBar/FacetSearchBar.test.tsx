@@ -85,6 +85,20 @@ function ClientConsumer({ url, data = DATA }: { url: string; data?: FacetSearchR
     )
 }
 
+function UrlBackedClientConsumer(): JSX.Element {
+    const [url, setUrl] = useState('')
+    return (
+        <FacetSearchBar
+            facets={CLIENT_FACETS}
+            data={DATA}
+            value={parseFacetSearch(url, CLIENT_FACETS)}
+            onChange={(value) => setUrl(serializeFacetSearch(value))}
+            placeholder="Search"
+            dataAttr="url-search"
+        />
+    )
+}
+
 function ServerConsumer({ facets, url = '' }: { facets: ServerFacet[]; url?: string }): JSX.Element {
     const [value, setValue] = useState(() => parseFacetSearch(url, facets))
     return (
@@ -250,11 +264,14 @@ describe('FacetSearchBar', () => {
             expect(shown('rows')).toEqual('Renewal')
         })
 
-        it('Esc closes the popover', async () => {
+        it('Esc closes the popover, and a click on the input opens it again', async () => {
             const user = setup()
             await user.click(input())
             await user.keyboard('{Escape}')
             expect(listbox()).toBeNull()
+
+            await user.click(input())
+            expect(listbox()).not.toBeNull()
         })
 
         it('removes the last pill with Backspace on an empty input, and any pill with its remove button', async () => {
@@ -266,6 +283,7 @@ describe('FacetSearchBar', () => {
 
             await user.click(document.querySelector('[aria-label="Remove filter Status: Draft"]')!)
             expect(shown('url')).toEqual('-status:archived')
+            expect(input()).toHaveFocus()
         })
 
         it('moves focus with Tab on an empty input and with Shift+Tab', async () => {
@@ -278,6 +296,25 @@ describe('FacetSearchBar', () => {
             await user.keyboard('sta{Shift>}{Tab}{/Shift}')
             expect(document.querySelector('[data-attr="before"]')).toHaveFocus()
             expect(pills()).toEqual([])
+        })
+
+        it('lets Tab pass through a search restored from the URL without adding a pill', async () => {
+            const user = setup('ren')
+            await user.click(document.querySelector('[data-attr="before"]')!)
+            await user.keyboard('{Tab}')
+            expect(input()).toHaveFocus()
+
+            await user.keyboard('{Tab}')
+            expect(document.querySelector('[data-attr="after"]')).toHaveFocus()
+            expect(pills()).toEqual([])
+        })
+
+        it('keeps the spaces typed in the text when the consumer stores the search as a URL', async () => {
+            render(<UrlBackedClientConsumer />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('renew  now')
+            expect(input()).toHaveValue('renew  now')
         })
 
         it.each([
@@ -323,7 +360,8 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.keyboard('status:zzz')
             expect(suggestions()).toEqual([])
-            expect(listbox()).toHaveTextContent('No values match your other filters')
+            expect(listbox()).toBeNull()
+            expect(document.querySelector('[role="status"]')).toHaveTextContent('No values match your other filters')
             expect(input()).not.toHaveAttribute('aria-activedescendant')
             expect(shown('facet-search-bar-hints')).toEqual('↑↓ to moveEsc to close')
         })
@@ -364,7 +402,7 @@ describe('FacetSearchBar', () => {
             const user = userEvent.setup()
             await user.click(input())
             await user.paste('team:plat')
-            expect(listbox()).toHaveTextContent('Loading values…')
+            expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…')
             await waitFor(() => expect(loadValues).toHaveBeenCalledWith('plat'))
 
             teams.resolve([{ value: 't-2', label: 'Platform' }])
@@ -392,10 +430,15 @@ describe('FacetSearchBar', () => {
             const user = userEvent.setup()
             await user.click(input())
             await user.paste('team:')
-            await waitFor(() => expect(listbox()).toHaveTextContent("Couldn't load values. Type again to retry."))
+            await waitFor(() =>
+                expect(document.querySelector('[role="status"]')).toHaveTextContent(
+                    "Couldn't load values. Type again to retry."
+                )
+            )
 
-            await user.keyboard('g')
+            await user.keyboard('g{Backspace}')
             await waitFor(() => expect(suggestions()).toEqual(['Growth']))
+            expect(loadValues.mock.calls.map(([search]) => search)).toEqual(['', ''])
         })
 
         it('loads values for a search restored from the URL as soon as the bar opens', async () => {
@@ -428,7 +471,7 @@ describe('FacetSearchBar', () => {
             const user = userEvent.setup()
             await user.click(input())
             await user.paste('team:')
-            await waitFor(() => expect(listbox()).toHaveTextContent('Loading values…'))
+            await waitFor(() => expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…'))
 
             rerender(<ServerConsumer facets={teamFacet(async () => [{ value: 'new', label: 'New project team' }])} />)
             oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
