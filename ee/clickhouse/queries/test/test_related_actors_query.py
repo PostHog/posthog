@@ -9,15 +9,19 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    create_person_id_override_by_distinct_id,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Group
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
-from posthog.test.persons import create_group_type_mapping
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
+from posthog.test.persons import add_distinct_id, create_group_type_mapping, create_people_bulk
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
 
@@ -151,11 +155,59 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
 
     @snapshot_clickhouse_queries
     def test_query(self):
-        results = self.run_query()
+        with self.capture_select_queries() as queries:
+            results = self.run_query()
 
         assert len(results) == 2
         ids = self.get_ids_from_results(results)
         assert ids == {"org:1", "instance:1"}
+        assert all("person_distinct_id_overrides" not in query for query in queries)
+
+    def test_returns_groups_from_merged_distinct_ids(self) -> None:
+        add_distinct_id(person=self.person, distinct_id="user3", version=100)
+        create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
+
+        results = self.run_query()
+
+        assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
+
+    @parameterized.expand(
+        [
+            ("below_limit", MAX_LIMIT_DISTINCT_IDS - 1, False),
+            ("at_limit", MAX_LIMIT_DISTINCT_IDS, True),
+            ("over_limit", MAX_LIMIT_DISTINCT_IDS + 1, True),
+        ]
+    )
+    def test_large_distinct_id_lists_do_not_omit_groups(self, _name: str, id_count: int, uses_person_id: bool) -> None:
+        distinct_ids = [f"many-ids-{index:04d}" for index in range(id_count)]
+        [self.person] = create_people_bulk([{"team": self.team, "distinct_ids": distinct_ids}])
+        self._create_group_event(distinct_ids[-1], RECENT_DATE, self.another_org)
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as queries:
+            results = self.run_query()
+
+        assert self.get_ids_from_results(results) == {"another-org"}
+        assert any("person_distinct_id_overrides" in query for query in queries) == uses_person_id
+
+    @parameterized.expand([("missing_person", False), ("no_distinct_ids", True)])
+    def test_preserves_events_without_person_distinct_ids(self, _name: str, has_person: bool) -> None:
+        person_id = str(uuid4())
+        if has_person:
+            _create_person(team=self.team, uuid=person_id, distinct_ids=[])
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="event-only-id",
+            person_id=person_id,
+            timestamp=RECENT_DATE,
+            properties={"$group_0": self.another_org.group_key},
+        )
+        flush_persons_and_events()
+
+        results = RelatedActorsQuery(team=self.team, group_type_index=None, id=person_id).run()
+
+        assert self.get_ids_from_results(results) == {"another-org"}
 
     def test_returns_related_groups(self):
         results = self.run_query()

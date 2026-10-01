@@ -20,6 +20,8 @@ from posthog.hogql_queries.serialized_actors import (
 )
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
+from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import GroupTypeIndex
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
@@ -113,6 +115,28 @@ class RelatedActorsQuery:
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
         return [row[0] for row in response.results]
 
+    def _person_filter(self) -> ast.Expr:
+        with personhog_caller_tag("persons/related-actors"):
+            person = get_person_by_uuid(self.team.pk, self.id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS)
+        distinct_ids = person.distinct_ids if person else []
+
+        # Personhog caps limited lookups at MAX_LIMIT_DISTINCT_IDS, so a full batch may be
+        # incomplete. Keep the person_id predicate in that case, and for event-only persons.
+        if 0 < len(distinct_ids) < MAX_LIMIT_DISTINCT_IDS:
+            # Current distinct IDs include merged history and let ClickHouse filter events
+            # before reading group keys, without joining the project's person overrides.
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["events", "distinct_id"]),
+                right=ast.Tuple(exprs=[ast.Constant(value=distinct_id) for distinct_id in distinct_ids]),
+            )
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "person_id"]),
+            right=ast.Constant(value=self.id),
+        )
+
     def _query_related_groups(self, group_type_indexes: list[int]) -> list:
         if not list(group_type_indexes):
             return []
@@ -140,11 +164,7 @@ class RelatedActorsQuery:
                 right=ast.Constant(value=self.id),
             )
         else:
-            actor_filter = ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=["events", "person_id"]),
-                right=ast.Constant(value=self.id),
-            )
+            actor_filter = self._person_filter()
 
         query = parse_select(
             """
