@@ -217,6 +217,7 @@ export function VisualReviewRunScene(): JSX.Element {
         run,
         snapshots,
         snapshotsLoading,
+        deepLinkedSnapshotLoading,
         selectedSnapshot,
         sortedChangedSnapshots,
         toleratedHashes,
@@ -249,18 +250,15 @@ export function VisualReviewRunScene(): JSX.Element {
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
-    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
-
-    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+    const quarantinedNavCount = sortedChangedSnapshots.filter((s: SnapshotApi) =>
         quarantinedIdentifierSet.has(s.identifier)
     ).length
     const isHiddenQuarantined = (s: SnapshotApi): boolean =>
         quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
     const visibleNavSnapshots = showQuarantinedThumbnails
-        ? navSnapshots
-        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
-    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+        ? sortedChangedSnapshots
+        : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
 
     // Navigate over what's actually visible — when quarantined items are hidden, next/previous
@@ -338,7 +336,6 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const initialSnapshotsLoading = snapshotsLoading && snapshots.length === 0
 
-    // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
         (s: SnapshotApi) =>
@@ -518,7 +515,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         )}
                     </div>
 
-                    {navSnapshots.length > 0 && (
+                    {sortedChangedSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
                             {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
@@ -543,7 +540,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || navSnapshots.length > 1) && (
+                    {(showQuarantinedToggle || sortedChangedSnapshots.length > 1) && (
                         <div
                             className={`flex items-center gap-2 px-3 pb-2 ${
                                 showQuarantinedToggle ? 'justify-between' : 'justify-end'
@@ -630,7 +627,7 @@ export function VisualReviewRunScene(): JSX.Element {
                                 (!allChangesResolved ? 'Re-trigger would not change the outcome' : undefined)
                             }
                         />
-                    ) : snapshotsLoading ? (
+                    ) : snapshotsLoading || deepLinkedSnapshotLoading ? (
                         <div className="space-y-3 py-4">
                             <LemonSkeleton className="h-6 w-1/4" />
                             <LemonSkeleton className="h-48 w-full" />
