@@ -27,8 +27,6 @@ When the user asks to audit all experiments or all flags:
    Both lists return at most 100 rows and carry the full total in `count`, so raise `offset` and call again until you have read `count` rows.
    A flag row carries `status`, `last_called_at`, `active` and `created_at`, so the "possibly unused" finding in check 1 and all of check 2 run off the list with no definition read.
    Fetch the definition for the checks that read `filters` or `experiment_set`: the fully rolled out finding in check 1, and checks 3, 4 and 5.
-   `feature-flag-get-all` with `active: "STALE"` returns PostHog's own stale set, which is a candidate list and not the fully rolled out verdict.
-   That filter returns an enabled flag at any rollout that was last called over 30 days ago, and it omits a fully rolled out flag that code still calls.
 2. Run all checks for that domain against each entity.
 3. Group findings by severity, then by entity.
 4. Report as inline markdown.
