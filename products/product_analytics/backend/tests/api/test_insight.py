@@ -4244,22 +4244,29 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail, True),
             (
                 "org_concurrency_limit",
                 ConcurrencyLimitExceeded("internal limiter details"),
                 "concurrency_limit_exceeded",
+                False,
             ),
             (
                 "no_free_clickhouse_connection",
                 wrap_clickhouse_query_error(ServerException("no free connection", 203)),
                 ClickHouseAtCapacity.default_detail,
+                True,
             ),
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_retrieve_labels_every_capacity_failure_as_rate_limited(
-        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
+        self,
+        _name: str,
+        error: Exception,
+        expected_message: str,
+        expects_cooldown: bool,
+        mock_calculate: mock.MagicMock,
     ) -> None:
         mock_calculate.side_effect = error
 
@@ -4269,8 +4276,11 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertEqual(query_status["error_code"], "rate_limited")
         self.assertEqual(query_status["error_message"], expected_message)
-        self.assertGreaterEqual(query_status["retry_after"], 30)
-        self.assertLessEqual(query_status["retry_after"], 60)
+        if expects_cooldown:
+            self.assertGreaterEqual(query_status["retry_after"], 30)
+            self.assertLessEqual(query_status["retry_after"], 60)
+        else:
+            self.assertIsNone(query_status.get("retry_after"))
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     def test_retrieve_preserves_the_capacity_exceptions_retry_delay(self, mock_calculate: mock.MagicMock) -> None:

@@ -312,6 +312,10 @@ function getRetryAfterSeconds(error: unknown): number | undefined {
     return Number.isFinite(retryAt) ? Math.max(0, (retryAt - Date.now()) / 1000) : undefined
 }
 
+function isValidRetryAfter(retryAfterSeconds: number | undefined): retryAfterSeconds is number {
+    return typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+}
+
 /**
  * Fetches an insight with a retry and polling mechanism.
  * It first attempts to fetch the insight synchronously. If rate-limited, it retries with exponential backoff.
@@ -351,10 +355,7 @@ export async function getInsightWithRetry(
         }
         const backoffMs = Math.min(initialDelay * Math.pow(2, attempt - 1), 30_000)
         const jitteredBackoffMs = backoffMs * (0.5 + Math.random() * 0.5)
-        const serverDelayMs =
-            typeof retryAfterSeconds === 'number' && Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
-                ? retryAfterSeconds * 1000
-                : 0
+        const serverDelayMs = isValidRetryAfter(retryAfterSeconds) ? retryAfterSeconds * 1000 : 0
         const waitMs = Math.max(serverDelayMs, jitteredBackoffMs)
         if (performance.now() + waitMs >= retryDeadline) {
             return false
@@ -405,8 +406,9 @@ export async function getInsightWithRetry(
                     return result
                 }
 
-                if (attempt >= maxAttempts) {
-                    // We've exhausted all attempts, so we need to try the async endpoint.
+                // A server cooldown lasts 30-60 seconds, so a second one would use up the retry window
+                // before the async fallback could start. Go to the async endpoint after the first one.
+                if (attempt >= maxAttempts || isValidRetryAfter(result.query_status.retry_after)) {
                     try {
                         const asyncApiUrl = `api/projects/${currentTeamId}/insights/${insight.id}/?${toParams({
                             refresh: 'force_async',
