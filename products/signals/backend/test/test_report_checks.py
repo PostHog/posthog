@@ -1010,19 +1010,64 @@ class TestReportCheckAPI(APIBaseTest):
         assert replacement.approved_at is None
         assert replacement.soak_minutes == 72 * 60
 
-    def test_replacement_preserves_recurring_runs_and_minute_precision_soak(self) -> None:
-        check = self._create(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=3)
-        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(soak_minutes=1450)
-        response = self.client.post(
-            f"{self.url}{check.id}/replace/",
-            {"title": "Revised goal", "config": _threshold_config(comparison={"operator": "lte", "value": 5})},
-            format="json",
-        )
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
-        assert replacement.soak_minutes == 1450
-        assert replacement.run_interval_minutes == MIN_CHECK_INTERVAL_MINUTES
-        assert replacement.runs_remaining == 3
+    @parameterized.expand(
+        [
+            ("minute_precision_soak", "-30d", None, MIN_CHECK_INTERVAL_MINUTES, 3, True),
+            ("longer_query_window", "-40d", None, 30 * 24 * 60, 3, False),
+            ("ten_weekly_runs", "-28d", None, 7 * 24 * 60, 10, False),
+            ("longer_soak", "-7d", 28 * 24, 35 * 24 * 60, 3, False),
+            ("last_run_at_expiry", "-7d", 30 * 24, 30 * 24 * 60, 3, False),
+            ("fits_near_horizon", "-7d", 29 * 24, 30 * 24 * 60, 3, True),
+        ]
+    )
+    def test_replacement_preserves_only_recurring_schedules_that_fit(
+        self, _name: str, date_from: str, soak_hours: int | None, interval: int, runs: int, fits: bool
+    ) -> None:
+        now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+        with time_machine.travel(now, tick=False):
+            check = self._create(
+                config=_threshold_config(
+                    query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
+                ),
+                run_interval_minutes=interval,
+                runs_remaining=runs,
+            )
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                soak_minutes=1450, approved_at=now, approved_by=self.user
+            )
+            check.refresh_from_db()
+            original_state = (check.next_run_at, check.expires_at, check.measurement_start_at, check.updated_at)
+            log_count = SignalReportArtefact.objects.filter(report=self.report).count()
+            config = _threshold_config(
+                query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from),
+                comparison={"operator": "lte", "value": 5},
+            )
+            payload: dict[str, object] = {"title": "Revised goal", "config": config}
+            if soak_hours is not None:
+                payload["soak_hours"] = soak_hours
+            response = self.client.post(f"{self.url}{check.id}/replace/", payload, format="json")
+        check.refresh_from_db()
+        if not fits:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert "90-day horizon" in response.json()["error"]
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.approved_at == now
+            assert check.approved_by_id == self.user.id
+            assert (check.next_run_at, check.expires_at, check.measurement_start_at, check.updated_at) == original_state
+            assert check.run_interval_minutes == interval
+            assert check.runs_remaining == runs
+            assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+            assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=response.json()["id"])
+            assert check.status == SignalReportCheck.Status.CANCELLED
+            assert replacement.soak_minutes == (soak_hours * 60 if soak_hours is not None else 1450)
+            assert replacement.run_interval_minutes == interval
+            assert replacement.runs_remaining == runs
+            assert replacement.approved_at is None
+            last_run_at = replacement.next_run_at + timedelta(minutes=interval * (runs - 1))
+            assert last_run_at < replacement.expires_at <= now + MAX_CHECK_HORIZON
 
     @parameterized.expand([("direct_query", False), ("metric_reference", True)])
     def test_replacement_cannot_schedule_queries_hidden_from_the_requester(self, _name: str, reference: bool) -> None:

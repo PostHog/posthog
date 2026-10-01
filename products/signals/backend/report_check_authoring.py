@@ -301,6 +301,21 @@ def replace_metric_check(
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
+        soak_minutes = (
+            soak_hours * 60 if soak_hours is not None else locked.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60
+        )
+        now = timezone.now()
+        first_run_at = max(
+            now + timedelta(minutes=soak_minutes),
+            metric_check_ready_at(stored_config["query"], report.team, now),
+        )
+        last_run_at = first_run_at + timedelta(
+            minutes=(locked.run_interval_minutes or 0) * max(0, locked.runs_remaining - 1)
+        )
+        if last_run_at >= now + MAX_CHECK_HORIZON:
+            raise CheckCreationError(
+                "The remaining runs must fit within the check's 90-day horizon. Use a shorter query window or soak."
+            )
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
         return create_check(
@@ -310,9 +325,7 @@ def replace_metric_check(
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=(
-                soak_hours * 60 if soak_hours is not None else locked.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60
-            ),
+            soak_minutes=soak_minutes,
             run_interval_minutes=locked.run_interval_minutes,
             runs_remaining=locked.runs_remaining,
         )
