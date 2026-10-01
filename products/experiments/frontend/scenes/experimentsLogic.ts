@@ -617,7 +617,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         loadExperimentsSuccess: ({ experiments }) => {
             // The list also loads behind the other tabs of the scene, where nobody sees it.
             if (values.tab === ExperimentsTabs.All) {
-                actions.reportExperimentsListViewed(experiments.results.length, values.filters.status ?? 'all')
+                actions.reportExperimentsListViewed(experiments.results.length, experiments.filters?.status ?? 'all')
             }
         },
         loadCurrentTeamSuccess: () => {
@@ -636,6 +636,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
             { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
                 loadExperiments: async (_: void, breakpoint) => {
+                    // A filter change during the request must not relabel this response.
+                    const filters = values.filters
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsList() from 'products/experiments/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
@@ -645,6 +647,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     return {
                         ...response,
                         offset: values.paramsFromFilters.offset,
+                        filters,
                     }
                 },
                 archiveExperiment: async ({ id, disableFeatureFlag }: { id: number; disableFeatureFlag: boolean }) => {

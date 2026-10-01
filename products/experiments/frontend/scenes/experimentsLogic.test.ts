@@ -330,10 +330,14 @@ describe('experimentsLogic', () => {
             expect(logic.values.experiments.results).toEqual([freshExperiment])
         })
 
-        it('reports a list view when the list loads', async () => {
+        it('reports a list view with the status filter of the request that answered', async () => {
             await expectLogic(logic, () => {
-                logic.actions.loadExperimentsSuccess({ results: [mockExperiment, mockRunningExperiment], count: 2 })
-            }).toDispatchActions([logic.actionCreators.reportExperimentsListViewed(2, 'all')])
+                logic.actions.loadExperimentsSuccess({
+                    results: [mockExperiment, mockRunningExperiment],
+                    count: 2,
+                    filters: { status: ExperimentStatus.Running },
+                })
+            }).toDispatchActions([logic.actionCreators.reportExperimentsListViewed(2, ExperimentStatus.Running)])
         })
 
         it('reports no list view when the list loads behind another tab', async () => {

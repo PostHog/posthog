@@ -171,13 +171,13 @@ export function Exposures(): JSX.Element {
     // Detect sample ratio mismatch (p < 0.001 is significant)
     const hasSRM = exposures?.sample_ratio_mismatch != null && exposures.sample_ratio_mismatch.p_value < 0.001
 
-    // The header total reads 0 before the exposure query answers and after it fails. Only an
-    // answer without exposures is the zero-exposure state.
-    const hasZeroExposures =
-        !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
+    // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
+    // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
+    const showsZeroExposures =
+        !isCollapsed && !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
 
     useHealthFindingReporting(hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null)
-    const reportZeroExposuresActedOn = useHealthFindingReporting(hasZeroExposures ? { code: 'zero_exposures' } : null)
+    const reportZeroExposuresActedOn = useHealthFindingReporting(showsZeroExposures ? { code: 'zero_exposures' } : null)
 
     const handleCollapseChange = useCallback((activeKey: string | null) => {
         const isOpen = activeKey === 'cumulative-exposures'
