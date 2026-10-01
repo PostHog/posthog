@@ -85762,9 +85762,9 @@ export namespace Schemas {
     }
 
     export interface PullRequestList {
-      /** Pull requests, newest first, capped at `limit`. */
+      /** This page of pull requests, newest first, capped at `limit`. */
       items: PullRequestListItem[];
-      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      /** True when more pull requests match after this page; call again with `offset` increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`. */
       truncated: boolean;
       /** Maximum number of pull requests returned in `items`. */
       limit: number;
