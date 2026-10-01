@@ -941,8 +941,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     def coarsen_requested(self) -> dict[str, Any] | None:
         """Set by `stage_warehouse_coarsening` to nominate this table for the coarsening rewrite.
 
-        Nominating overrides the *policy* gates the automatic path applies (rollout flag, OOM history,
-        layout age, minimum partition count) because an operator has looked at the table. It never
+        Nominating overrides the *policy* gates the automatic path applies (OOM history, layout age,
+        minimum partition count) because an operator has looked at the table. It never
         overrides the *safety* checks: the controller still measures the live layout and refuses any
         target that would not fit the memory budget, so a nomination can only ever be a no-op, never a
         rewrite into partitions too big to merge. Consumed on the next evaluation either way.
