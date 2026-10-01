@@ -11,6 +11,7 @@ import {
     IconCalendar,
     IconListCheck,
     IconListTreeConnected,
+    IconPause,
     IconPeople,
     IconPencil,
     IconRefresh,
@@ -19,9 +20,11 @@ import {
     IconTerminal,
     IconVideoCamera,
     IconExternal,
+    IconInfo,
     IconPullRequest,
+    IconTrending,
 } from '@posthog/icons'
-import { LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonCard, LemonTag, type LemonTagType, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -44,6 +47,8 @@ import { ArtefactTaskRun } from './ArtefactTaskRun'
 import {
     artefactAttributionLabel,
     artefactLocationLabel,
+    AUTOSTART_SKIP_REASON_LABELS,
+    AutostartSkipContent,
     CheckLifecycleContent,
     CheckResultContent,
     CheckScheduledContent,
@@ -55,6 +60,10 @@ import {
     ImplementationReplacementContent,
     ImplementationHandoverContent,
     LineReferenceContent,
+    RankingHead,
+    RankingModel,
+    RankingScoreView,
+    readRankingScore,
     NoteContent,
     RelatedToContent,
     REPORT_LINK_KIND_LABELS,
@@ -65,6 +74,9 @@ import {
     SummaryChangeContent,
     TaskRunArtefactContent,
     TitleChangeContent,
+    WORK_RELEASE_REASON_LABELS,
+    WorkClaimContent,
+    WorkReleaseContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
 import { CHECK_LIFECYCLE_ENTRIES } from './reportCheckPresentation'
@@ -144,6 +156,7 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     summary_change: IconPencil,
     related_to: IconListTreeConnected,
     report_link: IconListTreeConnected,
+    autostart_skip: IconPause,
     code_review: IconListCheck,
     check_result: IconCalendar,
     check_scheduled: IconCalendar,
@@ -152,6 +165,9 @@ const ARTEFACT_MARKER: Record<string, ComponentType<{ className?: string }>> = {
     implementation_decision: IconRefresh,
     implementation_replacement: IconRefresh,
     implementation_handover: IconRefresh,
+    ranking_score: IconTrending,
+    work_claim: IconPeople,
+    work_release: IconPeople,
 }
 
 function dismissReasonLabel(reason: string): string {
@@ -331,6 +347,32 @@ function ReportLinkBody({ content }: { content: ReportLinkContent }): JSX.Elemen
     )
 }
 
+function AutostartSkipBody({ content }: { content: AutostartSkipContent }): JSX.Element | null {
+    if (!content.detail?.trim()) {
+        return null
+    }
+    const reason = content.skip_reason
+        ? (AUTOSTART_SKIP_REASON_LABELS[content.skip_reason] ?? prettify(content.skip_reason))
+        : null
+    return (
+        <div className="flex flex-col gap-1 text-xs">
+            <div className="flex items-center gap-2">
+                {reason ? <LemonTag type="muted">{reason}</LemonTag> : null}
+                {content.linked_report_id ? (
+                    <Link
+                        to={urls.inboxReport('reports', content.linked_report_id)}
+                        className="inline-flex items-center gap-1"
+                        data-attr="artefact-autostart-skip-open"
+                    >
+                        Open that report <IconExternal className="size-3" />
+                    </Link>
+                ) : null}
+            </div>
+            <ReasoningBody text={content.detail} />
+        </div>
+    )
+}
+
 const CODE_REVIEW_OUTCOME: Record<NonNullable<CodeReviewContent['outcome']>, { label: string; type: LemonTagType }> = {
     published: { label: 'Published on GitHub', type: 'success' },
     stored: { label: 'Review saved', type: 'muted' },
@@ -427,6 +469,92 @@ function CodeReviewBody({ content }: { content: CodeReviewContent }): JSX.Elemen
                 >
                     View review <IconExternal className="size-3" />
                 </Link>
+            ) : null}
+        </div>
+    )
+}
+
+function RankingHeadRows({ heads }: { heads: RankingHead[] }): JSX.Element {
+    return (
+        <div className="grid grid-cols-[minmax(0,max-content)_minmax(2rem,10rem)_auto] items-center justify-start gap-x-2 gap-y-1">
+            {heads.map((head) => {
+                const percent = Math.round(head.probability * 100)
+                return (
+                    <Fragment key={head.name}>
+                        <span className={`truncate ${head.readable ? 'text-default' : 'text-tertiary'}`}>
+                            {prettify(head.name)}
+                        </span>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-border-light">
+                            <div
+                                className={`h-full rounded-full ${head.readable ? 'bg-primary-3000' : 'bg-border-bold'}`}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: `${percent}%` }}
+                            />
+                        </div>
+                        <span
+                            className={`inline-flex items-center justify-end gap-1 tabular-nums ${head.readable ? 'text-default' : 'text-tertiary'}`}
+                        >
+                            {percent}%
+                            {head.readable ? (
+                                <span className="size-3" aria-hidden />
+                            ) : (
+                                <Tooltip title="No holdout read for this head yet">
+                                    <IconInfo className="size-3" aria-label="No holdout read for this head yet" />
+                                </Tooltip>
+                            )}
+                        </span>
+                    </Fragment>
+                )
+            })}
+        </div>
+    )
+}
+
+function RankingModelResult({ model }: { model: RankingModel }): JSX.Element {
+    return model.status === 'skipped' || model.heads.length === 0 ? (
+        <span className="text-tertiary">Skipped{model.skipReason ? `: ${model.skipReason}` : ''}</span>
+    ) : (
+        <RankingHeadRows heads={model.heads} />
+    )
+}
+
+function RankingScoreBody({ score }: { score: RankingScoreView }): JSX.Element {
+    return (
+        <div className="flex w-full min-w-0 flex-col gap-2 text-xs">
+            <RankingModelResult model={score.served} />
+            <span className="flex flex-wrap items-center gap-x-1 text-tertiary">
+                <span className="break-all font-mono">{score.served.key}</span>
+                {score.manifestVersion ? <span>· manifest {score.manifestVersion}</span> : null}
+                {score.scoredAt ? (
+                    <span className="inline-flex items-center gap-1">
+                        · <TZLabel time={score.scoredAt} />
+                    </span>
+                ) : null}
+            </span>
+            {score.challengers.length > 0 ? (
+                <details>
+                    <summary className="cursor-pointer text-secondary">
+                        Other models ({score.challengers.length})
+                    </summary>
+                    <div className="mt-2 flex flex-col gap-3 pl-3">
+                        {score.challengers.map((model) => {
+                            const role = model.roles.find((r) => r !== 'served')
+                            return (
+                                <div key={model.key} className="flex min-w-0 flex-col gap-1">
+                                    <span className="flex flex-wrap items-center gap-1.5">
+                                        <span className="break-all font-mono text-secondary">{model.key}</span>
+                                        {role ? (
+                                            <LemonTag size="small" type="muted">
+                                                {prettify(role)}
+                                            </LemonTag>
+                                        ) : null}
+                                    </span>
+                                    <RankingModelResult model={model} />
+                                </div>
+                            )
+                        })}
+                    </div>
+                </details>
             ) : null}
         </div>
     )
@@ -529,6 +657,18 @@ function renderArtefactSummary(artefact: SignalReportArtefact): JSX.Element | nu
                 </LemonTag>
             )
         }
+        case 'work_claim': {
+            const name = (content as WorkClaimContent).display_name
+            return name?.trim() ? <span className="text-xs text-secondary">{name}</span> : null
+        }
+        case 'work_release': {
+            const reason = (content as WorkReleaseContent).reason
+            return reason && WORK_RELEASE_REASON_LABELS[reason] ? (
+                <LemonTag size="small" type="muted">
+                    {WORK_RELEASE_REASON_LABELS[reason]}
+                </LemonTag>
+            ) : null
+        }
         default:
             return null
     }
@@ -613,6 +753,8 @@ function renderArtefactBody({
             return <RelatedReportBody content={content as RelatedToContent} />
         case 'report_link':
             return <ReportLinkBody content={content as ReportLinkContent} />
+        case 'autostart_skip':
+            return <AutostartSkipBody content={content as AutostartSkipContent} />
         case 'code_review':
             return <CodeReviewBody content={content as CodeReviewContent} />
         case 'check_result':
@@ -689,6 +831,10 @@ function renderArtefactBody({
                     ) : null}
                 </div>
             )
+        }
+        case 'ranking_score': {
+            const score = readRankingScore(content)
+            return score ? <RankingScoreBody score={score} /> : null
         }
         default: {
             const value = (content as { content?: unknown })?.content

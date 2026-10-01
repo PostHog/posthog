@@ -1342,7 +1342,7 @@ export const TemplateKeyEnumApi = {
 } as const
 
 export interface ResolveTemplateRequestApi {
-    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+    /** Template to resolve. The templates endpoint lists each one with its description. Required.
      *
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -1495,7 +1495,7 @@ export const ValidationWarningSeverityEnumApi = {
 } as const
 
 export interface ValidationWarningApi {
-    /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
     code: string
     /** Human-readable warning description. */
     message: string
@@ -1508,7 +1508,7 @@ export interface ValidationWarningApi {
 }
 
 export interface ValidatePipelineResponseApi {
-    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
     can_proceed: boolean
     /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
     requires_acknowledgement: boolean

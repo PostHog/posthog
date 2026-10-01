@@ -8,16 +8,12 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models import Q
-from django.utils import timezone
+from django.db.models import Exists, OuterRef, Q
 
-from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
-from products.alerts.backend.facade.scheduling import (
-    advance_next_check_at,
-    compute_shard_offset_seconds,
-    parse_blocked_windows_tuples,
-    scan_next_unblocked_utc,
-)
+from products.alerts.backend.facade.contracts import PlatformAlertCheckInput, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
+from products.alerts.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
+from products.alerts.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -56,12 +52,38 @@ def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfig
     return existing
 
 
-def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheck, ...]:
+def suppressed() -> Exists:
+    """Configurations a runtime state holds back.
+
+    BROKEN only. A mute holds an announcement rather than a check, so a snoozed alert is
+    discovered and evaluated like any other and its state keeps tracking reality.
+
+    The state lives on `PlatformAlert`, so discovery and the batch read both reach for this
+    rather than each writing the predicate out. If the two disagreed, a broken alert would be
+    dispatched by one and dropped by the other, every tick, in silence.
+
+    Excluded as one `Exists` rather than as a lookup across the relation. Django splits an
+    excluded multi-valued lookup into a subquery per leaf, which lets the conditions match
+    different alert rows once a source writes a real grouping key, and buries them where
+    Postgres cannot lift them into an anti-join.
+    """
+    # `unscoped` because the subquery runs without ambient scope in both callers, and it is
+    # correlated to a configuration the outer query has already scoped, so the foreign key keeps
+    # it inside that team.
+    return Exists(
+        PlatformAlert.objects.unscoped().filter(
+            configuration=OuterRef("pk"), grouping_key="", state=PlatformAlert.State.BROKEN
+        )
+    )
+
+
+def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheckInput, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate."""
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
+        .exclude(suppressed())
         # Ordered so a retried attempt keeps the same alerts under any downstream cap.
         .order_by("id")
     )
@@ -73,8 +95,8 @@ def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> t
     return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheck:
-    return PlatformAlertCheck(
+def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheckInput:
+    return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
         name=c.name,
@@ -93,6 +115,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
+        firing_started_at=alert.firing_started_at if alert else None,
     )
 
 
@@ -106,21 +129,84 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
-def record_outcomes(
-    team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime, *, team_timezone: str
-) -> int:
+def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+    """What the check was evaluated against, as a message and a comparison need to read it.
+
+    Taken from the configuration when the outcome is recorded rather than shipped with it, because
+    a source's copy would cost Temporal payload on every batch.
+
+    One path can write a configuration between an evaluation and its record, so the snapshot is
+    evaluation-time by convention rather than by construction: `upsert_configuration`, reached
+    only through a hand-run backfill command, and only for a configuration already copied whose
+    source row changed since. The row then states the new condition beside a verdict measured
+    against the old one. Carry the snapshot on the outcome if that stops being acceptable.
+    """
+    return {
+        "threshold_count": configuration.threshold_count,
+        "threshold_operator": configuration.threshold_operator,
+        "window_minutes": configuration.window_minutes,
+        "evaluation_periods": configuration.evaluation_periods,
+        "datapoints_to_alarm": configuration.datapoints_to_alarm,
+        "cooldown_minutes": configuration.cooldown_minutes,
+    }
+
+
+def _event_row(
+    configuration: PlatformAlertConfiguration,
+    alert: PlatformAlert,
+    outcome: PlatformAlertOutcome,
+    previous_state: str,
+    now: datetime,
+) -> PlatformAlertEventRow:
+    return PlatformAlertEventRow(
+        team_id=configuration.team_id,
+        configuration_id=configuration.id,
+        alert_id=alert.id,
+        grouping_key=alert.grouping_key,
+        evaluation_key=outcome.evaluation_key,
+        kind=outcome.kind.value,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=outcome.new_state,
+        # The whole episode, ended or not. A resolve names the firing it closed, which is what a
+        # thread key needs and what the alert row no longer holds.
+        episode_started_at=outcome.firing_episode.started_at if outcome.firing_episode else None,
+        value=outcome.value,
+        labels=outcome.labels,
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=outcome.query_duration_ms,
+        error_message=outcome.error_message,
+        consecutive_failures=outcome.consecutive_failures,
+        muted_notification=outcome.muted_notification,
+        occurred_at=now,
+    )
+
+
+def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+    recorded = insert_events(team_id, rows)
+    if recorded < len(rows):
+        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+
+
+def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
     Two statements rather than two per alert, in one transaction, so a crash between them cannot
     leave an alert marked as notified while its schedule still says the check is due. The schedule
-    advances the way the source's own stack advances it: sharded across the cadence so a fleet does
-    not converge on one minute, then pushed past any blocked window.
+    advances the way the source's own stack advances it, sharded across the cadence so a fleet does
+    not converge on one minute. A schedule restriction does not move it, because a restricted check
+    still runs and only its announcement is held.
 
     Safe to run twice on the same batch. An attempt that commits leaves every configuration due
     after `now`, and a replay of that attempt skips those rows rather than advancing them a second
     time and skipping a cycle.
     Returns how many configurations it wrote, which is fewer than it was given when a replay
     finds rows an earlier attempt already advanced.
+
+    History is written after the transaction commits, not inside it. A row the platform cannot
+    record is a gap a comparison sees; a transaction that rolled back on a ClickHouse outage would
+    instead leave the alert due with its state unwritten, which is worse.
     """
     if not outcomes:
         return 0
@@ -134,9 +220,16 @@ def record_outcomes(
             return 0
         alerts = _alerts_for_write(team_id, configurations)
 
+        rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
+            # Before the row is mutated, so the history row keeps the state the check found.
+            rows.append(_event_row(configuration, alert, outcome, alert.state, now))
+            episode = outcome.firing_episode
+            # The row holds the firing the alert is in, so a check that ended one clears it. The
+            # ended firing stays on the history row instead.
+            alert.firing_started_at = episode.started_at if episode and not episode.ended else None
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
@@ -144,7 +237,7 @@ def record_outcomes(
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
-            next_check_at = advance_next_check_at(
+            configuration.next_check_at = advance_next_check_at(
                 configuration.next_check_at,
                 configuration.check_interval_minutes,
                 now,
@@ -152,16 +245,17 @@ def record_outcomes(
                     configuration.id, configuration.check_interval_minutes
                 ),
             )
-            windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
-            configuration.next_check_at = (
-                scan_next_unblocked_utc(next_check_at, team_timezone, windows) or next_check_at
-            )
 
-        PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
+        PlatformAlert.objects.for_team(team_id).bulk_update(
+            list(alerts.values()), ["state", "last_notified_at", "firing_started_at"]
+        )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
-        return len(configurations)
+        # `on_commit` rather than a statement after the block, so a caller that wraps this in its
+        # own `atomic()` cannot leave history for state its rollback removed.
+        transaction.on_commit(lambda: _record_history(team_id, rows))
+    return len(configurations)
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
@@ -190,11 +284,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             },
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        # Logs-style evaluation honors `snooze_until` only while the state is SNOOZED.
-        if upsert.snooze_until is not None and upsert.snooze_until > timezone.now():
-            alert.state = PlatformAlert.State.SNOOZED
-        elif alert.state == PlatformAlert.State.SNOOZED:
-            alert.state = PlatformAlert.State.NOT_FIRING
+        # State is left alone because a muted alert keeps tracking reality.
         alert.snooze_until = upsert.snooze_until
-        alert.save(update_fields=["state", "snooze_until"])
+        alert.save(update_fields=["snooze_until"])
     return created

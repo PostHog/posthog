@@ -26,10 +26,25 @@ FEATUREBASE_OBJECT_TYPE_TO_TOPICS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
+class FeaturebaseFanOutConfig:
+    """One child request chain per parent row of `parent_path`."""
+
+    parent_path: str
+    # Placeholder in the child endpoint's path, filled with each parent id.
+    path_placeholder: str
+    # Column the parent id is injected into on every child row.
+    parent_id_column: str
+    parent_params: dict[str, str] = field(default_factory=dict)
+    # Cap on child pages per parent. A cap truncates a genuinely large parent, so only set one
+    # where a runaway cursor would multiply across many parents.
+    max_pages_per_parent: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class FeaturebaseEndpointConfig:
     name: str
-    path: str  # Relative to FEATUREBASE_BASE_URL; may carry a {post_id} placeholder for fan-out
+    path: str  # Relative to FEATUREBASE_BASE_URL; may carry a placeholder filled by the fan-out
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # How incremental sync is achieved for this endpoint:
     #   - "desc_cutoff": no server-side timestamp filter exists, but the endpoint supports a
@@ -48,14 +63,15 @@ class FeaturebaseEndpointConfig:
     full_refresh_params: dict[str, str] = field(default_factory=dict)
     # Extra query params merged into every request (e.g. privacy=all).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Whether the endpoint paginates with limit/cursor. Boards and post statuses return
-    # everything in one response (boards as a bare JSON array, no `data` envelope).
+    # Whether the endpoint paginates with limit/cursor. Boards, post statuses, ticket
+    # statuses and ticket categories return everything in one response (a bare JSON array,
+    # no `data` envelope).
     paginated: bool = True
     partition_key: Optional[str] = None  # Stable creation-time field, never updatedAt
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
-    # Fan out one voters request per post ({post_id} placeholder in path).
-    fan_out_over_posts: bool = False
+    # Fan out over a parent listing, one child request chain per parent row.
+    fan_out: Optional[FeaturebaseFanOutConfig] = None
 
 
 _CREATED_AT_FIELD: IncrementalField = {
@@ -151,6 +167,52 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
         # that can author posts and comments.
         extra_params={"contactType": "all"},
     ),
+    "conversations": FeaturebaseEndpointConfig(
+        name="conversations",
+        path="/conversations",
+        partition_key="createdAt",
+        # The list endpoint takes only limit/cursor/tagIds — no sort and no timestamp filter —
+        # so neither incremental mode applies. The search endpoint can filter on createdAt but
+        # returns a slimmer row, which would make the table's columns depend on the sync mode.
+    ),
+    "tickets": FeaturebaseEndpointConfig(
+        name="tickets",
+        path="/tickets",
+        partition_key="createdAt",
+        incremental_mode="desc_cutoff",
+        # Only `recent` is documented against a timestamp we sync ("most recently updated",
+        # same meaning as on posts). The `date` sort exists too, but which column it orders by
+        # is undocumented, and a cutoff sweep on the wrong column silently skips rows.
+        incremental_params_for_field={"updatedAt": {"sortBy": "recent", "sortOrder": "desc"}},
+        # ticketNumber is the sequential display id, so ascending on it is a stable full-refresh
+        # walk regardless of how rows are edited during the sync.
+        full_refresh_params={"sortBy": "ticketNumber", "sortOrder": "asc"},
+        incremental_fields=[_UPDATED_AT_FIELD],
+    ),
+    "ticket_statuses": FeaturebaseEndpointConfig(
+        name="ticket_statuses",
+        path="/tickets/statuses",
+        # Documented as returning every status at once, as a bare JSON array like boards.
+        paginated=False,
+    ),
+    "ticket_categories": FeaturebaseEndpointConfig(
+        name="ticket_categories",
+        path="/tickets/categories",
+        # Documented as returning every category at once, as a bare JSON array like boards.
+        # Categories are boards behind the scenes, so rows carry `object: "board"`.
+        paginated=False,
+    ),
+    "conversation_tags": FeaturebaseEndpointConfig(
+        name="conversation_tags",
+        path="/tags",
+    ),
+    "surveys": FeaturebaseEndpointConfig(
+        name="surveys",
+        path="/surveys",
+        partition_key="createdAt",
+        # The list endpoint takes only limit/cursor/type/isActive — no sort and no timestamp
+        # filter — so neither incremental mode applies.
+    ),
     # One request per post: materializes the post<->upvoter many-to-many as
     # {postId, ...contact} rows. Opt-in (off by default) because it costs one paginated
     # request chain per post. Voter ids are contact ids (unique per org, not per post),
@@ -158,9 +220,31 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
     "post_voters": FeaturebaseEndpointConfig(
         name="post_voters",
         path="/posts/{post_id}/voters",
-        fan_out_over_posts=True,
+        fan_out=FeaturebaseFanOutConfig(
+            parent_path="/posts",
+            path_placeholder="post_id",
+            parent_id_column="postId",
+            parent_params={"sortBy": "createdAt", "sortOrder": "asc"},
+            max_pages_per_parent=100,
+        ),
         primary_keys=["postId", "id"],
         should_sync_default=False,
+    ),
+    # One request per survey: materializes each submitted response as a
+    # {surveyId, ...response} row. The responses endpoint takes only pageId/limit/cursor, so
+    # there is no incremental filter. Response ids are documented as optional on the nested
+    # answers but required on the response itself; the composite key keeps rows unique
+    # table-wide in case they are only unique per survey.
+    "survey_responses": FeaturebaseEndpointConfig(
+        name="survey_responses",
+        path="/surveys/{survey_id}/responses",
+        partition_key="createdAt",
+        fan_out=FeaturebaseFanOutConfig(
+            parent_path="/surveys",
+            path_placeholder="survey_id",
+            parent_id_column="surveyId",
+        ),
+        primary_keys=["surveyId", "id"],
     ),
 }
 

@@ -88,9 +88,6 @@ export type TreeDataItem = {
      */
     onClick?: (open?: boolean) => void
 
-    /** Tags for the item */
-    tags?: string[]
-
     /** Order of object in tree */
     visualOrder?: number
 }
@@ -144,6 +141,8 @@ type LemonTreeBaseProps = Omit<
     /** The render function for the item. */
     renderItem?: (item: TreeDataItem, children: React.ReactNode) => React.ReactNode
     renderItemTooltip?: (item: TreeDataItem) => React.ReactNode | undefined
+    /** A docs link shown under the item's tooltip. It makes the tooltip interactive so the link can be clicked. */
+    renderItemTooltipDocLink?: (item: TreeDataItem) => string | undefined
     renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
@@ -266,6 +265,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
             handleClick,
             renderItem,
             renderItemTooltip,
+            renderItemTooltipDocLink,
             renderItemIcon,
             expandedItemIds,
             defaultNodeIcon,
@@ -377,6 +377,9 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 aria-roledescription="tree item"
                 aria-label={ariaLabel}
                 tooltip={isDragging || isEmptyFolder ? undefined : (item.disabledReason ?? renderItemTooltip?.(item))}
+                tooltipDocLink={
+                    isDragging || isEmptyFolder || item.disabledReason ? undefined : renderItemTooltipDocLink?.(item)
+                }
                 tooltipPlacement="right"
             >
                 {size === 'default' && (

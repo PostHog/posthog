@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -21,6 +21,7 @@ from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.event_usage import EventSource
+from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, changes_between, replay_scanner_machine_fields
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -31,10 +32,15 @@ from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.experiments.backend.models.experiment import Experiment
-from products.replay_vision.backend.api.scanners import ReplayScannerSerializer, WatchFeedQuerySerializer
+from products.replay_vision.backend.api.scanners import (
+    WATCH_FEED_CANDIDATE_CAP,
+    ReplayScannerSerializer,
+    WatchFeedQuerySerializer,
+)
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
+from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -236,6 +242,35 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400)
 
+    def test_unique_name_clash_at_the_database_is_a_name_error(self) -> None:
+        self._create_scanner(name="dup")
+        with self.assertRaises(IntegrityError) as clash, transaction.atomic():
+            self._create_scanner(name="dup")
+
+        with self.assertRaises(DRFValidationError) as raised:
+            ReplayScannerSerializer._reraise_unique_name_violation(clash.exception)
+        self.assertIn("name", cast(dict, raised.exception.detail))
+
+    def test_goal_is_kept_on_create_and_ignored_on_update(self) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": "with-goal",
+                "goal": "find where people give up in billing",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_8_FLASH,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201, resp.json())
+        scanner_id = resp.json()["id"]
+
+        patch_resp = self.client.patch(f"{self.scanners_url}{scanner_id}/", data={"goal": "rewritten"}, format="json")
+
+        self.assertEqual(patch_resp.status_code, 200, patch_resp.json())
+        self.assertEqual(ReplayScanner.objects.get(id=scanner_id).goal, "find where people give up in billing")
+
     def test_list_returns_only_team_scanners(self) -> None:
         self._create_scanner(name="ours")
         other_org = Organization.objects.create(name="other")
@@ -419,6 +454,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 ScannerType.MONITOR,
                 {"prompt": "p", "alow_inconclusive": True},
                 "Unknown scanner configuration keys: alow_inconclusive.",
+            ),
+            (
+                "per_scan_field_in_config",
+                ScannerType.SUMMARIZER,
+                {"prompt": "p", "chapter_target": 50},
+                "Unknown scanner configuration keys: chapter_target.",
             ),
         ]
     )
@@ -1232,6 +1273,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertFalse(properties["has_experiment_targeting"])
+        self.assertFalse(properties["uses_template_prompt"])
         self.assertTrue(properties["enabled"])
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
@@ -3575,6 +3617,46 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         self.assertFalse(resp.json()["truncated"])
 
+    @patch("products.replay_vision.backend.search.RERANK_CANDIDATES", 2)
+    @patch("products.replay_vision.backend.search_rerank.build_system_one_client")
+    @patch("products.replay_vision.backend.search.rank_observations")
+    @patch("products.replay_vision.backend.search.generate_embedding")
+    def test_search_reranks_only_readable_results(
+        self, mock_embed: MagicMock, mock_rank: MagicMock, mock_client: MagicMock
+    ) -> None:
+        first = self._create_succeeded_observation("sess-1")
+        second = self._create_succeeded_observation("sess-2")
+        tail = self._create_succeeded_observation("sess-3")
+        ReplayObservation.objects.filter(pk=second.id).update(scanner_result={"model_output": {"reasoning": "exact"}})
+        mock_embed.return_value = MagicMock(embedding=[0.1])
+        mock_rank.return_value = [
+            ObservationMatch(observation_id=str(first.id), distance=0.1, matched_content="topic only"),
+            ObservationMatch(observation_id=str(uuid7()), distance=0.2, matched_content="unreadable"),
+            ObservationMatch(observation_id=str(second.id), distance=0.3, matched_content="bare tag"),
+            ObservationMatch(observation_id=str(tail.id), distance=0.4, matched_content="past the head"),
+        ]
+        sent_texts: list[str] = []
+
+        def decide(*, state: dict, questions: dict) -> SystemOneResult:
+            texts = [state["observations"][f"o{i}"] for i in range(len(questions))]
+            sent_texts.extend(texts)
+            return SystemOneResult(
+                model="jev",
+                answers={f"q{i}": NoulAnswer(probability=0.9 if t == "exact" else 0.1) for i, t in enumerate(texts)},
+                input_tokens=1,
+            )
+
+        mock_client.return_value.decide.side_effect = decide
+
+        resp = self.client.get(f"{self.search_url}?q=confused users")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(
+            [r["observation"]["id"] for r in resp.json()["results"]], [str(second.id), str(first.id), str(tail.id)]
+        )
+        self.assertTrue(resp.json()["reranked"])
+        self.assertEqual(sorted(sent_texts), ["exact", "topic only"])
+
     @patch("products.replay_vision.backend.search.rank_observations")
     @patch("products.replay_vision.backend.search.generate_embedding")
     def test_search_overfetches_then_slices_to_limit_and_flags_truncation(
@@ -4733,6 +4815,106 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         )
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
+        # The two rankers are independent: a cached Jev probability must not move the weighted-score
+        # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
+        # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
+        scanner = self._create_scanner(name="m")
+        jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
+        jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, {}, "jevk5-fp8-0.2"
+        )
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        for mode in ("weighted-score", "jev-shadow"):
+            with patch(ranker, return_value=mode):
+                resp = self.client.get(self.feed_url)
+            items = resp.json()["results"]
+            # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
+            self.assertEqual(
+                [item["observation"]["session_id"] for item in items],
+                ["signal", "jev-low", "jev-high"],
+                mode,
+            )
+            self.assertEqual(items[0]["reason"]["kind"], "signal_emitted", mode)
+            self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"}, mode)
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
+        # recency, so neither claims the model judged it worth watching.
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["jev-high", "jev-low", "signal"],
+        )
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
+        self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
+        self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
+        # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
+        # watchable row from days ago never reaches the weighted feed. The jev arm must fetch it
+        # back from the cache and rank it first.
+        scanner = self._create_scanner(name="m")
+        interesting_result = self._monitor_result("yes")
+        interesting_result["model_output"]["notability"] = 0.9
+        interesting_result["model_output"]["notability_reason"] = "The user paid twice for one order."
+        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting_result)
+        for index in range(100):
+            self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, {}, "jevk5-fp8-0.2"
+        )
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        with patch(ranker, return_value="weighted-score"):
+            resp = self.client.get(self.feed_url)
+        self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
+        # The scan found the session notable, so its own sentence reaches the card's reason.
+        self.assertEqual(
+            items[0]["reason"],
+            {
+                "kind": "jev_watchable",
+                "jev_probability": 0.9,
+                "notability_reason": "The user paid twice for one order.",
+            },
+        )
+        # The 100 routine rows are filler: they pad the one finding only to the feed's floor.
+        self.assertEqual(len(items), 3)
+
+    def test_the_jev_bypass_filters_before_it_caps(self) -> None:
+        # The cache knows nothing about the request's filters: cached watchable ids that match no
+        # candidate row must not use up the bypass and push out a lower-probability row that does.
+        scanner = self._create_scanner(name="m")
+        interesting = self._monitor_result("yes")
+        interesting["model_output"]["reasoning"] = "the checkout flow needle"
+        old_interesting = self._succeeded_observation(scanner, "old-interesting", 60 * 24 * 2, interesting)
+        for index in range(100):
+            routine = self._monitor_result("no")
+            routine["model_output"]["reasoning"] = "the checkout flow needle"
+            self._succeeded_observation(scanner, f"routine-{index}", index + 1, routine)
+        # More cached watchable ids than the old pre-filter slice kept, all rated above the one row
+        # that matches the search and none of them a real observation.
+        watchable = {str(uuid.uuid4()): 0.9 for _ in range(WATCH_FEED_CANDIDATE_CAP)}
+        watchable[str(old_interesting.id)] = 0.6
+        store_watch_ranks(self.team.id, scanner.id, set(watchable), watchable, {}, "jevk5-fp8-0.2")
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(f"{self.feed_url}?search=needle")
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.6})
+        self.assertEqual(len(items), 3)
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday

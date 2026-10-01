@@ -173,6 +173,8 @@ class FeaturebaseSource(
                     "Maps which users upvoted which post as one row per (post, voter). "
                     "Costs one request chain per post, so it's off by default"
                 )
+            if endpoint == "survey_responses":
+                return "Answers submitted to your surveys as one row per (survey, response)"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

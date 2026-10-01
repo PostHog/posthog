@@ -1,10 +1,11 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -31,7 +32,6 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     STAGED_CURSOR_PENDING_LIMIT,
     ExternalDataSchema,
     apply_incremental_lookback,
-    complete_schema_run,
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
     process_incremental_value,
@@ -192,16 +192,17 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         assert schema.initial_sync_complete is False
         assert "xmin_last_value" not in schema.sync_type_config
 
-    def test_update_xmin_state_save_skips_activity_log(self) -> None:
+    def test_update_source_cursor_save_skips_activity_log(self) -> None:
         schema = self._create(sync_type=ExternalDataSchema.SyncType.XMIN, sync_type_config={})
+        payload = {"kind": "postgres_xmin", "data": {"ceiling_xid": 100}}
         model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
         try:
-            schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1)
+            schema.update_source_cursor(payload)
             assert not self.signal_received
         finally:
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
-        assert schema.xmin_last_value == 100
+        assert schema.sync_type_config["source_cursor"] == payload
 
     def test_update_incremental_field_value_save_skips_activity_log(self) -> None:
         schema = self._create(
@@ -842,85 +843,6 @@ class TestMarkSchemaRunningUnlessHalted(BaseTest):
         assert schema.status == expected
 
 
-class TestCompleteSchemaRun(BaseTest):
-    """The success repaint checks the broken marker under the row lock: the sweeper can mark the
-    source broken while a run is in flight, and an unlocked check on a stale instance would
-    overwrite the sweeper's FAILED with COMPLETED, hiding the breakage from the failure digest."""
-
-    def _schema(self, sync_type_config: dict) -> ExternalDataSchema:
-        source = ExternalDataSource.objects.create(
-            team_id=self.team.pk,
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            status="Completed",
-            source_type="Postgres",
-        )
-        return ExternalDataSchema.objects.create(
-            team_id=self.team.pk,
-            source=source,
-            name="users",
-            sync_type="cdc",
-            sync_type_config=sync_type_config,
-            status=ExternalDataSchema.Status.FAILED,
-            latest_error="boom",
-        )
-
-    @parameterized.expand(
-        [
-            (
-                # The sweeper marked the source broken after this run's instance was loaded;
-                # the stale instance must not repaint FAILED away.
-                "broken_marker_blocks_repaint",
-                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
-                False,
-                ExternalDataSchema.Status.FAILED,
-                {"cdc_mode": "streaming", "cdc_broken": {"reason": "slot_missing"}},
-            ),
-            (
-                # A successful run proves extraction resumed: the pause marker is cleared in the
-                # same transaction as the repaint.
-                "paused_marker_cleared_on_repaint",
-                {"cdc_mode": "streaming", "cdc_extraction_paused": {"reason": "auth_failed"}},
-                True,
-                ExternalDataSchema.Status.COMPLETED,
-                {"cdc_mode": "streaming"},
-            ),
-            (
-                "healthy_schema_repaints",
-                {"cdc_mode": "streaming"},
-                True,
-                ExternalDataSchema.Status.COMPLETED,
-                {"cdc_mode": "streaming"},
-            ),
-        ]
-    )
-    def test_repaint_respects_markers(
-        self,
-        _name: str,
-        config: dict,
-        expected_repainted: bool,
-        expected_status: str,
-        expected_config: dict,
-    ) -> None:
-        schema = self._schema({"cdc_mode": "streaming"})
-        # The instance the activity holds predates the sweeper's marker write — a check against
-        # its in-memory config would see no marker and repaint every case below.
-        stale_instance = ExternalDataSchema.objects.get(id=schema.id)
-        ExternalDataSchema.objects.filter(id=schema.id).update(sync_type_config=config)
-
-        now = timezone.now()
-        repainted = complete_schema_run(stale_instance, last_synced_at=now)
-
-        assert repainted is expected_repainted
-        schema.refresh_from_db()
-        assert schema.status == expected_status
-        assert schema.sync_type_config == expected_config
-        assert schema.latest_error == ("boom" if not expected_repainted else None)
-        # The passed instance mirrors the persisted outcome either way.
-        assert stale_instance.status == expected_status
-        assert stale_instance.sync_type_config == expected_config
-
-
 @pytest.mark.parametrize(
     "clickhouse_type,expected",
     [
@@ -982,25 +904,6 @@ def test_table_row_count_is_cumulative(sync_type: str | None, expected: bool) ->
     assert ExternalDataSchema(sync_type=sync_type).table_row_count_is_cumulative is expected
 
 
-@pytest.mark.parametrize(
-    "sync_type_config,expected",
-    [
-        ({"xmin_last_value": 42, "xmin_ceiling": (1 << 32) + 42, "xmin_num_wraparound": 1}, (42, (1 << 32) + 42, 1)),
-        ({}, (None, None, None)),
-        (None, (None, None, None)),
-    ],
-)
-def test_xmin_accessors(sync_type_config: dict | None, expected: tuple) -> None:
-    schema = ExternalDataSchema(sync_type_config=sync_type_config)
-    assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == expected
-
-
-def test_update_xmin_state_writes_all_keys() -> None:
-    schema = ExternalDataSchema(sync_type_config={})
-    schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1, save=False)
-    assert (schema.xmin_last_value, schema.xmin_ceiling, schema.xmin_num_wraparound) == (100, 4294967396, 1)
-
-
 @contextmanager
 def _merge_in_memory(schema: ExternalDataSchema) -> Iterator[None]:
     def apply(
@@ -1026,18 +929,36 @@ def _merge_in_memory(schema: ExternalDataSchema) -> Iterator[None]:
         yield
 
 
-def test_reset_pipeline_clears_xmin_state() -> None:
+@pytest.mark.parametrize(
+    "sync_type_config",
+    [
+        {"source_cursor": {"kind": "postgres_xmin", "data": {"ceiling_xid": 100}}},
+        {"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
+    ],
+)
+def test_reset_pipeline_clears_the_source_cursor(sync_type_config: dict[str, Any]) -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.XMIN,
-        sync_type_config={"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
+        sync_type_config=dict(sync_type_config),
         initial_sync_complete=True,
     )
     with _merge_in_memory(schema):
         schema.update_sync_type_config_for_reset_pipeline()
-    assert "xmin_last_value" not in schema.sync_type_config
-    assert "xmin_ceiling" not in schema.sync_type_config
-    assert "xmin_num_wraparound" not in schema.sync_type_config
+    assert not set(sync_type_config) & set(schema.sync_type_config)
     assert schema.initial_sync_complete is False
+
+
+def test_clear_source_cursor_drops_the_legacy_keys_it_is_given() -> None:
+    schema = ExternalDataSchema(
+        sync_type_config={
+            "source_cursor": {"kind": "postgres_xmin", "data": {}},
+            "xmin_last_value": 100,
+            "primary_key_columns": ["id"],
+        }
+    )
+    with _merge_in_memory(schema):
+        schema.clear_source_cursor(legacy_keys=["xmin_last_value"])
+    assert schema.sync_type_config == {"primary_key_columns": ["id"]}
 
 
 def test_reset_pipeline_preserves_partition_overrides_but_clears_auto_detected() -> None:
@@ -1101,6 +1022,98 @@ def test_reset_pipeline_preserves_partition_mode_override() -> None:
     assert schema.partitioning_keys_override == ["action_date"]
     # partition_format is never reset, so the datetime granularity carries into the resync.
     assert schema.partition_format == "month"
+
+
+class TestRunSavesKeepTheFullRefreshInterval(BaseTest):
+    def test_a_cursor_save_keeps_an_interval_saved_during_the_run(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        created = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+            full_refresh_interval_days=7,
+        )
+        run_copy = ExternalDataSchema.objects.get(pk=created.pk)
+        ExternalDataSchema.objects.filter(pk=created.pk).update(full_refresh_interval_days=3)
+
+        run_copy.update_incremental_field_value(42)
+
+        created.refresh_from_db()
+        assert created.full_refresh_interval_days == 3
+        assert created.sync_type_config["incremental_field_last_value"] == 42
+
+    def test_the_clock_restarts_from_the_interval_saved_during_the_run(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        created = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"reset_pipeline": True},
+            full_refresh_interval_days=7,
+            next_full_refresh_at=datetime(2026, 9, 22, 3, 0, tzinfo=UTC),
+        )
+        run_copy = ExternalDataSchema.objects.get(pk=created.pk)
+        ExternalDataSchema.objects.filter(pk=created.pk).update(full_refresh_interval_days=3)
+
+        with time_machine.travel(datetime(2026, 9, 22, 3, 10, tzinfo=UTC), tick=False):
+            run_copy.update_sync_type_config_for_reset_pipeline()
+            assert run_copy.scheduled_full_refresh_due() is False
+
+        created.refresh_from_db()
+        assert (created.full_refresh_interval_days, created.next_full_refresh_at) == (
+            3,
+            datetime(2026, 9, 25, 3, 10, tzinfo=UTC),
+        )
+
+
+class TestScheduledFullRefreshDue:
+    def _schema(self, sync_type: str, sync_frequency_interval: timedelta) -> ExternalDataSchema:
+        return ExternalDataSchema(
+            sync_type=sync_type,
+            sync_frequency_interval=sync_frequency_interval,
+            full_refresh_interval_days=7,
+            next_full_refresh_at=datetime(2026, 9, 22, 3, 10, tzinfo=UTC),
+        )
+
+    @parameterized.expand(
+        [
+            ("daily_tick_just_before_the_due_time", timedelta(days=1), datetime(2026, 9, 22, 3, 0, 5), True),
+            ("daily_tick_a_day_early", timedelta(days=1), datetime(2026, 9, 21, 3, 0, 5), False),
+            ("half_hourly_tick_just_before_the_due_time", timedelta(minutes=30), datetime(2026, 9, 22, 3, 0, 5), True),
+            ("half_hourly_tick_one_cadence_early", timedelta(minutes=30), datetime(2026, 9, 22, 2, 30, 5), False),
+        ]
+    )
+    def test_due_on_the_tick_nearest_the_due_time(
+        self, _name: str, sync_frequency_interval: timedelta, now: datetime, expected: bool
+    ) -> None:
+        schema = self._schema(ExternalDataSchema.SyncType.INCREMENTAL, sync_frequency_interval)
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            assert schema.scheduled_full_refresh_due() is expected
+
+    @parameterized.expand([("full_refresh", "full_refresh"), ("cdc", "cdc"), ("webhook", "webhook")])
+    def test_never_due_for_a_sync_type_that_rereads_or_streams(self, _name: str, sync_type: str) -> None:
+        schema = self._schema(sync_type, timedelta(days=1))
+        with time_machine.travel(datetime(2026, 10, 1, tzinfo=UTC), tick=False):
+            assert schema.scheduled_full_refresh_due() is False
+
+
+class TestRestartFullRefreshClock:
+    @parameterized.expand(
+        [
+            ("wipe_just_after_the_time", datetime(2026, 9, 22, 3, 4), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_sync_up_to_an_hour_early", datetime(2026, 9, 22, 2, 10), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_later_daily_sync", datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 29, 3, 0)),
+            ("saved_hours_before_the_time", datetime(2026, 9, 22, 1, 0), datetime(2026, 9, 28, 3, 0)),
+        ]
+    )
+    def test_the_next_refresh_keeps_the_chosen_time(self, _name: str, now: datetime, expected: datetime) -> None:
+        schema = ExternalDataSchema(full_refresh_interval_days=7, full_refresh_time_of_day=time(3, 0))
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            schema.restart_full_refresh_clock()
+        assert schema.next_full_refresh_at == expected.replace(tzinfo=UTC)
 
 
 def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
@@ -1202,6 +1215,15 @@ def test_apply_incremental_lookback(value, field_type, lookback_seconds, expecte
 
 
 class TestStagedIncrementalCursor:
+    @staticmethod
+    def _merge_kafka_offsets(current: Any, candidate: Any) -> dict[str, Any]:
+        current_offsets = current["data"]["offsets"]
+        candidate_offsets = candidate["data"]["offsets"]
+        merged_offsets = dict(current_offsets)
+        for partition, offset in candidate_offsets.items():
+            merged_offsets[partition] = max(merged_offsets.get(partition, offset), offset)
+        return {"kind": "kafka", "data": {"offsets": merged_offsets}}
+
     def _make_schema(self, **config: object) -> ExternalDataSchema:
         schema = ExternalDataSchema(
             sync_type_config={
@@ -1415,6 +1437,35 @@ class TestStagedIncrementalCursor:
             result = schema.promote_staged_incremental_values("run-WRONG")
         assert result is False
         assert "incremental_field_last_value" not in schema.sync_type_config
+
+    def test_promote_merges_the_source_cursor_with_the_current_value(self) -> None:
+        current_cursor = {"kind": "kafka", "data": {"offsets": {"0": 50}}}
+        schema = self._make_schema(source_cursor=current_cursor)
+        staged_cursor = {"kind": "kafka", "data": {"offsets": {"0": 10}}}
+        with self._staged_in_memory(schema):
+            schema.stage_incremental_field_value("run-1", 42)
+            schema.stage_source_cursor("run-1", staged_cursor)
+            assert (
+                schema.promote_staged_incremental_values("run-1", merge_source_cursors=self._merge_kafka_offsets)
+                is True
+            )
+        assert schema.sync_type_config["source_cursor"] == current_cursor
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+        assert "incremental_staged" not in schema.sync_type_config
+
+    def test_an_older_displaced_source_cursor_cannot_replace_a_newer_cursor(self) -> None:
+        older_cursor = {"kind": "kafka", "data": {"offsets": {"0": 10}}}
+        newer_cursor = {"kind": "kafka", "data": {"offsets": {"0": 20}}}
+        schema = self._make_schema(
+            source_cursor=newer_cursor,
+            incremental_staged_pending=[{"run_uuid": "run-1", "source_cursor": older_cursor}],
+        )
+        with self._staged_in_memory(schema):
+            assert (
+                schema.promote_staged_incremental_values("run-1", merge_source_cursors=self._merge_kafka_offsets)
+                is True
+            )
+        assert schema.sync_type_config["source_cursor"] == newer_cursor
 
     def test_promote_returns_false_when_no_staged(self) -> None:
         schema = self._make_schema()
