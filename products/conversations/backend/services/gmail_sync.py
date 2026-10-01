@@ -12,6 +12,7 @@ from django.utils import timezone
 from django.utils.html import strip_tags
 
 import requests
+from bs4 import BeautifulSoup, NavigableString
 
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
@@ -35,6 +36,10 @@ GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY = "gmail_pending_message_ids"
 GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
 INITIAL_IMPORT_QUERY = "{in:inbox in:sent} newer_than:30d"
 INITIAL_IMPORT_LIMIT = 100
+_HTML_PARAGRAPH_TAGS = ["blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "ol", "p", "pre", "table", "ul"]
+_HTML_LINE_TAGS = ["div", "li", "tr"]
+_HTML_WHITESPACE_RE = re.compile(r"\s+")
+_BLANK_LINES_RE = re.compile(r"\n{3,}")
 BACKFILL_PAGE_SIZE = 5
 HISTORY_PAGE_SIZE = 100
 HISTORY_MESSAGE_BATCH_SIZE = 100
@@ -438,7 +443,7 @@ def _parse_gmail_message(
     bodies = _message_bodies(message_payload, load_attachment_data=load_attachment_data)
     body_plain = bodies.plain
     if not body_plain and bodies.html:
-        body_plain = unescape(strip_tags(bodies.html))
+        body_plain = _html_to_text(bodies.html)
 
     return ParsedEmail(
         message_id=message_id[:998],
@@ -458,6 +463,34 @@ def _parse_gmail_message(
         capture_address=mailbox_email,
         attachments=(),
     )
+
+
+def _html_to_text(html: str) -> str:
+    """Flatten an HTML-only body to plain text, keeping paragraph and line breaks.
+
+    `strip_tags` joins adjacent blocks with no separator, so `<p>a.</p><p>b</p>`
+    becomes `a.b`. Links are folded back in later by `recover_links_from_html`.
+    """
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["head", "script", "style", "title"]):
+            tag.decompose()
+        for string in soup.find_all(string=True):
+            if type(string) is not NavigableString:
+                string.extract()
+            elif string.find_parent("pre") is None:
+                string.replace_with(_HTML_WHITESPACE_RE.sub(" ", string))
+        for br in soup.find_all("br"):
+            br.replace_with("\n")
+        for tag in soup.find_all(_HTML_PARAGRAPH_TAGS):
+            tag.insert_after("\n\n")
+        for tag in soup.find_all(_HTML_LINE_TAGS):
+            tag.insert_after("\n")
+        text = soup.get_text()
+    except Exception:  # noqa: BLE001 — a malformed HTML part must never fail the sync
+        text = unescape(strip_tags(html))
+    lines = (line.strip() for line in text.split("\n"))
+    return _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
 
 
 def _message_headers(raw_headers: list[dict[str, Any]]) -> dict[str, str]:

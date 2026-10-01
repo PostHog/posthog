@@ -128,21 +128,29 @@ def _recover_from_html(text: str, html: str) -> str:
         return text
 
     candidates: list[tuple[str, str]] = []
+    angle_links: list[tuple[str, str]] = []
     seen_labels: set[str] = set()
     for anchor in soup.find_all("a")[:_MAX_ANCHORS]:
         href = (anchor.get("href") or "").strip()
         if not href or not _HTTP_SCHEME_RE.match(href):
             continue
         label = anchor.get_text(separator=" ", strip=True)
-        # Skip an unusable label, a URL that already survived into the text, or a
-        # label seen already (its first anchor wins).
-        if not label or "[" in label or "]" in label or href in text or label in seen_labels:
+        if not label or "[" in label or "]" in label:
+            continue
+        # A URL that survived into the text needs no recovery, but a plain-text
+        # part may still write it as `label <href>` (Gmail does this).
+        if href in text:
+            if label != href and f"<{href}>" in text:
+                angle_links.append((label, href))
+            continue
+        # Skip a label seen already (its first anchor wins).
+        if label in seen_labels:
             continue
         seen_labels.add(label)
         candidates.append((label, href))
 
     if not candidates:
-        return text
+        return _fold_angle_links(text, angle_links)
 
     # Rewrite left to right on the not-yet-emitted suffix only, so a later label
     # can never match inside a link or URL we already inserted. Each pass links
@@ -167,4 +175,18 @@ def _recover_from_html(text: str, html: str) -> str:
         used.add(label)
     parts.append(remaining)
 
-    return "".join(parts)
+    return _fold_angle_links("".join(parts), angle_links)
+
+
+def _fold_angle_links(text: str, links: list[tuple[str, str]]) -> str:
+    """Rewrite a plain-text `label <href>` link to `[label](href)`, once per link.
+
+    The label may be wrapped across lines in the text, so its words are matched
+    with any whitespace between them.
+    """
+    for label, href in links:
+        pattern = re.compile(r"\s+".join(map(re.escape, label.split())) + r"\s*<" + re.escape(href) + ">")
+        match = pattern.search(text)
+        if match:
+            text = f"{text[: match.start()]}[{label}]({_md_safe_href(href)}){text[match.end() :]}"
+    return text

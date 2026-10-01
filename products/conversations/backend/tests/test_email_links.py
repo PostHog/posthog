@@ -42,6 +42,19 @@ class TestRecoverLinksFromHtml:
         html = '<a href="https://host.example/activate?t=abc">Confirm</a>'
         assert recover_links_from_html(text, html) == "Confirm at <https://host.example/activate?t=abc> now"
 
+    def test_folds_plain_text_angle_link_into_markdown(self) -> None:
+        text = "book a time via our Onboarding\nteam calendar\n<https://cal.example/onboarding>.\nThanks"
+        html = '<p>book a time via our <a href="https://cal.example/onboarding">Onboarding team calendar</a>.</p>'
+        assert (
+            recover_links_from_html(text, html)
+            == "book a time via our [Onboarding team calendar](https://cal.example/onboarding).\nThanks"
+        )
+
+    def test_leaves_angle_link_without_matching_label(self) -> None:
+        text = "Book here: <https://cal.example/onboarding>"
+        html = '<a href="https://cal.example/onboarding">Onboarding team calendar</a>'
+        assert recover_links_from_html(text, html) == text
+
     @parameterized.expand(
         [
             ("trailing_tilde", "https://clicks.example/f/a/token~"),
