@@ -100,6 +100,13 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
             ),
+            # Queue extraction attempts resolve their run by this key. Keep null Temporal run ids
+            # out of the index and retain newest-first ordering for defensive duplicate handling.
+            models.Index(
+                fields=["team", "workflow_run_id", "-created_at"],
+                condition=Q(workflow_run_id__isnull=False),
+                name="idx_extjob_team_wfrun_created",
+            ),
         ]
 
     def folder_path(self) -> str:

@@ -147,3 +147,73 @@ The `run_warehouse_scheduler` command runs the tick loop.
 The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
 It starts no syncs.
 The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.
+
+## Extract lane (phase 3)
+
+The `run_warehouse_extract_consumer` command runs a `JobConsumer` for kind `sync.extract` on lane `extract`.
+Each job is one extraction run of one schema.
+The handler is `SyncExtractHandler` in `products/warehouse_sources/backend/queue_runs/`.
+It runs the same extraction body as the Temporal import activity (`run_extraction`), through a `RunControl` that has no Temporal activity context.
+Whoever enqueues the job decides that the schema runs on the queue; the handler does not check the scheduler flag.
+Nothing enqueues `sync.extract` in phase 3 yet, so the consumer has no work until the scheduler and the trigger paths start to enqueue.
+
+### Lifecycle
+
+1. Claim: the engine leases the group `"{team_id}:{schema_id}"` on the extract lane, so one run of a schema executes at a time.
+   A closed claim gate (`--min-free-memory-mb`) makes a poll claim nothing and increments `warehouse_jobs_claims_gated_total`.
+2. Checks: when another `ExternalDataJob` of the schema is `Running`, from either scheduler, the handler ends the job with no run (`skipped_overlap`).
+   A schema that a repartition holds is also skipped, because queue runs never run the repartition step.
+3. Job row: the first attempt calls `prepare_run` and creates the `ExternalDataJob`.
+   The row gets `workflow_id` from the payload, `workflow_run_id` = the queue job id, and `phase = extracting`.
+   The pre-extraction answers are kept in `schema_snapshot["queue_run_plan"]`, so a later attempt reuses the same row and the same answers.
+   A run over its billing limit is finalized `BillingLimitReached` here.
+4. Extract: `run_extraction` stages batches for the loader, as a Temporal run does.
+   The wall-clock budget is 24 hours for a full refresh and 6 days for other runs, and never past the job's claim window.
+   A run past its budget fails with the "sync ran too long" message.
+5. Handoff: a run with batches gets `phase = loading`, and the loader finishes it (status, cursor, lock, post-import).
+   A run with no batch never reaches the loader, so the handler completes it through the workflow's finalizer and starts the post-import workflow itself.
+   After the extraction, the handler also starts the CDP producer and the person-property sync workflows and creates the source templates, with the same ids and conditions as the workflow.
+
+### Failures, retries and shutdown
+
+- The handler owns the attempt cap, per run shape, with the workflow's values: resumable `MAX_RESUMABLE_SOURCE_RETRIES`, incremental and append 9, full refresh 3.
+  Below the cap it returns `Retry`; at the cap it writes `Failed` through the workflow's finalizer and returns `Fail`.
+  A non-retryable error fails on the first attempt, and the finalizer disables the schema as it does for a Temporal run.
+- The consumer's `max_attempts` is the largest cap plus a shutdown allowance, as a backstop.
+  An attempt that died without an answer (an OOM, a lost pod) is requeued by the recovery sweep and counts against the cap.
+- The engine fails a job without its handler at its own attempt cap: at the claim, or in the recovery sweep.
+  A handler that implements `EngineFailureHandler.on_engine_failed` hears about each such job after the queue-side `failed` write, and about a job the engine fails after a `Retry` or an exception.
+  The engine logs and ignores errors from the hook and gives it 30s, so it cannot stop a sweep. It does not call the hook for a job whose handler returned `Fail`.
+  `SyncExtractHandler` uses it to write `Failed` on the run's job row, which otherwise stays `Running` and makes every later run of the schema skip as an overlap.
+- On SIGTERM the engine sets its shutdown event. The run stops at its next shutdown check, releases its held batch and commits its resume state, and the handler returns a `Retry` tagged `{"reason": "shutdown"}`.
+  The job row stays `Running`, and the next attempt continues under it.
+  Tagged retries do not count against the cap.
+  A run that never checks for shutdown (a full refresh) is cancelled before the drain ends, and also requeued with the tag.
+  Its held batch never gets a queue row, and its inserted rows have no final row. The next attempt runs under a new run uuid, and its batch 0 supersedes those rows.
+- `--drain-timeout` (default 600s) is how long `_close` waits for in-flight runs. Set `terminationGracePeriodSeconds` above it.
+- Cancellation: the handler polls the job's status about every 30s. A terminal status that someone else wrote (the cancel endpoint, a teardown) stops the run, and the handler returns `Fail` without a status write, because the terminal status absorbs later writes.
+
+### Flags
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--max-concurrency` | 4 | Runs at the same time in one process |
+| `--poll-interval` | 10 | Seconds between polls |
+| `--poll-limit` | 10 | Jobs fetched per poll |
+| `--drain-timeout` | 600 | Seconds a shutdown waits for in-flight runs |
+| `--min-free-memory-mb` | 0 | Free pod memory below which the consumer claims nothing (0 disables the gate) |
+| `--health-port` | 8080 | Liveness, readiness and `/_metrics` |
+
+### Metrics
+
+- `warehouse_extract_runs_finished_total{source_type,outcome}`, `warehouse_extract_run_duration_seconds{outcome}`, `warehouse_extract_rows_extracted_total{source_type}`, `warehouse_extract_runs_skipped_total{reason}`: the queue-run twins of the OTel metrics that a run records only inside a Temporal activity.
+- `warehouse_jobs_claimable{lane,kind}` and `warehouse_jobs_oldest_unclaimed_seconds{lane,kind}`: sampled on the reconcile cadence.
+- The engine's own `warehouse_jobs_*` consumer metrics.
+
+### Not migrated yet
+
+- Nothing enqueues `sync.extract` (the scheduler and the trigger paths come later).
+- A run with no batch is finalized by the handler, not by a final marker for the loader.
+- Post-import still starts from the loader (or from the handler for a run with no batch), not through a follower job.
+- Queue runs do not take the V3 Redis lock, and the Temporal lock activity does not yet refuse a schema with a live queue run.
+- Repartition, CDC extraction and V2 runs stay on Temporal.

@@ -36,6 +36,9 @@ class RunControl:
     # True when the run holds the V3 pipeline lock under `workflow_run_id` and must confirm it
     # still holds it before it creates the job row.
     verify_v3_lock: bool
+    # Called with the row count of each batch the run stages. The Temporal path records the same
+    # count as an activity metric, which does not exist outside an activity.
+    on_rows_extracted: Callable[[int], None] | None = None
 
 
 @contextlib.asynccontextmanager

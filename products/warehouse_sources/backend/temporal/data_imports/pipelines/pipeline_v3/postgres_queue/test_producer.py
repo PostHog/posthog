@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import Any
 
 import pytest
@@ -10,6 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables,
+    get_test_database_url,
+    truncate_queue_tables,
+)
 
 
 def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -315,3 +322,58 @@ class TestPostgresProducerHeldBatch:
             producer._conn, job_id="job-1", current_run_uuid="run-1", spare_runs_with_progress=False
         )
         assert _inserted_rows(producer) == []
+
+
+@pytest.fixture
+def queue_db_url(django_db_setup: None) -> str:
+    url = get_test_database_url()
+    with psycopg.Connection.connect(url, autocommit=True) as conn:
+        ensure_queue_tables(conn)
+        truncate_queue_tables(conn)
+    return url
+
+
+def _run_states(url: str, run_uuid: str) -> list[tuple[int, bool, str]]:
+    with psycopg.Connection.connect(url, autocommit=True) as conn:
+        rows = conn.execute(
+            f"SELECT batch_index, is_final_batch, latest_state FROM {BATCH_TABLE} WHERE run_uuid = %s ORDER BY batch_index",
+            (run_uuid,),
+        ).fetchall()
+    return [(row[0], row[1], row[2]) for row in rows]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPostgresProducerNextAttempt:
+    # A full refresh never checks for shutdown, so a shutdown cancels its task with a batch still
+    # held in memory. The attempt's inserted rows then have no final row, and only the next
+    # attempt of the same job retires them.
+    @pytest.mark.parametrize("loader_state", [None, "executing"], ids=["not_claimed", "mid_load"])
+    def test_the_next_attempt_supersedes_a_cancelled_attempt(self, queue_db_url: str, loader_state: str | None) -> None:
+        queue_job_id = "queue-job-1"
+        # The pipeline names each attempt's run as `<workflow_run_id>-a<attempt>`.
+        first_run, next_run = f"{queue_job_id}-a1", f"{queue_job_id}-a2"
+        cancelled = PostgresProducer(**_default_kwargs(database_url=queue_db_url, run_uuid=first_run))
+        cancelled.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
+        cancelled.hold_batch(_make_batch_result(batch_index=1), cumulative_row_count=200)
+        cancelled.close()
+        assert cancelled.has_held_batch
+        if loader_state is not None:
+            with psycopg.Connection.connect(queue_db_url, autocommit=True) as conn:
+                row = conn.execute(f"SELECT id FROM {BATCH_TABLE} WHERE run_uuid = %s", (first_run,)).fetchone()
+            assert row is not None
+            asyncio.run(_write_status(queue_db_url, str(row[0]), loader_state))
+
+        next_attempt = PostgresProducer(**_default_kwargs(database_url=queue_db_url, run_uuid=next_run))
+        next_attempt.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
+        next_attempt.send_final_batch(
+            _make_batch_result(batch_index=0), total_batches=1, total_rows=100, data_folder="s3://d", schema_path=None
+        )
+        next_attempt.close()
+
+        assert _run_states(queue_db_url, first_run) == [(0, False, "failed")]
+        assert _run_states(queue_db_url, next_run) == [(0, True, "pending")]
+
+
+async def _write_status(url: str, batch_id: str, job_state: str) -> None:
+    async with await psycopg.AsyncConnection.connect(url, autocommit=True) as conn:
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state=job_state, attempt=1)
