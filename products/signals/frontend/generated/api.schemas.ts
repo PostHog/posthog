@@ -6659,6 +6659,10 @@ export type SignalsReportsListParams = {
      */
     include_all_statuses?: boolean
     /**
+     * Count the filtered total for the page. Pass false to skip the `COUNT(*)` when the total comes from a separate `count_only` request: `count` is then null, and `next` still tells whether a further page exists. Defaults to true.
+     */
+    include_count?: boolean
+    /**
      * Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.
      */
     include_source_metadata?: boolean

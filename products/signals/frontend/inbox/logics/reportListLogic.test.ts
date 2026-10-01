@@ -88,10 +88,12 @@ describe('reportListLogic', () => {
         const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
+        let pageIncludeCounts: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
             requestedOffsets = []
+            pageIncludeCounts = []
             useMocks({
                 get: {
                     // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -100,14 +102,16 @@ describe('reportListLogic', () => {
                         const { searchParams } = new URL(request.url)
                         const offset = searchParams.get('offset')
                         // The header count fires a separate count-only request; not a page.
-                        if (searchParams.get('limit') !== '1') {
+                        const isCountRequest = searchParams.get('count_only') === 'true'
+                        if (!isCountRequest) {
                             requestedOffsets.push(offset)
+                            pageIncludeCounts.push(searchParams.get('include_count'))
                         }
                         const firstPage = offset === '0' || offset === null
                         return [
                             200,
                             {
-                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                count: isCountRequest ? FIRST_PAGE.length + SECOND_PAGE.length : null,
                                 // A non-null `next` is what tells the section there are more pages.
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
@@ -135,6 +139,10 @@ describe('reportListLogic', () => {
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+            // Pages skip the server count, so the total comes from the count request alone.
+            expect(pageIncludeCounts).toEqual(['false', 'false'])
+            expect(logic.values.count).toBe(FIRST_PAGE.length + SECOND_PAGE.length)
+            expect(logic.values.totalCount).toBe(FIRST_PAGE.length + SECOND_PAGE.length)
 
             // The second page came back with `next: null`, so a further loadMore fires no request.
             logic.actions.loadMore()

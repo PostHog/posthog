@@ -17,6 +17,7 @@ export const SignalsReportsListParams = () => zod.object({
 })
 
 export const signalsReportsListQueryCountOnlyDefault = false
+export const signalsReportsListQueryIncludeCountDefault = true
 export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 
 export const SignalsReportsListQueryParams = () => zod.object({
@@ -63,6 +64,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason\/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned."
+        ),
+    include_count: zod
+        .boolean()
+        .default(signalsReportsListQueryIncludeCountDefault)
+        .describe(
+            'Count the filtered total for the page. Pass false to skip the `COUNT(\*)` when the total comes from a separate `count_only` request: `count` is then null, and `next` still tells whether a further page exists. Defaults to true.'
         ),
     include_source_metadata: zod
         .boolean()

@@ -1648,6 +1648,15 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "serialization, and decorative metadata lookups. Defaults to false."
         ),
     )
+    include_count = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Count the filtered total for the page. Pass false to skip the `COUNT(*)` when the total "
+            "comes from a separate `count_only` request: `count` is then null, and `next` still tells "
+            "whether a further page exists. Defaults to true."
+        ),
+    )
     include_source_metadata = serializers.BooleanField(
         required=False,
         default=True,

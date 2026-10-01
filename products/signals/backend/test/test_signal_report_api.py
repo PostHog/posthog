@@ -1669,6 +1669,24 @@ class TestSignalReportListAPI(APIBaseTest):
         assert body["count"] == 3
         assert len(body["results"]) == 1
 
+    @parameterized.expand([("first_page", 0, 2, True), ("last_page", 2, 1, False)])
+    def test_list_without_count_pages_by_peeking_one_row(self, _name, offset, expected_rows, expected_has_next):
+        for i in range(3):
+            self._create_report(title=f"Report {i}")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self._list_url(include_count="false", limit=2, offset=offset))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["count"] is None
+        assert len(body["results"]) == expected_rows
+        assert (body["next"] is not None) == expected_has_next
+        assert not any(
+            "COUNT(*)" in query["sql"] and 'FROM "signals_signalreport"' in query["sql"]
+            for query in ctx.captured_queries
+        )
+
     def test_filter_has_implementation_pr_count_only_skips_report_enrichment(self):
         for i in range(3):
             report = self._create_report(title=f"PR report {i}")
