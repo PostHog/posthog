@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useId } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import {
@@ -20,13 +21,16 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TodaySessionContextMenu } from '~/layout/today/TodaySessionContextMenu'
+import { TodaySessionDialogs } from '~/layout/today/TodaySessionDialogs'
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
-import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
+import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
+import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
@@ -46,7 +50,10 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
+    const menuId = useId()
     const item = sessionItem(task)
+    // The "…" menu and the right-click menu share one menu id, so either one opens the same dialogs.
+    const menu = sessionMenuTarget(item, { menuId, pinned, userId: user?.id })
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
@@ -54,10 +61,10 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
 
-    return (
+    const card = (
         <Card
             size="sm"
-            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
+            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition hover:bg-fill-hover hover:ring-1 hover:ring-input"
         >
             <div className="flex min-w-0 items-center gap-3">
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
@@ -73,7 +80,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                         <SpaceFeedStatusIcon item={item} className="translate-y-0.5" />
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
-                            className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0 hover:underline"
+                            className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0"
                             data-attr="today-space-feed-card"
                         >
                             {item.title || 'Untitled session'}
@@ -100,23 +107,10 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                             {status.label}
                         </Badge>
                     )}
-                    <TodaySessionMenu
-                        sessionId={task.id}
-                        title={item.title}
-                        pinned={pinned}
-                        spaceId={item.channel}
-                        surface="feed"
-                        canHandOff={canHandOff(item, user?.id)}
-                        analysisRunId={analysisRunId(item)}
-                        activeRunId={activeCloudRunId(item)}
-                    />
+                    <TodaySessionMenu target={menu} surface="feed" />
                 </div>
             </div>
-            {preview && (
-                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 leading-normal break-words">
-                    {preview}
-                </Text>
-            )}
+            <SpaceFeedCardPrompt taskId={task.id} prompt={preview} />
             {(repository || author || item.pullRequests.length > 0) && (
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
                     {repository && (
@@ -183,5 +177,14 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             )}
         </Card>
+    )
+    // The dialogs sit outside the right-click area, so a right-click inside one does not reach the card's menu.
+    return (
+        <>
+            <TodaySessionContextMenu target={menu} surface="feed">
+                {card}
+            </TodaySessionContextMenu>
+            <TodaySessionDialogs target={menu} />
+        </>
     )
 }

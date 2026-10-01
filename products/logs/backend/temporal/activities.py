@@ -1126,7 +1126,7 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
         alert.next_check_at,
         alert.check_interval_minutes,
         now,
-        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
+        shard_offset_seconds=compute_shard_offset_seconds(alert.team_id, alert.check_interval_minutes),
     )
     try:
         alert.next_check_at = next_allowed_check_at(

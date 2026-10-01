@@ -31,7 +31,7 @@ _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.
-_DEFAULT_LOOKBACK = dt.timedelta(days=7)
+_DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
 # of erroring the way the chart queries do.

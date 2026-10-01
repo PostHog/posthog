@@ -103,3 +103,62 @@ export function parseCsv(text: string): string[][] {
     }
     return rows.filter((cells) => cells.some((cell) => cell !== ''))
 }
+
+/** A file the agent wrote, with the run that holds it. Downloads must name that run, not the open one. */
+export interface RunArtifact extends TaskRunArtifactResponseApi {
+    runId: string
+}
+
+interface RunWithArtifacts {
+    id: string
+    artifacts?: readonly TaskRunArtifactResponseApi[] | null
+}
+
+/**
+ * Agent files from every run of a task. A resumed task keeps writing new runs, so the files from earlier
+ * runs in the chain are only on those runs. The first run that lists an id wins, so pass the live run first.
+ */
+export function collectRunArtifacts(runs: readonly (RunWithArtifacts | null | undefined)[]): RunArtifact[] {
+    const byId = new Map<string, RunArtifact>()
+    for (const run of runs) {
+        if (!run) {
+            continue
+        }
+        for (const artifact of visibleRunArtifacts(run.artifacts ?? [])) {
+            if (artifact.id && !byId.has(artifact.id)) {
+                byId.set(artifact.id, { ...artifact, runId: run.id })
+            }
+        }
+    }
+    return [...byId.values()].sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))
+}
+
+/** One file name with every upload of it. */
+export interface ArtifactFile {
+    name: string
+    /** Newest first. */
+    versions: RunArtifact[]
+    latest: RunArtifact
+}
+
+/**
+ * The agent writes a new artifact each time it saves a file, so each upload of a name is a version of that file.
+ * Versions can sit on different runs of the resume chain.
+ */
+export function groupArtifactVersions(artifacts: readonly RunArtifact[]): ArtifactFile[] {
+    const byName = new Map<string, RunArtifact[]>()
+    for (const artifact of artifacts) {
+        const versions = byName.get(artifact.name)
+        if (versions) {
+            versions.push(artifact)
+        } else {
+            byName.set(artifact.name, [artifact])
+        }
+    }
+    return [...byName]
+        .map(([name, versions]) => {
+            const sorted = [...versions].sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))
+            return { name, versions: sorted, latest: sorted[0] }
+        })
+        .sort((a, b) => b.latest.uploaded_at.localeCompare(a.latest.uploaded_at))
+}

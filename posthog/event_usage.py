@@ -12,7 +12,6 @@ from django.contrib.auth.models import AnonymousUser
 import posthoganalytics
 from opentelemetry import trace
 
-from posthog.auth import SessionAuthentication
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import POSTHOG_INTERNAL_EMAIL_SUFFIX
 from posthog.helpers.oauth_pending_connection import PendingOAuthConnection
@@ -521,6 +520,10 @@ def get_event_source(request) -> EventSource:
     # DRF sets successful_authenticator during view dispatch; before that
     # (e.g. in middleware), fall back to checking the Django session cookie
     # which is available after Django's AuthenticationMiddleware runs.
+    # Call-time import: model files import this module during django.setup(), and posthog.auth
+    # pulls zxcvbn and webauthn, which no background process needs.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
+
     if isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return EventSource.WEB
     if getattr(getattr(request, "session", None), "session_key", None) is not None:

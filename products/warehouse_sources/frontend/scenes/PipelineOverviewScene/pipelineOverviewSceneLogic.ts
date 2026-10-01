@@ -20,6 +20,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     dataWarehouseCompletedActivityRetrieve,
+    dataWarehouseRunningActivityRetrieve,
     dataWarehouseDataHealthIssuesRetrieve,
     dataWarehouseJobStatsRetrieve,
     dataWarehouseTotalRowsStatsRetrieve,
@@ -27,7 +28,6 @@ import {
 import type {
     DataHealthIssueApi,
     DataHealthIssuesResponseApi,
-    PipelineActivityResponseApi,
     PipelineActivityRowApi,
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
@@ -81,12 +81,12 @@ export interface pipelineOverviewSceneLogicValues {
     rowsStatsLoading: boolean
     healthIssues: DataHealthIssuesResponseApi | null
     healthIssuesLoading: boolean
-    recentFailures: PipelineActivityResponseApi | null
-    recentFailuresLoading: boolean
+    recentRuns: { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null
+    recentRunsLoading: boolean
     breadcrumbs: Breadcrumb[]
     issuesBySeverity: DataHealthIssueApi[]
     failingSyncCount: number
-    failedRuns: PipelineActivityRowApi[]
+    recentRunRows: PipelineActivityRowApi[]
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
     sources: ExternalDataSourceSerializersApi[] | null
@@ -105,7 +105,7 @@ export interface pipelineOverviewSceneLogicActions {
     loadJobStats: () => any
     loadRowsStats: () => any
     loadHealthIssues: () => any
-    loadRecentFailures: () => any
+    loadRecentRuns: () => any
     loadDestinations: () => any
     loadSources: () => any
     loadDestinationRowSeries: () => any
@@ -224,6 +224,11 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                                     appSource: WAREHOUSE_APP_SOURCE,
                                     metricName: 'rows_synced',
                                     instanceId: destination.id,
+                                    // The time-series query interpolates `breakdownBy` with no
+                                    // fallback, so omitting it emits `undefined AS breakdown` and
+                                    // the query fails to resolve. `instance_id` is already pinned
+                                    // to one destination by `instanceId`, so this yields one series.
+                                    breakdownBy: 'instance_id',
                                     interval,
                                     dateFrom,
                                     dateTo,
@@ -243,22 +248,35 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 },
             },
         ],
-        recentFailures: [
-            null as PipelineActivityResponseApi | null,
+        recentRuns: [
+            null as { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null,
             {
-                loadRecentFailures: async () =>
-                    await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
-                        outcome: 'failed',
-                        // Imports only. Without this a team with many failing views fills every
-                        // page with them and this list renders empty.
-                        kind: 'import',
-                        // The window control sits in this section's own header. Without this the
-                        // endpoint falls back to its own 30-day default and ignores the control.
-                        cutoff_days: values.window,
-                        // Over-fetch: the endpoint has no sync-only filter, so view runs are
-                        // dropped client-side and a page of them would otherwise show nothing.
-                        limit: 50,
-                    }),
+                loadRecentRuns: async () => {
+                    const [finished, running] = await Promise.all([
+                        dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
+                            // Everything that finished, not just the failures.
+                            outcome: 'all',
+                            // Imports only. Without this a team with many failing views fills
+                            // every page with them and this list renders empty.
+                            kind: 'import',
+                            // The window control sits in this section's own header. Without this
+                            // the endpoint falls back to its own 30-day default.
+                            cutoff_days: values.window,
+                            limit: 50,
+                        }),
+                        // In-flight runs come from a separate endpoint, so a sync that started
+                        // seconds ago appears at the top rather than waiting until it finishes.
+                        dataWarehouseRunningActivityRetrieve(String(values.currentTeamId), {
+                            kind: 'import',
+                            cutoff_days: values.window,
+                            limit: 50,
+                        }),
+                    ])
+                    return {
+                        finished: (finished.results ?? []) as PipelineActivityRowApi[],
+                        running: (running.results ?? []) as PipelineActivityRowApi[],
+                    }
+                },
             },
         ],
     })),
@@ -332,10 +350,20 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         ],
         /** Whether anything is wrong. The health section is hidden when nothing is. */
         hasIssues: [(s: any) => [s.issuesBySeverity], (issues: DataHealthIssueApi[]): boolean => issues.length > 0],
-        failedRuns: [
-            (s: any) => [s.recentFailures],
-            (recentFailures: PipelineActivityResponseApi | null): PipelineActivityRowApi[] =>
-                (recentFailures?.results ?? []).filter((run) => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE),
+        /** Running first, then finished newest-first. Model runs are another product's. */
+        recentRunRows: [
+            (s: any) => [s.recentRuns],
+            (
+                answer: { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null
+            ): PipelineActivityRowApi[] => {
+                if (!answer) {
+                    return []
+                }
+                const isImport = (run: PipelineActivityRowApi): boolean => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE
+                const finished = answer.finished.filter(isImport)
+                const finishedIds = new Set(finished.map((run) => run.id))
+                return [...answer.running.filter((run) => isImport(run) && !finishedIds.has(run.id)), ...finished]
+            },
         ],
         // A first load shows skeletons; a refresh keeps the numbers on screen and dims them, so
         // polling does not make the page flash.
@@ -355,7 +383,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         setWindow: () => {
             actions.loadJobStats()
             actions.loadDestinationRowSeries()
-            actions.loadRecentFailures()
+            actions.loadRecentRuns()
         },
         refresh: () => actions.loadEverything(),
         // The series are fetched one destination at a time, so the destination list has to land
@@ -365,7 +393,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadJobStats()
             actions.loadRowsStats()
             actions.loadHealthIssues()
-            actions.loadRecentFailures()
+            actions.loadRecentRuns()
             actions.loadDestinations()
             actions.loadSources()
         },
@@ -374,6 +402,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         pollStats: () => {
             actions.loadJobStats()
             actions.loadHealthIssues()
+            // The runs list is the one table worth moving under the reader: a sync that starts
+            // while the page is open should appear without a refresh.
+            actions.loadRecentRuns()
         },
     })),
     afterMount(({ actions, cache }: any) => {
