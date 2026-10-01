@@ -659,6 +659,21 @@ def duplicate_input_keys(schemas: Any) -> set[str]:
     return duplicates
 
 
+def added_duplicate_input_keys(schemas: Any, stored_schemas: Any) -> set[str]:
+    """Keys the schema repeats more often than the stored schema already did."""
+
+    def counts(items: Any) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for schema in items or []:
+            if isinstance(schema, dict) and "key" in schema:
+                key = str(schema["key"]).strip()
+                result[key] = result.get(key, 0) + 1
+        return result
+
+    stored = counts(stored_schemas)
+    return {key for key, count in counts(schemas).items() if count > 1 and count > stored.get(key, 0)}
+
+
 class InputsSchemaSerializer(serializers.ListField):
     """A function's input schema.
 
