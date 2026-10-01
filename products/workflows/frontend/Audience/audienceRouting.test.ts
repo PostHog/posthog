@@ -122,6 +122,7 @@ describe('audience routing', () => {
         { visited: ['/audience'], tab: 'topics', label: 'Topics' },
         { visited: ['/audience/topics'], tab: 'topics', label: 'Topics' },
         { visited: ['/audience/suppression'], tab: 'suppression', label: 'Suppression list' },
+        { visited: ['/audience/engagement'], tab: 'engagement', label: 'Engagement' },
         { visited: ['/audience/suppression', '/audience'], tab: 'topics', label: 'Topics' },
         { visited: ['/audience/not-a-tab'], tab: 'topics', label: 'Topics' },
         { visited: ['/audience/recipients/jamie%40example.com'], tab: 'topics', label: 'Topics' },

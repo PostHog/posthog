@@ -10,8 +10,9 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
+import { engagementEventsLogic } from '../engagementEventsLogic'
 import { audienceEngagementLogic } from './audienceEngagementLogic'
-import { engagementEventsLogic } from './engagementEventsLogic'
+import { AUDIENCE_ENGAGEMENT_TILES } from './audienceEngagementTiles'
 
 const CREATED_DASHBOARD_ID = 42
 
@@ -101,14 +102,14 @@ describe('audience engagement', () => {
         logic.mount()
 
         logic.actions.createDashboard()
-        await expectLogic(logic).toMatchValues({ dashboardCreating: true })
+        await expectLogic(logic).toMatchValues({ createdDashboardLoading: true })
         releaseCreation()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ dashboardCreating: false })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ createdDashboardLoading: false })
 
         expect(postedTemplates).toHaveLength(1)
         expect(postedTemplates[0].tiles).toMatchObject(EXPECTED_TILE_QUERIES.map((query) => ({ query })))
         expect(postedTemplates[0].tiles.map((tile: { query: unknown }) => tile.query)).toEqual(
-            logic.values.tiles.map((tile) => tile.query)
+            AUDIENCE_ENGAGEMENT_TILES.map((tile) => tile.query)
         )
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(`/dashboard/${CREATED_DASHBOARD_ID}`)
         expect(capturedEvents('audience dashboard created')).toEqual([
@@ -140,7 +141,9 @@ describe('audience engagement', () => {
         })
         logic = audienceEngagementLogic()
 
-        await expectLogic(logic, () => logic.mount())
+        await expectLogic(logic, () => {
+            logic.mount()
+        })
             .toFinishAllListeners()
             .toMatchValues({
                 engagementEventsCaptured: false,
