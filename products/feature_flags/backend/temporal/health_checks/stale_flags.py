@@ -232,7 +232,7 @@ def _live_gate_answer(team_id: int) -> bool | str | None:
     # mirror of this flag, so every condition needs a `region` filter as well or it matches the
     # same-numbered project in both regions, which are different customers.
     region = get_instance_region() or "DEV"
-    answer = get_feature_flag_or_none(
+    return get_feature_flag_or_none(
         LIVE_GATE_FLAG,
         f"team-{team_id}",
         groups={"project": f"{region}:{team_id}"},
@@ -240,7 +240,6 @@ def _live_gate_answer(team_id: int) -> bool | str | None:
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
-    return answer
 
 
 def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
