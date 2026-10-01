@@ -83,7 +83,11 @@ class TestScheduledRecalculationActivities(BaseTest):
             recalc = ExperimentMetricsRecalculation.objects.get(id=result.recalculation_id)
         assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.STALE_REFRESH
         assert recalc.created_by is None
-        dispatch.assert_called_once_with(result.recalculation_id, str(self.team.organization_id))
+        dispatch.assert_called_once_with(
+            result.recalculation_id,
+            team_id=self.team.id,
+            organization_id=str(self.team.organization_id),
+        )
 
     def test_start_skips_when_a_run_is_active(self):
         with team_scope(self.team.id, canonical=True):
@@ -109,15 +113,16 @@ class TestScheduledRecalculationActivities(BaseTest):
         assert result.skip_reason == SKIP_ACTIVE_RUN
         dispatch.assert_not_called()
 
-    def test_start_rolls_the_row_back_when_dispatch_fails(self):
-        # A row left PENDING would look active to every later scheduled run, and nothing reaps it.
-        with patch(f"{MODULE}.start_metrics_recalculation_workflow", side_effect=RuntimeError("temporal down")):
+    def test_start_reports_not_started_when_dispatch_fails(self):
+        # The row rollback belongs to start_metrics_recalculation_workflow. What this activity owes
+        # is an honest result: no started event for a workflow that never started.
+        with (
+            patch(f"{MODULE}.start_metrics_recalculation_workflow", side_effect=RuntimeError("temporal down")),
+            patch(f"{MODULE}.capture_started") as started_event,
+        ):
             result = _start_recalculation(self.experiment.id, 2)
         assert result.started is False
-        with team_scope(self.team.id, canonical=True):
-            recalc = ExperimentMetricsRecalculation.objects.get(experiment=self.experiment)
-        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
-        assert recalc.completed_at is None
+        started_event.assert_not_called()
 
     def test_deleted_experiment_is_skipped_not_raised(self):
         missing_id = self.experiment.id + 10_000
