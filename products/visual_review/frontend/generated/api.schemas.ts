@@ -594,6 +594,78 @@ export interface FinalizeResultApi {
     baseline_content: string
 }
 
+export interface LiftOnMergeInputApi {
+    /** UUID of a quarantined snapshot in this run. Its picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture. */
+    snapshot_id: string
+}
+
+/**
+ * * `pending` - pending
+ * * `applied` - applied
+ * * `cancelled` - cancelled
+ * * `superseded` - superseded
+ */
+export type QuarantineLiftStateEnumApi = (typeof QuarantineLiftStateEnumApi)[keyof typeof QuarantineLiftStateEnumApi]
+
+export const QuarantineLiftStateEnumApi = {
+    Pending: 'pending',
+    Applied: 'applied',
+    Cancelled: 'cancelled',
+    Superseded: 'superseded',
+} as const
+
+export interface QuarantineLiftEntryApi {
+    /** UUID of the lift request. */
+    id: string
+    /** UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event. */
+    quarantine_id: string
+    /** Snapshot identifier under quarantine. */
+    identifier: string
+    /** Run type of the quarantine, for example storybook. */
+    run_type: string
+    /** Pull request whose merge the lift waits for. */
+    pr_number: number
+    /** Content hash a default-branch run must render, against a baseline entry with the same hash, for the lift to apply. */
+    expected_hash: string
+    /** `pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. `cancelled` was withdrawn, or the pull request closed without merging into the run's branch. `superseded` means the quarantine ended some other way, or another request lifted it.
+     *
+     * * `pending` - pending
+     * * `applied` - applied
+     * * `cancelled` - cancelled
+     * * `superseded` - superseded */
+    state: QuarantineLiftStateEnumApi
+    /** The latest verification outcome, in plain words. */
+    detail: string
+    /** When the lift was requested. */
+    created_at: string
+    /** When the request last changed. */
+    updated_at: string
+    /**
+     * When the request left `pending`. Null while it waits.
+     * @nullable
+     */
+    resolved_at?: string | null
+    /**
+     * Run the lift was requested from. Null after that run is deleted.
+     * @nullable
+     */
+    source_run_id?: string | null
+    /** User who requested the lift, or on whose behalf an agent did. */
+    requested_by?: UserBasicInfoApi | null
+    /**
+     * Merge commit of the pull request. Set when the lift applies.
+     * @nullable
+     */
+    merge_commit_sha?: string | null
+    /**
+     * Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that does not contain it still treats the snapshot as quarantined.
+     * @nullable
+     */
+    lifted_at_sha?: string | null
+    /** Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP. */
+    source: string
+}
+
 export interface RecomputeResultApi {
     run: RunApi
     counts_changed: boolean

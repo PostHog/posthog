@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from posthog.models.integration import GitHubIntegration
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 
@@ -260,6 +261,43 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
         "head_ref": pr_data["head"]["ref"],
         "head_sha": pr_data["head"]["sha"],
     }
+
+
+@frozen
+class PullRequestState:
+    """What GitHub says about a pull request, as far as a merge check needs it."""
+
+    state: str  # "open" or "closed"
+    merged: bool
+    merge_commit_sha: str | None
+    base_ref: str
+
+
+def pull_request_state(repo: Repo, pr_number: int) -> PullRequestState | None:
+    """The pull request's merge state, or None when GitHub cannot say."""
+    try:
+        github = get_github_integration_for_repo(repo)
+        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/pulls/{pr_number}")
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.pull_request_state_fetch_failed", repo_id=str(repo.id), pr_number=pr_number)
+        return None
+    if response.status_code != 200:
+        logger.warning(
+            "visual_review.pull_request_state_fetch_failed",
+            repo_id=str(repo.id),
+            pr_number=pr_number,
+            status=response.status_code,
+        )
+        return None
+    data = response.json()
+    return PullRequestState(
+        state=data.get("state") or "",
+        merged=bool(data.get("merged")),
+        merge_commit_sha=data.get("merge_commit_sha"),
+        base_ref=(data.get("base") or {}).get("ref") or "",
+    )
 
 
 # A larger baseline file is parsed without caching, so one repository cannot fill the shared cache

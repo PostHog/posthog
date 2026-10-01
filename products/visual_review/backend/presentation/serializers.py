@@ -33,8 +33,10 @@ from ..facade.contracts import (
     FlakinessEntry,
     FlakinessOverview,
     FlakinessTotals,
+    LiftOnMergeInput,
     QuarantinedIdentifierEntry,
     QuarantineInput,
+    QuarantineLiftEntry,
     QuarantineSourceRun,
     RecomputeResult,
     Repo,
@@ -52,7 +54,7 @@ from ..facade.contracts import (
     UploadTarget,
     UserBasicInfo,
 )
-from ..facade.enums import FlakinessState, RunPurpose, ShiftBandKind
+from ..facade.enums import FlakinessState, QuarantineLiftState, RunPurpose, ShiftBandKind
 
 # --- Output Serializers ---
 
@@ -409,6 +411,75 @@ class QuarantineInputSerializer(DataclassSerializer):
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class LiftOnMergeInputSerializer(DataclassSerializer):
+    snapshot_id = serializers.UUIDField(
+        help_text=(
+            "UUID of a quarantined snapshot in this run. Its picture is what a default-branch run must render "
+            "for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot "
+            "must be approved first, because requesting a lift never approves a picture."
+        ),
+    )
+
+    class Meta:
+        dataclass = LiftOnMergeInput
+
+
+class QuarantineLiftEntrySerializer(DataclassSerializer):
+    id = serializers.UUIDField(help_text="UUID of the lift request.")
+    quarantine_id = serializers.UUIDField(
+        help_text="UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event."
+    )
+    identifier = serializers.CharField(help_text="Snapshot identifier under quarantine.")
+    run_type = serializers.CharField(help_text="Run type of the quarantine, for example storybook.")
+    pr_number = serializers.IntegerField(help_text="Pull request whose merge the lift waits for.")
+    expected_hash = serializers.CharField(
+        help_text=(
+            "Content hash a default-branch run must render, against a baseline entry with the same hash, "
+            "for the lift to apply."
+        )
+    )
+    state = serializers.ChoiceField(
+        choices=QuarantineLiftState.choices,
+        help_text=(
+            "`pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. "
+            "`cancelled` was withdrawn, or the pull request closed without merging into the run's branch. "
+            "`superseded` means the quarantine ended some other way, or another request lifted it."
+        ),
+    )
+    detail = serializers.CharField(help_text="The latest verification outcome, in plain words.")
+    created_at = serializers.DateTimeField(help_text="When the lift was requested.")
+    updated_at = serializers.DateTimeField(help_text="When the request last changed.")
+    resolved_at = serializers.DateTimeField(
+        allow_null=True, required=False, help_text="When the request left `pending`. Null while it waits."
+    )
+    source_run_id = serializers.UUIDField(
+        allow_null=True, required=False, help_text="Run the lift was requested from. Null after that run is deleted."
+    )
+    requested_by = UserBasicInfoSerializer(
+        allow_null=True, required=False, help_text="User who requested the lift, or on whose behalf an agent did."
+    )
+    merge_commit_sha = serializers.CharField(
+        allow_null=True, required=False, help_text="Merge commit of the pull request. Set when the lift applies."
+    )
+    lifted_at_sha = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that "
+            "does not contain it still treats the snapshot as quarantined."
+        ),
+    )
+
+    class Meta:
+        dataclass = QuarantineLiftEntry
+        # Declared here because a serializer attribute named `source` shadows `Field.source`.
+        extra_kwargs = {
+            "source": {
+                "help_text": "Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP."
+            },
+        }
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

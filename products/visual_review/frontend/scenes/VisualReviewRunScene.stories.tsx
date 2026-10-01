@@ -6,7 +6,14 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ArtifactApi, RepoApi, RunApi, SnapshotApi } from '../generated/api.schemas'
+import type {
+    ArtifactApi,
+    QuarantineLiftEntryApi,
+    QuarantinedIdentifierEntryApi,
+    RepoApi,
+    RunApi,
+    SnapshotApi,
+} from '../generated/api.schemas'
 
 const RUN_ID = '00000000-0000-0000-0000-0000000000aa'
 const REPO_ID = '00000000-0000-0000-0000-0000000000bb'
@@ -169,6 +176,7 @@ const meta: Meta = {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: emptyList,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/`]: repo,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: emptyList,
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [],
             },
         }),
     ],
@@ -282,4 +290,57 @@ export const TolerateSuggestsQuarantine: StoryObj = {
         })
         await userEvent.click(tolerateButton)
     },
+}
+
+const buttonQuarantine: QuarantinedIdentifierEntryApi = {
+    id: 'quarantine-button',
+    identifier: 'Components/Button--primary',
+    run_type: 'storybook',
+    reason: 'Hover state renders a frame late',
+    source: 'human',
+    expires_at: '2026-07-01T00:00:00Z',
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+}
+
+const pendingLift: QuarantineLiftEntryApi = {
+    id: 'lift-button',
+    quarantine_id: buttonQuarantine.id,
+    identifier: buttonQuarantine.identifier,
+    run_type: 'storybook',
+    pr_number: 42,
+    expected_hash: 'curr_changed',
+    state: 'pending',
+    detail: 'Waiting for the pull request to merge',
+    source: 'human',
+    created_at: '2026-06-10T00:02:00Z',
+    updated_at: '2026-06-10T00:02:00Z',
+}
+
+// A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
+export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
+    parameters: {
+        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: {
+                    ...snapshots,
+                    results: snapshots.results.map((s) =>
+                        s.id === 'snapshot-changed'
+                            ? { ...s, review_state: 'approved', approved_hash: 'curr_changed', is_quarantined: true }
+                            : s
+                    ),
+                },
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
+                    ...emptyList,
+                    count: 1,
+                    results: [buttonQuarantine],
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [pendingLift],
+            },
+        }),
+    ],
 }

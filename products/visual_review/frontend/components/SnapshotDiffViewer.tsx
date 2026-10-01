@@ -10,10 +10,16 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import type {
+    QuarantineLiftEntryApi,
+    QuarantinedIdentifierEntryApi,
+    SnapshotApi,
+    ToleratedHashEntryApi,
+} from '../generated/api.schemas'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
+import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
 import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
@@ -73,6 +79,12 @@ interface SnapshotDiffViewerProps {
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: OnQuarantine
     onUnquarantine?: () => void
+    liftRequest?: QuarantineLiftEntryApi | null
+    liftOnMergeDisabledReason?: string | null
+    isRequestingLift?: boolean
+    isCancellingLift?: boolean
+    onRequestLiftOnMerge?: () => void
+    onCancelLiftOnMerge?: (requestId: string) => void
     commitSha?: string
     prNumber?: number | null
     repoId?: string | null
@@ -96,6 +108,12 @@ export function SnapshotDiffViewer({
     quarantineEntry,
     onQuarantine,
     onUnquarantine,
+    liftRequest,
+    liftOnMergeDisabledReason,
+    isRequestingLift,
+    isCancellingLift,
+    onRequestLiftOnMerge,
+    onCancelLiftOnMerge,
     commitSha,
     prNumber,
     repoId,
@@ -605,6 +623,18 @@ export function SnapshotDiffViewer({
                                 Unquarantine
                             </LemonButton>
                         </div>
+                    )}
+                    {prNumber != null && onRequestLiftOnMerge && onCancelLiftOnMerge && (
+                        <QuarantineLiftOnMerge
+                            prNumber={prNumber}
+                            isQuarantined={isQuarantined}
+                            liftRequest={liftRequest ?? null}
+                            disabledReason={liftOnMergeDisabledReason ?? null}
+                            isRequesting={!!isRequestingLift}
+                            isCancelling={!!isCancellingLift}
+                            onRequest={onRequestLiftOnMerge}
+                            onCancel={onCancelLiftOnMerge}
+                        />
                     )}
                 </div>
             </div>

@@ -231,6 +231,10 @@ export function VisualReviewRunScene(): JSX.Element {
         isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
+        isRequestingLift,
+        isCancellingLift,
+        selectedLiftRequest,
+        selectedLiftOnMergeDisabledReason,
         isRunInProgress,
         isRunProcessing,
         isReportingOnly,
@@ -245,6 +249,8 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        requestLiftOnMerge,
+        cancelLiftOnMerge,
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
@@ -610,6 +616,14 @@ export function VisualReviewRunScene(): JSX.Element {
                                 quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId, notifyOwners)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
+                            liftRequest={selectedLiftRequest}
+                            liftOnMergeDisabledReason={selectedLiftOnMergeDisabledReason}
+                            isRequestingLift={isRequestingLift}
+                            isCancellingLift={isCancellingLift}
+                            onRequestLiftOnMerge={
+                                isReportingOnly ? undefined : () => requestLiftOnMerge(selectedSnapshot)
+                            }
+                            onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoId={run.repo_id}

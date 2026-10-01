@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import ShiftBandKind
+from .enums import QuarantineLiftState, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -450,6 +450,36 @@ class QuarantineInput:
     # history page where no run is in context.
     source_run_id: UUID | None = None
     notify_owners: bool = False
+
+
+@dataclass(frozen=True)
+class LiftOnMergeInput:
+    """Request body for lifting a quarantine when the run's pull request merges. run_id comes from the URL."""
+
+    snapshot_id: UUID
+
+
+@dataclass(frozen=True)
+class QuarantineLiftEntry:
+    """A request to lift one quarantine event once a pull request merges."""
+
+    id: UUID
+    quarantine_id: UUID
+    identifier: str
+    run_type: str
+    pr_number: int
+    # The picture a default-branch run must render, against a baseline entry that holds it too.
+    expected_hash: str
+    state: QuarantineLiftState
+    detail: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None = None
+    source_run_id: UUID | None = None
+    requested_by: UserBasicInfo | None = None
+    merge_commit_sha: str | None = None
+    lifted_at_sha: str | None = None
 
 
 @dataclass(frozen=True)

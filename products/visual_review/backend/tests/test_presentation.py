@@ -20,7 +20,14 @@ from products.visual_review.backend.facade.contracts import (
     CreateRunInput,
     SnapshotManifestItem,
 )
-from products.visual_review.backend.facade.enums import ActorType, RunPurpose, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import (
+    ActorType,
+    ReviewState,
+    RunPurpose,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
 from products.visual_review.backend.logic import artifact_store, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
@@ -572,6 +579,63 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("unchanged_picture", "", SnapshotResult.UNCHANGED, status.HTTP_201_CREATED),
+            ("unapproved_change", ReviewState.PENDING, SnapshotResult.CHANGED, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_lift_on_merge_records_a_request_or_explains_the_refusal(
+        self, _name: str, review_state: str, result: str, expected_status: int
+    ):
+        quarantined = quarantine.quarantine_identifier(
+            repo_id=self.vr_project.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
+        run = Run.objects.create(
+            team_id=self.team.id,
+            repo_id=self.vr_project.id,
+            run_type=RunType.STORYBOOK,
+            branch="fix-flake",
+            commit_sha="abc123",
+            pr_number=7,
+            status=RunStatus.COMPLETED,
+        )
+        snapshot = RunSnapshot.objects.create(
+            team_id=self.team.id,
+            run=run,
+            identifier="Button",
+            current_hash="h1",
+            baseline_hash="h1" if result == SnapshotResult.UNCHANGED else "h0",
+            result=result,
+            review_state=review_state,
+            is_quarantined=True,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/lift_on_merge/",
+            {"snapshot_id": str(snapshot.id)},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            body = response.json()
+            assert (body["quarantine_id"], body["pr_number"], body["expected_hash"], body["state"]) == (
+                str(quarantined.id),
+                7,
+                "h1",
+                "pending",
+            )
+            listed = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/quarantine_lifts/")
+            assert [entry["id"] for entry in listed.json()] == [body["id"]]
+        else:
+            assert "Approve the new picture first" in response.json()["detail"]
 
     def _seed_history_row(
         self,

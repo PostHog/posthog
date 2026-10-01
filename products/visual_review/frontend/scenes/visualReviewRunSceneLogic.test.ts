@@ -1,4 +1,4 @@
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -8,6 +8,7 @@ import { visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
 const RUN_ID = '00000000-0000-0000-0000-0000000000aa'
 const TOLERATED_URL = `/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`
 const SNAPSHOTS_URL = `/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`
+const LIFTS_URL = `/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`
 const CHANGED_SNAPSHOT = { id: 'snapshot-changed', identifier: 'changed', result: 'changed' }
 const UNCHANGED_SNAPSHOT = { id: 'snapshot-unchanged', identifier: 'unchanged', result: 'unchanged' }
 
@@ -172,4 +173,53 @@ describe('visualReviewRunSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({ recentTolerations: { manual, agent: 0, auto: 0 } })
     })
+
+    it.each([
+        { reviewState: 'approved', disabledReason: null },
+        { reviewState: 'pending', disabledReason: 'Approve the new picture first' },
+    ])(
+        'shows the pending lift on merge for a quarantined $reviewState change',
+        async ({ reviewState, disabledReason }) => {
+            const quarantined = {
+                id: 'snapshot-flaky',
+                identifier: 'flaky',
+                result: 'changed',
+                review_state: reviewState,
+            }
+            const lift = (id: string, state: string, runType = 'storybook'): Record<string, unknown> => ({
+                id,
+                identifier: 'flaky',
+                run_type: runType,
+                state,
+                detail: 'Waiting for the pull request to merge',
+            })
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: [
+                        200,
+                        { id: RUN_ID, repo_id: 'repo', run_type: 'storybook', pr_number: 7, status: 'completed' },
+                    ],
+                    [SNAPSHOTS_URL]: [200, { count: 1, next: null, previous: null, results: [quarantined] }],
+                    // Newest first, as the endpoint returns them.
+                    [LIFTS_URL]: [
+                        200,
+                        [
+                            lift('cancelled-newer', 'cancelled'),
+                            lift('other-run-type', 'pending', 'playwright'),
+                            lift('pending-older', 'pending'),
+                        ],
+                    ],
+                },
+            })
+            logic.actions.setSelectedSnapshotId(quarantined.id)
+            logic.actions.loadRun()
+            logic.actions.loadSnapshots()
+
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                selectedLiftRequest: partial({ id: 'pending-older' }),
+                selectedLiftOnMergeDisabledReason: disabledReason,
+            })
+        }
+    )
 })
