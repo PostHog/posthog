@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -8,6 +10,9 @@ import { spaceNewSessionUrl, todaySpacesLogic } from '~/layout/today/todaySpaces
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { TaskListItemApi } from '../generated/api.schemas'
+import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './spaceFeedEntries'
+import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { AutoArchiveSelection, spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
@@ -91,25 +96,38 @@ describe('spaceSceneLogic', () => {
         const logic = spaceSceneLogic({ id: 'space-a' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.feedGroups.flatMap((group) => group.items.map((item) => item.id))).toEqual(['task-1'])
+        expect(logic.values.feedItems.map((item) => item.id)).toEqual(['task-1'])
 
         todaySessionMenuLogic.actions.moveSession('task-1', 'space-b')
         await expectLogic(logic).toDispatchActions(['sessionUpdated', 'loadSessionsSuccess'])
 
-        expect(logic.values.feedGroups).toEqual([])
+        expect(logic.values.feedSections).toEqual([])
     })
 
-    it('shows the new name after a rename and reloads the sidebar spaces', async () => {
-        const logic = spaceSceneLogic({ id: 'space-a' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+    it.each([
+        ['a new name', '  checkout ', [{ name: 'checkout' }], 'checkout', null, null],
+        ['a blank name', '   ', [], 'space-a', '   ', 'Enter a name'],
+        ['a name over the limit', 'x'.repeat(129), [], 'space-a', 'x'.repeat(129), 'Use 128 characters or fewer'],
+        ['the saved name', 'space-a', [], 'space-a', null, null],
+    ])(
+        'renames once on Enter and blur for %s',
+        async (_, draft, expectedPatches, expectedName, expectedDraft, expectedError) => {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.updateSpace({ name: 'checkout' })
-        await expectLogic(logic).toDispatchActions(['updateSpace', 'spaceSaved', 'loadSpaces'])
+            logic.actions.setNameDraft(draft)
+            logic.actions.commitName()
+            logic.actions.commitName()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.space?.name).toBe('checkout')
-        expect(logic.values.savingSpace).toBe(false)
-    })
+            expect(spacePatches).toEqual(expectedPatches)
+            expect(logic.values.space?.name).toBe(expectedName)
+            expect(logic.values.nameDraft).toBe(expectedDraft)
+            expect(logic.values.nameError).toBe(expectedError)
+            expect(logic.values.savingSpace).toBe(false)
+        }
+    )
 
     it.each([
         [404, true],
@@ -135,6 +153,98 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.composerRepositoryConfig).toEqual(expected)
+    })
+
+    it.each([
+        [
+            'one repository is used most',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+                ['c', 'acme/api'],
+            ],
+            { a: 'acme/web', b: null, c: null },
+        ],
+        [
+            'two repositories tie',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: 'acme/api' },
+        ],
+        [
+            'a session has no repository',
+            [
+                ['a', null],
+                ['b', 'acme/api'],
+            ],
+            { a: null, b: null },
+        ],
+        [
+            'archived sessions use another repository',
+            [
+                ['a', 'acme/web'],
+                ['b', 'acme/api', true],
+                ['c', 'acme/api', true],
+            ],
+            { a: null, b: 'acme/api', c: 'acme/api' },
+        ],
+    ] as [string, [string, string | null, boolean?][], Record<string, string | null>][])(
+        'names a card repository only when it is not the usual one, when %s',
+        async (_, sessions, expected) => {
+            const logic = spaceSceneLogic({ id: 'space-a' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.loadSessionsSuccess(
+                sessions.map(([id, repository, archived = false]) => ({ id, repository, archived }) as TaskListItemApi)
+            )
+
+            expect(logic.values.feedRepositories).toEqual(expected)
+        }
+    )
+
+    it.each<[string, Partial<SpaceFeedFilters>, SpaceFeedType[], string[]]>([
+        ['nothing narrows it', {}, ['task', 'pr'], ['theirs', '#2', '#1', 'mine']],
+        ['only PRs show', {}, ['pr'], ['#2', '#1']],
+        ['it keeps my sessions', { createdBy: 'me' }, ['task', 'pr'], ['mine', '#1']],
+        ['it keeps unread sessions', { status: 'unread' }, ['task', 'pr'], ['theirs', '#2', '#1']],
+        ['it keeps pinned sessions', { pinned: 'pinned' }, ['task', 'pr'], ['mine', '#1']],
+        ['it keeps local runs', { environment: 'local' }, ['task'], ['theirs']],
+    ])('lists the feed entries when %s', async (_, filters, types, expected) => {
+        const pullRequest = (number: number): string => `https://github.com/acme/api/pull/${number}`
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        spaceFeedViewLogic.actions.setFilters({ ...DEFAULT_SPACE_FEED_FILTERS, ...filters })
+        spaceFeedViewLogic.actions.setTypes(types)
+        todaySpacesLogic.actions.loadPinnedTasksSuccess([{ id: 'mine' } as TaskListItemApi])
+        todaySpacesLogic.actions.loadTaskActivitySuccess([
+            { id: 'activity', task_id: 'theirs', is_unread: true, latest_comment_id: null },
+        ] as unknown as Parameters<typeof todaySpacesLogic.actions.loadTaskActivitySuccess>[0])
+
+        logic.actions.loadSessionsSuccess([
+            {
+                id: 'mine',
+                archived: false,
+                last_activity_at: '2026-09-28T10:00:00Z',
+                created_by: { id: MOCK_DEFAULT_USER.id },
+                latest_run: { environment: 'cloud', output: { pr_url: pullRequest(1) } },
+            },
+            {
+                id: 'theirs',
+                archived: false,
+                last_activity_at: '2026-09-28T12:00:00Z',
+                created_by: { id: 999 },
+                latest_run: { environment: 'local', output: { pr_url: pullRequest(2), pr_urls: [pullRequest(1)] } },
+            },
+        ] as unknown as TaskListItemApi[])
+
+        const entries = logic.values.feedSections.flatMap((section) => section.entries)
+        expect(entries.map((entry) => (entry.kind === 'pr' ? `#${entry.pullRequest.number}` : entry.item.id))).toEqual(
+            expected
+        )
     })
 
     it('opens a started session and lists it in the feed', async () => {

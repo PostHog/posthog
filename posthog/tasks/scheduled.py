@@ -117,6 +117,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -436,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sync_pending_signals_refund_credits.s(),
         name="sync pending signals refund credits",
+    )
+
+    # Recompute the activity bands the background scout lane samples from - daily at 5:50 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="5", minute="50"),
+        refresh_signal_scout_background_bands.s(),
+        name="refresh signals scout background bands",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
