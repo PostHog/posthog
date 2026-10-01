@@ -318,6 +318,7 @@ class ExperimentOutcome:
     any_variant_significant: bool
     result_completed_at: datetime | None
     result_data_through: datetime | None
+    result_is_legacy: bool
 
 
 @frozen
@@ -1182,6 +1183,7 @@ def _outcomes(outcome_metrics: dict[int, OutcomeMetric]) -> dict[int, Experiment
             any_variant_significant=any(v.get("significant") is True for v in summary.variant_results),
             result_completed_at=summary.completed_at,
             result_data_through=summary.query_to,
+            result_is_legacy=summary.legacy,
         )
     return outcomes
 

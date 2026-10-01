@@ -40,11 +40,16 @@ Each metric activity stores its result through the experiments facade (`record_d
 The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 
+The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
+When no point carries that key, it compares with the previous point under the metric's legacy key (calculation key version 1).
+Without that fallback, the first daily run after the key version changed would report every significant variant as newly significant.
+
 ### Handing fresh points to the recalculation reader
 
 The experiment page reads results through `GET /metrics_recalculation/latest`, which returns the newest completed `ExperimentMetricsRecalculation`. Timeseries rows alone never reach it, so each workflow runs `create_recalculation_from_timeseries` once per experiment it touched (`products/experiments/backend/timeseries_sync.py`). The publish runs right after the experiment's own metric activities complete, not behind a whole-hour barrier, so one slow experiment or a mid-batch worker restart delays only its own publish:
 
 - A metric qualifies when its newest completed row under the config fingerprint has a `query_to` between the workflow start and now. Yesterday's row for a metric that failed today does not qualify, and neither does a future-dated day-end row from the backfill workflow.
+- Only a row under the current calculation key qualifies. A row under the legacy key (calculation key version 1) could come from other settings, and its copy would carry the current key, so a run that reuses the window would take it as a current result. On the day the key version changes, a metric whose activity ran before the deploy has only a legacy row, so the experiment gets a gap or no sync row until the next daily run.
 - The activity creates a completed recalculation with trigger `timeseries_sync` and copies each qualifying row under the recalc fingerprint at one shared `query_to`, one second past the newest point. Copies at a point's own `query_to` would share the `(experiment, metric_uuid, query_to)` key with the timeseries row and rewrite its fingerprint.
 - A supported metric without a qualifying point is counted in `total_metrics` but gets no copy, so the frontend sees the gap and heals it with a real run. Every buildable metric type (`DAILY_TIMESERIES_METRIC_TYPES` in `metric_resolution.py`) is computed on every scheduled run; legacy metrics without a `metric_type` are left out of `total_metrics` and `metric_uuids` entirely.
 - The row belongs to one scheduled run of the experiment, not to one workflow. The inline and saved metric workflows both run the activity for the same experiment in the same hour, each with its own run start. The first pass creates the row; a later pass in the same hour finds that run's `timeseries_sync` row and adds the copies it still lacks, so the row covers every metric the run computed whichever workflow finishes last. The lookup is scoped to the run's start, so a team's second run of the day creates its own row instead of touching the earlier one.

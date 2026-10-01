@@ -8,15 +8,22 @@ A spec does not pin the events and warehouse rows, the definitions a metric refe
 cohorts, warehouse tables, property types), the team's HogQL modifiers, or the clock that the maturity
 filters read. The same spec can therefore give a different result later.
 
-Key version 1 hashes only part of a spec: the metric, the start date, the stats method, the exposure
-criteria as stored, maturity and the excluded variants. The other fields do not change it.
+The calculation key (version 2) hashes every field of a spec that equality compares, with numbers
+normalized, so equal specs have equal keys, and so do settings that differ only by float noise. Key version 1
+(`legacy_key`) hashes only part of a spec: the metric, the start date, the stats method, the exposure
+criteria as stored, maturity and the excluded variants. Results stored under version 1 can therefore come
+from other baseline, CUPED, statistics, entity or test account settings than the current ones, so readers
+show them as legacy history and never reuse them.
 """
 
 import json
 import hashlib
+import dataclasses
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import field
 from datetime import datetime
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -50,6 +57,20 @@ if TYPE_CHECKING:
 
 SPEC_VERSION = 1
 
+# The version of the calculation key, hashed into the key itself. A change that makes the engine compute a
+# different result for an existing spec bumps it, so that results computed before the change stop counting
+# for reuse.
+CALCULATION_KEY_VERSION = 2
+
+# Significant digits that a float keeps in the calculation key. Stored settings carry float noise, for
+# example `1 - 0.95` is stored as 0.050000000000000044, and the noise must not split equal settings into
+# two keys.
+_KEY_FLOAT_DIGITS = 12
+
+# Settings fields that equality compares but the key leaves out. The team is the tenant, not an input: the
+# experiment that a result row belongs to already pins it.
+_SETTINGS_OUTSIDE_THE_KEY = frozenset({"team_id"})
+
 # Fields of a stored metric definition that do not describe what the metric computes: its identity, its
 # display name, the stored key itself, and an experiment-level setting that some stored definitions carry.
 _NON_ANALYTICAL_METRIC_FIELDS = frozenset({"uuid", "name", "kind", "fingerprint", "only_count_matured_users"})
@@ -82,6 +103,30 @@ def _analytical_definition(definition: dict[str, Any]) -> dict[str, Any]:
         metric.pop(field_name, None)
     _strip_empty_breakdowns(metric)
     return metric
+
+
+def _canonical(value: Any) -> Any:
+    """`value` as JSON data that is equal for equal settings: floats rounded to _KEY_FLOAT_DIGITS significant
+    digits, a float with an integral value as an int, enums as their values, models and dataclasses as dicts,
+    and datetimes as UTC ISO strings, so the same instant gives the same key in every timezone."""
+    if value is None or isinstance(value, bool | int | str):
+        return value
+    if isinstance(value, float):
+        rounded = float(f"{value:.{_KEY_FLOAT_DIGITS}g}")
+        return int(rounded) if rounded.is_integer() else rounded
+    if isinstance(value, Enum):
+        return _canonical(value.value)
+    if isinstance(value, datetime):
+        return value.astimezone(ZoneInfo("UTC")).isoformat()
+    if isinstance(value, pydantic.BaseModel):
+        return _canonical(value.model_dump(mode="json", exclude_none=True))
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {item.name: _canonical(getattr(value, item.name)) for item in dataclasses.fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): _canonical(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_canonical(item) for item in value]
+    raise TypeError(f"Cannot hash a {type(value).__name__} into a calculation key")
 
 
 def _variant_keys(feature_flag: "FeatureFlag", excluded_variants: tuple[str, ...]) -> tuple[str, ...]:
@@ -239,12 +284,28 @@ class CalculationSpec:
     settings: ExperimentCalculationSettings
 
     def calculation_key(self) -> str:
-        """Key version 1, a SHA-256 hex digest.
+        """The key that files and finds the results of this spec, a SHA-256 hex digest (key version 2).
 
-        Result rows in ExperimentMetricResult and the stored `fingerprint` of each metric hold this key.
-        A change to the hashed payload makes every stored result unreachable, so a new analytical input
-        needs a new key version, not an edit here.
+        It hashes the metric and every settings field that equality compares, except the team, together
+        with CALCULATION_KEY_VERSION. Result rows in ExperimentMetricResult and the stored `fingerprint` of
+        each inline metric hold this key. A change to the hashed payload makes every stored result
+        unreachable for reuse, so it goes with a bump of CALCULATION_KEY_VERSION.
         """
+        settings = self.settings
+        payload: dict[str, Any] = {
+            "key_version": CALCULATION_KEY_VERSION,
+            "metric": _canonical(self.metric),
+            # The settings class tells the two methods apart only by the type of `stats`.
+            "stats_method": settings.stats_method,
+        }
+        for settings_field in dataclasses.fields(settings):
+            if settings_field.compare and settings_field.name not in _SETTINGS_OUTSIDE_THE_KEY:
+                payload[settings_field.name] = _canonical(getattr(settings, settings_field.name))
+        return _sha256(payload)
+
+    def legacy_key(self) -> str:
+        """Key version 1, which rows written before key version 2 carry. Readers use it only to show those
+        rows as legacy history. Nothing reuses a result found by this key."""
         settings = self.settings
         start_date = settings.start_date
         payload: dict[str, Any] = {
@@ -259,8 +320,12 @@ class CalculationSpec:
             payload["only_count_matured_users"] = True
         if settings.excluded_variants:
             payload["excluded_variants"] = list(settings.excluded_variants)
-        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        return _sha256(payload)
+
+
+def _sha256(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def plan(experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None) -> list[CalculationSpec]:
@@ -292,8 +357,8 @@ def plan_metric(experiment: Experiment, metric_uuid: str) -> CalculationSpec | N
 def stamp_calculation_keys(
     metrics: list[dict[str, Any]], role: MetricRole, settings: ExperimentCalculationSettings
 ) -> list[dict[str, Any]]:
-    """Copies of stored inline metric definitions, each with its calculation key in `fingerprint`. The
-    chart reads the daily results of an inline metric by that stored key."""
+    """Copies of stored inline metric definitions, each with its calculation key in `fingerprint`. Readers
+    derive the key from the spec, so the stored value only describes the metric to API clients."""
     stamped = []
     for metric in metrics:
         metric_copy = deepcopy(metric)

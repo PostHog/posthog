@@ -59,9 +59,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_calculation.spec import (
     ExperimentCalculationSettings,
+    plan_metric,
     plan_primary,
     stamp_calculation_keys,
 )
@@ -4321,14 +4322,13 @@ class ExperimentService:
     # Timeseries
     # ------------------------------------------------------------------
 
-    def get_timeseries_results(
-        self,
-        experiment: Experiment,
-        *,
-        metric_uuid: str,
-        fingerprint: str,
-    ) -> dict:
-        """Retrieve timeseries results for an experiment-metric combination."""
+    def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Retrieve timeseries results for an experiment-metric combination.
+
+        The calculation key comes from the metric's current spec, never from the client, so the chart shows the
+        rows of the current settings. A day without such a row shows its row from before calculation key
+        version 2, and `legacy_dates` lists those days.
+        """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
         if not experiment.start_date:
@@ -4347,8 +4347,12 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
-            metric_uuid, fingerprint, timezone=project_tz
+        # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
+        spec = plan_metric(experiment, metric_uuid)
+        stored = (
+            MetricResultStore(experiment_id=experiment.id).timeseries(spec, timezone=project_tz)
+            if spec is not None
+            else DailyTimeseries(by_day={}, legacy_days=frozenset(), earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4391,20 +4395,29 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        active_recalculation = (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                fingerprint=spec.calculation_key(),
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            ).first()
+            if spec is not None
+            else None
+        )
 
         response = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "legacy_dates": [
+                experiment_date.isoformat()
+                for experiment_date in experiment_dates
+                if experiment_date in stored.legacy_days
+            ],
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4421,16 +4434,23 @@ class ExperimentService:
         response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
         return response
 
-    def request_timeseries_recalculation(
-        self,
-        experiment: Experiment,
-        *,
-        metric: dict,
-        fingerprint: str,
-    ) -> dict:
-        """Create an idempotent recalculation request for experiment timeseries data."""
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric: dict) -> dict:
+        """Create an idempotent recalculation request for experiment timeseries data.
+
+        The backfill computes the metric's current definition and files the days under its calculation key, both
+        from the experiment, so the chart finds them. The client's copy of the metric only names it by uuid.
+        """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        spec = plan_metric(experiment, metric.get("uuid") or "")
+        if spec is None:
+            raise ValidationError(
+                "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
+                "Pick a metric from the experiment's metrics."
+            )
+        metric = spec.definition
+        fingerprint = spec.calculation_key()
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,
@@ -4452,9 +4472,7 @@ class ExperimentService:
                 "is_existing": True,
             }
 
-        metric_uuid = metric.get("uuid")
-        if metric_uuid:
-            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
+        MetricResultStore(experiment_id=experiment.id).delete_daily_points(spec.metric_id, fingerprint)
 
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=experiment.team,

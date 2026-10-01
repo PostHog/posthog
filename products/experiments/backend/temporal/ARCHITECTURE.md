@@ -70,7 +70,11 @@ Every metric in a single recalc shares one `query_to` timestamp, stamped by the 
 
 ### Recalc fingerprint, not config fingerprint
 
-Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `CalculationSpec.calculation_key()` in `metric_calculation/spec.py`. The spec holds the configuration the calculation reads, but key version 1 hashes only the effective metric definition, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+Every result row is keyed by a `recalc_fp = sha256(config_fp + "recalculation")` (`_recalc_fingerprint` in `metric_calculation/results.py`). The config part is the calculation key that the daily timeseries workflows use too: `CalculationSpec.calculation_key()` in `metric_calculation/spec.py`. The salt is a fixed string, so the recalc fingerprint is deterministic per config, not per run.
+
+The calculation key (version 2) hashes the effective metric definition and every analytical setting of the spec: start date, flag key, entity, variants, the resolved baseline, excluded variants, the resolved exposure criteria, test account filters, the resolved statistics method and settings, CUPED with team defaults applied, maturity and the team timezone. Floats are rounded to 12 significant digits first, so stored float noise such as `1 - 0.95` does not split a key. The key version is part of the hashed payload: a change that makes the engine compute a different result for an existing spec bumps `CALCULATION_KEY_VERSION`, so older results stop counting for reuse.
+
+Rows written before version 2 carry the legacy key (`CalculationSpec.legacy_key()`, version 1), which hashes only the metric, the start date, the stats method, the stored exposure criteria, maturity and the excluded variants. Such a row may come from other baseline, CUPED, statistics, entity or test account settings, so no reuse check accepts it. The readers that show results fall back to it only where no row under the current key covers the same metric, window or day, and mark it `legacy` in the API: the run read (`for_run`), the cold-start payload, the chart and the current outcome. Nothing re-keys a legacy row.
 
 This matters because the recalc workflow shares the `ExperimentMetricResult` table with the timeseries workflows. If we used the config fingerprint, every recalc would overwrite the cached daily timeseries row, wrecking the timeseries reads. The constant salt keeps the recalc family distinct from the timeseries family on the same table, so they never collide.
 
@@ -91,6 +95,7 @@ So every run of a stopped experiment uses the same `(experiment, metric_uuid, qu
 - **Same config, completed row:** the reload skips the query and keeps the row. It never recomputes the fixed window, so late events and data warehouse corrections for that window do not reach the stored result.
 - **Same config, failed row:** the reload recomputes the metric and updates the row in place.
 - **Config or stats change:** the fingerprint changes, so no completed row matches and the reload recomputes. The unique key `(experiment, metric_uuid, query_to)` does not include the fingerprint, so the new result replaces the old row in place, fingerprint included.
+- **Row from before key version 2:** it carries the legacy key, so the first reload recomputes the metric and replaces the row. Late events and data warehouse corrections reach that recompute.
 
 The snapshot for such an experiment is the one row at `end_date` for the current config, not a distinct frozen copy per `recalculation_id`.
 
@@ -98,10 +103,10 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 `ExperimentMetricResult` has no foreign key pointing back to `ExperimentMetricsRecalculation`. The scoping key lives entirely in the fingerprint plus `query_to`. This avoided a migration on a shared table to add a nullable column, and makes the two workflow families uniform in how they write results.
 
-The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
+The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If any analytical setting of the experiment changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard. A run from before key version 2 stays readable through the metrics' legacy keys, so opening an experiment does not show gaps that would start a new run.
 
 Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
-The current result of a metric (`current_outcome`) is the completed row with the newest `query_to` under the metric's current calculation key, salted or bare.
+The current result of a metric (`current_outcome`) is the completed row with the newest `query_to` under the metric's current calculation key, salted or bare. Without such a row, the newest row under the legacy key stands in.
 The experiment-completed event reads it for the first primary metric in display order, inline or saved, and the setup context reads it for its outcomes.
 A backfilled past window does not win over a newer window, and a row under an earlier configuration, for example from before a relaunch, does not count.
 When several rows share `(experiment, metric_uuid, query_to)`, each query returns the row with the newest `completed_at`, then the highest id.
