@@ -2,20 +2,26 @@ import api from 'lib/api'
 
 import { InAppNotification } from '~/types'
 
+/** Which server serves the notifications stream. Sent on the `livestream_sse_*` events. */
+export type NotificationsSSETransport = 'django' | 'livestream'
+
 export interface NotificationsSSEHooks {
     onFirstMessage?: () => void
     onError?: (error: unknown) => void
+    /** The server sent an `end` event because it rotates the stream. Reconnect when the promise resolves. */
+    onEnd?: () => void
 }
 
 /**
- * Opens an SSE connection to the livestream notifications endpoint.
+ * Opens an SSE connection to the notifications endpoint: livestream with a bearer
+ * token, or the Django endpoint with the session cookie when no token is given.
  * Returns a promise that rejects when the connection is lost (triggering
- * retryWithBackoff to retry), and resolves only on clean shutdown via the
- * abort signal.
+ * retryWithBackoff to retry), and resolves on clean shutdown via the abort
+ * signal or when the server closes the stream.
  */
 export function connectToNotificationsSSE(
     url: string,
-    token: string,
+    token: string | undefined,
     signal: AbortSignal,
     onNotification: (notification: InAppNotification) => void,
     hooks: NotificationsSSEHooks = {}
@@ -23,11 +29,13 @@ export function connectToNotificationsSSE(
     let firstMessageSeen = false
     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     return api.stream(url, {
-        headers: {
-            Authorization: `Bearer ${token}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         signal,
         onMessage: (event) => {
+            if (event.event === 'end') {
+                hooks.onEnd?.()
+                return
+            }
             if (!firstMessageSeen) {
                 firstMessageSeen = true
                 hooks.onFirstMessage?.()
