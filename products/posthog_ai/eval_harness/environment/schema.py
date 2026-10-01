@@ -89,6 +89,8 @@ class EnvironmentTextPolicy(EnvironmentModel):
             raise ValueError("String replacement keys cannot be empty.")
         if len(self.time_strings) != len(set(self.time_strings)):
             raise ValueError("Declared time strings must be unique.")
+        if not self.string_replacements.keys().isdisjoint(self.time_strings):
+            raise ValueError("A value cannot be both a declared time string and a string replacement.")
         return self
 
 

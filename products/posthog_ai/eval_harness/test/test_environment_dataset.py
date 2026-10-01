@@ -256,7 +256,7 @@ class TestEnvironmentTransform(TestCase):
         )
         self.assertEqual(same.identity(identifier), alias)
 
-    @parameterized.expand(["naive", "date", "empty", "duplicate"])
+    @parameterized.expand(["naive", "date", "empty", "duplicate", "overlap"])
     def test_invalid_shift_policy_is_rejected(self, invalid: str) -> None:
         identifier = uuid4()
         with self.assertRaises(ValueError):
@@ -264,6 +264,6 @@ class TestEnvironmentTransform(TestCase):
                 source_cutoff=SOURCE,
                 target_cutoff=SOURCE.replace(tzinfo=None) if invalid == "naive" else SOURCE,
                 record_ids=[identifier, identifier] if invalid == "duplicate" else [identifier],
-                time_strings=["2032-99-99"] if invalid == "date" else [],
-                string_replacements={"": "x"} if invalid == "empty" else {},
+                time_strings={"date": ["2032-99-99"], "overlap": ["2032-04-01"]}.get(invalid, []),
+                string_replacements={"empty": {"": "x"}, "overlap": {"2032-04-01": "2032-04-02"}}.get(invalid, {}),
             )
