@@ -42,6 +42,10 @@ class ExperimentScanner(SummarizerScanner, frozen=True):
     # they can never leak into a stored scanner_config or snapshot.
     experiment_context: dict[str, Any] | None = Field(default=None, exclude=True)
     session_variant: str | None = Field(default=None, exclude=True)
+    session_fields: ClassVar[frozenset[str]] = SummarizerScanner.session_fields | {
+        "experiment_context",
+        "session_variant",
+    }
 
     def prompt_context(self) -> dict[str, Any]:
         return {

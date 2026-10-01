@@ -558,13 +558,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"prompt": "p", "chapter_target": 50},
                 "Unknown scanner configuration keys: chapter_target.",
             ),
-            # Scan-time injection fields are model fields, so the unknown-keys check alone admits them;
-            # a saved value would fake the variant/hypothesis in every scan's prompt.
+            # A saved value would fake the variant or hypothesis in every scan's prompt.
             (
                 "experiment_scan_time_keys",
                 ScannerType.EXPERIMENT,
                 {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
-                "experiment_context and session_variant are resolved per scan and can't be saved.",
+                "Unknown scanner configuration keys: experiment_context, session_variant.",
             ),
         ]
     )
