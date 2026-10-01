@@ -38,6 +38,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
                 '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                 '/api/projects/:team/actions': { results: [] },
                 '/api/environments/:team/persons/properties': [{ id: 1, name: 'location', count: 1 }],
+                '/api/projects/:team/feature_flags/': { count: 0, results: [] },
             },
             post: {
                 '/api/environments/:team/query': { results: [] },
@@ -83,6 +84,30 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
         await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-recent_filters'))
     }
+
+    describe('feature flag recents', () => {
+        it('labels a recent flag row with the flag key, because a flag keeps its description in name', async () => {
+            recents.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.FeatureFlags,
+                groupName: 'Feature Flags',
+                value: 101,
+                item: { name: '', id: 101, key: 'checkout-redesign' },
+                selectingKeyOnly: true,
+            })
+
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags], selectingKeyOnly: true })
+
+            await selectRecentCategory()
+
+            await waitFor(
+                () =>
+                    expect(screen.getByTestId('prop-filter-recent_filters-0').textContent).toContain(
+                        'checkout-redesign'
+                    ),
+                { timeout: RENDER_TIMEOUT_MS }
+            )
+        })
+    })
 
     describe('recording on selection', () => {
         it('records an EventProperty selection to recents when selectingKeyOnly is set', async () => {

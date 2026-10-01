@@ -3,7 +3,7 @@ import { PropertyOperator } from '~/types'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from './suggestedContextFilters'
 
-const { Events, EventProperties, Cohorts } = TaxonomicFilterGroupType
+const { Events, EventProperties, Cohorts, FeatureFlags } = TaxonomicFilterGroupType
 
 function recent(
     sourceGroupType: TaxonomicFilterGroupType,
@@ -68,6 +68,21 @@ describe('suggestedContextFilters', () => {
             expect(
                 (out[0] as unknown as { _recentContext: { propertyFilter?: unknown } })._recentContext.propertyFilter
             ).toBeUndefined()
+        })
+    })
+
+    describe('filterRecentsForContext feature flags', () => {
+        const flagRecent = (id: number, item: Record<string, unknown>): TaxonomicDefinitionTypes =>
+            ({
+                name: '',
+                ...item,
+                _recentContext: { sourceGroupType: FeatureFlags, sourceValue: id },
+            }) as unknown as TaxonomicDefinitionTypes
+
+        it('keeps a flag recent that carries its key and drops one stored without', () => {
+            const out = filterRecentsForContext([flagRecent(1, { key: 'my-flag' }), flagRecent(2, {})], [FeatureFlags])
+            expect(out).toHaveLength(1)
+            expect((out[0] as unknown as { key: string }).key).toBe('my-flag')
         })
     })
 

@@ -1,9 +1,8 @@
 import { flagSelectorButtonLabel } from './FlagSelector'
 
 describe('flagSelectorButtonLabel', () => {
-    // The picker strips `key` off recently-used flags, so a pick from the Recent tab labels itself
-    // with `name`, which on a flag holds a description like "Feature Flag for Early Access Feature
-    // Foo". The resolved key has to win over that.
+    // A picked item with no key labels itself with `name`, which on a flag holds a description like
+    // "Feature Flag for Early Access Feature Foo". The resolved key has to win over that.
     const RECENT_PICK = { id: 7, label: 'Feature Flag for Early Access Feature Foo' }
 
     test.each([

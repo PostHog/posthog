@@ -36,6 +36,24 @@ export interface RecentTaxonomicFilter {
     propertyFilter?: AnyPropertyFilter
 }
 
+/**
+ * Fields kept on a stored recent, beyond `name`. A recent goes to localStorage on every pick, so
+ * an entry holds only what a source group's `getName` reads to label its row. `name` alone is not
+ * enough: on a feature flag `name` holds the description, which most flags leave empty, and the row
+ * shows `key`. On a notebook the label comes from `title` or `short_id`.
+ */
+const RECENT_ITEM_LABEL_FIELDS = ['id', 'key', 'title', 'short_id'] as const
+
+export function pickMinimalRecentItem(item: Record<string, any>): Record<string, any> {
+    const picked: Record<string, any> = { name: item.name }
+    for (const field of RECENT_ITEM_LABEL_FIELDS) {
+        if (item[field]) {
+            picked[field] = item[field]
+        }
+    }
+    return picked
+}
+
 export interface RecentItemContext {
     sourceGroupType: TaxonomicFilterGroupType
     sourceGroupName: string

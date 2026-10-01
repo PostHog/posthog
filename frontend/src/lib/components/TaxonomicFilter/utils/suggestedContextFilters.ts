@@ -32,6 +32,14 @@ export function filterRecentsForContext(
         if (!hasRecentContext(item) || !availableTypes.has(item._recentContext.sourceGroupType)) {
             return false
         }
+        // A flag recent stored without `key` holds only the flag description, which most flags
+        // leave empty, so its row renders blank. Drop it; the next pick stores a labelled entry.
+        if (
+            item._recentContext.sourceGroupType === TaxonomicFilterGroupType.FeatureFlags &&
+            !('key' in item && item.key)
+        ) {
+            return false
+        }
         // A group's excluded values (e.g. `message` for the logs group-by picker) must be dropped
         // from the Recent tab too, not just the group's own option list. Otherwise an excluded key
         // recorded elsewhere leaks back in as a selectable recent.

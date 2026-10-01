@@ -3,6 +3,7 @@ import { LogPropertyFilter, PersonPropertyFilter, PropertyFilterType, PropertyOp
 
 import {
     MAX_RECENT_FILTERS,
+    pickMinimalRecentItem,
     RECENT_FILTER_MAX_AGE_MS,
     recentTaxonomicFiltersLogic,
 } from './recentTaxonomicFiltersLogic'
@@ -643,6 +644,28 @@ describe('recentTaxonomicFiltersLogic', () => {
             expect(filters.find((f) => f.value === 'person-key-0')).toBeUndefined()
             // Newest-first order survives the trim.
             expect(filters[0].value).toBe(`person-key-${MAX_RECENT_FILTERS - 1}`)
+        })
+    })
+
+    describe('pickMinimalRecentItem', () => {
+        it.each([
+            [
+                'keeps the key of a feature flag, whose name holds the description',
+                { id: 7, key: 'my-flag', name: '', active: true, filters: { groups: [] } },
+                { name: '', id: 7, key: 'my-flag' },
+            ],
+            [
+                'keeps the title and short id of a notebook',
+                { short_id: 'ab12cd', title: 'Launch notes', content: { type: 'doc' } },
+                { title: 'Launch notes', short_id: 'ab12cd' },
+            ],
+            [
+                'drops everything a group cannot label a row with',
+                { name: '$pageview', id: 'uuid-1', description: 'A page view', tags: ['web'] },
+                { name: '$pageview', id: 'uuid-1' },
+            ],
+        ])('%s', (_label: string, item: Record<string, any>, expected: Record<string, any>) => {
+            expect(pickMinimalRecentItem(item)).toEqual(expected)
         })
     })
 })

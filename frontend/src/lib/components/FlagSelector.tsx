@@ -34,10 +34,10 @@ export function flagSelectorButtonLabel({
     initialButtonLabel: string | undefined
 }): string {
     // A pick only labels the button while it still agrees with `value`, so a pick the caller never
-    // stored can't linger. It ranks below `flagKey` because a pick from the recents list carries no
-    // key and falls back to `name`, which on a flag holds the description rather than a title.
-    // `flagKey` is '' both while the lookup is in flight and when it fails, which is the gap the
-    // pick covers.
+    // stored can't linger. It ranks below `flagKey` because the lookup holds the flag's current key,
+    // while a pick falls back to `name` when the picked item has no key, and `name` on a flag holds
+    // the description rather than a title. `flagKey` is '' both while the lookup is in flight and
+    // when it fails, which is the gap the pick covers.
     const pickedLabel = pickedFlag && pickedFlag.id === value ? pickedFlag.label : undefined
     return flagKey || pickedLabel || (initialButtonLabel ?? 'Select flag')
 }
@@ -50,9 +50,8 @@ export function FlagSelector({
     initialButtonLabel,
 }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
-    // Recently-used flags are persisted with just `{ name, id }` (no `key`), so a pick from the
-    // recents list has nothing to label the button with until the live lookup resolves. Hold
-    // whatever the picker handed us to cover that gap.
+    // The live lookup of a freshly picked flag takes a moment, so hold the label the picker handed
+    // us to cover that gap.
     const [selectedFlag, setSelectedFlag] = useState<PickedFlag | undefined>(undefined)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
