@@ -31,6 +31,15 @@ class BriefingItemMetric:
 
 
 @dataclass(frozen=True)
+class BriefingItemChart:
+    """A chart from the report body. The hover card draws it when the report has no metric to chart."""
+
+    chart_id: str
+    title: str
+    query: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class BriefingItemReport:
     """What the left bar's hover card shows for a report, read live with the item's state."""
 
@@ -41,6 +50,7 @@ class BriefingItemReport:
     signal_count: int
     updated_at: datetime
     metrics: list[BriefingItemMetric]
+    charts: list[BriefingItemChart]
 
 
 @dataclass(frozen=True)

@@ -439,6 +439,7 @@ const PERSONAL_BRIEFING: BriefingApi = {
                         query: metric.query,
                     })),
                 ],
+                charts: [],
             },
         }),
         briefingItem({
@@ -457,6 +458,20 @@ const PERSONAL_BRIEFING: BriefingApi = {
                 signal_count: 7,
                 updated_at: '2026-09-27T09:00:00Z',
                 metrics: [],
+                charts: [
+                    {
+                        chart_id: 'summarize-tokens',
+                        title: 'Tokens per summarize call',
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', event: '$ai_generation' }],
+                                dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                            },
+                        },
+                    },
+                ],
             },
         }),
         briefingItem({

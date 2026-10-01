@@ -24,6 +24,7 @@ from products.signals.backend.implementation_pr import (
     implementation_pr_report_filter,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
+from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
 from products.signals.backend.report_claims import reports_with_active_claim
 from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
@@ -90,6 +91,7 @@ class BriefingReportDetails:
     updated_at: datetime
     # Only metrics with a saved snapshot, so the briefing shows a figure before the live query answers.
     metrics: list[ReportMetricSnapshot]
+    charts: list[ReportChartSnapshot]
 
 
 def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
@@ -300,13 +302,28 @@ def _trimmed(text: str | None, limit: int) -> str:
 
 
 _MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}\s.*$", re.MULTILINE)
+# A `chart:` link places a chart in the report body. Plain text has no chart to place, so the link goes.
+_MARKDOWN_CHART_LINK = re.compile(r"\[[^\]]*\]\(chart:[^)]*\)")
+_MARKDOWN_CHART_ID = re.compile(r"\]\(chart:([^)\s]+)\)")
+_MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MARKDOWN_EMPHASIS = re.compile(r"\*\*|__|`")
 
 
 def summary_lead(summary: str | None, limit: int) -> str:
-    """The opening of a report's markdown summary, on one line: the text before its first section heading."""
+    """The opening of a report's markdown summary as plain text on one line: the text before its first
+    section heading, with chart links removed and other links reduced to their text."""
     sections = _MARKDOWN_HEADING_LINE.split(summary or "")
     lead = next((section for section in sections if section.strip()), "")
-    return _trimmed(lead, limit)
+    lead = _MARKDOWN_CHART_LINK.sub("", lead)
+    lead = _MARKDOWN_LINK.sub(r"\1", lead)
+    return _trimmed(_MARKDOWN_EMPHASIS.sub("", lead), limit)
+
+
+def _charts_by_reference(charts: list[ReportChartSnapshot], summary: str | None) -> list[ReportChartSnapshot]:
+    """The charts the summary references, in the order it references them, then the rest in stored order."""
+    referenced = list(dict.fromkeys(_MARKDOWN_CHART_ID.findall(summary or "")))
+    rank = {chart_id: index for index, chart_id in enumerate(referenced)}
+    return sorted(charts, key=lambda chart: rank.get(chart.chart_id, len(rank)))
 
 
 def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingReportDetails]:
@@ -318,7 +335,7 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
         return []
     reports = list(
         SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only(
-            "id", "status", "summary", "metrics", "signal_count", "updated_at"
+            "id", "status", "summary", "metrics", "charts", "signal_count", "updated_at"
         )
     )
     found_ids = [str(report.id) for report in reports]
@@ -341,6 +358,7 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
                 signal_count=report.signal_count,
                 updated_at=report.updated_at,
                 metrics=saved_metric_snapshots(report.metrics),
+                charts=_charts_by_reference(saved_charts(report.charts), report.summary),
             )
         )
     return details

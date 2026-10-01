@@ -23,7 +23,7 @@ import { ReportChartsContext } from './reportChartsContext'
  * so the report shows the chart alone. A scout writes the query against the insight schema, so it
  * can arrive with any of these turned on. Mirrors what `NotebookNodeQuery` does for the same reason.
  */
-function asEmbeddedChart(query: Record<string, any>): Node {
+export function asEmbeddedChart(query: Record<string, any>): Node {
     const node = { ...query, full: false } as any
     if (isInsightVizNode(node) || isSavedInsightNode(node)) {
         node.showFilters = false
@@ -48,7 +48,7 @@ function asEmbeddedChart(query: Record<string, any>): Node {
  * card — and nothing here can tell which it will be before the query returns. So it sizes to its
  * content, like the table an absent display already produces.
  */
-function isGraphicalSqlNode(query: Node): boolean {
+export function isGraphicalSqlNode(query: Node): boolean {
     if (!isDataVisualizationNode(query)) {
         return false
     }

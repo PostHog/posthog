@@ -18068,6 +18068,15 @@ export namespace Schemas {
       query: unknown;
     }
 
+    export interface BriefingItemChart {
+      /** Stable slug of the chart within its report. */
+      chart_id: string;
+      /** Short heading of the chart. */
+      title: string;
+      /** The query node the report body draws, as the report stores it. */
+      query: unknown;
+    }
+
     export interface BriefingItemReport {
       /**
          * The report's priority, P0 to P4, or null if unset.
@@ -18094,6 +18103,8 @@ export namespace Schemas {
       updated_at: string;
       /** The report's metrics that have a saved snapshot, in the report's order. */
       metrics: BriefingItemMetric[];
+      /** The charts in the report body, in the report's order. */
+      charts: BriefingItemChart[];
     }
 
     /**

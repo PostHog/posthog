@@ -107,6 +107,15 @@ export const BriefingItemMetricApi = zod.object({
 export type BriefingItemMetricApi = zod.input<typeof BriefingItemMetricApi>
 export type BriefingItemMetricApiOutput = zod.output<typeof BriefingItemMetricApi>
 
+export const BriefingItemChartApi = zod.object({
+    chart_id: zod.string().describe('Stable slug of the chart within its report.'),
+    title: zod.string().describe('Short heading of the chart.'),
+    query: zod.unknown().describe('The query node the report body draws, as the report stores it.'),
+})
+
+export type BriefingItemChartApi = zod.input<typeof BriefingItemChartApi>
+export type BriefingItemChartApiOutput = zod.output<typeof BriefingItemChartApi>
+
 export const BriefingItemReportApi = zod.object({
     priority: zod.string().nullable().describe("The report's priority, P0 to P4, or null if unset."),
     summary: zod.string().describe("The report's summary, shortened to a few sentences."),
@@ -176,6 +185,15 @@ export const BriefingItemReportApi = zod.object({
             })
         )
         .describe("The report's metrics that have a saved snapshot, in the report's order."),
+    charts: zod
+        .array(
+            zod.object({
+                chart_id: zod.string().describe('Stable slug of the chart within its report.'),
+                title: zod.string().describe('Short heading of the chart.'),
+                query: zod.unknown().describe('The query node the report body draws, as the report stores it.'),
+            })
+        )
+        .describe("The charts in the report body, in the report's order."),
 })
 
 export type BriefingItemReportApi = zod.input<typeof BriefingItemReportApi>
@@ -318,6 +336,17 @@ export const BriefingItemApi = zod.object({
                         })
                     )
                     .describe("The report's metrics that have a saved snapshot, in the report's order."),
+                charts: zod
+                    .array(
+                        zod.object({
+                            chart_id: zod.string().describe('Stable slug of the chart within its report.'),
+                            title: zod.string().describe('Short heading of the chart.'),
+                            query: zod
+                                .unknown()
+                                .describe('The query node the report body draws, as the report stores it.'),
+                        })
+                    )
+                    .describe("The charts in the report body, in the report's order."),
             }),
             zod.null(),
         ])
@@ -501,6 +530,17 @@ export const BriefingApi = zod.object({
                                     })
                                 )
                                 .describe("The report's metrics that have a saved snapshot, in the report's order."),
+                            charts: zod
+                                .array(
+                                    zod.object({
+                                        chart_id: zod.string().describe('Stable slug of the chart within its report.'),
+                                        title: zod.string().describe('Short heading of the chart.'),
+                                        query: zod
+                                            .unknown()
+                                            .describe('The query node the report body draws, as the report stores it.'),
+                                    })
+                                )
+                                .describe("The charts in the report body, in the report's order."),
                         }),
                         zod.null(),
                     ])

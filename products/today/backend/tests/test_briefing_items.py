@@ -58,6 +58,7 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
                 query={"kind": "InsightVizNode"},
             )
         ],
+        charts=[],
     )
 
 

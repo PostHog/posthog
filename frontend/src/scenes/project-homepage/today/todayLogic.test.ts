@@ -254,6 +254,11 @@ describe('todayLogic', () => {
         ['stops at the first section', 'Signups fail.\n\n## Impact\nNew teams cannot sign up.', 'Signups fail.'],
         ['skips an opening heading', '## Summary\nSignups fail.\n## Impact\nMore.', 'Signups fail.'],
         ['keeps a hash inside a line', 'Issue #42 ## fails', 'Issue #42 ## fails'],
+        [
+            'has links',
+            'Leaks **typed text**. [Page leaves](chart:page-leaves) See [the form](https://example.com/form).',
+            'Leaks typed text. See the form.',
+        ],
         ['has nothing to show', null, null],
     ])('shows the summary lead on a team report card when it %s', (_, summary, expected) => {
         expect(reportSummaryLead(summary)).toEqual(expected)

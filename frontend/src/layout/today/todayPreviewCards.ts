@@ -1,5 +1,5 @@
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportChartApi, ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
@@ -76,6 +76,8 @@ export interface TodayReportCard {
     signalCount: number | null
     updatedAt: string | null
     metrics: ReportMetricApi[]
+    /** Charts from the report body. The card draws one when no metric has a chart. */
+    charts: ReportChartApi[]
     sourceLabel: string
 }
 

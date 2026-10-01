@@ -8,6 +8,7 @@ from products.signals.backend.facade import api as signals
 from ..facade.contracts import (
     Briefing,
     BriefingItem,
+    BriefingItemChart,
     BriefingItemMetric,
     BriefingItemReport,
     BriefingSegment,
@@ -65,6 +66,15 @@ class BriefingItemMetricSerializer(DataclassSerializer):
         dataclass = BriefingItemMetric
 
 
+class BriefingItemChartSerializer(DataclassSerializer):
+    chart_id = serializers.CharField(help_text="Stable slug of the chart within its report.")
+    title = serializers.CharField(help_text="Short heading of the chart.")
+    query = serializers.JSONField(help_text="The query node the report body draws, as the report stores it.")
+
+    class Meta:
+        dataclass = BriefingItemChart
+
+
 class BriefingItemReportSerializer(DataclassSerializer):
     priority = serializers.CharField(allow_null=True, help_text="The report's priority, P0 to P4, or null if unset.")
     summary = serializers.CharField(help_text="The report's summary, shortened to a few sentences.")
@@ -81,6 +91,8 @@ class BriefingItemReportSerializer(DataclassSerializer):
     metrics = BriefingItemMetricSerializer(
         many=True, help_text="The report's metrics that have a saved snapshot, in the report's order."
     )
+
+    charts = BriefingItemChartSerializer(many=True, help_text="The charts in the report body, in the report's order.")
 
     class Meta:
         dataclass = BriefingItemReport

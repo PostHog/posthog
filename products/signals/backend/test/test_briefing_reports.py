@@ -85,7 +85,13 @@ class TestReportsForBriefing(BaseTest):
             }
 
         report.metrics = [metric("measured", 17), metric("not-measured", None), {"metric_id": "broken"}]
-        report.save(update_fields=["metrics"])
+        report.summary = "Leaks continue. [Form errors](chart:form-errors)"
+        report.charts = [
+            {"chart_id": "page-leaves", "title": "Page leaves", "query": query},
+            {"chart_id": "broken"},
+            {"chart_id": "form-errors", "title": "Form errors", "query": query},
+        ]
+        report.save(update_fields=["metrics", "charts", "summary"])
 
         [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)])
 
@@ -93,6 +99,7 @@ class TestReportsForBriefing(BaseTest):
         assert [(m.metric_id, m.value, m.series, m.query) for m in details.metrics] == [
             ("measured", 17, [3.0, 9.0, 17.0], query)
         ]
+        assert [(c.chart_id, c.query) for c in details.charts] == [("form-errors", query), ("page-leaves", query)]
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")
@@ -177,6 +184,11 @@ class TestSummaryLead(SimpleTestCase):
             ("stops at a section", "Signups fail.\n\n## Impact\nNew teams cannot sign up.", "Signups fail."),
             ("skips an opening heading", "## Summary\nSignups fail.\n## Impact\nMore.", "Signups fail."),
             ("a hash inside a line stays", "Issue #42 ## fails", "Issue #42 ## fails"),
+            (
+                "drops chart links and keeps link text",
+                "Leaks **typed text**. [Page leaves](chart:page-leaves) See [the form](https://example.com/form).",
+                "Leaks typed text. See the form.",
+            ),
             ("no summary", None, ""),
         ]
     )

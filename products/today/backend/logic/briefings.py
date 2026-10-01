@@ -279,6 +279,10 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
             )
             for metric in detail.metrics
         ],
+        charts=[
+            contracts.BriefingItemChart(chart_id=chart.chart_id, title=chart.title, query=chart.query)
+            for chart in detail.charts
+        ],
     )
 
 
