@@ -551,7 +551,7 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert "'from'" in response.json()["detail"], response.json()
 
     def _publish(self, flow_id: str) -> "_MonkeyPatchedResponse":
-        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+        with patch("products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count") as mock_count:
             mock_count.side_effect = Exception("count service down")
             preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
         assert preview.status_code == 200, preview.json()
@@ -560,7 +560,7 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
             {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
         )
 
-    def _stage_linked_web_edit(self, body_edit: dict) -> tuple[str, MessageTemplate]:
+    def _stage_linked_web_edit(self, body_edit: dict[str, str | None]) -> tuple[str, MessageTemplate]:
         template = self._create_library_template()
         create = self._post_flow(_email_action()["config"], mcp=False)
         assert create.status_code == 201, create.json()
@@ -615,8 +615,11 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
                     team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=True
                 )
         else:
+            output = StringIO()
             with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
-                call_command("refresh_hog_flows", hog_flow_id=flow_id, stdout=StringIO())
+                call_command("refresh_hog_flows", hog_flow_id=flow_id, stdout=output)
+            assert "Updated: 1" in output.getvalue(), output.getvalue()
+            assert "Errors: 0" in output.getvalue(), output.getvalue()
 
         flow = HogFlow.objects.get(pk=flow_id)
         assert flow.status == "draft"
