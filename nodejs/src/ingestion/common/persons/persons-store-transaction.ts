@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -51,7 +52,7 @@ export class PersonsStoreTransaction {
 
     async updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
@@ -98,6 +99,15 @@ export class PersonsStoreTransaction {
 
     async isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
         return await this.store.isPersonLive(person, distinctId, this.tx)
+    }
+
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string
+    ): Promise<InternalPerson[]> {
+        return await this.store.readMergeRows(teamId, targetId, sourceIds, distinctId, this.tx)
     }
 
     async addDistinctId(

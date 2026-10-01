@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -21,7 +22,13 @@ import {
     totalPersonUpdateLatencyPerBatchHistogram,
 } from '~/common/persons/metrics'
 import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
-import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
+import {
+    MergePersonUpdate,
+    PendingPersonChanges,
+    PersonUpdate,
+    fromInternalPerson,
+    toInternalPerson,
+} from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
@@ -69,6 +76,7 @@ type MethodName =
     | 'claimLifecycleMarks'
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
+    | 'readMergeRows'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -150,13 +158,88 @@ interface CacheMetrics {
     checkCacheMisses: number
 }
 
+type PendingChange = { set: unknown } | { setOnce: unknown } | { unset: true }
+type Lanes = Pick<PersonUpdate, 'properties_to_set' | 'properties_to_set_once' | 'properties_to_unset'>
+
+/** One key's pending change, tagged by lane, so two records compare by what each would send. */
+function pendingChangeFor(update: Lanes, name: string): PendingChange | undefined {
+    if (Object.hasOwn(update.properties_to_set, name)) {
+        return { set: update.properties_to_set[name] }
+    }
+    if (Object.hasOwn(update.properties_to_set_once, name)) {
+        return { setOnce: update.properties_to_set_once[name] }
+    }
+    if (update.properties_to_unset.includes(name)) {
+        return { unset: true }
+    }
+    return undefined
+}
+
+/**
+ * Removes from the entry each pending change equal to the one a write or a merge carried for that key; a
+ * differing change made since stays pending.
+ */
+function retireCarried(entry: PersonUpdate, carried: Lanes): void {
+    const names = new Set([
+        ...Object.keys(carried.properties_to_set),
+        ...Object.keys(carried.properties_to_set_once),
+        ...carried.properties_to_unset,
+    ])
+    for (const name of names) {
+        const pending = pendingChangeFor(entry, name)
+        if (pending !== undefined && !isEqual(pending, pendingChangeFor(carried, name))) {
+            continue
+        }
+        delete entry.properties_to_set[name]
+        delete entry.properties_to_set_once[name]
+        entry.properties_to_unset = entry.properties_to_unset.filter((unset) => unset !== name)
+    }
+}
+
+type RowScalars = Pick<InternalPerson, 'properties' | 'is_identified' | 'created_at' | 'last_seen_at'>
+
+/**
+ * Points the entry's base at a row newer than the one it reflects, scalars included, so a flush with no newer
+ * change stays a no-op; a change made since the snapshot keeps precedence the way the statement merges it.
+ */
+function takeRow(entry: PersonUpdate, row: RowScalars, version: number): void {
+    entry.version = version
+    entry.properties = { ...row.properties }
+    entry.is_identified = entry.is_identified || row.is_identified
+    entry.created_at = DateTime.min(entry.created_at, row.created_at)
+    if (row.last_seen_at && (!entry.last_seen_at || row.last_seen_at > entry.last_seen_at)) {
+        entry.last_seen_at = row.last_seen_at
+    }
+    entry.original_is_identified = row.is_identified
+    entry.original_created_at = row.created_at
+    entry.original_last_seen_at = row.last_seen_at
+}
+
+function hasLanes(lanes: Lanes): boolean {
+    return (
+        Object.keys(lanes.properties_to_set).length > 0 ||
+        Object.keys(lanes.properties_to_set_once).length > 0 ||
+        lanes.properties_to_unset.length > 0
+    )
+}
+
 class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
+    /**
+     * Counts entry drops while row reads are in flight. A read that began before a person's entry was dropped
+     * may have read the row before whatever dropped it, so its answer is not installed for that person.
+     */
+    private generation = 0
+    private droppedAt = new Map<string, number>()
+    private readsInFlight = new Map<number, number>()
+    private nextRead = 0
     private distinctIdToPersonId = new Map<string, string>()
     private personUpdateCache = new Map<string, PersonUpdate | null>()
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
+    /** Entries kept without distinct ids for a flush to re-target, by person key; evicted once clean. */
+    private detachedEntries = new Set<string>()
     private pendingPrefetchesByBatchId = new Map<number, number>()
     private releasedBatchIdsWithPendingPrefetch = new Set<number>()
     private cacheMetrics: CacheMetrics = {
@@ -278,6 +361,7 @@ class BatchWritingPersonsCache {
                 ...result,
                 properties: { ...result.properties },
                 properties_to_set: { ...result.properties_to_set },
+                properties_to_set_once: { ...result.properties_to_set_once },
                 properties_to_unset: [...result.properties_to_unset],
             }
         }
@@ -300,7 +384,9 @@ class BatchWritingPersonsCache {
             const existingPersonId = this.distinctIdToPersonId.get(cacheKey)
             this.distinctIdToPersonId.delete(cacheKey)
             if (existingPersonId) {
-                this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, existingPersonId), null)
+                const personIdKey = this.getPersonIdCacheKey(teamId, existingPersonId)
+                this.dropEntry(personIdKey)
+                this.personUpdateCache.set(personIdKey, null)
             }
             return
         }
@@ -326,12 +412,16 @@ class BatchWritingPersonsCache {
     }
 
     clearPersonCacheForPersonId(teamId: number, personId: string): void {
-        this.personUpdateCache.delete(this.getPersonIdCacheKey(teamId, personId))
+        this.dropEntry(this.getPersonIdCacheKey(teamId, personId))
     }
 
     clearAllCachesForPersonId(teamId: number, personId: string): void {
         this.clearPersonCacheForPersonId(teamId, personId)
+        this.dropDistinctIdsForPersonId(teamId, personId)
+    }
 
+    /** Sends the next read of each of the person's distinct ids to the row; the entry itself stays. */
+    private dropDistinctIdsForPersonId(teamId: number, personId: string): void {
         const distinctIdsToRemove: string[] = []
         for (const [distinctCacheKey, mappedPersonId] of this.distinctIdToPersonId.entries()) {
             if (mappedPersonId === personId && distinctCacheKey.startsWith(`${teamId}:`)) {
@@ -407,6 +497,13 @@ class BatchWritingPersonsCache {
     }
 
     processDeferredEvictions(): void {
+        for (const personIdKey of this.detachedEntries) {
+            const update = this.personUpdateCache.get(personIdKey)
+            if (!update || !update.needs_write) {
+                this.dropEntry(personIdKey)
+                this.detachedEntries.delete(personIdKey)
+            }
+        }
         for (const distinctKey of this.deferredEvictions) {
             const colonIdx = distinctKey.indexOf(':')
             const teamId = Number(distinctKey.slice(0, colonIdx))
@@ -418,7 +515,7 @@ class BatchWritingPersonsCache {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
             if (!update || !update.needs_write) {
-                this.personUpdateCache.delete(personIdKey)
+                this.dropEntry(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
                 this.deferredEvictions.delete(distinctKey)
             }
@@ -447,7 +544,7 @@ class BatchWritingPersonsCache {
             const personIdKey = this.getPersonIdCacheKey(teamId, personId)
             const update = this.personUpdateCache.get(personIdKey)
             if (!update || !update.needs_write) {
-                this.personUpdateCache.delete(personIdKey)
+                this.dropEntry(personIdKey)
                 this.distinctIdToPersonId.delete(distinctKey)
             } else {
                 this.deferredEvictions.add(distinctKey)
@@ -460,20 +557,35 @@ class BatchWritingPersonsCache {
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
         const mergedPersonUpdate: PersonUpdate = {
             ...existingPersonUpdate,
-            properties: {
-                ...existingPersonUpdate.properties,
-                ...person.properties,
-            },
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
+        // A row read replaces the base only when it is newer than the row the base reflects; an older read, or an
+        // entry built from this one or its view, carries no newer version and leaves it.
+        if (person.version > existingPersonUpdate.version) {
+            takeRow(
+                mergedPersonUpdate,
+                {
+                    properties: person.properties,
+                    is_identified: person.original_is_identified,
+                    created_at: person.original_created_at,
+                    last_seen_at: person.original_last_seen_at,
+                },
+                person.version
+            )
+        }
 
+        // Pending holds only this pod's sets, never the fetched row.
         mergedPersonUpdate.properties_to_set = {
             ...existingPersonUpdate.properties_to_set,
-            ...person.properties,
             ...person.properties_to_set,
+        }
+        mergedPersonUpdate.properties_to_set_once = {
+            ...existingPersonUpdate.properties_to_set_once,
+            ...person.properties_to_set_once,
         }
         for (const key of person.properties_to_unset) {
             delete mergedPersonUpdate.properties_to_set[key]
+            delete mergedPersonUpdate.properties_to_set_once[key]
         }
 
         mergedPersonUpdate.properties_to_unset = [
@@ -499,6 +611,59 @@ class BatchWritingPersonsCache {
 
     private getDistinctCacheKey(teamId: number, distinctId: string): string {
         return `${teamId}:${distinctId}`
+    }
+
+    beginRead(): number {
+        const read = this.nextRead++
+        this.readsInFlight.set(read, this.generation)
+        return read
+    }
+
+    endRead(read: number): void {
+        this.readsInFlight.delete(read)
+        if (this.readsInFlight.size === 0) {
+            this.droppedAt.clear()
+        } else if (this.droppedAt.size > 256) {
+            const oldest = Math.min(...this.readsInFlight.values())
+            for (const [key, at] of this.droppedAt) {
+                if (at <= oldest) {
+                    this.droppedAt.delete(key)
+                }
+            }
+        }
+    }
+
+    droppedSince(teamId: number, personId: string, read: number): boolean {
+        const began = this.readsInFlight.get(read) ?? this.generation
+        return (this.droppedAt.get(this.getPersonIdCacheKey(teamId, personId)) ?? -1) > began
+    }
+
+    private dropEntry(personIdKey: string): void {
+        this.personUpdateCache.delete(personIdKey)
+        this.fenceReads(personIdKey)
+    }
+
+    /** A read that began before now does not install this person, whether or not its entry stays. */
+    private fenceReads(personIdKey: string): void {
+        if (this.readsInFlight.size > 0) {
+            this.droppedAt.set(personIdKey, ++this.generation)
+        }
+    }
+
+    /**
+     * Keeps the entry for the next flush alone: its distinct ids read the row, a read from before now does not
+     * reinstall the person, and the entry is evicted once it is clean.
+     */
+    detachEntry(teamId: number, personId: string): void {
+        const personIdKey = this.getPersonIdCacheKey(teamId, personId)
+        this.fenceReads(personIdKey)
+        this.dropDistinctIdsForPersonId(teamId, personId)
+        this.detachedEntries.add(personIdKey)
+    }
+
+    /** The live entry itself: no copy and no cache hit metrics. */
+    getLiveUpdate(teamId: number, personId: string): PersonUpdate | null | undefined {
+        return this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, personId))
     }
 
     private getPersonIdCacheKey(teamId: number, personId: string): string {
@@ -627,6 +792,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return 'changed'
         }
 
+        // The store cannot tell whether the row already holds a carried key, so a pending set-once always writes.
+        if (Object.keys(update.properties_to_set_once).length > 0) {
+            return 'changed'
+        }
+
         const hasPropertyChanges =
             Object.keys(update.properties_to_set).length > 0 || update.properties_to_unset.length > 0
 
@@ -708,15 +878,26 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             if (outcome === 'changed') {
                 // Track which property keys caused person updates
                 const metricsKeys = new Set<string>()
-                Object.keys(update.properties_to_set).forEach((propertyKey) => {
-                    metricsKeys.add(getMetricKey(propertyKey))
-                })
+                Object.keys({ ...update.properties_to_set, ...update.properties_to_set_once }).forEach(
+                    (propertyKey) => {
+                        metricsKeys.add(getMetricKey(propertyKey))
+                    }
+                )
                 update.properties_to_unset.forEach((propertyKey) => {
                     metricsKeys.add(getMetricKey(propertyKey))
                 })
                 metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
 
-                updateEntries.push([key, update])
+                // A copy, because the retire edits the live entry in place and compares it with what this write carried.
+                updateEntries.push([
+                    key,
+                    {
+                        ...update,
+                        properties_to_set: { ...update.properties_to_set },
+                        properties_to_set_once: { ...update.properties_to_set_once },
+                        properties_to_unset: [...update.properties_to_unset],
+                    },
+                ])
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -786,6 +967,46 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
+     * An answer newer than the base replaces it with the row it returned; either way the pending change for
+     * each key the write carried retires, unless the entry holds a newer pending change for that key. A
+     * re-targeted write lands on another person's entry this way too.
+     */
+    private retireLandedChanges(record: PersonUpdate, landed: InternalPerson, version: number): void {
+        const entry = this.personCache.getLiveUpdate(record.team_id, record.id)
+        if (!entry) {
+            return
+        }
+        // Two re-targeted writes to one row can answer out of commit order, and a row read can arrive between a
+        // write and its answer. An answer older than the base retires what it carried but leaves the base.
+        if (version > entry.version) {
+            takeRow(entry, landed, version)
+        }
+        retireCarried(entry, record)
+    }
+
+    /**
+     * Runs a row read and names the returned persons whose entries were dropped since it began, so their rows
+     * are not installed; the read ends whatever the repository does.
+     */
+    private async readRows<T>(
+        query: () => Promise<T>,
+        persons: (result: T) => InternalPerson[]
+    ): Promise<{ result: T; dropped: Set<string> }> {
+        const read = this.personCache.beginRead()
+        try {
+            const result = await query()
+            const dropped = new Set(
+                persons(result)
+                    .filter((person) => this.personCache.droppedSince(person.team_id, person.id, read))
+                    .map((person) => person.id)
+            )
+            return { result, dropped }
+        } finally {
+            this.personCache.endRead(read)
+        }
+    }
+
+    /**
      * Flush all person updates using a single batch query (NO_ASSERT mode).
      * Falls back to individual updates for any persons that fail in the batch.
      */
@@ -804,10 +1025,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const allKafkaMessages: FlushResult[] = []
         const failedUpdates: PersonUpdate[] = []
 
+        // With a uuid carried by two entries, the returned row cannot say which entry's write it holds.
+        const uuidCounts = new Map<string, number>()
+        for (const update of updates) {
+            uuidCounts.set(update.uuid, (uuidCounts.get(update.uuid) ?? 0) + 1)
+        }
+
         // Process batch results
         for (const update of updates) {
             const result = batchResults.get(update.uuid)
             if (result?.success && result.kafkaMessage) {
+                if (uuidCounts.get(update.uuid) === 1 && result.person && result.version !== undefined) {
+                    this.retireLandedChanges(update, result.person, result.version)
+                }
                 allKafkaMessages.push({
                     messages: [result.kafkaMessage],
                     teamId: update.team_id,
@@ -820,28 +1050,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     outcome: 'success',
                 })
             } else {
-                // Handle specific error types
+                // One oversized row fails the statement for every row, so the repository marks them all. Each
+                // person retries alone, where only the oversized one is repaired or rejected and warned.
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
-                    await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
-                        type: 'person_properties_size_violation',
-                        details: {
-                            personId: update.uuid,
-                            distinctId: update.distinct_id,
-                            teamId: update.team_id,
-                            message: 'Person properties exceeds size limit and was rejected',
-                        },
-                        pipelineStep: 'person-store',
-                    })
                     personWriteMethodAttemptCounter.inc({
                         db_write_mode: this.options.dbWriteMode,
                         method: 'batch',
                         outcome: 'properties_size_violation',
                     })
-                    // Don't retry size violations - they will never succeed
-                    continue
                 }
-
-                // Queue for individual retry
                 failedUpdates.push(update)
             }
         }
@@ -1134,12 +1351,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
                     const start = performance.now()
-                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
-                        useReadReplica: true,
-                        callerTag: 'ingestion/person-resolution',
-                    })
+                    const { result: person, dropped } = await this.readRows(
+                        () =>
+                            this.personRepository.fetchPerson(teamId, distinctId, {
+                                useReadReplica: true,
+                                callerTag: 'ingestion/person-resolution',
+                            }),
+                        (found) => (found ? [found] : [])
+                    )
                     observeLatencyByVersion(person, start, 'fetchForChecking')
-                    cache.setCheckCachedPerson(teamId, distinctId, person ?? null)
+                    if (dropped.size === 0) {
+                        cache.setCheckCachedPerson(teamId, distinctId, person ?? null)
+                    }
                     return person ?? null
                 } finally {
                     this.fetchPromisesForChecking.delete(cacheKey)
@@ -1220,6 +1443,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Create a shared promise for the batch fetch that populates caches when complete
         // Use primary (useReadReplica=false) to ensure fresh data for updates
+        const read = this.personCache.beginRead()
         const batchFetchPromise = this.personRepository
             .fetchPersonsByDistinctIds(
                 uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })),
@@ -1243,6 +1467,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
                     const cache = this.personCache.obtainForBatchId(batchId)
                     const person = personsByKey.get(cacheKey)
+                    if (person && this.personCache.droppedSince(teamId, person.id, read)) {
+                        continue
+                    }
                     if (person) {
                         cache.setCheckCachedPerson(teamId, distinctId, person)
                         const personUpdate = fromInternalPerson(person, distinctId)
@@ -1255,6 +1482,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 return personsByKey
             })
             .finally(() => {
+                this.personCache.endRead(read)
                 // Clean up the promises after completion
                 for (const { cacheKey } of uncachedEntries) {
                     this.fetchPromisesForChecking.delete(cacheKey)
@@ -1328,15 +1556,29 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 try {
                     this.incrementDatabaseOperation('fetchForUpdate', distinctId)
                     const start = performance.now()
-                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
-                        useReadReplica: false,
-                        callerTag: 'ingestion/person-update-conflict',
-                    })
+                    let person: InternalPerson | undefined
+                    // A person dropped while the read was out may have changed, so it is read once more.
+                    for (let attempt = 0; ; attempt++) {
+                        const { result, dropped } = await this.readRows(
+                            () =>
+                                this.personRepository.fetchPerson(teamId, distinctId, {
+                                    useReadReplica: false,
+                                    callerTag: 'ingestion/person-update-conflict',
+                                }),
+                            (found) => (found ? [found] : [])
+                        )
+                        person = result
+                        if (dropped.size === 0 || attempt > 0) {
+                            break
+                        }
+                    }
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
                     if (person !== undefined) {
                         const personUpdate = fromInternalPerson(person, distinctId)
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
-                        return person
+                        // The entry may already hold this pod's changes, reached through another id.
+                        const live = this.personCache.getLiveUpdate(teamId, person.id)
+                        return live ? toInternalPerson(live) : person
                     } else {
                         // Before caching null, check if another async operation populated
                         // the cache while we were awaiting the DB query. This can happen when:
@@ -1368,20 +1610,20 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchIdOrTx?: number | PersonRepositoryTransaction,
         _tx?: PersonRepositoryTransaction
@@ -1405,6 +1647,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // intents refine here too — identification only transitions
         // false→true, last-seen only advances.
         const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        // The view shows a pending change before it lands, so a $set of that value refines away but must still
+        // write: a set-once as a set, and an unforced set when this event is forced. An unforced repeat of a
+        // pending set changes nothing and is left alone.
+        const live = this.personCache.getLiveUpdate(person.team_id, person.id)
+        const lanes = live
+            ? [live.properties_to_set_once, ...(ops.shouldForceUpdate ? [live.properties_to_set] : [])]
+            : []
+        for (const [key, value] of Object.entries(ops.set)) {
+            if (lanes.some((lane) => Object.hasOwn(lane, key) && isEqual(lane[key], value))) {
+                refined.toSet[key] = value
+                refined.hasChanges = true
+            }
+        }
         const otherUpdates = computeOpsScalarUpdates(ops, person)
 
         if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
@@ -1495,10 +1750,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         const response = await (tx || this.personRepository).deletePerson(personToDelete)
         observeLatencyByVersion(person, start, 'deletePerson')
-
-        // Clear ALL caches related to this person id
-        this.clearAllCachesForPersonId(person.team_id, person.id)
-
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1528,6 +1780,29 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return await (tx || this.personRepository).isPersonLive(person)
     }
 
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson[]> {
+        this.incrementDatabaseOperation('readMergeRows', distinctId)
+        return await tx.readMergeRows(teamId, targetId, sourceIds)
+    }
+
+    pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
+        const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
+        return cached
+            ? {
+                  toSet: cached.properties_to_set,
+                  toSetOnce: cached.properties_to_set_once,
+                  toUnset: cached.properties_to_unset,
+                  createdAt: cached.created_at,
+              }
+            : null
+    }
+
     async fetchPersonsForUpdateByDistinctIds(
         teamId: Team['id'],
         distinctIds: string[],
@@ -1538,10 +1813,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
         this.incrementCount('fetchPersonsForUpdateByDistinctIds', distinctIds[0])
         this.incrementDatabaseOperation('fetchPersonsForUpdateByDistinctIds', distinctIds[0])
-        const rows = await this.personRepository.fetchPersonsForUpdateByDistinctIds(
-            teamId,
-            distinctIds,
-            'ingestion/merge-fold'
+        const { result: rows, dropped } = await this.readRows(
+            () => this.personRepository.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, 'ingestion/merge-fold'),
+            (found) => found
         )
 
         // Populate the per-batch update cache so later events for these
@@ -1549,7 +1823,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const cache = this.personCache.obtainForBatchId(batchId)
         for (const row of rows) {
             const { distinct_id, ...person } = row
-            cache.setCachedPersonForUpdate(teamId, distinct_id, fromInternalPerson(person, distinct_id))
+            if (!dropped.has(person.id)) {
+                cache.setCachedPersonForUpdate(teamId, distinct_id, fromInternalPerson(person, distinct_id))
+            }
         }
 
         return rows
@@ -1572,11 +1848,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (persons.length > 0) {
             observeLatencyByVersion(persons[0], start, 'deletePersons')
         }
-
-        for (const person of persons) {
-            this.clearAllCachesForPersonId(person.team_id, person.id)
-        }
-
+        // The merge clears the caches after commit, so a rollback keeps them.
         return response
     }
 
@@ -1610,9 +1882,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
-        // Clear the cache for the source person id to ensure deleted person isn't cached
-        this.clearAllCachesForPersonId(source.team_id, source.id)
-
         // Update cache for the target person for the current distinct ID
         // Check if we already have cached data for the target person that includes merged properties
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
@@ -1628,6 +1897,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person is the source; drop it so the next check reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1647,10 +1918,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const response = await tx.moveDistinctIdsFromPersons(sources, target)
         observeLatencyByVersion(target, start, 'moveDistinctIdsFromPersons')
 
-        for (const source of sources) {
-            this.clearAllCachesForPersonId(source.team_id, source.id)
-        }
-
         // Mirror moveDistinctIds' target-cache handling for the triggering distinct id
         const existingTargetCache = this.getCachedPersonForUpdateByPersonId(target.team_id, target.id)
         if (existingTargetCache) {
@@ -1662,6 +1929,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         if (response.success) {
             for (const movedDistinctId of response.distinctIdsMoved) {
                 this.setDistinctIdToPersonId(target.team_id, movedDistinctId, target.id, batchId)
+                // The checked person is the source; drop it so the next check reads the row.
+                this.getCheckCache().delete(this.getDistinctCacheKey(target.team_id, movedDistinctId))
             }
         }
 
@@ -1836,6 +2105,27 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.personCache.clearPersonCacheForPersonId(teamId, personId)
     }
 
+    /**
+     * After a merge commits, drops the source's entry unless changes reached it since the merge read its pending
+     * changes; those stay for the next flush, whose no-rows re-target lands them on the survivor. Either way the
+     * source's distinct ids read the row from now on, so no event lands on the deleted person.
+     */
+    releaseMergedSource(teamId: number, personId: string, carried: PendingPersonChanges | null): void {
+        const entry = this.personCache.getLiveUpdate(teamId, personId)
+        if (entry && carried) {
+            retireCarried(entry, {
+                properties_to_set: carried.toSet,
+                properties_to_set_once: carried.toSetOnce,
+                properties_to_unset: carried.toUnset,
+            })
+        }
+        if (entry && hasLanes(entry)) {
+            this.personCache.detachEntry(teamId, personId)
+            return
+        }
+        this.personCache.clearAllCachesForPersonId(teamId, personId)
+    }
+
     clearAllCachesForPersonId(teamId: number, personId: string): void {
         this.personCache.clearAllCachesForPersonId(teamId, personId)
     }
@@ -1922,7 +2212,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
     private addPersonUpdateToBatch(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string,
         batchId: number
     ): [InternalPerson, PersonMessage[], boolean] {
@@ -1952,7 +2242,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      */
     private mergeUpdateIntoPersonUpdate(
         personUpdate: PersonUpdate,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         allowCreatedAtUpdate: boolean = false
     ): PersonUpdate {
         // For properties, we track them in the fine-grained properties_to_set/unset
@@ -1968,8 +2258,28 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
         }
 
+        personUpdate.properties_to_set_once = {
+            ...personUpdate.properties_to_set_once,
+            ...update.properties_to_set_once,
+        }
+
+        // An unset wins over a set the batch already queued for the same key.
+        for (const key of update.properties_to_unset ?? []) {
+            delete personUpdate.properties_to_set[key]
+            delete personUpdate.properties_to_set_once[key]
+            if (!personUpdate.properties_to_unset.includes(key)) {
+                personUpdate.properties_to_unset.push(key)
+            }
+        }
+
         // Apply other updates (excluding properties which we handled above)
-        const fieldsToExclude = ['properties', 'is_identified']
+        const fieldsToExclude = [
+            'properties',
+            'properties_to_set_once',
+            'properties_to_unset',
+            'is_identified',
+            'last_seen_at',
+        ]
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }
@@ -1993,6 +2303,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // Handle is_identified specially with || operator
         if (update.is_identified !== undefined) {
             personUpdate.is_identified = personUpdate.is_identified || update.is_identified
+        }
+        if (update.last_seen_at && (!personUpdate.last_seen_at || update.last_seen_at > personUpdate.last_seen_at)) {
+            personUpdate.last_seen_at = update.last_seen_at
         }
 
         personUpdate.needs_write = true
@@ -2038,6 +2351,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
             // Remove from set list if it was there
             delete personUpdate.properties_to_set[key]
+            delete personUpdate.properties_to_set_once[key]
         })
 
         // Handle is_identified specially with || operator
@@ -2064,30 +2378,47 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return [toInternalPerson(personUpdate), []]
     }
 
+    /** One row through the batch statement; a missing row throws for withMergeRetry. */
     private async updatePersonNoAssert(personUpdate: PersonUpdate): Promise<PersonUpdateResult> {
         const operation = 'updatePersonNoAssert'
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
-        // Convert PersonUpdate back to InternalPerson for database call
+
+        this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
+        this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
+        const start = performance.now()
+
+        const result = (await this.personRepository.updatePersonsBatch([personUpdate])).get(personUpdate.uuid)
+        if (result?.error instanceof PersonPropertiesSizeViolationError) {
+            return this.repairOversizedPerson(personUpdate, start)
+        }
+        this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
+        observeLatencyByVersion(toInternalPerson(personUpdate), start, 'updatePersonNoAssert')
+
+        if (!result?.success) {
+            throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
+        }
+        if (result.person && result.version !== undefined) {
+            this.retireLandedChanges(personUpdate, result.person, result.version)
+        }
+        return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
+    }
+
+    /**
+     * Trims and writes a row already over the size limit; rejects any other oversized write. The trim can drop keys
+     * this write carried, so nothing retires.
+     */
+    private async repairOversizedPerson(personUpdate: PersonUpdate, start: number): Promise<PersonUpdateResult> {
         const person = toInternalPerson(personUpdate)
-        // Always pass all mutable fields for consistent query plans
-        const updateFields = {
+        const [, messages] = await this.personRepository.handleOversizedPersonProperties(person, {
             properties: person.properties,
             properties_last_updated_at: person.properties_last_updated_at,
             properties_last_operation: person.properties_last_operation,
             is_identified: person.is_identified,
             created_at: person.created_at,
             last_seen_at: person.last_seen_at,
-        }
-
-        this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
-        this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
-        const start = performance.now()
-
-        const [_, messages] = await this.personRepository.updatePerson(person, updateFields, 'updatePersonNoAssert')
+        })
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
-
-        // updatePersonNoAssert always succeeds (no version conflicts)
         return { success: true, messages }
     }
 
@@ -2112,6 +2443,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
         if (actualVersion !== undefined) {
+            // The version matched, so the row now holds exactly this record's view.
+            this.retireLandedChanges(personUpdate, toInternalPerson(personUpdate), actualVersion)
             // Success - optimistic update worked, create updated PersonUpdate with new version
             const updatedPersonUpdate: PersonUpdate = {
                 ...personUpdate,
@@ -2128,6 +2461,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
             callerTag: 'ingestion/person-version-conflict',
         })
+
+        if (latestPerson && latestPerson.id !== personUpdate.id) {
+            // The distinct id belongs to another person now; re-target as the NO_ASSERT path does, and like it
+            // treat nothing to re-target as done.
+            const refreshed = await this.refreshPersonIdAfterMerge(personUpdate)
+            return refreshed
+                ? { success: false, messages: [], personUpdate: refreshed }
+                : { success: true, messages: [] }
+        }
 
         if (latestPerson) {
             // Use fine-grained merge: start with latest properties from DB and apply our specific changes
@@ -2292,13 +2634,22 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return null
         }
 
+        const live = this.personCache.getLiveUpdate(personUpdate.team_id, personUpdate.id)
+        // On the first hop the record's lanes are the flush's copy of the entry under its id, which holds them plus
+        // every change since, minus what a merge on this pod has carried or decided against; so the entry is the
+        // carrier and the copy is dropped, and an entry a merge released leaves nothing to re-target. On a later
+        // hop the entry under the record's id belongs to another person, and the record is the only carrier of
+        // the earlier hop.
+        const firstHop = !personUpdate.retargeted
+        if (firstHop && !live) {
+            return null
+        }
         // Clear the old person ID from cache since it's been merged
         this.clearPersonCacheForPersonId(personUpdate.team_id, personUpdate.id)
 
         // Update our cache mapping to reflect the new person ID
         this.personCache.setDistinctIdToPersonId(personUpdate.team_id, personUpdate.distinct_id, currentPerson.id)
 
-        // Create updated PersonUpdate with the new person ID and version
         const updatedPersonUpdate: PersonUpdate = {
             id: currentPerson.id,
             team_id: personUpdate.team_id,
@@ -2307,17 +2658,38 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             properties: currentPerson.properties,
             properties_last_updated_at: personUpdate.properties_last_updated_at,
             properties_last_operation: personUpdate.properties_last_operation,
-            created_at: currentPerson.created_at,
+            created_at: DateTime.min(currentPerson.created_at, personUpdate.created_at),
             version: currentPerson.version,
             is_identified: currentPerson.is_identified || personUpdate.is_identified,
             is_user_id: personUpdate.is_user_id,
-            last_seen_at: personUpdate.last_seen_at,
+            // Like created_at, the record keeps what an earlier hop carried even when no live entry remains.
+            last_seen_at:
+                personUpdate.last_seen_at &&
+                (!currentPerson.last_seen_at || personUpdate.last_seen_at > currentPerson.last_seen_at)
+                    ? personUpdate.last_seen_at
+                    : currentPerson.last_seen_at,
             needs_write: personUpdate.needs_write,
-            properties_to_set: personUpdate.properties_to_set,
-            properties_to_unset: personUpdate.properties_to_unset,
+            properties_to_set: firstHop ? {} : personUpdate.properties_to_set,
+            properties_to_set_once: firstHop ? {} : personUpdate.properties_to_set_once,
+            properties_to_unset: firstHop ? [] : personUpdate.properties_to_unset,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
             original_last_seen_at: personUpdate.original_last_seen_at,
+            retargeted: true,
+        }
+        if (live) {
+            this.mergeUpdateIntoPersonUpdate(
+                updatedPersonUpdate,
+                {
+                    properties: live.properties_to_set,
+                    properties_to_set_once: live.properties_to_set_once,
+                    properties_to_unset: live.properties_to_unset,
+                    is_identified: live.is_identified,
+                    created_at: live.created_at,
+                    ...(live.last_seen_at ? { last_seen_at: live.last_seen_at } : {}),
+                },
+                true
+            )
         }
 
         return updatedPersonUpdate
