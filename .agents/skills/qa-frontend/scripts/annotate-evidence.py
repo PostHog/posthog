@@ -229,6 +229,8 @@ def _parse_frame(value: str) -> Frame:
 
 
 def _frames_from_dir(frames_dir: Path, fps: int) -> list[Frame]:
+    if fps <= 0:
+        raise SystemExit(f"--fps must be positive (got {fps})")
     if not frames_dir.is_dir():
         raise SystemExit(f"missing frames directory: {frames_dir}")
     return [Frame(path, round(1000 / fps)) for path in sorted(frames_dir.glob("*.png"))]

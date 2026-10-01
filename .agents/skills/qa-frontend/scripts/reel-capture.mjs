@@ -122,6 +122,8 @@ async function main() {
     for (const step of shotList.steps) {
         const locator = locate(page, step.target)
         await locator.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS })
+        // page.mouse works in viewport coordinates, so a target below the fold must scroll in first.
+        await locator.scrollIntoViewIfNeeded({ timeout: STEP_TIMEOUT_MS })
         const box = await boxOf(locator)
         const point = step.at
             ? { x: box.x + step.at.x, y: box.y + step.at.y }

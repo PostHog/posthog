@@ -23,6 +23,10 @@ async function main() {
     if (!captureDir || !framesDir) {
         throw new Error('Usage: node reel-render.mjs <capture-dir> <frames-dir>')
     }
+    if (path.resolve(captureDir) === path.resolve(framesDir)) {
+        // The encoder takes every PNG in the frames folder, so the stills would end up in the reel.
+        throw new Error('Use a frames folder other than the capture folder')
+    }
     const capture = JSON.parse(readFileSync(path.join(captureDir, 'frames.json'), 'utf8'))
     const data = {
         viewport: capture.viewport,

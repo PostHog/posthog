@@ -55,7 +55,7 @@ The reel drives the steps itself, because a `play` function cannot be paused bet
 | `steps[].target`  | `{ "label": … }` (accessible name), `{ "text": … }` (exact text), `{ "text": …, "within": "<css>" }` (the `<css>` element that holds the text, such as a row), or `{ "selector": "<css>" }` |
 | `steps[].at`      | Optional point in CSS pixels from the top-left corner of the target. The default is the center                                                                                              |
 | `steps[].waitFor` | Optional target that must show after the action                                                                                                                                             |
-| `steps[].focus`   | Optional target that the step shows, such as a menu. The camera frames it in the final shot                                                                                                 |
+| `steps[].focus`   | Optional target that the last step shows, such as a menu. The camera frames it in the final shot. Earlier steps ignore it                                                                   |
 | `finalCaption`    | Text on screen at the end                                                                                                                                                                   |
 
 Keep a reel to two to four steps. Each step adds about 1.4 seconds.
