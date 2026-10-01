@@ -2,12 +2,13 @@ import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generat
 
 export type TaskRunTab = 'conversation' | 'artifacts'
 
-export type ArtifactPreviewKind = 'markdown' | 'html' | 'image' | 'csv' | 'text' | 'none'
+export type ArtifactPreviewKind = 'markdown' | 'html' | 'image' | 'video' | 'csv' | 'text' | 'none'
 
 export const ARTIFACT_KIND_LABEL: Record<ArtifactPreviewKind, string> = {
     markdown: 'Markdown',
     html: 'HTML',
     image: 'Image',
+    video: 'Video',
     csv: 'CSV',
     text: 'Text',
     none: 'File',
@@ -28,6 +29,9 @@ export function artifactPreviewKind(artifact: TaskRunArtifactResponseApi): Artif
     }
     if (contentType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) {
         return 'image'
+    }
+    if (contentType.startsWith('video/') || ['mp4', 'm4v', 'mov', 'webm', 'ogv'].includes(ext)) {
+        return 'video'
     }
     if (contentType === 'text/csv' || ext === 'csv') {
         return 'csv'

@@ -14,6 +14,8 @@ import {
     IconExpand45,
     IconImage,
     IconLock,
+    IconShare,
+    IconVideoCamera,
 } from '@posthog/icons'
 import {
     Badge,
@@ -82,7 +84,15 @@ type PreviewMode = 'rendered' | 'source'
 
 function KindIcon({ kind, className }: { kind: ArtifactPreviewKind; className?: string }): JSX.Element {
     const Icon =
-        kind === 'html' ? IconCode : kind === 'image' ? IconImage : kind === 'csv' ? IconDatabase : IconDocument
+        kind === 'html'
+            ? IconCode
+            : kind === 'image'
+              ? IconImage
+              : kind === 'video'
+                ? IconVideoCamera
+                : kind === 'csv'
+                  ? IconDatabase
+                  : IconDocument
     return <Icon className={className} />
 }
 
@@ -197,6 +207,50 @@ function TextLoading(): JSX.Element {
     )
 }
 
+function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.Element {
+    const { selectedArtifact, selectedMedia, artifactMediaLoading } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { loadArtifactMedia } = useActions(taskRunArtifactsLogic({ taskId }))
+    if (!selectedMedia) {
+        return (
+            <div className="flex h-full items-center justify-center">
+                <Spinner />
+            </div>
+        )
+    }
+    if (!selectedMedia.url) {
+        return (
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>This video can't play here</EmptyTitle>
+                    <EmptyDescription>{selectedMedia.error}</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button
+                        variant="outline"
+                        loading={artifactMediaLoading}
+                        onClick={() => selectedArtifact && loadArtifactMedia(selectedArtifact)}
+                        data-attr="task-artifact-retry"
+                    >
+                        Try again
+                    </Button>
+                </EmptyContent>
+            </Empty>
+        )
+    }
+    return (
+        <div className="flex h-full items-center justify-center p-6">
+            <video
+                key={selectedMedia.artifactId}
+                src={selectedMedia.url}
+                controls
+                preload="metadata"
+                aria-label={name}
+                className="max-h-full max-w-full rounded-sm border border-border bg-black"
+            />
+        </div>
+    )
+}
+
 function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element | null {
     const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId, artifactTextLoading } =
         useValues(taskRunArtifactsLogic({ taskId }))
@@ -210,6 +264,9 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
         return src ? <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} /> : null
+    }
+    if (selectedKind === 'video') {
+        return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
     }
     if (selectedKind === 'none') {
         return (
@@ -424,6 +481,36 @@ function CopySourceAction({ text }: { text: string | null }): JSX.Element {
     )
 }
 
+function CopyLinkAction({ taskId }: { taskId: string }): JSX.Element {
+    const { shareUrl } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { reportLinkCopied } = useActions(taskRunArtifactsLogic({ taskId }))
+    const [copied, setCopied] = useState(false)
+    useEffect(() => {
+        if (!copied) {
+            return
+        }
+        const timeout = window.setTimeout(() => setCopied(false), 2000)
+        return () => window.clearTimeout(timeout)
+    }, [copied])
+    return (
+        <IconAction
+            label={copied ? 'Link copied' : 'Copy link to this file'}
+            disabledReason={shareUrl ? undefined : 'The file is not ready yet'}
+            onClick={() => {
+                if (shareUrl) {
+                    void navigator.clipboard.writeText(shareUrl).then(() => {
+                        setCopied(true)
+                        reportLinkCopied()
+                    })
+                }
+            }}
+            dataAttr="task-artifact-copy-link"
+        >
+            {copied ? <IconCheck className="size-4" /> : <IconShare className="size-4" />}
+        </IconAction>
+    )
+}
+
 function ArtifactToolbar({
     taskId,
     artifact,
@@ -524,6 +611,7 @@ function ArtifactToolbar({
                         <IconChevronRight className="size-4" />
                     </IconAction>
                 </div>
+                <CopyLinkAction taskId={taskId} />
                 <IconAction
                     label={versioned ? 'Download this version' : 'Download'}
                     href={downloadUrl ?? undefined}
@@ -547,7 +635,8 @@ function ArtifactToolbar({
 
 function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
     const { selectedKind } = useValues(taskRunArtifactsLogic({ taskId }))
-    const fills = mode === 'rendered' && (selectedKind === 'html' || selectedKind === 'image')
+    const fills =
+        mode === 'rendered' && (selectedKind === 'html' || selectedKind === 'image' || selectedKind === 'video')
     return (
         <div className={cn('min-h-0 flex-1 bg-surface-tertiary', fills ? 'flex flex-col' : 'overflow-y-auto')}>
             <ArtifactPreview taskId={taskId} mode={mode} />
