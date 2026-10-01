@@ -386,6 +386,8 @@ The read-only page compares the published package, master version pin, registry 
 Release evidence separates workflow status from image build and base promotion results, including skipped builds.
 Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
 Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
+The Data sources tab lists each source's status and last successful read in UTC. Registry coverage remains unverified when the release source is unavailable or stale.
+Graph release badges compare observed versions with npm latest; cached observations say "Last seen". Select an image for its separate version-pin and base-lineage assessment.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 
