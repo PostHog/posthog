@@ -110,6 +110,11 @@ def check() -> None:
             assert "ENGINE = MergeTree" in objects["plain_reference"]
             assert "Kafka(warpstream_ingestion)" in objects["kafka_reference"]
             assert "kafka_topic_list =" in objects["kafka_reference"]
+            assert (
+                f"kafka_topic_list = 'isolated_{database}_input_test,isolated_{database}_extra_test'"
+                in objects["kafka_family"]
+            )
+            assert f"kafka_topic_list = '{database}_reference_input_test'" in objects["kafka_reference"]
             assert f"TO {database}.reference" in objects["reference_mv"]
             assert f"{database}.sharded_family" in objects["sharded_family"]
             assert f"noshard/{database}.reference" in objects["reference"]

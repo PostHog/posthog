@@ -56,13 +56,15 @@ module "sharded" {
   columns  = local.stored_columns
   storage  = local.storage
   kafka = {
-    topic   = "${var.database}_input"
+    topic   = "${var.database}_input,${var.database}_extra"
     columns = local.input_columns
   }
   mv_select = "team_id, timestamp, value"
   deployment = {
-    components = ["storage", "read", "write", "ingest"]
-    cluster    = "aux"
+    components         = ["storage", "read", "write", "ingest"]
+    cluster            = "aux"
+    kafka_topic_prefix = "isolated_"
+    kafka_topic_suffix = "_test"
     overrides = merge({ sharded_family = { force_destroy = true }, sibling_storage = { indexes = [] } }, var.bad_indexes ? {
       family = { add_indexes = [{ name = "invalid", expression = "team_id", type = "minmax", granularity = 1 }] }
     } : {})
@@ -87,9 +89,10 @@ module "global" {
   routing   = { read = true }
   names     = { read = "reference_read" }
   deployment = {
-    components = ["storage", "read", "write", "ingest"]
-    cluster    = "posthog"
-    overrides  = { reference = { force_destroy = true } }
+    components         = ["storage", "read", "write", "ingest"]
+    cluster            = "posthog"
+    kafka_topic_suffix = "_test"
+    overrides          = { reference = { force_destroy = true } }
   }
 }
 

@@ -1,3 +1,10 @@
+locals {
+  kafka_topics = {
+    kafka_topic_prefix = var.kafka_topic_prefix
+    kafka_topic_suffix = var.test ? "_test" : ""
+  }
+}
+
 module "catalog" {
   source = "../catalog"
 
@@ -6,9 +13,9 @@ module "catalog" {
   dictionary_user     = var.dictionary_user
   dictionary_password = var.dictionary_password
   deployment = {
-    sharded = { components = setsubtract(local.components, ["test"]), cluster = "aux" }
-    global  = { components = setsubtract(local.components, ["read", "test"]), cluster = "posthog" }
-    families = {
+    sharded = merge(local.kafka_topics, { components = setsubtract(local.components, ["test"]), cluster = "aux" })
+    global  = merge(local.kafka_topics, { components = setsubtract(local.components, ["read", "test"]), cluster = "posthog" })
+    families = { for name, deployment in {
       adhoc_events_deletion = { components = local.components }
       ai_events             = { components = local.components }
       app_metrics           = { components = local.components }
@@ -50,12 +57,12 @@ module "catalog" {
       log_entries               = { components = local.components }
       logs = {
         components = local.components
-        overrides = {
-          # Both local entry points must read the same storage that inserts through logs reach.
+        overrides = var.test ? {
+          # Product fixtures insert into the historical logs32 table.
           logs_distributed = {
             engine = "Distributed('posthog_single_shard', '${var.database}', 'logs32')"
           }
-        }
+        } : {}
       }
       marketing_preaggregated      = { components = local.components }
       message_assets               = { components = local.components }
@@ -99,6 +106,6 @@ module "catalog" {
           }
         }
       }
-    }
+    } : name => merge(local.kafka_topics, deployment) }
   }
 }

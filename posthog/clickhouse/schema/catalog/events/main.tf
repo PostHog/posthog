@@ -376,6 +376,8 @@ module "events_batch_export_unbounded" {
 module "kafka_events_json" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_events_json")
   database = var.database
   name     = "kafka_events_json"

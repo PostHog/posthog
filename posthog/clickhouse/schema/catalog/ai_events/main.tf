@@ -204,6 +204,8 @@ module "ai_events_json_mv" {
 module "kafka_ai_events_json" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_ai_events_json")
   database = var.database
   name     = "kafka_ai_events_json"

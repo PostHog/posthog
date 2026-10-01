@@ -213,6 +213,8 @@ module "error_tracking_issue_fingerprint_overrides_mv" {
 module "kafka_error_tracking_issue_fingerprint_embeddings" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_error_tracking_issue_fingerprint_embeddings")
   database = var.database
   name     = "kafka_error_tracking_issue_fingerprint_embeddings"
@@ -224,6 +226,8 @@ module "kafka_error_tracking_issue_fingerprint_embeddings" {
 
 module "kafka_error_tracking_issue_fingerprint_overrides" {
   source = "../../lib/table"
+
+  deployment = local.deployment
 
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_error_tracking_issue_fingerprint_overrides")
   database = var.database

@@ -91,6 +91,8 @@ timestamp,
 module "kafka_tophog_ws" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_tophog_ws")
   database = var.database
   name     = "kafka_tophog_ws"

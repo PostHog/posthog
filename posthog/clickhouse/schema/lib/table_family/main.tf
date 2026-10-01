@@ -130,16 +130,18 @@ variable "names" {
 variable "deployment" {
   description = "Placement and operational differences supplied by the calling root. Keeper paths are complete paths, never suffixes."
   type = object({
-    components       = optional(set(string), ["storage", "read", "write", "ingest"])
-    cluster          = optional(string)
-    read_cluster     = optional(string)
-    write_cluster    = optional(string)
-    kafka_collection = optional(string, "warpstream_ingestion")
-    kafka_settings   = optional(map(string), {})
-    keeper_path      = optional(string)
-    replica_name     = optional(string)
-    exclude          = optional(set(string), [])
-    overrides        = optional(any, {})
+    components         = optional(set(string), ["storage", "read", "write", "ingest"])
+    cluster            = optional(string)
+    read_cluster       = optional(string)
+    write_cluster      = optional(string)
+    kafka_collection   = optional(string, "warpstream_ingestion")
+    kafka_settings     = optional(map(string), {})
+    kafka_topic_prefix = optional(string, "")
+    kafka_topic_suffix = optional(string, "")
+    keeper_path        = optional(string)
+    replica_name       = optional(string)
+    exclude            = optional(set(string), [])
+    overrides          = optional(any, {})
   })
   default = {}
   validation {
@@ -273,6 +275,8 @@ module "write" {
 
 module "kafka" {
   source = "../table"
+
+  deployment = var.deployment
 
   enabled    = local.enabled.kafka
   database   = var.database

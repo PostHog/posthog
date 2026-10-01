@@ -45,6 +45,15 @@ variable "engine" {
   type        = string
 }
 
+variable "deployment" {
+  description = "Kafka topic namespace for this environment."
+  type = object({
+    kafka_topic_prefix = optional(string, "")
+    kafka_topic_suffix = optional(string, "")
+  })
+  default = {}
+}
+
 variable "partition_by" {
   type    = string
   default = null
@@ -154,18 +163,30 @@ locals {
   )
 }
 
+locals {
+  engine           = try(local.o.engine, var.engine)
+  settings         = try(local.o.settings, var.settings)
+  namespace_topics = startswith(local.engine, "Kafka(") && (var.deployment.kafka_topic_prefix != "" || var.deployment.kafka_topic_suffix != "")
+  topic_lists      = regexall("kafka_topic_list\\s*=\\s*'([^']*)'", "${local.engine} ${coalesce(local.settings, " ")}")
+  topics = length(local.topic_lists) == 0 ? [] : [
+    for topic in split(",", local.topic_lists[0][0]) : "${var.deployment.kafka_topic_prefix}${trimspace(topic)}${var.deployment.kafka_topic_suffix}"
+  ]
+  topic_pattern = "/(kafka_topic_list\\s*=\\s*')[^']*'/"
+  topic_value   = "$${1}${join(",", local.topics)}'"
+}
+
 resource "clickhousedbops_table" "this" {
   count = var.enabled ? 1 : 0
 
   database     = var.database
   name         = var.name
-  engine       = try(local.o.engine, var.engine)
+  engine       = local.namespace_topics ? replace(local.engine, local.topic_pattern, local.topic_value) : local.engine
   partition_by = try(local.o.partition_by, var.partition_by)
   primary_key  = try(local.o.primary_key, var.primary_key)
   order_by     = try(local.o.order_by, var.order_by)
   sample_by    = try(local.o.sample_by, var.sample_by)
   ttl          = try(local.o.ttl, var.ttl)
-  settings     = try(local.o.settings, var.settings)
+  settings     = local.settings == null ? null : local.namespace_topics ? replace(local.settings, local.topic_pattern, local.topic_value) : local.settings
 
   columns     = local.columns
   indexes     = length(local.indexes) > 0 ? local.indexes : null
@@ -177,4 +198,11 @@ resource "clickhousedbops_table" "this" {
 
   force_destroy            = try(local.o.force_destroy, false)
   ignore_drop_dependencies = try(local.o.ignore_drop_dependencies, false)
+
+  lifecycle {
+    precondition {
+      condition     = !local.namespace_topics || length(local.topic_lists) == 1
+      error_message = "Kafka topic namespaces require exactly one kafka_topic_list in the engine or settings."
+    }
+  }
 }

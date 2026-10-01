@@ -107,6 +107,8 @@ module "test_log_entries_family" {
 module "kafka_log_entries_aux" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_aux")
   database = var.database
   name     = "kafka_log_entries_aux"
@@ -119,6 +121,8 @@ module "kafka_log_entries_aux" {
 module "kafka_log_entries_v3" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_v3")
   database = var.database
   name     = "kafka_log_entries_v3"
@@ -130,6 +134,8 @@ module "kafka_log_entries_v3" {
 
 module "kafka_log_entries_ws" {
   source = "../../lib/table"
+
+  deployment = local.deployment
 
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_log_entries_ws")
   database = var.database

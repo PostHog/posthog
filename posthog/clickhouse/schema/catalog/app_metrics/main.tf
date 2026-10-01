@@ -160,6 +160,8 @@ module "app_metrics2_ws_mv" {
 module "kafka_app_metrics2_ws" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_app_metrics2_ws")
   database = var.database
   name     = "kafka_app_metrics2_ws"
@@ -171,6 +173,8 @@ module "kafka_app_metrics2_ws" {
 
 module "kafka_app_metrics" {
   source = "../../lib/table"
+
+  deployment = local.deployment
 
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_app_metrics")
   database = var.database

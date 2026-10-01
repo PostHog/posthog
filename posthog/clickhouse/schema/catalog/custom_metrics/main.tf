@@ -288,6 +288,6 @@ module "custom_metrics_counters" {
   enabled    = contains(local.deployment.components, "test")
   database   = var.database
   name       = "custom_metrics_counters"
-  query      = "SELECT name, mapSort(labels) AS labels, sum(increment) AS value, '' AS help, 'counter' AS type FROM ${var.database}.custom_metrics_counter_events GROUP BY name, type, labels ORDER BY name, type, labels"
+  query      = "SELECT name, mapSort(labels) AS labels, sum(increment) AS value, '' AS help, 'counter' AS type FROM ${var.database}.custom_metrics_counter_events GROUP BY name, type, labels ORDER BY name ASC, type ASC, labels ASC"
   depends_on = [module.custom_metrics_counter_events]
 }

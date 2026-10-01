@@ -35,6 +35,12 @@ variable "kafka" {
   default     = true
 }
 
+variable "kafka_topic_prefix" {
+  description = "Kafka topic prefix, matching the app's KAFKA_PREFIX."
+  type        = string
+  default     = ""
+}
+
 variable "test" {
   description = "Build a test database: no table TTLs, and the materialized views that stand in for the Kafka pipeline."
   type        = bool

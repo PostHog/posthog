@@ -56,6 +56,8 @@ module "sharded_usage_report_events_preagg_family" {
 module "kafka_usage_report_events_preagg" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_usage_report_events_preagg")
   database = var.database
   name     = "kafka_usage_report_events_preagg"

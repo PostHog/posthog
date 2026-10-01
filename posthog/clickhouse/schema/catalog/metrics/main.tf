@@ -1335,6 +1335,8 @@ module "metrics4_view" {
 module "kafka_metrics_avro2" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro2")
   database = var.database
   name     = "kafka_metrics_avro2"
@@ -1394,6 +1396,8 @@ module "kafka_metrics_avro2_mv" {
 
 module "kafka_metrics_avro4" {
   source = "../../lib/table"
+
+  deployment = local.deployment
 
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro4")
   database = var.database

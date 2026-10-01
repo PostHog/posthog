@@ -121,6 +121,8 @@ module "sharded_ingestion_warnings_family" {
 module "kafka_ingestion_warnings" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_ingestion_warnings")
   database = var.database
   name     = "kafka_ingestion_warnings"

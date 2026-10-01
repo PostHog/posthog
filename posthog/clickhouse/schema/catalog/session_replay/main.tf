@@ -233,6 +233,8 @@ module "sharded_session_replay_features_family" {
 module "kafka_session_replay_events" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_session_replay_events")
   database = var.database
   name     = "kafka_session_replay_events"
@@ -272,6 +274,8 @@ module "kafka_session_replay_events" {
 
 module "kafka_session_replay_features" {
   source = "../../lib/table"
+
+  deployment = local.deployment
 
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_session_replay_features")
   database = var.database

@@ -100,6 +100,8 @@ module "person_distinct_id_overrides_dict" {
 module "kafka_person_distinct_id_overrides" {
   source = "../../lib/table"
 
+  deployment = local.deployment
+
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_person_distinct_id_overrides")
   database = var.database
   name     = "kafka_person_distinct_id_overrides"
