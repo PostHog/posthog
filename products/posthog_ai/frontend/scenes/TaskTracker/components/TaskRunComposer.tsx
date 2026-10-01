@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MutableRefObject, type RefObject, useEffect, useMemo, useRef } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { projectLogic } from 'scenes/projectLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -14,14 +15,19 @@ import { runSlashCommandsLogic } from 'products/posthog_ai/frontend/logics/runSl
 import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/logics/taskRunDefaultsLogic'
 import { getRuntimeAdapterForModel, pickerModels } from 'products/posthog_ai/frontend/utils/composerModels'
 import { cycleMode, getModesForRuntimeAdapter } from 'products/posthog_ai/frontend/utils/composerModes'
+import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { CommandResultCard } from '../../../components/composer/CommandResultCard'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
+import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
-import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import {
+    ComposerModelEffortPickers,
+    type ComposerModelEffortPickersProps,
+} from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
@@ -106,6 +112,7 @@ export function TaskRunComposer({
     const labelRef = useRef<HTMLLabelElement>(null)
     const groupRef = useRef<HTMLDivElement>(null)
     const skin = useThreadSkin()
+    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
 
     const placeholder = isTerminal
         ? 'Send a message to start a new run, or type / for commands…'
@@ -119,22 +126,29 @@ export function TaskRunComposer({
             modes={getModesForRuntimeAdapter(composerAdapter)}
         />
     )
-    const modelPicker = (
-        <ComposerModelEffortPickers
-            models={offeredModels}
-            selectedModel={selectedModel}
-            defaultModel={defaultModel}
-            isDefaultModelLoading={myConfigLoading}
-            selectedEffort={selectedEffort}
-            onModelChange={setModel}
-            onEffortChange={setEffort}
-            // While the run is live its harness is fixed to whatever the sandbox booted; once
-            // terminal the next send starts a fresh run, which may pick any harness.
-            lockedRuntimeAdapter={isTerminal ? null : logicProps.currentRuntimeAdapter}
-            onOpenDefaultSettings={() =>
-                router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference'))
+    const modelPickerProps: ComposerModelEffortPickersProps = {
+        models: offeredModels,
+        selectedModel,
+        defaultModel,
+        isDefaultModelLoading: myConfigLoading,
+        selectedEffort,
+        onModelChange: setModel,
+        onEffortChange: setEffort,
+        // While the run is live its harness is fixed to whatever the sandbox booted; once
+        // terminal the next send starts a fresh run, which may pick any harness.
+        lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
+        onOpenDefaultSettings: () =>
+            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+    }
+    const modelPicker = codexBillingEnabled ? (
+        <ComposerCodexBillingPickers
+            {...modelPickerProps}
+            lockedCodexModelAccess={
+                isTerminal ? null : (logicProps.currentCodexModelAccess ?? ModelAccessEnumApi.PosthogGateway)
             }
         />
+    ) : (
+        <ComposerModelEffortPickers {...modelPickerProps} />
     )
     const field = (
         <ComposerCommandMenu commands={slashCommands}>

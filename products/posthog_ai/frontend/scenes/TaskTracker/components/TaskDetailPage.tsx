@@ -127,6 +127,7 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
             task={task}
             selectedRun={selectedRun}
             isHeaderLoading={isHeaderLoading && !isActiveCreation}
+            headerDivider={!artifactsTabEnabled}
             titleActions={
                 <div className="flex flex-wrap items-center gap-2">
                     {taskActions}

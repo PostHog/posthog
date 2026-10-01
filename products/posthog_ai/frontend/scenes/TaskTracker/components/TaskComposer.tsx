@@ -2,6 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
@@ -30,7 +31,11 @@ import { AttachedContextBar } from '../../../components/composer/AttachedContext
 import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
 import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
-import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
+import {
+    ComposerModelEffortPickers,
+    type ComposerModelEffortPickersProps,
+} from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
@@ -123,35 +128,36 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
             onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
         />
     )
-    const modelPicker = (
-        <ComposerModelEffortPickers
-            models={offeredModels}
-            selectedModel={displayModel}
-            defaultModel={defaultModel}
-            isDefaultModelLoading={myConfigLoading}
-            selectedEffort={displayEffort}
-            isDefaultSelection={isDefaultSelection}
-            onModelChange={(model) =>
-                setNewTaskData({
-                    model,
-                    reasoningEffort: resolveEffortForModel(catalogue, newTaskData.reasoningEffort, model),
-                    // Clamp the mode too, not just the effort: leaving a
-                    // Claude-only mode selected against a Codex model would
-                    // show one permission ceiling and send a broader one.
-                    permissionMode: resolveModeForRuntimeAdapter(
-                        getRuntimeAdapterForModel(catalogue, model),
-                        newTaskData.permissionMode
-                    ),
-                })
-            }
-            onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
-            // Clearing both pins is what hands the choice back to the resolved
-            // default — submit then omits the triple entirely.
-            onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
-            onOpenDefaultSettings={() =>
-                router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference'))
-            }
-        />
+    const codexBillingEnabled = useFeatureFlag('POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD')
+    const modelPickerProps: ComposerModelEffortPickersProps = {
+        models: offeredModels,
+        selectedModel: displayModel,
+        defaultModel,
+        isDefaultModelLoading: myConfigLoading,
+        selectedEffort: displayEffort,
+        isDefaultSelection,
+        onModelChange: (model) =>
+            setNewTaskData({
+                model,
+                reasoningEffort: resolveEffortForModel(catalogue, newTaskData.reasoningEffort, model),
+                // Clamp the mode too, not just the effort: leaving a Claude-only mode selected against a Codex
+                // model would show one permission ceiling and send a broader one.
+                permissionMode: resolveModeForRuntimeAdapter(
+                    getRuntimeAdapterForModel(catalogue, model),
+                    newTaskData.permissionMode
+                ),
+            }),
+        onEffortChange: (reasoningEffort) => setNewTaskData({ reasoningEffort }),
+        // Clearing both pins is what hands the choice back to the resolved default — submit then omits the
+        // triple entirely.
+        onResetToDefault: () => setNewTaskData({ model: null, reasoningEffort: null }),
+        onOpenDefaultSettings: () =>
+            router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+    }
+    const modelPicker = codexBillingEnabled ? (
+        <ComposerCodexBillingPickers {...modelPickerProps} />
+    ) : (
+        <ComposerModelEffortPickers {...modelPickerProps} />
     )
     const withConsent = (sendButton: JSX.Element): JSX.Element => (
         <AIConsentPopoverWrapper

@@ -6,6 +6,7 @@ import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { ReportChart } from 'products/signals/frontend/inbox/components/detail/ReportChart'
+import { ReportChartsContext } from 'products/signals/frontend/inbox/components/detail/reportChartsContext'
 import { ReportSummaryBody } from 'products/signals/frontend/inbox/components/detail/ReportSummaryBody'
 
 import { TodayIcon } from './TodayIcon'
@@ -18,7 +19,7 @@ import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignal
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartPlacements, trailingCharts, reportUrl } =
+    const { currentReport, reportFailed, fullReportLoading, chartPlacements, chartsById, trailingCharts, reportUrl } =
         useValues(logic)
     const { loadFullReport } = useActions(logic)
     const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
@@ -94,16 +95,18 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                         Open in Inbox
                     </LemonButton>
                 </div>
-                <div className="TodayReport__body">
-                    {currentReport.summary ? (
-                        <ReportSummaryBody summary={currentReport.summary} chartPlacements={chartPlacements} />
-                    ) : (
-                        <p>No summary yet. An agent is still investigating.</p>
-                    )}
-                    {trailingCharts.map((chart) => (
-                        <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                    ))}
-                </div>
+                <ReportChartsContext.Provider value={chartsById}>
+                    <div className="TodayReport__body">
+                        {currentReport.summary ? (
+                            <ReportSummaryBody summary={currentReport.summary} chartPlacements={chartPlacements} />
+                        ) : (
+                            <p>No summary yet. An agent is still investigating.</p>
+                        )}
+                        {trailingCharts.map((chart) => (
+                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                        ))}
+                    </div>
+                </ReportChartsContext.Provider>
             </article>
             <TodayReportEvidence reportId={currentReport.id} />
             <TodayReportPrompts report={currentReport} reportUrl={reportUrl} />
