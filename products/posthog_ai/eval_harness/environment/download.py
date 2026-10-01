@@ -12,13 +12,9 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+from products.posthog_ai.eval_harness.environment.storage import validate_sha256
+
 MAX_DOWNLOAD_BYTES = 2 * 1024**3
-
-
-def validate_sha256(value: str | None) -> str:
-    if value is None or re.fullmatch(r"[0-9a-fA-F]{64}", value) is None:
-        raise ValueError("--sha256 must contain the bundle's 64-character SHA-256 digest from its publisher")
-    return value.lower()
 
 
 class S3EnvironmentSource:
