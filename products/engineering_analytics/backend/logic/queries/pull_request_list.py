@@ -279,7 +279,9 @@ def query_pull_request_list(
         placeholders=placeholders,
         ready=curated.ready_to_merge_sql(),
     )
-    return PullRequestList(items=_enrich(curated=curated, rows=rows[:page_size]), truncated=len(rows) > page_size, limit=page_size)
+    return PullRequestList(
+        items=_enrich(curated=curated, rows=rows[:page_size]), truncated=len(rows) > page_size, limit=page_size
+    )
 
 
 def query_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionPullRequestList:

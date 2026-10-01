@@ -540,8 +540,12 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_RUNS_COLUMNS,
             [_run_row(2100, "CI", "sha21", "completed", "success", _ago(2), _ago(2), pr_number=21)],
         )
-        first = api.list_pull_requests(team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=0)
-        second = api.list_pull_requests(team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=2)
+        first = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=0
+        )
+        second = api.list_pull_requests(
+            team=self.team, state="merged", date_from="-14d", date_to=_ago(1), limit=2, offset=2
+        )
 
         assert ([i.number for i in first.items], first.truncated) == ([21, 23], True)
         assert ([i.number for i in second.items], second.truncated) == ([22], False)
