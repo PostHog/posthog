@@ -138,10 +138,10 @@ Triage tools (they do NOT change the baseline; the gate changes only after `reco
 | `posthog:visual-review-runs-tolerate-create`           | Accept one changed snapshot's current hash as an alternate in every future run. Render noise only, see [Decide first](#decide-first). Cannot be undone through the API. |
 | `posthog:visual-review-repos-quarantine-create`        | Remove one identifier of one run type from pass or fail on every PR until it expires (30 days if `expires_at` is omitted). Undo with `quarantine-expire-create`.        |
 | `posthog:visual-review-repos-quarantine-expire-create` | Lift a quarantine, so the story gates runs again.                                                                                                                       |
-| `posthog:visual-review-runs-recompute-create`          | Recount a completed, unfinalized run, post the `visual-review` status, and re-run the CI job that completed the run (about a minute, no new capture).                   |
+| `posthog:visual-review-runs-recompute-create`          | Recount a completed, unfinalized run, post the `visual-review` status, and re-run the CI job recorded on the run, so the required check reads the new verdict.          |
 
 Branch protection requires the `Visual regression tests pass` and `Playwright tests pass` job checks, not the `visual-review` status.
-So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the completing job.
+So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the CI job recorded on the run.
 Approved changes keep the gate red until finalize commits them, so recompute never ships an approval.
 
 Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
@@ -172,7 +172,7 @@ Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 - `id` (required) — the run UUID.
 - `approve_all: true` — approve every still-pending `changed`/`new` snapshot before finalizing (tolerated ones are left alone). Use when you've verified every remaining diff is intended.
 - Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` (and lists what's left) unless every changed/new snapshot is approved, tolerated, or quarantined.
-- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize then re-runs the completing CI job to green the gate) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
+- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — finalize posts a green status, and the required check turns green when its job re-runs) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
 
 If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
 

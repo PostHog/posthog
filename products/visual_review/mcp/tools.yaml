@@ -137,7 +137,7 @@ tools:
                     - repo_id
             run_type:
                 description: |
-                    The failing run's `run_type`, `storybook` or `playwright`. Other run types stay gated.
+                    The failing run's `run_type`, `storybook` or `playwright`. The quarantine covers only this run type.
         feature_flag: visual-review
     visual-review-repos-quarantine-expire-create:
         operation: visual_review_repos_quarantine_expire_create
@@ -320,7 +320,7 @@ tools:
             Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the
             gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved,
             tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones.
-            With nothing to commit, it re-runs the CI job that completed the run. On `409 stale_run`, finalize the
+            With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On `409 stale_run`, finalize the
             newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an
             explicit human yes for this run.
         feature_flag: visual-review
@@ -353,8 +353,7 @@ tools:
         title: Re-check a visual review run's gate
         description: >
             Re-check the gate of a completed, unfinalized run after a quarantine or toleration: recount unresolved
-            snapshots, post the commit status, and re-run the CI job that completed the run (about a minute, no new
-            capture; a run from an older CLI captures again). Call it on the pull request's latest non-stale run.
+            snapshots, post the commit status, and re-run the CI job recorded on the run, so the required check reads the new verdict. Call it on the pull request's latest non-stale run.
             Approved changes keep the gate red until finalize commits them. `ci_rerun_triggered` and `ci_rerun_error`
             report the re-run.
         feature_flag: visual-review
