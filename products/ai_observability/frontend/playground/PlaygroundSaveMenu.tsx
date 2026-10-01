@@ -20,7 +20,14 @@ import {
 
 export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.Element | null {
     const { effectiveModelOptions } = useValues(llmPlaygroundModelLogic)
-    const { linkedSource, saving } = useValues(llmPlaygroundPromptsLogic)
+    const {
+        linkedSource,
+        saving,
+        promptConfigs,
+        pendingTargetModel,
+        pendingTargetProvider,
+        pendingTargetProviderKeyId,
+    } = useValues(llmPlaygroundPromptsLogic)
     const { clearLinkedSource, saveToLinkedPrompt, saveToLinkedEvaluation, saveAsNewPrompt, saveAsNewEvaluation } =
         useActions(llmPlaygroundPromptsLogic)
     const { searchParams } = useValues(router)
@@ -41,13 +48,24 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
               provider_key_id: prompt.selectedProviderKeyId ?? null,
           }
         : null
-    const promptModelConfig = prompt.model
-        ? (evaluationModelConfig ?? {
-              model: prompt.model,
-              provider: '',
-              provider_key_id: prompt.selectedProviderKeyId ?? null,
-          })
-        : null
+    // A freshly loaded selection sits in pendingTarget* until the model loaders settle,
+    // while the panel still shows its previous model. Prefer the pending selection so a
+    // save in that window publishes the loaded model, not the stale panel one.
+    const isFirstPanel = promptConfigs[0]?.id === prompt.id
+    const promptModelConfig =
+        isFirstPanel && pendingTargetModel
+            ? {
+                  model: pendingTargetModel,
+                  provider: pendingTargetProvider ?? '',
+                  provider_key_id: pendingTargetProviderKeyId,
+              }
+            : prompt.model
+              ? (evaluationModelConfig ?? {
+                    model: prompt.model,
+                    provider: '',
+                    provider_key_id: prompt.selectedProviderKeyId ?? null,
+                })
+              : null
 
     const openSaveAsNewPromptDialog = (): void => {
         LemonDialog.openForm({
