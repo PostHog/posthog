@@ -525,9 +525,9 @@ export const optOutListLogic = kea<optOutListLogicType>([
                         })
                     }
 
-                    // pinned: analytics event name
-                    posthog.capture('messaging opt-outs imported', { count: result.opted_out })
                     if (result.opted_out > 0) {
+                        // pinned: analytics event name
+                        posthog.capture('messaging opt-outs imported', { count: result.opted_out })
                         lemonToast.success(`Added ${result.opted_out.toLocaleString()} opt-outs`)
                         actions.loadOptOutPersons()
                     } else {
