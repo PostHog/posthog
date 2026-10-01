@@ -78,6 +78,7 @@ import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
+import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
 import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
@@ -1632,6 +1633,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'opt-in',
                     'opt-out',
                 ],
+            },
+            {
+                id: 'workflows-frequency-cap',
+                title: 'Frequency cap',
+                description:
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Email, SMS, and push messages all count. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. Leave both fields empty to turn the cap off.',
+                component: <WorkflowsFrequencyCapSettings />,
+                keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
             },
             {
                 id: 'workflows-ai-task-limits',
