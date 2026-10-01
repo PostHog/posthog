@@ -21,6 +21,7 @@ Event shape:
         $autoresearch_prediction_date: str (YYYY-MM-DD)
         $autoresearch_features_hash:   str (SHA-256 prefix of the feature row)
         $autoresearch_person_id:       str (the person_id every row is keyed on)
+        $autoresearch_run_id:          str (UUID of the AutoresearchRun that emitted the batch)
 """
 
 import json
@@ -198,7 +199,7 @@ def run_inference_for_pipeline(
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
         scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
         emitted = _emit_predictions(
-            team=team, pipeline=pipeline, model=model, scored=scored, window=window, user=acting_user
+            team=team, pipeline=pipeline, model=model, run=run, scored=scored, window=window, user=acting_user
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
@@ -335,6 +336,7 @@ def _emit_predictions(
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
+    run: AutoresearchRun,
     scored: ScoredPopulation,
     window: ScoringWindow,
     user: User,
@@ -388,6 +390,7 @@ def _emit_predictions(
             "$autoresearch_prediction_date": prediction_date_str,
             "$autoresearch_features_hash": features_hash,
             "$autoresearch_person_id": person_id,
+            "$autoresearch_run_id": str(run.pk),
         }
         if attach_to_person and output_property:
             props["$set"] = {output_property: row["p_y"]}

@@ -143,6 +143,7 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert kwargs["process_person_profile"] is True
         assert [e["event"] for e in events] == [PREDICTION_EVENT_NAME, PREDICTION_EVENT_NAME]
         by_person = {e["properties"]["$autoresearch_person_id"]: e for e in events}
+        assert {e["properties"]["$autoresearch_run_id"] for e in events} == {str(run.pk)}
         # A resolved person is attached to their real distinct_id and gets the output property;
         # an unresolved one stays person-less so a UUID never becomes a person.
         assert by_person["user-1"]["distinct_id"] == "real-distinct-id"
