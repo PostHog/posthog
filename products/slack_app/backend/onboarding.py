@@ -17,6 +17,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
+from products.legal_documents.backend.facade.api import has_signed_baa
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
@@ -40,6 +41,12 @@ class OnboardingStep(StrEnum):
     CHANNEL = "channel"
     GITHUB = "github"
     SOURCES = "sources"
+
+
+class AIApprovalResult(StrEnum):
+    APPROVED = "approved"
+    NOT_ADMIN = "not_admin"
+    BAA_SIGNED = "baa_signed"
 
 
 EVENT_DM_SENT = "slack_onboarding_dm_sent"
@@ -225,29 +232,31 @@ def apply_sources_selection(integration: Integration, slack_user_id: str, select
     _maybe_complete(integration, slack_user_id, user_id)
 
 
-def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> bool:
+def approve_ai_data_processing(integration: Integration, slack_user_id: str) -> AIApprovalResult:
     """Admin-only approval: re-checks ADMIN+ server-side, sets org consent, records completion.
-    Returns False if the clicker isn't an admin."""
+    Refuses for an organization with a signed BAA, because the BAA does not cover AI subprocessors."""
     user_id = _resolve_onboarding_user(SlackIntegration(integration), integration, slack_user_id)
     if user_id is None or not _is_org_admin(user_id, integration.team_id):
-        return False
+        return AIApprovalResult.NOT_ADMIN
     org_id = Team.objects.filter(id=integration.team_id).values_list("organization_id", flat=True).first()
     if org_id is None:
-        return False
+        return AIApprovalResult.NOT_ADMIN
+    if has_signed_baa(org_id):
+        return AIApprovalResult.BAA_SIGNED
     from posthog.models.organization import Organization  # noqa: PLC0415
 
     # Save the instance (not a queryset .update()) so ModelActivityMixin records the consent change
     # in the activity log and updated_at is bumped.
     organization = Organization.objects.filter(id=org_id).first()
     if organization is None:
-        return False
+        return AIApprovalResult.NOT_ADMIN
     organization.is_ai_data_processing_approved = True
     organization.save(update_fields=["is_ai_data_processing_approved", "updated_at"])
     capture_slack_event(
         integration, EVENT_STEP_COMPLETED, slack_user_id=slack_user_id, step=str(OnboardingStep.AI_APPROVAL)
     )
     _maybe_complete(integration, slack_user_id, user_id)
-    return True
+    return AIApprovalResult.APPROVED
 
 
 def run_install_onboarding(integration: Integration) -> None:

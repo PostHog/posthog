@@ -381,6 +381,15 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_is_ai_data_processing_approved(self, value: bool | None) -> bool | None:
+        if self.instance and value and not self.instance.is_ai_data_processing_approved:
+            if has_signed_baa(self.instance.id):
+                raise serializers.ValidationError(
+                    "Organizations with a signed BAA keep PostHog AI turned off, because the BAA does not cover AI subprocessors. Contact PostHog support if you need to change this.",
+                    code="locked",
+                )
+        return value
+
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.is_ai_training_opted_in != value:
             if has_signed_baa(self.instance.id):
@@ -708,6 +717,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Nothing to request if PostHog AI is already enabled for the org.
         if organization.is_ai_data_processing_approved:
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
+        if has_signed_baa(organization.id):
+            raise exceptions.ValidationError(
+                "Organizations with a signed BAA keep PostHog AI turned off, so there is no access to request."
+            )
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
         membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
