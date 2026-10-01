@@ -174,9 +174,10 @@ class TestBuildInitialParams:
         assert "order_by" not in params
         assert "sort" not in params
 
-    def test_pipelines_incremental_uses_updated_after(self):
+    @pytest.mark.parametrize("endpoint", ["pipelines", "deployments"])
+    def test_updated_after_is_paired_with_updated_at_order(self, endpoint):
         params = _build_initial_params(
-            GITLAB_ENDPOINTS["pipelines"],
+            GITLAB_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
             incremental_field="updated_at",
@@ -184,6 +185,15 @@ class TestBuildInitialParams:
         assert params["updated_after"] == "2024-01-01T00:00:00Z"
         assert params["order_by"] == "updated_at"
         assert params["sort"] == "asc"
+
+    def test_fan_out_child_pages_ascending_despite_desc_sort_mode(self):
+        params = _build_initial_params(
+            GITLAB_ENDPOINTS["issue_notes"],
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            incremental_field=None,
+        )
+        assert params == {"per_page": 100, "order_by": "created_at", "sort": "asc"}
 
     def test_full_refresh_endpoint_only_per_page(self):
         params = _build_initial_params(
@@ -368,21 +378,23 @@ class TestValidateCredentials:
 
 class TestGitLabSourceResponse:
     @pytest.mark.parametrize(
-        "endpoint, primary_key, partition_key, sort_mode",
+        "endpoint, primary_keys, partition_key, sort_mode",
         [
-            ("issues", "id", "created_at", "asc"),
-            ("merge_requests", "id", "created_at", "asc"),
-            ("commits", "id", "created_at", "desc"),
-            ("pipelines", "id", "created_at", "asc"),
-            ("releases", "tag_name", "created_at", "asc"),
-            ("milestones", "id", "created_at", "asc"),
-            ("branches", "name", None, "asc"),
-            ("tags", "name", None, "asc"),
-            ("labels", "id", None, "asc"),
-            ("members", "id", None, "asc"),
+            ("issues", ["id"], "created_at", "asc"),
+            ("merge_requests", ["id"], "created_at", "asc"),
+            ("commits", ["id"], "created_at", "desc"),
+            ("pipelines", ["id"], "created_at", "asc"),
+            ("releases", ["tag_name"], "created_at", "asc"),
+            ("milestones", ["id"], "created_at", "asc"),
+            ("branches", ["name"], None, "asc"),
+            ("tags", ["name"], None, "asc"),
+            ("labels", ["id"], None, "asc"),
+            ("members", ["id"], None, "asc"),
+            ("issue_notes", ["issue_iid", "id"], "created_at", "desc"),
+            ("merge_request_state_events", ["merge_request_iid", "id"], "created_at", "desc"),
         ],
     )
-    def test_response_shape(self, endpoint, primary_key, partition_key, sort_mode):
+    def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):
         response = gitlab_source(
             host="https://gitlab.com",
             personal_access_token="tok",
@@ -393,7 +405,7 @@ class TestGitLabSourceResponse:
             team_id=1,
         )
         assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_keys == [partition_key]
@@ -404,7 +416,7 @@ class TestGitLabSourceResponse:
 
 
 class TestGetRows:
-    def _run(self, manager, responses, endpoint="issues"):
+    def _run(self, manager, responses, endpoint="issues", **kwargs):
         session = mock.MagicMock()
         session.get.side_effect = responses
         with (
@@ -420,6 +432,7 @@ class TestGetRows:
                 logger=mock.MagicMock(),
                 resumable_source_manager=manager,
                 team_id=1,
+                **kwargs,
             ):
                 rows.extend(table)
         return rows, session
@@ -458,6 +471,46 @@ class TestGetRows:
         first_url = session.get.call_args_list[0].args[0]
         assert first_url == "https://gitlab.com/api/v4/projects/1/issues?page=5"
         assert [r["id"] for r in rows] == [9]
+
+    def test_fan_out_bounds_parent_walk_and_tags_children_with_parent_iid(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        parents = _response(json_data=[{"iid": 7}, {"iid": 8}, {"iid": 9}])
+        notes_7 = _response(json_data=[{"id": 70}])
+        deleted_parent = _response(status_code=404)
+        notes_9 = _response(json_data=[{"id": 90}, {"id": 91}])
+        rows, session = self._run(
+            manager,
+            [parents, notes_7, deleted_parent, notes_9],
+            endpoint="issue_notes",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
+            incremental_field="created_at",
+        )
+
+        urls = [call.args[0] for call in session.get.call_args_list]
+        assert urls[0] == (
+            "https://gitlab.com/api/v4/projects/group%2Fproject/issues"
+            "?per_page=100&updated_after=2024-01-01T00%3A00%3A00Z&order_by=updated_at&sort=asc"
+        )
+        assert urls[1].startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues/7/notes?")
+        assert urls[3].startswith("https://gitlab.com/api/v4/projects/group%2Fproject/issues/9/notes?")
+        assert [(r["issue_iid"], r["id"]) for r in rows] == [(7, 70), (9, 90), (9, 91)]
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_url == urls[0]
+
+    def test_fan_out_stops_child_pagination_at_page_cap(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        parents = _response(json_data=[{"iid": 1}])
+        child_page = _response(
+            json_data=[{"id": 1}],
+            link='<https://gitlab.com/api/v4/projects/1/issues/1/notes?page=2>; rel="next"',
+        )
+        with mock.patch.object(gitlab_module, "MAX_PAGES_PER_PARENT", 2):
+            _rows, session = self._run(manager, [parents, child_page, child_page], endpoint="issue_notes")
+
+        assert session.get.call_count == 3
 
     def test_empty_page_terminates(self):
         manager = mock.MagicMock()

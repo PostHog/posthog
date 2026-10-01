@@ -3619,15 +3619,15 @@ Note: Fetched the live 5 MB OpenAPI document from the vendor's own /v1/openapi.j
 
 ## GitLab — **thin**
 
-Today (10): `branches`, `commits`, `issues`, `labels`, `members`, `merge_requests`, `milestones`, `pipelines`, `releases`, `tags`
+Today (15): `branches`, `commits`, `deployments`, `issue_notes`, `issue_state_events`, `issues`, `labels`, `members`, `merge_request_notes`, `merge_request_state_events`, `merge_requests`, `milestones`, `pipelines`, `releases`, `tags`
 
 Diffed against: <https://docs.gitlab.com/api/api_resources/>
 
 - [ ] `/projects/{id}/jobs` — CI job-level rows — pipelines alone cannot answer stage duration, runner cost, or failure attribution (high)
-- [ ] `/projects/{id}/issues/{iid}/notes and /projects/{id}/merge_requests/{iid}/notes` — issue and merge-request comments, the main collaboration signal (high)
-- [ ] `/projects/{id}/issues/{iid}/resource_state_events and /merge_requests/{iid}/resource_state_events` — open/close/reopen transition history — cycle time cannot be computed from current state alone (high)
-- [ ] `/projects/{id}/dora/metrics` — GitLab's headline DevOps metric (deployment frequency, lead time, change failure rate, MTTR) (high)
-- [ ] `/projects/{id}/deployments` — deployment records joining pipelines to environments, the basis of release analytics (high)
+- [x] `/projects/{id}/issues/{iid}/notes and /projects/{id}/merge_requests/{iid}/notes` — issue and merge-request comments, the main collaboration signal (high). Added as `issue_notes` and `merge_request_notes` (fan-out over `issues` / `merge_requests`).
+- [x] `/projects/{id}/issues/{iid}/resource_state_events and /merge_requests/{iid}/resource_state_events` — open/close/reopen transition history — cycle time cannot be computed from current state alone (high). Added as `issue_state_events` and `merge_request_state_events` (fan-out over `issues` / `merge_requests`).
+- [ ] `/projects/{id}/dora/metrics` — GitLab's headline DevOps metric (deployment frequency, lead time, change failure rate, MTTR) (high). Skipped: Ultimate-tier only, and it returns pre-aggregated daily values over a default 3-month window that GitLab recomputes, so it has no stable history to sync. Deployment frequency comes from `deployments`.
+- [x] `/projects/{id}/deployments` — deployment records joining pipelines to environments, the basis of release analytics (high)
 - [ ] `/projects/{id}/issues/{iid}/resource_label_events` — label add/remove history, the standard way teams track workflow stage over time (medium)
 - [ ] `/projects/{id}/environments` — lookup resolving the environment IDs carried on deployments (medium)
 - [ ] `/projects/{id}/merge_requests/{iid}/approvals` — who approved each MR and when — core review-governance reporting (medium)
