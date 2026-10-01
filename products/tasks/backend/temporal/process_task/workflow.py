@@ -429,11 +429,21 @@ AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 # Replays of pre-rollout histories must keep recording an idle exit as completed.
 _PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
 
+# Changing the deadline branch changes the activities it schedules, so pre-rollout histories
+# must retain the old rotation decision when replayed.
+_PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN = "tasks-block-rotation-on-open-turn"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_TURN_OPENS_ON_DISPATCH)
+
+
+def _block_rotation_on_open_turn() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -836,7 +846,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return "flag_disabled"
         if self._agent_active:
             return "agent_active"
-        if self._end_of_turn_received is False:
+        if self._end_of_turn_received is False and _block_rotation_on_open_turn():
             return "turn_open"
         if self._active_followup_task is not None and not self._active_followup_task.done():
             return "followup_in_flight"

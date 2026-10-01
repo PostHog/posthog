@@ -612,6 +612,19 @@ class TestSandboxRotation:
 
         assert (wf._sandbox_rotation_block_reason() is None) is expected
 
+    def test_open_turn_guard_preserves_pre_patch_rotation(self, monkeypatch):
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        wf._context.sandbox_rotation_enabled = True
+        wf._agent_active = None
+        wf._end_of_turn_received = False
+        monkeypatch.setattr(process_task_workflow_module.workflow, "in_workflow", Mock(return_value=True))
+        patched = Mock(return_value=False)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", patched)
+
+        assert wf._sandbox_rotation_block_reason() is None
+        patched.assert_called_once_with("tasks-block-rotation-on-open-turn")
+
     async def test_the_credential_refresh_loop_follows_the_run_to_the_new_sandbox(self, monkeypatch):
         wf = self._workflow(monkeypatch)
         monkeypatch.setattr(wf, "_create_resume_snapshot_output", AsyncMock(return_value=self._snapshot()))
