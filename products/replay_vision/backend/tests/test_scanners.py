@@ -808,13 +808,14 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        # Notability and the key moment ride onto the event too, so they are queryable in insights alongside the verdict.
         out = MonitorOutput(
             verdict="yes",
             reasoning="found it",
             confidence=0.9,
             notability=0.8,
             notability_reason="the export failed twice",
+            key_moment_ms=42_000,
         )
         props = out.to_event_properties()
         assert props == {
@@ -824,6 +825,7 @@ class TestToEventProperties:
             "scanner_output_confidence": 0.9,
             "scanner_output_notability": 0.8,
             "scanner_output_notability_reason": "the export failed twice",
+            "scanner_output_key_moment_ms": 42_000,
         }
 
     def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:

@@ -959,6 +959,11 @@ class CustomChannelOperator(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class Kind(StrEnum):
+    CUSTOM_PROPERTY = "custom_property"
+    RELATIONSHIP = "relationship"
+
+
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
@@ -1263,12 +1268,12 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
-class Kind(StrEnum):
+class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
 
 
-class Kind1(StrEnum):
+class Kind2(StrEnum):
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
 
@@ -1278,7 +1283,7 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
-class Kind2(StrEnum):
+class Kind3(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
@@ -1774,6 +1779,7 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):
@@ -2657,6 +2663,11 @@ class RecordingOrder(StrEnum):
 class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class EventMatchScope(StrEnum):
+    RECORDING = "recording"
+    SESSION = "session"
 
 
 class HideViewedRecordings(Enum):

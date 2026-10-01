@@ -1,8 +1,9 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.ca
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     BOOKING_ATTENDEES_ENDPOINT,
+    BOOKINGS_WINDOW_ORIGIN,
     CAL_COM_ENDPOINTS,
     CAL_COM_HOSTS,
     ENDPOINTS,
@@ -25,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.se
 
 US_BASE_URL = CAL_COM_HOSTS["us"]
 ORG_ID = 77
+FIRST_WINDOW_START = "1970-01-01T00:00:00.000Z"
 REJECTED_MESSAGE = (
     "Cal.com rejected this API key. Check the key, and check that the selected region matches your Cal.com account."
 )
@@ -35,6 +38,14 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 CAL_COM_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com.make_tracked_session"
 )
+
+
+@pytest.fixture(autouse=True)
+def _clock_before_the_window_origin():
+    # A first bookings sync is then one unbounded window, so a test that is not about windows needs
+    # one response per page.
+    with time_machine.travel(BOOKINGS_WINDOW_ORIGIN - timedelta(days=200), tick=False):
+        yield
 
 
 def _response(body: Any, status_code: int = 200, url: str | None = None, reason: str = "OK") -> Response:
@@ -109,23 +120,68 @@ class TestBookingsCursorPagination:
 
         assert rows == [{"id": 1}, {"id": 2}]
         # Bookings `limit` maxes at 100; a larger value is rejected with 400 Bad Request.
-        assert params[0] == {"limit": 100}
-        assert params[1] == {"limit": 100, "cursor": "c2"}
+        assert params[0] == {"limit": 50, "afterCreatedAt": FIRST_WINDOW_START}
+        assert params[1] == {"limit": 50, "afterCreatedAt": FIRST_WINDOW_START, "cursor": "c2"}
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
         assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["c2"]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+    def test_a_first_sync_walks_created_at_windows_oldest_first(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _page([]),
+                _page([{"id": 1}], next_cursor="c2", has_more=True),
+                _page([{"id": 2}]),
+                _page([{"id": 3}]),
+            ],
+        )
+        manager = _make_manager()
+
+        with time_machine.travel(BOOKINGS_WINDOW_ORIGIN + timedelta(days=45), tick=False):
+            rows = _rows(_source("bookings", manager))
+
+        assert rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert params == [
+            {"limit": 50, "afterCreatedAt": FIRST_WINDOW_START, "beforeCreatedAt": "2020-12-31T23:59:59.999Z"},
+            {"limit": 50, "afterCreatedAt": "2021-01-01T00:00:00.000Z", "beforeCreatedAt": "2021-01-30T23:59:59.999Z"},
+            {
+                "limit": 50,
+                "afterCreatedAt": "2021-01-01T00:00:00.000Z",
+                "beforeCreatedAt": "2021-01-30T23:59:59.999Z",
+                "cursor": "c2",
+            },
+            {"limit": 50, "afterCreatedAt": "2021-01-31T00:00:00.000Z"},
+        ]
+        assert [(call.args[0].window_start, call.args[0].cursor) for call in manager.save_state.call_args_list] == [
+            ("2021-01-01T00:00:00.000Z", None),
+            ("2021-01-01T00:00:00.000Z", "c2"),
+            ("2021-01-31T00:00:00.000Z", None),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "windowed_state",
+                CalComResumeConfig(cursor="c2", window_start="2020-01-01T00:00:00.000Z"),
+                {"afterCreatedAt": "2020-01-01T00:00:00.000Z", "cursor": "c2"},
+            ),
+            ("cursor_without_window", CalComResumeConfig(cursor="c2"), {"afterCreatedAt": FIRST_WINDOW_START}),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_state(
+        self, _name: str, resume_state: CalComResumeConfig, expected_params: dict[str, Any], MockSession
+    ) -> None:
         session = MockSession.return_value
         params = _wire(session, [_page([{"id": 2}], next_cursor=None, has_more=False)])
 
-        manager = _make_manager(CalComResumeConfig(cursor="c2"))
-        rows = _rows(_source("bookings", manager))
+        rows = _rows(_source("bookings", _make_manager(resume_state)))
 
-        # The first page must never be re-fetched on resume.
         assert rows == [{"id": 2}]
         assert session.send.call_count == 1
-        assert params[0]["cursor"] == "c2"
+        assert params[0] == {"limit": 50, **expected_params}
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_first_page_yields_nothing(self, MockSession) -> None:
@@ -646,7 +702,7 @@ class TestBookingAttendees:
         params = _wire(MockClientSession.return_value, [_page([self.BOOKING])])
         MockCalSession.return_value = self._attendee_session(_response({"data": [{"id": 5}]}))
 
-        manager = _make_manager(CalComResumeConfig(cursor="c2"))
+        manager = _make_manager(CalComResumeConfig(cursor="c2", window_start=FIRST_WINDOW_START))
         _rows(_source(BOOKING_ATTENDEES_ENDPOINT, manager))
 
         assert params[0]["cursor"] == "c2"

@@ -795,6 +795,19 @@ def _iter_issue_tag_values_rows(
 # Sentry answers a request for a product surface the organization doesn't have with a
 # 400, so an unavailable trace item dataset is indistinguishable from a rejected param.
 _UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
+# trace_item_attributes/trace_item_stats hit the trace-items API once per dataset/item type.
+# Sentry occasionally returns a persistent 5xx for a single one of those after
+# _request_with_retry's budget is exhausted — the same failure mode as project_stats (see
+# _PROJECT_STATS_UNAVAILABLE_STATUSES) — so treat it as that slice being unavailable rather
+# than failing the whole schema.
+_TRACE_ITEM_UNAVAILABLE_STATUSES = (
+    *_UNAVAILABLE_DATASET_STATUSES,
+    500,
+    502,
+    503,
+    504,
+    *CLOUDFLARE_TRANSIENT_STATUSES,
+)
 # Per-project surfaces only ever go missing through permissions or an absent config.
 _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
 # project_stats hits Sentry's per-project stats endpoint once per (project, stat) pair. Sentry
@@ -1061,7 +1074,7 @@ def _iter_trace_item_attributes_rows(
             max_pages=_MAX_PAGES_PER_PARENT,
         )
         for row in _iter_rows_tolerating_unavailable(
-            rows, "trace_item_attributes", _UNAVAILABLE_DATASET_STATUSES, dataset=dataset
+            rows, "trace_item_attributes", _TRACE_ITEM_UNAVAILABLE_STATUSES, dataset=dataset
         ):
             row["dataset"] = dataset
             yield row
@@ -1094,7 +1107,7 @@ def _iter_trace_item_stats_rows(
 
     for item_type in TRACE_ITEM_STATS_TYPES:
         yield from _iter_rows_tolerating_unavailable(
-            _distributions(item_type), "trace_item_stats", _UNAVAILABLE_DATASET_STATUSES, item_type=item_type
+            _distributions(item_type), "trace_item_stats", _TRACE_ITEM_UNAVAILABLE_STATUSES, item_type=item_type
         )
 
 

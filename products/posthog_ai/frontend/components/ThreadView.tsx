@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
@@ -13,6 +14,7 @@ import { TurnHoverStore } from '../utils/turnHoverStore'
 import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
+import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
 import { ThreadActivityGroup } from './ThreadActivityGroup'
@@ -73,8 +75,17 @@ interface ThreadViewProps {
     footerExtra?: ReactNode
     className?: string
     listClassName?: string
+    endInset?: number
     rowClassName?: string
+    /**
+     * `quill` lays the thread out like PostHog Desktop's chat: user bubbles, ghost assistant prose, and
+     * each step as a quill chat marker. Every presenter below picks its skin from `ThreadSkinContext`,
+     * so tool renderers need no changes.
+     */
+    skin?: ThreadSkin
 }
+
+const QUILL_ROW_GAP = 16
 
 /**
  * Sandbox-runtime thread presenter. Reads `runStreamLogic.values.threadItems` (assistant text,
@@ -96,6 +107,8 @@ export function ThreadView({
     className,
     listClassName,
     rowClassName,
+    endInset,
+    skin = 'lemon',
 }: ThreadViewProps): JSX.Element {
     const {
         threadItems,
@@ -269,7 +282,7 @@ export function ThreadView({
         ]
     )
 
-    return (
+    const thread = (
         <VirtualizedThread.Root
             key={scrollRestorationKey}
             scrollRestorationKey={scrollRestorationKey}
@@ -287,11 +300,28 @@ export function ThreadView({
             // thread is already pinned when the first streamed rows land.
             turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
+            endInset={endInset}
+            gap={skin === 'quill' ? QUILL_ROW_GAP : undefined}
             className={className}
             listClassName={listClassName}
         >
             {renderItem}
         </VirtualizedThread.Root>
+    )
+    if (skin === 'lemon') {
+        return thread
+    }
+    return (
+        <ThreadSkinContext.Provider value={skin}>
+            {/* Virtualized, the root lays out rows itself; in document flow, this wrapper sets the rhythm. */}
+            {/* Quill's text color, set once here: a ghost bubble sets none, so its prose would inherit the page's. */}
+            <div
+                data-quill
+                className={cn('text-[var(--foreground)]', virtualized ? 'contents' : 'flex flex-col gap-4')}
+            >
+                {thread}
+            </div>
+        </ThreadSkinContext.Provider>
     )
 }
 

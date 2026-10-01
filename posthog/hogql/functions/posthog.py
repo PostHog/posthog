@@ -26,7 +26,8 @@ HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         signatures=[((StringType(),), ArrayType(item_type=IntegerType()))],
     ),
     "embedText": HogQLFunctionMeta("embedText", 1, 2),
-    "__preview_promptJev": HogQLFunctionMeta("__preview_promptJev", 2, 4, case_sensitive=False),
+    "jev": HogQLFunctionMeta("jev", 2, 4, case_sensitive=False),
+    "decide": HogQLFunctionMeta("decide", 2, 5, case_sensitive=False),
     # posthog/models/channel_type/sql.py and posthog/hogql/database/schema/channel_type.py
     "lookupDomainType": HogQLFunctionMeta("lookupDomainType", 1, 1),
     "lookupPaidSourceType": HogQLFunctionMeta("lookupPaidSourceType", 1, 1),

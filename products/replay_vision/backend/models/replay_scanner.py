@@ -132,6 +132,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         default="",
         help_text="Free-form description for the scanner management UI. Not used by the model.",
     )
+    goal = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The goal the creator typed or picked when an AI draft built this scanner, kept as written. Null for scanners built any other way.",
+    )
 
     scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
     scanner_config = models.JSONField(default=dict, help_text="Type-specific configuration; always includes `prompt`.")
@@ -283,8 +288,8 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
     )
 
-    # Written with the prompt by every path that sets one, see `prompt_questions`. Not version-tracked: it
-    # restates the prompt and changes nothing about how the scanner scans.
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
     prompt_question = models.TextField(
         blank=True,
         default="",
