@@ -20,6 +20,7 @@ export function PostHogTeamCohortBanner({ isCollapsed }: { isCollapsed: boolean 
         return (
             <ButtonPrimitive
                 iconOnly
+                aria-label="Rejoin the PostHog Team cohort"
                 tooltip="You're out of the PostHog Team cohort. Click to rejoin."
                 tooltipPlacement="right"
                 onClick={() => rejoinPostHogTeamCohort(true)}
