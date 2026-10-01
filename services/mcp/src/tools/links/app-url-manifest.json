@@ -319,6 +319,16 @@
         "params": [],
         "scope": "project"
     },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
     "cliAuthorize": {
         "template": "/cli/authorize",
         "params": [],
@@ -1771,6 +1781,11 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
         "params": [],
         "scope": "project"
     },
