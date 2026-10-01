@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import SignalReport, SignalTeamConfig
@@ -17,8 +18,7 @@ from products.signals.backend.serializers import MAX_AUTOSTART_BASE_BRANCH_ENTRI
 class TestSignalTeamConfigAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # A SignalTeamConfig is auto-created for every team via register_team_extension_signal.
-        self.config = SignalTeamConfig.objects.get(team=self.team)
+        self.config = get_or_create_team_extension(self.team, SignalTeamConfig)
 
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/config/"

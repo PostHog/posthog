@@ -517,7 +517,10 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
 // and depot.json is billing and cache routing that fails its own PR's builds
 // alone.
 test('pnpm patches take the JS lanes and depot.json the repo-config lane', () => {
-    assert.deepEqual(computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT), computeTargets(['.oxlintrc.json'], CONTEXT))
+    assert.deepEqual(
+        computeTargets(['patches/dayjs@1.11.11.patch'], CONTEXT),
+        computeTargets(['.oxlintrc.json'], CONTEXT)
+    )
     assert.deepEqual(computeTargets(['depot.json'], CONTEXT), ['repo-config'])
 })
 
@@ -769,6 +772,13 @@ test('desktop workflows claim the desktop product lanes and widen without the pr
     assert.deepEqual(computeTargets(['.github/workflows/desktop-ci.yml'], CONTEXT), EVERYTHING)
 })
 
+test('the agent workspace shares the desktop lanes and takes the frontend lanes without the product', () => {
+    const withDesktop = { ...CONTEXT, products: [...CONTEXT.products, 'desktop'] }
+    const agentFile = 'packages/agent/packages/agent/src/index.ts'
+    assert.deepEqual(computeTargets([agentFile], withDesktop), ['fe:product:desktop', 'py:product:desktop'])
+    assert.deepEqual(computeTargets([agentFile], CONTEXT), computeTargets(['packages/quill/src/index.ts'], CONTEXT))
+})
+
 // The Proto CI workflow gates buf lint and the stub drift checks over every
 // tree, which is the same radius the root buf configuration gets.
 test('the proto workflow claims every proto tree rather than everything', () => {
@@ -810,7 +820,10 @@ test('the agent-skills workflow claims both language families', () => {
 })
 
 test('the ml-mirror sidecar image and its workflow stay on the node lane', () => {
-    for (const file of ['.github/workflows/ci-ml-mirror-image-scrub-container.yml', 'Dockerfile.ml-mirror-image-scrub']) {
+    for (const file of [
+        '.github/workflows/ci-ml-mirror-image-scrub-container.yml',
+        'Dockerfile.ml-mirror-image-scrub',
+    ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), ['node:ingestion'], file)
     }
 })

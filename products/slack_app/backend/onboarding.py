@@ -15,12 +15,12 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import OrganizationMembership, Team
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
     _is_channel_member,
-    channel_id_from_target,
     ensure_inbox_channel,
     has_inbox_scopes,
     invite_user_to_inbox,

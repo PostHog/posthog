@@ -19,6 +19,33 @@ from products.ai_observability.backend.models.evaluation_configs import REPORTAB
 
 
 class TestOutputTypeRegistry(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("numeric", {"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}}),
+            (
+                "categorical",
+                {"options": [{"key": "resolved", "label": "Resolved"}], "passing_rule": {"categories": ["resolved"]}},
+            ),
+        ]
+    )
+    def test_metrics_preserve_passing_rule_and_exclude_na_from_pass_rate(self, output_type, config):
+        metrics = EvalReportMetrics(
+            output_type=output_type,
+            output_config=config,
+            total_runs=5,
+            result_counts={"pass": 3, "fail": 1, "na": 1},
+            previous_result_counts={"pass": 1, "fail": 1, "na": 2},
+        )
+        stored = metrics.to_dict()
+        self.assertEqual(stored["pass_rate"], 75)
+        self.assertEqual(stored["previous_pass_rate"], 50)
+        self.assertEqual(stored["output_config"], config)
+        self.assertEqual(EvalReportMetrics.from_dict(stored).to_dict(), stored)
+        no_scores = EvalReportMetrics(
+            output_type=output_type, output_config=config, total_runs=3, result_counts={"na": 3}
+        )
+        self.assertIsNone(no_scores.to_dict()["pass_rate"])
+
     def test_backend_reportability_matches_report_adapters(self):
         self.assertSetEqual(set(REPORTABLE_OUTPUT_TYPES), set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES))
 

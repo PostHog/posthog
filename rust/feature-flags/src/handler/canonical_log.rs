@@ -112,7 +112,7 @@ where
 
 /// Truncate a string to a maximum number of characters (not bytes).
 /// Handles multibyte UTF-8 characters correctly.
-fn truncate_chars(s: &str, max_chars: usize) -> &str {
+pub(crate) fn truncate_chars(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
         Some((byte_idx, _)) => &s[..byte_idx],
         None => s,

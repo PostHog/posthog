@@ -19,20 +19,25 @@ describe('Shortcut', () => {
     })
 
     test.each([
-        { capture: true, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
-        { capture: true, key: 'j', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
-        { capture: false, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
-        { capture: true, key: 'k', ctrlKey: false, metaKey: true, shiftKey: false, triggered: true },
-        { capture: true, key: '`', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
-        { capture: true, key: '~', ctrlKey: true, metaKey: false, shiftKey: true, triggered: true },
-    ])('respects control-key capture: %j', ({ capture, key, ctrlKey, metaKey, shiftKey, triggered }) => {
+        { capture: 'ctrl', key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
+        { capture: 'ctrl', key: 'j', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
+        { capture: undefined, key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
+        { capture: 'ctrl', key: 'k', ctrlKey: false, metaKey: true, shiftKey: false, triggered: true },
+        { capture: 'ctrl', key: '`', ctrlKey: true, metaKey: false, shiftKey: false, triggered: true },
+        { capture: 'ctrl', key: '~', ctrlKey: true, metaKey: false, shiftKey: true, triggered: true },
+        { capture: 'all', key: 'k', ctrlKey: true, metaKey: false, shiftKey: false, triggered: false },
+        { capture: 'all', key: 'Escape', ctrlKey: false, metaKey: false, shiftKey: false, triggered: false },
+        { capture: undefined, key: 'Escape', ctrlKey: false, metaKey: false, shiftKey: false, triggered: true },
+    ])('respects keyboard capture: %j', ({ capture, key, ctrlKey, metaKey, shiftKey, triggered }) => {
         const onClick = jest.fn()
         render(
-            <div data-shortcuts-ignore={capture ? 'ctrl' : undefined} data-shortcuts-allow-keys="` ~">
-                <textarea aria-label="Terminal" />
+            <div data-shortcuts-ignore={capture} data-shortcuts-allow-keys="` ~">
+                <div tabIndex={0} role="application" aria-label="Terminal" />
                 <Shortcut
                     name="TestControlCapture"
-                    keybind={[['command', ...(shiftKey ? ['shift'] : []), key]]}
+                    keybind={[
+                        [...(ctrlKey || metaKey ? ['command'] : []), ...(shiftKey ? ['shift'] : []), key.toLowerCase()],
+                    ]}
                     intent="Test shortcut"
                     interaction="click"
                 >
@@ -44,6 +49,27 @@ describe('Shortcut', () => {
         fireEvent.keyDown(screen.getByLabelText('Terminal'), { key, ctrlKey, metaKey, shiftKey })
 
         expect(onClick).toHaveBeenCalledTimes(triggered ? 1 : 0)
+    })
+
+    test('captured input interrupts a pending shortcut sequence', () => {
+        const onClick = jest.fn()
+        render(
+            <>
+                <div data-shortcuts-ignore="all" tabIndex={0} aria-label="Game" />
+                <Shortcut name="TestSequence" keybind={[['g', 'then', 'p']]} intent="Test sequence" interaction="click">
+                    <LemonButton onClick={onClick}>Sequence shortcut</LemonButton>
+                </Shortcut>
+            </>
+        )
+
+        fireEvent.keyDown(document.body, { key: 'g' })
+        fireEvent.keyDown(screen.getByLabelText('Game'), { key: 'ArrowUp' })
+        fireEvent.keyDown(document.body, { key: 'p' })
+        expect(onClick).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(document.body, { key: 'g' })
+        fireEvent.keyDown(document.body, { key: 'p' })
+        expect(onClick).toHaveBeenCalledTimes(1)
     })
 
     // AccessControlAction injects disabledReason through Shortcut, which must forward it to the child.

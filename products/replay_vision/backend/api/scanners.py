@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -96,9 +96,16 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
+from products.replay_vision.backend.jev_watch_feed import (
+    JEV_WATCHABLE_MIN,
+    load_watch_ranks,
+    rank_watch_feed_by_jev,
+    watch_feed_ranker,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
+    ObservationVerdict,
     ReplayObservation,
     hydrate_for_serialization,
 )
@@ -111,6 +118,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
     apply_experiment_targeting,
 )
+from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
@@ -158,6 +166,7 @@ from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
+from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
@@ -488,6 +497,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         ),
     )
+    prompt_question = serializers.SerializerMethodField(
+        help_text=(
+            "The current prompt condensed by AI into the one question the scanner answers about a session. "
+            "Falls back to the prompt's first line when no question matches the current prompt."
+        ),
+    )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
         serializers.JSONField(
             required=False,
@@ -592,6 +607,13 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "enforcement gates apply. Always false when no limit is set."
         ),
     )
+    sweep_throttle_factor = serializers.SerializerMethodField(
+        help_text=(
+            "How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read "
+            "budget. 1 means it checks for new recordings on the normal schedule; N means it checks once "
+            "every N schedule intervals. Expensive filters raise it."
+        ),
+    )
     last_swept_at = serializers.DateTimeField(
         read_only=True,
         help_text="Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
@@ -629,6 +651,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "scanner_type",
             "creation_method",
             "scanner_config",
+            "prompt_question",
             "query",
             "sampling_rate",
             "sampling_mode",
@@ -647,6 +670,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "observations_this_month",
             "credits_used_against_limit",
             "limit_reached",
+            "sweep_throttle_factor",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -656,6 +680,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         ]
         read_only_fields = [
             "id",
+            "prompt_question",
             "scanner_version",
             "estimated_monthly_observations",
             "estimated_at",
@@ -665,6 +690,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "observations_this_month",
             "credits_used_against_limit",
             "limit_reached",
+            "sweep_throttle_factor",
             "last_swept_at",
             "created_at",
             "created_by",
@@ -672,6 +698,10 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "feedback_themes",
             "user_access_level",
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_prompt_question(self, scanner: ReplayScanner) -> str:
+        return scanner_question(scanner)
 
     @extend_schema_field(serializers.IntegerField())
     def get_credits_per_observation(self, scanner: ReplayScanner) -> int:
@@ -727,6 +757,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
     @extend_schema_field(serializers.IntegerField())
     def get_credits_used_against_limit(self, scanner: ReplayScanner) -> int:
         return self._scanner_budget(scanner).credits_used
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_sweep_throttle_factor(self, scanner: ReplayScanner) -> int:
+        return current_sweep_throttle_factor(
+            scanner.fast_read_bytes_by_hour,
+            scanner.sweep_read_bytes_by_hour,
+            scanner.sweep_throttle_factor_override,
+            datetime.now(UTC),
+        )
 
     @extend_schema_field(serializers.BooleanField())
     def get_limit_reached(self, scanner: ReplayScanner) -> bool:
@@ -873,6 +912,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         tags = validated_data.pop("tags", None)
         # Telemetry only, so it must not reach the model constructor.
         creation_method = validated_data.pop("creation_method", None)
+        # A model call, so it runs before the transaction opens.
+        validated_data.update(
+            question_fields_for_save(
+                team_id=team.id,
+                scanner_type=validated_data["scanner_type"],
+                scanner_config=validated_data.get("scanner_config", {}),
+            )
+        )
         # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -916,6 +963,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         before = {field: getattr(instance, field) for field in validated_data}
         was_enabled = instance.enabled
         limit_changed = "credit_limit" in validated_data and validated_data["credit_limit"] != instance.credit_limit
+        # After `before`, so the question is not reported as an edit. A model call, so before the transaction.
+        if "scanner_config" in validated_data:
+            validated_data.update(
+                question_fields_for_save(
+                    team_id=instance.team_id,
+                    scanner_type=validated_data.get("scanner_type", instance.scanner_type),
+                    scanner_config=validated_data["scanner_config"],
+                    current_source=instance.prompt_question_source,
+                )
+            )
         # One transaction so a failed tag write can't leave the columns updated with stale tags. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -1394,6 +1451,9 @@ WATCH_FEED_CANDIDATE_CAP = 1000
 # the whole cap and quiet scanners lose not just feed slots but their own baselines — "unusual for
 # this scanner lately" silently stops firing for exactly the scanners the cap crowded out.
 WATCH_FEED_PER_SCANNER_CAP = 100
+# Ids per query when the jev feed fetches cached watchable rows the recency slice cut off. Keeps
+# each id__in list bounded while the walk stops as soon as the page is covered.
+WATCH_FEED_BYPASS_CHUNK = 200
 
 
 class WatchFeedReason(models.TextChoices):
@@ -1405,6 +1465,7 @@ class WatchFeedReason(models.TextChoices):
     RARE_TAG = "rare_tag"
     NOVEL_SUMMARY = "novel_summary"
     FRICTION = "friction"
+    JEV_WATCHABLE = "jev_watchable"
     UNVIEWED_RECENT = "unviewed_recent"
     RECENT = "recent"
 
@@ -1499,6 +1560,8 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
             "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
             "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
+            "`jev_watchable` (the decision model judged the session worth watching; teams on the "
+            "Jev ranker experiment only), "
             "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
@@ -1535,13 +1598,18 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
     )
+    jev_probability = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.",
+    )
     notability_reason = serializers.CharField(
         required=False,
         allow_null=True,
         help_text=(
-            "The scan's own sentence naming why the session is worth watching. Present only on the `notable` "
-            "reason kind, and preferred over copy derived from the reason kind. Absent on observations "
-            "scanned before notability shipped."
+            "The scan's own sentence naming why the session is worth watching. Present on the `notable` and "
+            "`jev_watchable` reason kinds when the scan itself found the session notable, and preferred over "
+            "copy derived from the reason kind. Absent on observations scanned before notability shipped."
         ),
     )
     score = serializers.FloatField(
@@ -1797,8 +1865,8 @@ class ScannerImpactSerializer(serializers.Serializer):
     affected_sessions = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Distinct sessions with an affected observation in the window. For monitors only verdict-yes "
-            "observations count; for other scanner types every succeeded observation counts."
+            "Distinct sessions with an affected observation in the window. For monitors only observations with "
+            "the requested verdict count (yes by default); for other scanner types every succeeded observation counts."
         ),
     )
     affected_users = serializers.IntegerField(
@@ -1819,7 +1887,7 @@ class ScannerImpactSerializer(serializers.Serializer):
 
 
 class _ImpactQualifiersSerializer(serializers.Serializer):
-    """Shared impact parameters. Monitors take none; classifiers require `tag`; scorers require a score bound."""
+    """Shared impact parameters. Monitors take an optional `verdict`; classifiers require `tag`; scorers require a score bound."""
 
     window_days = serializers.IntegerField(
         required=False,
@@ -1827,6 +1895,16 @@ class _ImpactQualifiersSerializer(serializers.Serializer):
         min_value=1,
         max_value=90,
         help_text="Trailing window of observations to count. Defaults to 30 days.",
+    )
+    verdict = serializers.ChoiceField(
+        choices=ObservationVerdict.choices,
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "Monitor scanners only: count sessions with this verdict. Defaults to `yes`. "
+            "Not applicable to other scanner types."
+        ),
     )
     tag = serializers.CharField(
         required=False,
@@ -1887,6 +1965,21 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     )
 
 
+# The lists only feed a menu of links; the counts beside them stay exact.
+MAX_SELF_DRIVING_LINKS = 20
+
+
+class SelfDrivingReportSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Signal report ID, for linking to it in the inbox.")
+    title = serializers.CharField(allow_null=True, help_text="Report title. Null until the report is summarized.")
+    status = serializers.CharField(help_text="The report's inbox status.")
+
+
+class SelfDrivingPullRequestSerializer(serializers.Serializer):
+    url = serializers.CharField(help_text="URL of the implementation pull request.")
+    merged = serializers.BooleanField(help_text="Whether the pull request has merged.")
+
+
 class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
     """Response of GET /vision/scanners/:id/self_driving_stats/."""
 
@@ -1901,6 +1994,12 @@ class ScannerSelfDrivingStatsSerializer(serializers.Serializer):
     )
     prs_opened = serializers.IntegerField(help_text="Implementation PRs opened by self-driving on those reports.")
     prs_merged = serializers.IntegerField(help_text="Of the opened PRs, how many have merged.")
+    reports = SelfDrivingReportSerializer(
+        many=True, help_text=f"The newest reports counted in `reports_contributed`, at most {MAX_SELF_DRIVING_LINKS}."
+    )
+    pull_requests = SelfDrivingPullRequestSerializer(
+        many=True, help_text=f"The newest PRs counted in `prs_opened`, at most {MAX_SELF_DRIVING_LINKS}."
+    )
 
 
 @extend_schema_view(
@@ -2083,6 +2182,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     description=source.description,
                     scanner_type=source.scanner_type,
                     scanner_config=source.scanner_config,
+                    # Same prompt, so the source's question still describes it.
+                    prompt_question=source.prompt_question,
+                    prompt_question_source=source.prompt_question_source,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
@@ -2233,7 +2335,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
+        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
+        # the hourly sweep cached. Neither arm makes a model call here.
+        if watch_feed_ranker(self.team_id) == "jev":
+            probabilities = load_watch_ranks(self.team_id, allowed_ids)
+            jev_rows = list(candidate_rows)
+            # The recency slice above holds only each scanner's newest rows, which on a high-volume
+            # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
+            # the slice cut off, walking the cache in probability-descending chunks. Each chunk goes
+            # through `candidates` — team, scanner, date, and search — so nothing outside the
+            # request's scope can enter, and a cached id that matches no candidate row cannot use up
+            # the page: slicing the cache before filtering would let high-probability non-matches
+            # push out matching rows. The walk stops once the page is covered, and the cache itself
+            # bounds it (at most a window's judged rows per readable scanner).
+            watchable_missing = sorted(
+                (
+                    UUID(observation_id)
+                    for observation_id, probability in probabilities.items()
+                    if probability >= JEV_WATCHABLE_MIN
+                ),
+                key=lambda observation_id: probabilities[str(observation_id)],
+                reverse=True,
+            )
+            loaded_ids = {row["id"] for row in jev_rows}
+            missing = [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]
+            needed = params["limit"]
+            for start in range(0, len(missing), WATCH_FEED_BYPASS_CHUNK):
+                if needed <= 0:
+                    break
+                fetched = list(
+                    candidates.filter(id__in=missing[start : start + WATCH_FEED_BYPASS_CHUNK])
+                    .annotate(feed_viewed=viewed)
+                    .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
+                )
+                jev_rows += fetched
+                needed -= len(fetched)
+            ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
+        else:
+            ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row
@@ -2558,6 +2698,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             impact = compute_scanner_impact(
                 scanner,
                 params.validated_data["window_days"],
+                verdict=params.validated_data["verdict"],
                 tag=params.validated_data["tag"],
                 min_score=params.validated_data["min_score"],
                 max_score=params.validated_data["max_score"],
@@ -2575,6 +2716,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     )
     def self_driving_stats(self, request: Request, **kwargs: Any) -> Response:
         """What self-driving did with this scanner's signals: reports contributed to and PRs opened."""
+        # `required_scopes` only gates API keys, so a session member denied inbox access would otherwise
+        # read the report titles, statuses and PR links that the inbox itself never shows them.
+        if not self.user_access_control.check_access_level_for_resource("task", required_level="viewer"):
+            raise PermissionDenied("Reading self-driving stats requires inbox read access.")
         scanner = self.get_object()
         outcomes = get_outcomes_for_signal_source_slice(
             team=self.team,
@@ -2589,6 +2734,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "reports_contributed": outcomes.report_count,
                     "prs_opened": outcomes.pr_count,
                     "prs_merged": outcomes.merged_pr_count,
+                    "reports": outcomes.reports[:MAX_SELF_DRIVING_LINKS],
+                    "pull_requests": outcomes.pull_requests[:MAX_SELF_DRIVING_LINKS],
                 }
             ).data
         )
@@ -2622,6 +2769,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 scanner,
                 cast(User, request.user),
                 window_days=window_days,
+                verdict=body.validated_data["verdict"],
                 tag=body.validated_data["tag"],
                 min_score=body.validated_data["min_score"],
                 max_score=body.validated_data["max_score"],

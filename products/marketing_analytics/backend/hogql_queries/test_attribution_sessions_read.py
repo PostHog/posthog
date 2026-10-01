@@ -1,7 +1,8 @@
-from datetime import UTC, datetime
-from types import SimpleNamespace
+from copy import copy
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import time_machine
 from unittest.mock import PropertyMock, patch
 
 from django.test import SimpleTestCase
@@ -12,12 +13,16 @@ from posthog.schema import (
     ConversionGoalFilter1,
     CustomChannelRule,
     DateRange,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
+    MarketingAnalyticsAttributionPathsQuery,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, tags_context
@@ -31,12 +36,15 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     compute_query_hash,
 )
 from products.marketing_analytics.backend.hogql_queries import attribution_sessions_read, marketing_sessions_precompute
+from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_runner import (
+    MarketingAnalyticsAttributionPathsQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
     REVALIDATION_TRIGGER,
-    STALE_WHILE_REVALIDATE_SECONDS,
 )
 
 
@@ -47,15 +55,9 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 MarketingAnalyticsAttributionQueryRunner,
                 "_shared_hogql_context",
                 new_callable=PropertyMock,
-                return_value=None,
+                return_value=HogQLContext(team_id=1),
             )
         )
-        self.coverage = self.enterContext(
-            patch.object(
-                attribution_sessions_read, "execute_hogql_query", return_value=SimpleNamespace(results=[], error=None)
-            )
-        )
-        self.enterContext(patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=False))
         self.team = Team(id=1, organization=Organization(id=UUID(int=1)))
         self.team.modifiers = {"personsOnEventsMode": "person_id_override_properties_on_events"}
         config = TeamMarketingAnalyticsConfig(team=self.team)
@@ -110,39 +112,62 @@ class TestAttributionSessionsRead(SimpleTestCase):
         assert "AS first_conversion" in sql
         assert ("conv.last_conversion" in sql) is repeat
 
-    def test_default_lookback_and_ninety_display_days_fit_writer_coverage(self) -> None:
-        runner = MarketingAnalyticsAttributionQueryRunner(
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
-            query=MarketingAnalyticsAttributionQuery(
-                conversionGoalId="goal",
-                properties=[],
-                dateRange=DateRange(date_from="2023-01-01", date_to="2023-03-31"),
-            ),
-        )
-        assert runner.lookback_window_days == 90
-        assert marketing_sessions_precompute.precompute_window_days(self.team) == 181
-        assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) is None
-        with patch.object(
-            attribution_sessions_read,
-            "window",
-            return_value=attribution_sessions_read.ReadWindow(
-                start=datetime(2023, 1, 1, tzinfo=UTC), end=datetime(2023, 7, 1, tzinfo=UTC)
-            ),
+    @parameterized.expand(
+        [
+            ("fixed", "UTC", "2023-04-01T12:00:00Z", "2023-01-01", "2023-03-31", 90, 90, None),
+            ("utc", "UTC", "2024-07-05T12:00:00Z", "-90d", None, 30, 90, None),
+            ("west", "America/Los_Angeles", "2024-07-05T02:00:00Z", "-90d", None, 30, 90, None),
+            ("east", "Pacific/Auckland", "2024-07-05T16:00:00Z", "-90d", None, 90, 90, None),
+            ("spring", "America/Los_Angeles", "2024-03-15T18:00:00Z", "-90d", None, 30, 90, None),
+            ("fall", "America/Los_Angeles", "2024-11-15T18:00:00Z", "-90d", None, 30, 90, None),
+            ("configured", "UTC", "2024-07-05T12:00:00Z", "-7d", None, 7, 7, None),
+            ("too_wide", "UTC", "2024-07-05T12:00:00Z", "-91d", None, 30, 90, "window_over_max"),
+        ]
+    )
+    def test_display_window_fits_writer_coverage(
+        self,
+        _name: str,
+        timezone: str,
+        now: str,
+        date_from: str,
+        date_to: str | None,
+        lookback: int,
+        display_days: int,
+        expected_reason: str | None,
+    ) -> None:
+        self.team.timezone = timezone
+        self.team.marketing_analytics_config.attribution_window_days = lookback
+        with (
+            time_machine.travel(now, tick=False),
+            patch.object(marketing_sessions_precompute, "PRECOMPUTE_WINDOW_DAYS", display_days),
         ):
-            assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == "window_over_max"
+            runner = MarketingAnalyticsAttributionQueryRunner(
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
+                query=MarketingAnalyticsAttributionQuery(
+                    conversionGoalId="goal",
+                    properties=[],
+                    dateRange=DateRange(date_from=date_from, date_to=date_to),
+                ),
+            )
+            assert runner.lookback_window_days == lookback
+            assert attribution_sessions_read.ineligible_reason(runner, runner.query_date_range) == expected_reason
+            if expected_reason is None:
+                read = attribution_sessions_read.window(runner, runner.query_date_range)
+                required_start = read.start - timedelta(days=marketing_sessions_precompute.SESSION_READ_REACHBACK_DAYS)
+                assert (
+                    marketing_sessions_precompute.precompute_window_start(self.team, datetime.now(UTC))
+                    <= required_start
+                )
 
     @parameterized.expand(
         [
-            ("stale_user", True, False, True, True),
-            ("flag_off", False, False, False, False),
-            ("revalidation", True, True, False, True),
-            ("cold_user", True, False, False, False),
+            ("stale_user", False, True, True),
+            ("revalidation", True, False, True),
+            ("cold_user", False, False, False),
         ]
     )
-    def test_stale_policy_and_revalidation(
-        self, _name: str, flag: bool, refreshing: bool, stale: bool, ready: bool
-    ) -> None:
+    def test_stale_policy_and_revalidation(self, _name: str, refreshing: bool, stale: bool, ready: bool) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -156,14 +181,8 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with (
             tags_context(trigger=REVALIDATION_TRIGGER if refreshing else "test", feature=Feature.QUERY),
             patch.object(
-                marketing_sessions_precompute,
-                "execute_hogql_query",
-                return_value=SimpleNamespace(results=[], error=None),
-            ),
-            patch.object(
                 marketing_sessions_precompute, "create_default_modifiers_for_team", return_value=runner.modifiers
             ),
-            patch.object(attribution_sessions_read, "serve_stale_enabled", return_value=flag),
             patch.object(attribution_sessions_read, "handle_stale_served") as revalidate,
             patch.object(
                 marketing_sessions_precompute,
@@ -177,13 +196,11 @@ class TestAttributionSessionsRead(SimpleTestCase):
             ensure.assert_called_once()
             assert ensure.call_args.kwargs["run_inserts"] is refreshing
             assert ensure.call_args.kwargs["stale_while_revalidate_seconds"] == (
-                STALE_WHILE_REVALIDATE_SECONDS if flag and not refreshing else None
+                None if refreshing else PRECOMPUTE_ONLY_MAX_STALE_SECONDS
             )
             assert revalidate.call_count == int(stale)
-            assert self.coverage.call_count == int(ready)
 
-    @parameterized.expand([("older_session", [[1]], None), ("unproven", [], "Coverage query failed")])
-    def test_unproven_session_coverage_falls_back(self, _name: str, rows: list[list[int]], error: str | None) -> None:
+    def test_failed_precompute_lookup_falls_back(self) -> None:
         runner = MarketingAnalyticsAttributionQueryRunner(
             team=self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode="person_id_override_properties_on_events"),
@@ -194,12 +211,10 @@ class TestAttributionSessionsRead(SimpleTestCase):
                 dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
             ),
         )
-        self.coverage.return_value.results = rows
-        self.coverage.return_value.error = error
         with patch.object(
             attribution_sessions_read,
             "ensure_marketing_sessions_precomputed",
-            return_value=LazyComputationResult(ready=True, job_ids=[UUID(int=1)]),
+            side_effect=RuntimeError("Precompute lookup failed"),
         ) as ensure:
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_called_once()
@@ -217,7 +232,7 @@ class TestAttributionSessionsRead(SimpleTestCase):
                     ]
                 ),
                 HogQLQueryModifiers(customChannelTypeRules=[]),
-                "custom_channel_rules",
+                "custom_channel_rules_mismatch",
             ),
         ]
     )
@@ -240,7 +255,6 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             assert attribution_sessions_read.build_person_arrays(runner, runner.query_date_range) is None
         ensure.assert_not_called()
-        self.coverage.assert_not_called()
 
     @parameterized.expand(
         [
@@ -314,4 +328,128 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             runner.to_query()
         ensure.assert_not_called()
-        self.coverage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("session.$entry_utm_source = 'google'", True),
+            ("events.session.$channel_type = 'Paid Search'", True),
+            ("$session_id IN (SELECT session_id FROM sessions)", True),
+            ("matchesAction(1)", True),
+            ("not(matchesAction(1))", True),
+            ("properties.utm_source = 'google'", False),
+            ("$session_id IS NOT NULL", False),
+        ]
+    )
+    def test_session_dependent_conversion_conditions_keep_legacy_resolution(self, condition: str, legacy: bool) -> None:
+        goal = ConversionGoalFilter1(
+            event="purchase",
+            name="Purchases",
+            conversion_goal_id="session-goal",
+            conversion_goal_name="Purchases",
+            schema_map={},
+            properties=[HogQLPropertyFilter(type="hogql", key=condition)],
+        )
+        self.team.marketing_analytics_config.conversion_goals = [goal.model_dump()]
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            team=self.team,
+            query=MarketingAnalyticsAttributionQuery(
+                conversionGoalId="session-goal",
+                properties=[],
+                lookbackWindowDays=4,
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-20"),
+            ),
+        )
+        runner.config.live_session_resolution_enabled = True
+        reason = attribution_sessions_read.ineligible_reason(runner, runner.query_date_range)
+        assert reason == ("session_filtered_conversion_goal" if legacy else None)
+
+    @parameterized.expand(
+        [
+            ("table", MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+            ("paths", MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+        ]
+    )
+    def test_live_resolution_rollout_and_rollback_isolate_cached_results(
+        self,
+        _name: str,
+        query_type: type[MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery],
+        runner_type: type[MarketingAnalyticsAttributionQueryRunner | MarketingAnalyticsAttributionPathsQueryRunner],
+    ) -> None:
+        self.enterContext(patch.object(runner_type, "_products_modifiers_for_cache", return_value={}))
+        self.enterContext(patch.object(runner_type, "_get_property_access_restrictions", return_value=None))
+        live_keys = []
+        for precomputed in (False, True):
+            keys = []
+            identities = []
+            for live in (False, True, False):
+                flags = {
+                    "marketing-analytics-live-session-resolution": live,
+                    "marketing-analytics-sessions-precomputation": precomputed,
+                }
+                with patch(
+                    "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false",
+                    side_effect=lambda key, *_args, flags=flags, **_kwargs: flags.get(key, False),
+                ):
+                    runner = runner_type(
+                        team=copy(self.team),
+                        query=query_type(
+                            conversionGoalId="goal",
+                            properties=[],
+                            dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
+                        ),
+                    )
+                    keys.append(runner.get_cache_key())
+                    identities.append(runner.get_query_identity())
+            assert keys[0] != keys[1]
+            assert keys[0] == keys[2]
+            assert identities[0].query_hash == identities[1].query_hash == identities[2].query_hash
+            assert identities[0].runtime_hash != identities[1].runtime_hash
+            assert identities[0].runtime_hash == identities[2].runtime_hash
+            live_keys.append(keys[1])
+        assert live_keys[0] == live_keys[1]
+
+    @parameterized.expand(
+        [
+            (shape, query_type, runner_type, live, timezone)
+            for shape, query_type, runner_type in [
+                ("table", MarketingAnalyticsAttributionQuery, MarketingAnalyticsAttributionQueryRunner),
+                ("paths", MarketingAnalyticsAttributionPathsQuery, MarketingAnalyticsAttributionPathsQueryRunner),
+            ]
+            for live, timezone in [(True, "UTC"), (False, "UTC"), (True, "Asia/Kolkata")]
+        ]
+    )
+    def test_execution_settings_follow_selected_session_source(
+        self,
+        _name: str,
+        query_type: type[MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery],
+        runner_type: type[MarketingAnalyticsAttributionQueryRunner | MarketingAnalyticsAttributionPathsQueryRunner],
+        live: bool,
+        timezone: str,
+    ) -> None:
+        self.team.timezone = timezone
+        runner = runner_type(
+            team=self.team,
+            query=query_type(
+                conversionGoalId="goal",
+                properties=[],
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-11"),
+            ),
+        )
+        runner.config.live_session_resolution_enabled = live
+        with (
+            time_machine.travel("2023-01-12T12:00:00Z", tick=False),
+            patch.object(
+                runner_type, "_shared_hogql_context", new_callable=PropertyMock, return_value=HogQLContext(team_id=1)
+            ),
+            patch(
+                f"{runner_type.__module__}.execute_hogql_query",
+                return_value=HogQLQueryResponse(results=[], columns=[]),
+            ) as execute,
+        ):
+            runner.calculate()
+        execute.assert_called_once()
+        settings = execute.call_args.kwargs["settings"]
+        eligible_live = live and timezone == "UTC"
+        assert settings.max_threads == (16 if eligible_live else None)
+        assert settings.optimize_aggregation_in_order == (True if eligible_live else None)
+        assert settings.max_bytes_before_external_group_by == 512 * 1024 * 1024

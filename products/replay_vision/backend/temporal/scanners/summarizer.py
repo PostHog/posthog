@@ -11,8 +11,10 @@ from products.replay_vision.backend.temporal.scanners.base import (
     EmbeddingDocument,
     Segment,
     confidence_field,
+    key_moment_field,
     notability_field,
     notability_reason_field,
+    thumbnail_field,
 )
 
 SummaryLength = Literal["short", "medium", "long"]
@@ -38,6 +40,8 @@ class SummarizerSummaryResponse(BaseModel, frozen=True):
     notability_reason: str | None = notability_reason_field()
     notability: float | None = notability_field()
     confidence: float = confidence_field()
+    key_moment_t: int | None = key_moment_field()
+    thumbnail_t: int | None = thumbnail_field()
 
 
 class SummarizerOutput(BaseScannerOutput, frozen=True):

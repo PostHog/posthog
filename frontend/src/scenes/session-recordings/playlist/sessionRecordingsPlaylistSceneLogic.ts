@@ -51,6 +51,7 @@ export interface sessionRecordingsPlaylistSceneLogicValues {
     derivedName: string
     filters: LegacyRecordingFilters | RecordingUniversalFilters | null
     hasChanges: boolean
+    isAddRecordingsModalOpen: boolean
     pinnedRecordings: SessionRecordingType[] | null
     pinnedRecordingsLoading: boolean
     playlist: SessionRecordingPlaylistType | null
@@ -159,6 +160,9 @@ export interface sessionRecordingsPlaylistSceneLogicActions {
             recording: SessionRecordingType
         }
     }
+    setAddRecordingsModalOpen: (open: boolean) => {
+        open: boolean
+    }
     setFilters: (filters: LegacyRecordingFilters | RecordingUniversalFilters | null) => {
         filters: LegacyRecordingFilters | RecordingUniversalFilters | null
     }
@@ -232,6 +236,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         loadPinnedRecordings: true,
         onPinnedChange: (recording: SessionRecordingType, pinned: boolean) => ({ pinned, recording }),
         markPlaylistViewed: true,
+        setAddRecordingsModalOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ actions, values, props }) => ({
         playlist: [
@@ -305,6 +310,12 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
     })),
     reducers(() => ({
+        isAddRecordingsModalOpen: [
+            false,
+            {
+                setAddRecordingsModalOpen: (_, { open }) => open,
+            },
+        ],
         filters: [
             null as LegacyRecordingFilters | RecordingUniversalFilters | null,
             {
@@ -354,6 +365,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         enabled: (newLocation) => {
             const response =
                 values.activeSceneId === Scene.ReplayPlaylist &&
+                values.playlist?.type === 'filters' &&
                 values.hasChanges &&
                 removeProjectIdIfPresent(newLocation?.pathname ?? '') !==
                     removeProjectIdIfPresent(router.values.location.pathname) &&

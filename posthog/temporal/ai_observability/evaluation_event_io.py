@@ -1,12 +1,18 @@
 from datetime import datetime
 from typing import Any
 
+import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.utils import ensure_utc
 
 from products.ai_observability.backend.ai_event_lookup import fetch_generation_event
+
+# A generation can reach `events`, where a backfill finds it, before it reaches `ai_events`, where
+# it is read, so a miss gets two retries before it fails the run.
+GENERATION_NOT_FOUND_MAX_ATTEMPTS = 3
 
 
 def as_utc_datetime(value: str | datetime) -> datetime:
@@ -81,5 +87,8 @@ def hydrate_event_reference(event_data: dict[str, Any]) -> dict[str, Any]:
         event_data.get("trace_id"),
     )
     if event is None:
+        if temporalio.activity.in_activity() and temporalio.activity.info().attempt < GENERATION_NOT_FOUND_MAX_ATTEMPTS:
+            # Only the last miss reaches error tracking: an earlier one is usually the lag above.
+            raise NonReportableApplicationError("Generation not found", type="generation_not_found")
         raise ApplicationError("Generation not found", type="generation_not_found", non_retryable=True)
     return event

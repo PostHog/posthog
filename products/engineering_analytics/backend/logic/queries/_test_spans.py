@@ -30,8 +30,8 @@ from posthog.hogql import ast
 
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.ownership.paths import UNOWNED_TEAM
 
-from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import job_created_floor_constant

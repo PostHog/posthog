@@ -14,8 +14,8 @@ from products.security.backend.logic.rules import SnapshotRule
 from products.security.backend.logic.subjects import normalize_subject
 
 VECTORS = json.loads((Path(__file__).parent / "fixtures" / "access-rules.json").read_text())
-ORDER = [Surface.SIGNUP, Surface.APP, Surface.AI_GATEWAY, Surface.EMAIL_CODE]
-LETTERS = {Surface.EMAIL_CODE: "E"}
+ORDER = [Surface.SIGNUP, Surface.APP, Surface.AI_GATEWAY, Surface.EMAIL_CODE, Surface.SIGNUP_RISK]
+LETTERS = {Surface.EMAIL_CODE: "E", Surface.SIGNUP_RISK: "E"}
 
 
 def _cases() -> list[tuple[str, dict[str, Any], dict[str, Any]]]:

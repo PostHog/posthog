@@ -26,6 +26,8 @@ import type {
     PatchedMaxCoreMemoryApi,
     SandboxMessageResponseApi,
     SandboxOpenApi,
+    TerminalAIRequestApi,
+    TerminalAiCreateParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -439,5 +441,38 @@ export const docsSearch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(docsSearchRequestApi),
+    })
+}
+
+export const getTerminalAiCreateUrl = (projectId: string, params?: TerminalAiCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/terminal_ai/?${stringifiedParams}`
+        : `/api/projects/${projectId}/terminal_ai/`
+}
+
+/**
+ * Stream a terminal model response through PostHog AI. Requires organization approval for AI data processing. SDK consumers must use getTerminalAiCreateUrl() with streaming fetch. The generated JSON client buffers the response and cannot parse SSE.
+ */
+export const terminalAiCreate = async (
+    projectId: string,
+    terminalAIRequestApi: TerminalAIRequestApi,
+    params?: TerminalAiCreateParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getTerminalAiCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(terminalAIRequestApi),
     })
 }

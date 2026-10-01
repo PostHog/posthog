@@ -23,10 +23,14 @@ from django.conf import settings
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
-from posthog.helpers.slack_markdown import slack_markdown_block as _markdown_block
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.ph_client import ph_scoped_capture
+from posthog.slack.formatting import (
+    channel_id_from_target as _channel_id_from_target,
+    escape_slack_mrkdwn as _escape_mrkdwn,
+)
+from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
@@ -45,10 +49,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.slack_formatting import (
-    escape_slack_mrkdwn as _escape_mrkdwn,
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
-    slack_channel_id_from_target as _channel_id_from_target,
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
@@ -675,7 +677,7 @@ def _deliver_route_notification(
     }
     delivered = False
     try:
-        slack = SlackIntegration(route.integration)
+        slack = SlackIntegration(route.integration, source="signals_inbox")
         if route.is_direct_message and slack.get_user_by_id(channel_id) is None:
             # A member reachable when the target was saved can since have left or become a guest.
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)

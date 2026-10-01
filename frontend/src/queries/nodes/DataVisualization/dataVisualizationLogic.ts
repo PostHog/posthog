@@ -170,7 +170,7 @@ export const formatDataWithSettings = (
     let dataAsString = `${data}`
 
     if (typeof data === 'number') {
-        dataAsString = `${decimalPlaces ? data.toFixed(decimalPlaces) : data}`
+        dataAsString = `${decimalPlaces != null ? data.toFixed(decimalPlaces) : data}`
 
         if (settings?.formatting?.style === 'number') {
             dataAsString = data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })
@@ -1528,14 +1528,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                 try {
                                     const multiplier = series.settings.formatting?.style === 'percent' ? 100 : 1
 
-                                    if (series.settings.formatting?.decimalPlaces) {
-                                        return parseFloat(
-                                            (parseFloat(n[column.dataIndex]) * multiplier).toFixed(
-                                                series.settings.formatting.decimalPlaces
-                                            )
-                                        )
-                                    }
-
                                     const isNotANumber =
                                         Number.isNaN(n[column.dataIndex]) ||
                                         n[column.dataIndex] === undefined ||
@@ -1544,10 +1536,13 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                                         return showNullsAsZero ? 0 : null
                                     }
 
+                                    // Do not round to decimalPlaces here. The chart formatters round for display,
+                                    // and the metric card and pie totals must sum the raw values.
                                     const isInt = Number.isInteger(n[column.dataIndex])
-                                    return isInt
+                                    const parsed = isInt
                                         ? parseInt(n[column.dataIndex], 10) * multiplier
                                         : parseFloat(n[column.dataIndex]) * multiplier
+                                    return Number.isNaN(parsed) ? (showNullsAsZero ? 0 : null) : parsed
                                 } catch {
                                     return showNullsAsZero ? 0 : null
                                 }
@@ -1720,7 +1715,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                                 const multiplier = column.settings?.formatting?.style === 'percent' ? 100 : 1
 
-                                if (column.settings?.formatting?.decimalPlaces) {
+                                if (
+                                    column.settings?.formatting?.decimalPlaces != null &&
+                                    column.settings.formatting.style !== 'short'
+                                ) {
                                     return {
                                         value,
                                         formattedValue: formatDataWithSettings(

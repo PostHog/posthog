@@ -4,7 +4,8 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/logic backend/management backend/temporal -v --tb=short"
     },
     "dependencies": {
-        "@posthog/products-mcp-store": "workspace:*"
+        "@posthog/products-mcp-store": "workspace:*",
+        "@posthog/quill": "workspace:*"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"

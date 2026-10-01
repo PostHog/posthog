@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble
 from products.warehouse_sources.backend.temporal.data_imports.sources.coassemble.settings import (
     COASSEMBLE_ENDPOINTS,
     ENDPOINTS,
+    USAGE_PAGE_SIZE,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -276,7 +277,7 @@ class TestTrackingFanOut:
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_page_cap_stops_runaway_course(self, MockSession: mock.MagicMock) -> None:
-        with mock.patch.object(coassemble, "MAX_TRACKING_PAGES_PER_COURSE", 2):
+        with mock.patch.object(coassemble, "MAX_FAN_OUT_PAGES_PER_PARENT", 2):
             session = MockSession.return_value
             # Every trackings page is full, so without the cap this would page forever.
             _wire(
@@ -292,6 +293,143 @@ class TestTrackingFanOut:
 
         assert len(rows) == 2 * PAGE_SIZE
         assert session.send.call_count == 3  # 1 courses page + 2 capped trackings pages
+
+
+class TestFanOutEndpointShapes:
+    @parameterized.expand(
+        [
+            (
+                "screen_trackings",
+                "/courses",
+                {"id": 11},
+                "/screen/trackings?id=11",
+                {"id": 1},
+                {"id": 1, "course_id": 11},
+            ),
+            (
+                "collection_trackings",
+                "/collections",
+                {"id": 7},
+                "/collection/trackings?id=7",
+                {"id": 1},
+                {"id": 1, "collection_id": 7},
+            ),
+            (
+                "client_allowances",
+                "/clients",
+                {"clientIdentifier": "acme"},
+                "/usage/client/acme",
+                {"metric": "ir", "limit": 10},
+                {"metric": "ir", "limit": 10, "clientIdentifier": "acme"},
+            ),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_parent_and_stamps_parent_reference(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_row: dict[str, Any],
+        child_path: str,
+        child_row: dict[str, Any],
+        expected_row: dict[str, Any],
+        MockSession: mock.MagicMock,
+    ) -> None:
+        # Child rows name no parent, so a wrong resolve field or path template would either 404 or
+        # land rows whose primary key is half null.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([parent_row]), _response([child_row])])
+
+        rows = _rows(endpoint, _make_manager())
+
+        assert rows == [expected_row]
+        assert [s["url"] for s in snapshots] == [
+            f"{COASSEMBLE_BASE_URL}{parent_path}",
+            f"{COASSEMBLE_BASE_URL}{child_path}",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_user_trackings_reads_rows_from_the_per_user_envelope(self, MockSession: mock.MagicMock) -> None:
+        # /user/trackings answers with one object per learner; the rows are its `trackings` entries,
+        # not the envelope itself.
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"identifier": "u-1"}]),
+                _response(
+                    {
+                        "identifier": "u-1",
+                        "totals": {"viewed": 2, "completed": 1},
+                        "trackings": [{"id": 5, "courseId": 9}],
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows("user_trackings", _make_manager())
+
+        assert rows == [{"id": 5, "courseId": 9, "user_identifier": "u-1"}]
+        assert snapshots[1]["url"] == f"{COASSEMBLE_BASE_URL}/user/trackings?identifier=u-1"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_client_allowances_reads_each_client_once_without_paging_params(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response([{"clientIdentifier": "a"}, {"clientIdentifier": "b"}]),
+                _response([{"metric": "ir"}]),
+                _response([{"metric": "ir"}]),
+            ],
+        )
+
+        rows = _rows("client_allowances", _make_manager())
+
+        assert len(rows) == 2
+        # The endpoint documents no page/length params, so none are sent and each client is read once.
+        assert [s["params"] for s in snapshots if "/usage/client/" in s["url"]] == [{}, {}]
+        assert session.send.call_count == 3
+
+
+class TestClientUsagePagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_rows_from_the_data_envelope(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        row = {"clientIdentifier": "acme", "metric": "ir", "currentUsage": 3}
+        snapshots = _wire(session, [_response({"page": 0, "length": USAGE_PAGE_SIZE, "data": [row]})])
+
+        rows = _rows("client_usage", _make_manager())
+
+        assert rows == [row]
+        # /usage/clients serves a smaller default page than the other list endpoints; requesting
+        # more would let a server-capped full page read as the end of the collection.
+        assert snapshots[0]["params"] == {"page": 0, "length": USAGE_PAGE_SIZE}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_page_advances_until_short_page(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        full = [{"clientIdentifier": f"c-{i}", "metric": "ir"} for i in range(USAGE_PAGE_SIZE)]
+        snapshots = _wire(
+            session,
+            [
+                _response({"page": 0, "length": USAGE_PAGE_SIZE, "data": full}),
+                _response({"page": 1, "length": USAGE_PAGE_SIZE, "data": [{"clientIdentifier": "z", "metric": "ir"}]}),
+            ],
+        )
+
+        rows = _rows("client_usage", _make_manager())
+
+        assert len(rows) == USAGE_PAGE_SIZE + 1
+        assert [s["params"]["page"] for s in snapshots] == [0, 1]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_envelope_key_fails_loudly(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"page": 0, "length": USAGE_PAGE_SIZE})])
+
+        with pytest.raises(ValueError, match="Required data_selector"):
+            _rows("client_usage", _make_manager())
 
 
 class TestValidateCredentials:

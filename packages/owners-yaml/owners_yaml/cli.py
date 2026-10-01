@@ -39,11 +39,15 @@ org_option = click.option(
 )
 
 
-def _resolver(repo_root: Path | None, purpose: Purpose = "slack") -> OwnersResolver:
+def _resolver(repo_root: Path | None, purpose: Purpose = "slack", producer: str | None = None) -> OwnersResolver:
     try:
-        return OwnersResolver(repo_root=repo_root, purpose=purpose)
+        resolver = OwnersResolver(repo_root=repo_root, purpose=purpose, producer=producer)
     except RepoRootNotFound as exc:
         raise click.ClickException(str(exc)) from exc
+    error = resolver.producer_error()
+    if error is not None:
+        raise click.ClickException(error)
+    return resolver
 
 
 def _github_org(org: str | None, settings: RepoSettings) -> str:
@@ -70,10 +74,17 @@ def _read_paths(paths: tuple[str, ...]) -> list[str]:
     default="slack",
     help="Which team channel `slack` resolves to: where people are, or where automation posts",
 )
+@click.option(
+    "--producer",
+    default=None,
+    help="The automation asking, for a team that maps `notifications` per producer",
+)
 @repo_root_option
 @click.argument("paths", nargs=-1)
-def cmd_resolve(as_json: bool, purpose: str, repo_root: Path | None, paths: tuple[str, ...]) -> None:
-    resolver = _resolver(repo_root, cast(Purpose, purpose))
+def cmd_resolve(
+    as_json: bool, purpose: str, producer: str | None, repo_root: Path | None, paths: tuple[str, ...]
+) -> None:
+    resolver = _resolver(repo_root, cast(Purpose, purpose), producer)
     targets = _read_paths(paths)
     result = {normalize_path(path): resolution_to_wire(resolver.resolve(path)) for path in targets}
     if as_json:

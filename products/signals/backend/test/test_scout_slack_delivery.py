@@ -12,10 +12,10 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.helpers.slack_markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.redis import get_client
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX

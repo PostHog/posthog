@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    AuthorFrictionDetailApi,
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DurationDistributionApi,
@@ -247,6 +248,59 @@ const COMPARISON: DeliveryComparisonApi = {
     pull_request: null,
 }
 
+const FRICTION_DETAIL: AuthorFrictionDetailApi = {
+    available: true,
+    window_days: 30,
+    ranked_author_count: 42,
+    has_membership_data: true,
+    author: {
+        author: 'jane-dev',
+        avatar_url: '',
+        score: 1.8,
+        groups: [
+            { group: 'queue', score: 0.9 },
+            { group: 'review', score: 0.4 },
+            { group: 'ci', score: 0.35 },
+            { group: 'rework', score: 0.15 },
+        ],
+        pr_count: 14,
+        rank: 6,
+        rank_low: 3,
+        rank_high: 14,
+        teams: ['team-replay'],
+    },
+    pr_count: 14,
+    teams: [{ github_team: 'team-replay', median_score: 1.1, scored_author_count: 5 }],
+    pull_requests: [
+        {
+            number: 5101,
+            repo_owner: 'PostHog',
+            repo_name: 'posthog',
+            title: 'fix(replay): keep the player in sync after a seek',
+            score: 4.2,
+            groups: [
+                { group: 'queue', score: 2.6 },
+                { group: 'review', score: 0.4 },
+                { group: 'ci', score: 1.0 },
+                { group: 'rework', score: 0.2 },
+            ],
+        },
+        {
+            number: 5088,
+            repo_owner: 'PostHog',
+            repo_name: 'posthog',
+            title: 'feat(replay): add a speed control to the player',
+            score: 2.1,
+            groups: [
+                { group: 'queue', score: 0.5 },
+                { group: 'review', score: 1.2 },
+                { group: 'ci', score: 0.2 },
+                { group: 'rework', score: 0.2 },
+            ],
+        },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Engineering Analytics/Author',
@@ -267,6 +321,7 @@ const meta: Meta = {
                 'api/projects/:team_id/engineering_analytics/delivery_comparison/': COMPARISON,
                 'api/projects/:team_id/engineering_analytics/pull_request_timelines/': TIMELINES,
                 'api/projects/:team_id/engineering_analytics/author_workflow_costs/': WORKFLOW_COSTS,
+                'api/projects/:team_id/engineering_analytics/author_friction_detail/': FRICTION_DETAIL,
             },
         }),
     ],

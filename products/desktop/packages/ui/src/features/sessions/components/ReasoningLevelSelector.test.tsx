@@ -998,7 +998,7 @@ describe("ReasoningLevelSelector", () => {
 
   it.each([
     ["claude", "Anthropic", /^Claude plan billing is unavailable/],
-    ["codex", "OpenAI", /^OpenAI billing only works/],
+    ["codex", "OpenAI", /^ChatGPT plan billing is unavailable/],
   ] as const)(
     "disables the %s billing option for cloud tasks and names the reason",
     async (adapter, planLabel, reason) => {

@@ -27,7 +27,7 @@ from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRun
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.sql_v2_concurrency import acquire_run_slots, release_run_slots
-from products.notebooks.backend.sql_v2_direct import enqueue_direct_run
+from products.notebooks.backend.sql_v2_direct import direct_run_was_enqueued, enqueue_direct_run
 from products.notebooks.backend.sql_v2_references import (
     SQLV2Ref,
     SQLV2ReferenceError,
@@ -284,7 +284,7 @@ def _reusable_runs(
     )
 
 
-def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
+def resolve_team_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     """The team's notebook, or `NodeRunInvalid` when it has none by that id.
 
     Resolving here rather than taking the object is what keeps the team and the notebook from
@@ -300,7 +300,7 @@ def _resolve_notebook(team_id: int, notebook_short_id: str) -> Notebook:
     return notebook
 
 
-def _resolve_user(user_id: int | None) -> User | None:
+def resolve_user(user_id: int | None) -> User | None:
     return User.objects.filter(id=user_id).first() if user_id is not None else None
 
 
@@ -312,8 +312,8 @@ def dispatch_cell_run(
     The entry point for callers outside this module: it takes ids and a contract, so nobody
     holds a Django object across the boundary, and resolves the models here instead.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
-    return dispatch_node_run(notebook, _resolve_user(user_id), notebook.team, request)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    return dispatch_node_run(notebook, resolve_user(user_id), notebook.team, request)
 
 
 def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int | None, runtime_id: UUID) -> bool:
@@ -326,8 +326,8 @@ def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int
     resolves the kernel service for this one: another user's row would answer about their
     sandbox. A token user owns no runtime, so `user=None` matches only the unowned rows.
     """
-    notebook = _resolve_notebook(team_id, notebook_short_id)
-    user = _resolve_user(user_id)
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    user = resolve_user(user_id)
     if user_id is not None and user is None:
         # The user is gone, so none of their runtimes are theirs to report on. Without this,
         # the filter below would quietly widen to the unowned rows.
@@ -336,6 +336,74 @@ def kernel_sandbox_is_live(*, team_id: int, notebook_short_id: str, user_id: int
     if runtime is None:
         return False
     return sandbox_is_running(notebook, user, runtime)
+
+
+def _hand_off_to_lane(
+    notebook: Notebook,
+    user: User | None,
+    team: Team,
+    run: NotebookNodeRun,
+    plan: SQLV2RunPlan,
+    request: NodeRunRequest,
+) -> None:
+    """Tell the lane about a row that already exists. Repeatable.
+
+    Both lanes key on the run id — Temporal on the workflow id, the query manager on the
+    query id — so a second call for the same row is a no-op rather than a second execution.
+    `resume_node_run` relies on that.
+    """
+    try:
+        if plan.node_type == "hogql":
+            # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
+            # async query manager, and the run-result poll advances the row.
+            enqueue_direct_run(team, user, run)
+        else:
+            start_sql_v2_run_workflow(
+                SQLV2RunInput(
+                    run_id=str(run.id),
+                    notebook_short_id=notebook.short_id,
+                    team_id=team.id,
+                    user_id=user.id if user is not None else None,
+                    code=plan.code,
+                    node_type=plan.node_type,
+                    output_name=request.output_name,
+                    inputs=plan.inputs,
+                    # A python node reads these as globals; a duckdb node binds them as
+                    # `$name` query parameters, so it carries only the ones its SQL uses.
+                    variables=(
+                        python_variable_bindings(request.variables) if plan.node_type == "python" else plan.variables
+                    ),
+                )
+            )
+    except Exception:
+        logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
+        # Status-guarded: a dispatch that partially started before raising could still
+        # deliver a callback, which must keep the row and stay the only reporter.
+        finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
+        raise NodeRunDispatchFailed("Failed to start run.")
+
+
+def resume_node_run(
+    notebook: Notebook, user: User | None, team: Team, request: NodeRunRequest, run: NotebookNodeRun
+) -> None:
+    """Finish a dispatch whose row exists but may never have reached its lane.
+
+    The row is committed before the lane is told about it, so a worker that dies in between
+    leaves a row nothing is driving — the orchestrator would then poll it until the cell
+    budget expired. A retry calls this instead of assuming the row means the work started.
+
+    A no-op once the row is terminal, and safe when the first attempt did land, because the
+    handoff keys on the run id.
+    """
+    if run.status != NotebookNodeRun.Status.RUNNING:
+        return
+    if run.node_type == NotebookNodeRun.NodeType.HOGQL and direct_run_was_enqueued(run):
+        # The query manager already has this one. Re-enqueueing asks for a refresh rather
+        # than joining the query in flight, so it would execute a second time.
+        return
+    _hand_off_to_lane(
+        notebook, user, team, run, _build_plan(request, resolve_refs(team.id, notebook, request)), request
+    )
 
 
 def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request: NodeRunRequest) -> NodeRunDispatch:
@@ -423,35 +491,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
     # started nothing — exactly when the user most needs telling they are being charged.
     starts_sandbox, hourly_price = sandbox_disclosure(notebook, user, uses_sandbox=plan.node_type != "hogql")
 
-    try:
-        if plan.node_type == "hogql":
-            # Direct lane: a pure-HogQL run never touches the sandbox — it rides the
-            # async query manager, and the run-result poll advances the row.
-            enqueue_direct_run(team, user, run)
-        else:
-            start_sql_v2_run_workflow(
-                SQLV2RunInput(
-                    run_id=str(run.id),
-                    notebook_short_id=notebook.short_id,
-                    team_id=team.id,
-                    user_id=user.id if user is not None else None,
-                    code=plan.code,
-                    node_type=plan.node_type,
-                    output_name=request.output_name,
-                    inputs=plan.inputs,
-                    # A python node reads these as globals; a duckdb node binds them as
-                    # `$name` query parameters, so it carries only the ones its SQL uses.
-                    variables=(
-                        python_variable_bindings(request.variables) if plan.node_type == "python" else plan.variables
-                    ),
-                )
-            )
-    except Exception:
-        logger.exception("notebook_sql_v2_run_start_failed", notebook_short_id=notebook.short_id)
-        # Status-guarded: a dispatch that partially started before raising could still
-        # deliver a callback, which must keep the row and stay the only reporter.
-        finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
-        raise NodeRunDispatchFailed("Failed to start run.")
+    _hand_off_to_lane(notebook, user, team, run, plan, request)
 
     return NodeRunDispatch(run_id=run.id, starts_sandbox=starts_sandbox, sandbox_hourly_price=hourly_price)
 
@@ -481,7 +521,10 @@ __all__ = [
     "build_ref_specs",
     "dispatch_cell_run",
     "dispatch_node_run",
+    "resume_node_run",
     "kernel_sandbox_is_live",
+    "resolve_team_notebook",
+    "resolve_user",
     "live_kernel_runtime",
     "sandbox_disclosure",
     "sandbox_is_running",

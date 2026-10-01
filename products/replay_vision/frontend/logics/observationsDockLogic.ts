@@ -35,7 +35,10 @@ export interface observationsDockLogicValues {
     defaultSummarizer: ReplayScannerApi | null
     dockOpen: boolean
     filteredScanners: ReplayScannerApi[]
+    focusedObservationId: string | null
+    followMoments: boolean
     hasObservationsInFlight: boolean
+    hoveredMarkMs: number | null
     observations: ReplayObservationApi[]
     observationsLoading: boolean
     observing: boolean
@@ -58,6 +61,9 @@ export interface observationsDockLogicActions {
     setSummaryDockAutoExpand: (autoExpand: boolean) => {
         autoExpand: boolean
     } // visionDockPreferenceLogic
+    focusObservation: (observationId: string) => {
+        observationId: string
+    }
     loadObservations: () => {
         value: true
     }
@@ -91,6 +97,12 @@ export interface observationsDockLogicActions {
     }
     setDockOpen: (open: boolean) => {
         open: boolean
+    }
+    setFollowMoments: (follow: boolean) => {
+        follow: boolean
+    }
+    setHoveredMark: (timestampMs: number | null) => {
+        timestampMs: number | null
     }
     setScannerPickerOpen: (open: boolean) => {
         open: boolean
@@ -166,6 +178,9 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         retryObservationSuccess: (observationId: string) => ({ observationId }),
         retryObservationFailure: (observationId: string) => ({ observationId }),
         setDockOpen: (open: boolean) => ({ open }),
+        focusObservation: (observationId: string) => ({ observationId }),
+        setFollowMoments: (follow: boolean) => ({ follow }),
+        setHoveredMark: (timestampMs: number | null) => ({ timestampMs }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
         summarize: true,
@@ -224,6 +239,26 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             false,
             {
                 setScannerPickerOpen: (_, { open }) => open,
+            },
+        ],
+        // Shared so hovering a mark on one surface highlights it on the other.
+        hoveredMarkMs: [
+            null as number | null,
+            {
+                setHoveredMark: (_, { timestampMs }) => timestampMs,
+            },
+        ],
+        focusedObservationId: [
+            null as string | null,
+            {
+                focusObservation: (_, { observationId }) => observationId,
+                retryObservation: (_, { observationId }) => observationId,
+            },
+        ],
+        followMoments: [
+            true,
+            {
+                setFollowMoments: (_, { follow }) => follow,
             },
         ],
         scannerSearch: [
@@ -459,7 +494,12 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             },
 
             // Poll while in flight and through the observe grace window; rescheduled on failure so one hiccup can't kill it.
-            loadObservationsSuccess: () => {
+            loadObservationsSuccess: ({ observations }) => {
+                const started = observations.find((o) => o.scanner_id === cache.focusScannerId)
+                if (started) {
+                    cache.focusScannerId = null
+                    actions.focusObservation(started.id)
+                }
                 openDockForExistingSummary()
                 settleSummarizeIfDone()
                 reschedulePoll()
@@ -517,6 +557,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     if (forSummary) {
                         cache.summarizeScannerId = scannerId
                     }
+                    cache.focusScannerId = scannerId
                     actions.observeSuccess()
                     afterScanStarted()
                 } catch (error) {

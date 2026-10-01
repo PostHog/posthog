@@ -8,7 +8,7 @@ use bytes::Bytes;
 use chrono::{TimeZone, Utc};
 use metrics::counter;
 use prometheus_rw_proto::prometheus::v1::{
-    metric_metadata::MetricType, MetricMetadata, WriteRequest,
+    metric_metadata::MetricType, MetricMetadata, TimeSeries, WriteRequest,
 };
 use prost::Message;
 use serde::Deserialize;
@@ -126,17 +126,24 @@ pub fn decode_write_request(
 /// unchanged. One row is emitted per sample. Returns the rows and the number of
 /// samples whose timestamp was clamped by `override_timestamp`.
 pub fn write_request_to_kafka_rows(req: WriteRequest) -> (Vec<KafkaMetricRow>, u64) {
+    write_timeseries_to_kafka_rows(req.timeseries, &req.metadata)
+}
+
+pub fn write_timeseries_to_kafka_rows(
+    timeseries: Vec<TimeSeries>,
+    metadata: &[MetricMetadata],
+) -> (Vec<KafkaMetricRow>, u64) {
     // Metric-family name -> declared (type, unit). Only populated when the
     // sender includes the optional metadata block (vmagent and many agents
     // omit it, so the name-suffix heuristic in `classify` is the primary path).
-    let metadata = build_metadata_map(&req.metadata);
+    let metadata = build_metadata_map(metadata);
 
     let mut rows = Vec::new();
     let mut timestamps_overridden = 0u64;
     let mut dropped_series = 0u64;
     let mut dropped_samples = 0u64;
 
-    for series in req.timeseries {
+    for series in timeseries {
         let mut metric_name = String::new();
         let mut service_name = String::new();
         let mut resource_attributes: HashMap<String, String> = HashMap::new();

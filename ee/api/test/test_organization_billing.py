@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import jwt
+import requests
+from parameterized import parameterized
 from requests import JSONDecodeError
 from rest_framework import status
 
@@ -285,6 +287,24 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/product_analytics/"))
 
     @patch("ee.billing.billing_manager.http_session.get")
+    def test_summary_reaches_billings_summary_and_not_a_product_named_summary(self, mock_get):
+        product = {
+            "key": "platform_and_support",
+            "name": "Platform and support",
+            "description": "SSO, permission management, and support.",
+            "subscribed": None,
+            "addons": [{"key": "teams", "name": "Teams", "description": "", "subscribed": False}],
+            "features": [
+                {"key": "sso_enforcement", "name": "Enforce SSO login", "included": True, "addon_keys": ["teams"]}
+            ],
+        }
+        mock_get.return_value = _response({"status": "ok", "customer_id": 42, "products": [product]})
+        response = self.client.get(self._url("products/summary/"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json(), {"results": [product]})
+        self.assertTrue(mock_get.call_args.args[0].endswith("/api/v2/billing/products/catalog/"))
+
+    @patch("ee.billing.billing_manager.http_session.get")
     def test_billings_refusals_come_back_as_the_matching_errors(self, mock_get):
         mock_get.return_value = _response({"detail": "No product time_travel."}, 404)
         response = self.client.get(self._url("products/time_travel/"))
@@ -292,6 +312,12 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         mock_get.return_value = _response({"detail": "This resource needs the billing:full_access entitlement."}, 403)
         response = self.client.get(self._url("usage/"))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # A failure inside billing is not the caller's to fix, so it never reads as a bad request.
+        mock_get.return_value = _response({"type": "server_error", "code": "response_invalid"}, 500)
+        response = self.client.get(self._url("features/"))
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["code"], "billing_service_error")
 
         # A proxy in front of billing answers HTML, not JSON. The refusal still maps to itself
         # rather than becoming a 500 on the way through.
@@ -439,6 +465,14 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_get.assert_not_called()
 
+    @parameterized.expand([("usage",), ("spend",)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_timeseries_timeout_tells_the_person_to_ask_for_less(self, kind, mock_get):
+        mock_get.side_effect = requests.Timeout()
+        response = self.client.get(self._url(f"{kind}/timeseries/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "usage_query_timeout")
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_timeseries_pages_by_cursor_the_way_the_api_does(self, mock_get):
         mock_get.return_value = _response({**SERIES, "next": "c2", "total_count": 7})
@@ -500,6 +534,40 @@ class TestOrganizationBillingSpendForecastAndSeries(OrganizationBillingTestMixin
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn("scoped projects", response.json()["detail"])
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    async def test_export_streams_billing_csv_with_project_names_written_in(self, mock_get):
+        upstream = MagicMock()
+        upstream.status_code = 200
+        upstream.headers = {"Content-Type": "text/csv", "Content-Disposition": 'attachment; filename="usage.csv"'}
+        upstream.iter_content.return_value = iter(
+            [b"Product,Project,Project ID,Total\n", f"events,{self.team.id},{self.team.id},10\n".encode()]
+        )
+        mock_get.return_value = upstream
+        await self.async_client.aforce_login(self.user)
+        response = await self.async_client.get(
+            self._url(
+                "usage/export/?start_date=2026-09-01&end_date=2026-09-14&breakdowns=%5B%22type%22%2C%22team%22%5D"
+            )
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, getattr(response, "content", b"")[:200])
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="usage.csv"')
+        body = b"".join([chunk async for chunk in cast(Any, response).streaming_content])
+        self.assertEqual(
+            body.decode(), f"Product,Project,Project ID,Total\nevents,{self.team.name},{self.team.id},10\n"
+        )
+        sent = mock_get.call_args
+        self.assertTrue(sent.args[0].endswith("/api/v2/billing/usage/export/"), sent.args[0])
+        self.assertTrue(sent.kwargs["stream"])
+        self.assertNotIn("teams_map", sent.kwargs["params"])
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_member_without_the_read_flag_is_refused_the_export_before_billing_is_called(self, mock_get):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.get(self._url("spend/export/?start_date=2026-09-01&end_date=2026-09-14"))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get.assert_not_called()
 
     @patch("ee.billing.billing_manager.http_session.get")
     def test_member_series_are_clipped_to_the_teams_they_can_see(self, mock_get):

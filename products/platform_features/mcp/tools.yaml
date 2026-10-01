@@ -315,9 +315,8 @@ tools:
         title: Create a comment or reply
         description: >
             Create a comment on an accessible resource, or reply by passing `source_comment`. For a canvas use scope
-            `desktop_canvas`, the canvas id as `item_id`, and item_context.taskId from the canvas's
-            `discussion_task_id`. Canvas visibility is enforced: public-channel canvases and the authenticated user's
-            personal-channel canvases are accessible.
+            `canvas` and the canvas id as `item_id`. A task id in item_context.taskId is optional. Canvas visibility is
+            enforced: public-channel canvases and the authenticated user's personal-channel canvases are accessible.
     comments-destroy:
         operation: comments_destroy
         enabled: false
@@ -515,6 +514,9 @@ tools:
         title: Get a specific role.
         description: |
             Get details of a specific role including its name, creation date, and creator.
+        param_overrides:
+            id:
+                description: Required. The role id from roles-list.
     role-members-list:
         operation: roles_role_memberships_list
         enabled: true
@@ -527,6 +529,9 @@ tools:
         title: List members of a role.
         description: |
             List all members assigned to a specific role. Shows who has which role in the organization.
+        param_overrides:
+            role_id:
+                description: Required. The role id from roles-list.
     role-membership-get:
         operation: roles_role_memberships_retrieve
         enabled: false

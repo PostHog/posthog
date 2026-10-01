@@ -27,7 +27,9 @@ function qid(writer: NinePWriter, node: TerminalNode): NinePWriter {
 
 export class NinePServer {
     private fids = new Map<number, Fid>()
-    private writers = new Set<string | number>()
+    private get writers(): Set<string | number> {
+        return this.filesystem.writers
+    }
     private requests = new Map<number, AbortController>()
     private queue: Promise<void> = Promise.resolve()
     private messageSize = 256 * 1024
@@ -212,6 +214,7 @@ export class NinePServer {
         if (node.parent === parent && node.name === name) {
             return
         }
+        await parent.loadChildren?.()
         this.validateDestination(parent, name)
         for (let ancestor: TerminalNode | undefined = parent; ancestor; ancestor = ancestor.parent) {
             if (ancestor === node) {
@@ -234,6 +237,7 @@ export class NinePServer {
         if (!node.remove) {
             throw new FilesystemError(30)
         }
+        await node.loadChildren?.()
         if (node.children?.size) {
             throw new FilesystemError(39)
         }
@@ -271,7 +275,15 @@ export class NinePServer {
                 const walked: TerminalNode[] = []
                 for (let i = 0; i < count; i++) {
                     const name = reader.string()
-                    const next = name === '..' ? (node.parent ?? node) : name === '.' ? node : node.children?.get(name)
+                    if (name !== '.' && name !== '..') {
+                        await node.loadChildren?.()
+                    }
+                    const next =
+                        name === '..'
+                            ? (node.parent ?? node)
+                            : name === '.'
+                              ? node
+                              : (node.children?.get(name) ?? node.lookupChild?.(name))
                     if (!next) {
                         if (!walked.length) {
                             throw new FilesystemError(2)
@@ -294,11 +306,29 @@ export class NinePServer {
             case 72: {
                 const parent = this.fid(reader.number(4)).node
                 const name = reader.string()
+                await parent.loadChildren?.()
                 this.validateDestination(parent, name)
                 if (!parent.mkdir) {
                     throw new FilesystemError(30)
                 }
                 return qid(result, await parent.mkdir(name))
+            }
+            case 14: {
+                const id = reader.number(4)
+                const parent = this.fid(id).node
+                const name = reader.string()
+                const flags = reader.number(4)
+                reader.number(4)
+                reader.number(4)
+                await parent.loadChildren?.()
+                this.validateDestination(parent, name)
+                if (!parent.create) {
+                    throw new FilesystemError(30)
+                }
+                const fid = { node: await parent.create(name, signal) }
+                await this.open(fid, flags, signal)
+                this.fids.set(id, fid)
+                return qid(result, fid.node).number(this.messageSize - 24, 4)
             }
             case 76: {
                 const parent = this.fid(reader.number(4)).node
@@ -310,6 +340,7 @@ export class NinePServer {
                 if (!parent.children) {
                     throw new FilesystemError(20)
                 }
+                await parent.loadChildren?.()
                 const node = parent.children.get(name)
                 if (!node) {
                     throw new FilesystemError(2)
@@ -338,6 +369,7 @@ export class NinePServer {
             }
             case 74: {
                 const source = this.fid(reader.number(4)).node
+                await source.loadChildren?.()
                 const node = source.children?.get(reader.string())
                 const parent = this.fid(reader.number(4)).node
                 const name = reader.string()
@@ -376,6 +408,7 @@ export class NinePServer {
                 if (!node.children) {
                     throw new FilesystemError(20)
                 }
+                await node.loadChildren?.()
                 // An offset indexes this list, so one listing holds its snapshot across pages. A
                 // removal between pages would otherwise shift the rest and drop an entry.
                 const entries =

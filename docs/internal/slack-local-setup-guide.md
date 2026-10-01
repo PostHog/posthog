@@ -307,7 +307,22 @@ Tokens from the development app cannot be transferred to the production app.
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in
   our run, but they're there if you get stuck.
 
+### Channel search cache
+
+Channel name search uses the cached channel list.
+If name search does not find a channel, paste its ID to look it up directly in Slack.
+A successful ID lookup also adds the channel to an existing search cache with the same access scope.
+Concurrent ID lookups keep both channels in the cache.
+The update keeps the cache refresh time and expiry.
+It does not load other missing channels or create a channel list from a single lookup.
+
 ## Troubleshooting
+
+### Channel selection
+
+Paste a Slack channel ID into the channel picker to select that channel.
+The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
+Click the selected channel in the list to clear the search text.
 
 The walls we actually hit and fixed:
 
