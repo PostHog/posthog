@@ -1,8 +1,8 @@
 import { Host, Image as SymbolImage } from "@expo/ui/swift-ui";
 import { getReasoningEffortOptions } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -75,6 +75,8 @@ export function Composer({
   const dictation = useDictation((heard) =>
     setText((current) => withSpeech(current, heard)),
   );
+  // Drawer screens stay mounted when another route gets focus, so stop the microphone on blur.
+  useFocusEffect(useCallback(() => dictation.cancel, [dictation.cancel]));
   const { model, adapter, reasoning } = useComposer();
   const effort = getReasoningEffortOptions(adapter, model)?.find(
     (option) => option.value === reasoning,
