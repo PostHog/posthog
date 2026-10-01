@@ -118,19 +118,24 @@ class FirecrawlPacer:
     def _wait_for_admission(self, cost: int) -> None:
         limiter = get_outbound_rate_limiter()
         key = firecrawl_account_key()
+        pace = limiter.pace_seconds(key, priority=Priority.BATCH)
+        interval = limiter.admission_interval_seconds(key, priority=Priority.BATCH) / PACED_BUDGET_FRACTION
+        # Each worker reserves its slot under the lock and sleeps outside it, so a slow limiter
+        # call or one worker's wait does not hold up the other workers.
         with self._lock:
-            # pace_seconds stays zero until half of the share is spent, so the interval is what
-            # keeps a long run at a steady rate from its first call.
-            wait = max(limiter.pace_seconds(key, priority=Priority.BATCH), self._next_admission_at - time.monotonic())
+            now = time.monotonic()
+            # pace_seconds stays zero until half of the share is spent, so the reserved interval is
+            # what keeps a long run at a steady rate from its first call.
+            start = max(now + pace, self._next_admission_at)
+            wait = start - now
             if wait > MAX_PACED_WAIT_SECONDS:
                 # A wait this long means the window is spent. Failing the call lets the batch
                 # circuit breaker stop the run and report it, instead of stalling every worker
                 # until the job's runtime limit kills the run.
                 raise FirecrawlEgressBudgetExhausted(f"Firecrawl budget needs a {wait:.0f}s wait; not waiting")
-            if wait > 0:
-                time.sleep(wait)
-            interval = limiter.admission_interval_seconds(key, priority=Priority.BATCH) / PACED_BUDGET_FRACTION
-            self._next_admission_at = time.monotonic() + cost * interval
+            self._next_admission_at = start + cost * interval
+        if wait > 0:
+            time.sleep(wait)
 
     def call[T](self, call: Callable[[], T], *, cost: int) -> T:
         attempt = 1
