@@ -43,6 +43,7 @@ Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_
 
 System One-compatible models are available under the existing LLM judge option.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
+Both use the project's UUID as its group key; the numeric project ID is a group property.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.

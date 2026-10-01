@@ -68,7 +68,10 @@ def test_system_one_connections_require_flag_and_reserve_posthog_gateway_for_int
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[str(team.organization_id)] if internal else []),
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
+        patch(
+            "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
+            side_effect=lambda *args, groups, **kwargs: flag if groups["project"] == str(team.uuid) else False,
+        ),
     ):
         teams.return_value.get.return_value = team
         assert system_one_evaluations_enabled(team.id, base_url=base_url) is enabled
