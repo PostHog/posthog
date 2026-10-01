@@ -86,6 +86,8 @@ pub async fn handle_request(
     metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
         .record(payload.len() as f64);
 
+    context.verify_internal_producer(state.capture_internal_signing_secret.as_deref(), &payload);
+
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
         let err = v1::Error::RequestParsingError(e.to_string());
         log_stat_error!(err, &context);

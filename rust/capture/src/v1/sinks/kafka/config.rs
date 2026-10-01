@@ -115,6 +115,9 @@ pub struct Config {
     /// setup from the deployment-level `CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC`; unset
     /// means the pipeline never produces `Destination::AiEventsOverflow`.
     pub topic_ai_overflow: Option<String>,
+
+    /// Injected from `CAPTURE_INTERNAL_EVENTS_TOPIC`. Unset sends verified internal events to `topic_main`.
+    pub topic_internal: Option<String>,
 }
 
 const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
@@ -171,6 +174,9 @@ impl Config {
             Destination::ClientIngestionWarning => Some(&self.topic_client_ingestion_warning),
             Destination::AiEvents => Some(&self.topic_ai),
             Destination::AiEventsOverflow => self.topic_ai_overflow.as_deref(),
+            Destination::AnalyticsInternal => {
+                Some(self.topic_internal.as_deref().unwrap_or(&self.topic_main))
+            }
             Destination::Custom(t) => Some(t.as_str()),
             Destination::Drop => None,
         }
@@ -395,6 +401,7 @@ mod tests {
     #[case(Destination::ExceptionErrorTracking, Some("error_tracking_events"))]
     #[case(Destination::HeatmapMain, Some("heatmaps_ingestion"))]
     #[case(Destination::ClientIngestionWarning, Some("events_plugin_ingestion"))]
+    #[case(Destination::AnalyticsInternal, Some("events_main"))]
     #[case(Destination::Drop, None)]
     fn topic_for_resolves_destination(#[case] dest: Destination, #[case] expected: Option<&str>) {
         let cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
@@ -422,6 +429,16 @@ mod tests {
         assert_eq!(
             cfg.topic_for(&Destination::AiEventsOverflow),
             Some("ai_events_overflow")
+        );
+    }
+
+    #[test]
+    fn topic_internal_present_resolves_destination() {
+        let mut cfg = Config::init_from_hashmap(&required_kafka_env()).unwrap();
+        cfg.topic_internal = Some("events_internal".to_string());
+        assert_eq!(
+            cfg.topic_for(&Destination::AnalyticsInternal),
+            Some("events_internal")
         );
     }
 

@@ -120,6 +120,7 @@ pub struct State {
     pub ai_events_overflow_enabled: bool,
     pub capture_v1_scatter_gather_min_batch: usize,
     pub ai_gateway_signing_secret: Option<String>,
+    pub capture_internal_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
     /// producer behind a per-(token, type) throttle). `None` when disabled —
     /// emit points skip on `is_none()`, same optionality pattern as
@@ -201,6 +202,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
+    capture_internal_signing_secret: Option<String>,
     ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -233,6 +235,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
+        capture_internal_signing_secret,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,

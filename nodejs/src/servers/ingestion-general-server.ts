@@ -5,6 +5,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
+    KAFKA_EVENTS_PLUGIN_INGESTION_INTERNAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from '~/common/config/kafka-topics'
 import {
@@ -36,6 +37,7 @@ import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from '~/ingestion/common/outputs/producers'
+import { IngestionLane } from '~/ingestion/config'
 import { createAiConsumer } from '~/ingestion/pipelines/ai'
 import { createOutputsRegistry as createAiOutputsRegistry } from '~/ingestion/pipelines/ai/outputs/registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/analytics/outputs/registry'
@@ -353,10 +355,15 @@ export class IngestionGeneralServer implements NodeServer {
 
         if (isCombinedMode) {
             // Local dev / hobby: run multiple consumers for all ingestion topics in one process
-            const consumersOptions = [
+            const consumersOptions: { topic: string; group_id: string; lane?: IngestionLane }[] = [
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION, group_id: 'clickhouse-ingestion' },
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL, group_id: 'clickhouse-ingestion-historical' },
                 { topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, group_id: 'clickhouse-ingestion-overflow' },
+                {
+                    topic: KAFKA_EVENTS_PLUGIN_INGESTION_INTERNAL,
+                    group_id: 'clickhouse-ingestion-internal',
+                    lane: 'internal',
+                },
             ]
 
             for (const consumerOption of consumersOptions) {
@@ -364,6 +371,7 @@ export class IngestionGeneralServer implements NodeServer {
                     const consumer = new IngestionConsumer(this.config, ingestionDeps, {
                         INGESTION_CONSUMER_CONSUME_TOPIC: consumerOption.topic,
                         INGESTION_CONSUMER_GROUP_ID: consumerOption.group_id,
+                        INGESTION_LANE: consumerOption.lane,
                     })
                     await consumer.start()
                     return consumer.service

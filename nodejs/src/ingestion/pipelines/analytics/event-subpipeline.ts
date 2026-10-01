@@ -76,7 +76,7 @@ export interface EventSubpipelineConfig {
     >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
-    hogTransformer: HogTransformer
+    hogTransformer: HogTransformer | null
     topHog: TopHogWrapper
     flagEvaluationsService?: FlagEvaluationsService
 }

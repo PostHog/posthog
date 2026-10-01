@@ -1,3 +1,4 @@
+import json
 import inspect
 import threading
 from datetime import UTC, datetime
@@ -30,6 +31,7 @@ from posthog.api.capture import (
     capture_batch_internal,
     capture_internal,
     prepare_capture_internal_batch,
+    sign_internal_request,
 )
 from posthog.settings.ingestion import (
     CAPTURE_AI_INTERNAL_URL,
@@ -77,7 +79,10 @@ class InstallV1Spy:
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
             with self._lock:
-                self.calls.append({"url": url, **kwargs})
+                call = {"url": url, **kwargs}
+                if "data" in kwargs:
+                    call["json"] = json.loads(kwargs["data"])
+                self.calls.append(call)
                 resp = self._responses[min(self._call_idx, len(self._responses) - 1)]
                 self._call_idx += 1
                 return resp
@@ -105,7 +110,7 @@ def _make_event(
 
 class TestBuildV1Headers(SimpleTestCase):
     def test_all_required_headers_present(self) -> None:
-        headers = _build_v1_headers("phc_test123", attempt=1)
+        headers = _build_v1_headers("phc_test123", attempt=1, body=b"")
         assert headers["Authorization"] == "Bearer phc_test123"
         assert headers["Content-Type"] == "application/json"
         assert "posthog-capture-v1-internal" in headers["User-Agent"]
@@ -115,14 +120,14 @@ class TestBuildV1Headers(SimpleTestCase):
         assert "T" in headers["PostHog-Request-Timestamp"]
 
     def test_attempt_increments(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=3)
+        h1 = _build_v1_headers("tok", attempt=1, body=b"")
+        h2 = _build_v1_headers("tok", attempt=3, body=b"")
         assert h1["PostHog-Attempt"] == "1"
         assert h2["PostHog-Attempt"] == "3"
 
     def test_request_id_unique_per_call(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=1)
+        h1 = _build_v1_headers("tok", attempt=1, body=b"")
+        h2 = _build_v1_headers("tok", attempt=1, body=b"")
         assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
 
 
@@ -447,6 +452,46 @@ class TestCaptureBatchInternal(SimpleTestCase):
         assert headers["PostHog-Attempt"] == "1"
         assert len(headers["PostHog-Request-Id"]) == 36
         assert "T" in headers["PostHog-Request-Timestamp"]
+        assert "PostHog-Internal-Signature" not in headers
+
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", "s3cret")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_signs_request_when_secret_configured(self, mock_session_fn: MagicMock) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        capture_batch_internal(
+            events=[_make_event(event_uuid=uid)], token="phc_abc", event_source="hdr", internal_producer=True
+        )
+
+        headers = spy.calls[0]["headers"]
+        assert headers["PostHog-Internal-Signed-At"] == headers["PostHog-Request-Timestamp"]
+        assert headers["PostHog-Internal-Signature"] == sign_internal_request(
+            "phc_abc", headers["PostHog-Request-Id"], headers["PostHog-Internal-Signed-At"], spy.calls[0]["data"]
+        )
+
+    @parameterized.expand(
+        [
+            ("secret_but_not_internal_producer", "s3cret", False),
+            ("internal_producer_but_no_secret", "", True),
+        ]
+    )
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_signs_only_internal_producers_with_a_secret(
+        self, _name: str, secret: str, internal_producer: bool, mock_session_fn: MagicMock
+    ) -> None:
+        uid = str(uuid4())
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+
+        with patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", secret):
+            capture_batch_internal(
+                events=[_make_event(event_uuid=uid)],
+                token="phc_abc",
+                event_source="hdr",
+                internal_producer=internal_producer,
+            )
+
+        assert "PostHog-Internal-Signature" not in spy.calls[0]["headers"]
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_envelope_shape_on_wire(self, mock_session_fn: MagicMock) -> None:
@@ -1030,6 +1075,17 @@ class TestCaptureInternal(SimpleTestCase):
         )
         assert result.status_code == 200
 
+    @patch("posthog.api.capture.CAPTURE_INTERNAL_SIGNING_SECRET", "s3cret")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_single_event_internal_producer_is_signed(self, mock_session_fn: MagicMock) -> None:
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(body={"results": {}})])
+
+        capture_internal(
+            token="tok", event_name="observed", event_source="rv", distinct_id="u1", internal_producer=True
+        )
+
+        assert "PostHog-Internal-Signature" in spy.calls[0]["headers"]
+
 
 class TestCaptureInternalResult(SimpleTestCase):
     def test_succeeded_true(self) -> None:
@@ -1200,7 +1256,7 @@ class TestBatchChunking(SimpleTestCase):
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
             with lock:
                 pass
-            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
+            batch_uuids = [e["uuid"] for e in json.loads(kwargs["data"])["batch"]]
             if set(batch_uuids) & set(chunk1_uuids):
                 return MockResponse(body=_ok_results(*batch_uuids))
             else:
@@ -1243,7 +1299,7 @@ class TestBatchChunking(SimpleTestCase):
         chunk2_uuids = [e["event_uuid"] for e in events[200:]]
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
-            batch_uuids = [e["uuid"] for e in kwargs["json"]["batch"]]
+            batch_uuids = [e["uuid"] for e in json.loads(kwargs["data"])["batch"]]
             results: dict[str, Any] = {}
             for uid in batch_uuids:
                 if uid in chunk1_uuids:
@@ -1565,7 +1621,7 @@ class TestAiLaneRouting(SimpleTestCase):
 
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
             both_started.wait()
-            return MockResponse(body=_ok_results(*[e["uuid"] for e in kwargs["json"]["batch"]]))
+            return MockResponse(body=_ok_results(*[e["uuid"] for e in json.loads(kwargs["data"])["batch"]]))
 
         mock_session = MagicMock()
         mock_session.post.side_effect = spy_post
