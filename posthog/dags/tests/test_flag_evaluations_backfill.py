@@ -253,6 +253,26 @@ def days_before(now: datetime, days: int) -> str:
     return (now - timedelta(days=days)).date().isoformat()
 
 
+def shard_backfill(
+    config: FlagEvaluationsBackfillConfig | None = None,
+    *,
+    instance: dagster.DagsterInstance | None = None,
+    run_id: str = "backfill-run",
+) -> ShardBackfill:
+    # The cluster is a mock, so the default config turns off the parts wait, which queries it.
+    return ShardBackfill(
+        cluster=MagicMock(),
+        shard_num=1,
+        config=config or FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
+        instance=instance or dagster.DagsterInstance.ephemeral(),
+        run_id=run_id,
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "config_for, reported_rows, expected_copies",
@@ -373,17 +393,7 @@ def test_backfill_stops_when_a_blocking_run_starts_during_a_copy(
     status: dagster.DagsterRunStatus, created_before_the_check: bool, team_ids: list[int] | None, repair: str | None
 ) -> None:
     instance = dagster.DagsterInstance.ephemeral()
-    backfill = ShardBackfill(
-        cluster=MagicMock(),
-        shard_num=1,
-        config=FlagEvaluationsBackfillConfig(team_ids=team_ids),
-        instance=instance,
-        run_id="backfill-run",
-        log=MagicMock(),
-        query_tags=DagsterTags(),
-        workload=Workload.DEFAULT,
-        node_role=NodeRole.ALL,
-    )
+    backfill = shard_backfill(FlagEvaluationsBackfillConfig(team_ids=team_ids), instance=instance)
     if created_before_the_check:
         instance.create_run_for_job(job_def=deletes_job, status=status)
     check = backfill.wait_for_blocking_runs()
@@ -439,18 +449,7 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
 ) -> None:
     instance = dagster.DagsterInstance.ephemeral()
     other_run = instance.create_run_for_job(job_def=flag_evaluations_backfill_job, status=status)
-    backfill = ShardBackfill(
-        cluster=MagicMock(),
-        shard_num=1,
-        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
-        instance=instance,
-        run_id=other_run.run_id if same_run else "backfill-run",
-        log=MagicMock(),
-        query_tags=DagsterTags(),
-        workload=Workload.DEFAULT,
-        node_role=NodeRole.ALL,
-    )
-
+    backfill = shard_backfill(instance=instance, run_id=other_run.run_id if same_run else "backfill-run")
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     with (
@@ -467,35 +466,57 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     assert copy_day.called is not stops
 
 
-def test_backfill_stops_at_a_day_that_expires_during_the_run() -> None:
-    first_day, boundary_day, expired_day = date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)
-    backfill = ShardBackfill(
-        cluster=MagicMock(),
-        shard_num=1,
-        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
-        instance=dagster.DagsterInstance.ephemeral(),
-        run_id="backfill-run",
-        log=MagicMock(),
-        query_tags=DagsterTags(),
-        workload=Workload.DEFAULT,
-        node_role=NodeRole.ALL,
-    )
+# The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
+@pytest.mark.parametrize(
+    "start, step, step_day, effect",
+    [
+        pytest.param(
+            datetime(2026, 3, 10, 23, tzinfo=UTC),
+            "copy_day",
+            date(2026, 3, 9),
+            "pass_midnight",
+            id="midnight_passes_during_the_previous_copy",
+        ),
+        pytest.param(
+            datetime(2026, 3, 10, 23, tzinfo=UTC),
+            "wait_for_parts_to_merge",
+            date(2025, 12, 11),
+            "pass_midnight",
+            id="midnight_passes_during_the_waits_before_the_copy",
+        ),
+        pytest.param(
+            datetime(2026, 3, 11, 1, tzinfo=UTC),
+            "wait_for_parts_to_merge",
+            date(2025, 12, 11),
+            "fail",
+            id="day_expired_before_its_waits",
+        ),
+    ],
+)
+def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, step_day: date, effect: str) -> None:
+    days = [date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)]
 
-    with time_machine.travel(datetime(2026, 3, 10, 23, tzinfo=UTC), tick=False) as traveller:
+    with time_machine.travel(start, tick=False) as traveller:
 
-        def copy_past_midnight(day: date, *args: Any) -> int:
-            if day == first_day:
-                traveller.shift(timedelta(hours=2))
-            return 5
+        def patched(name: str) -> Callable[..., int]:
+            def run_step(day: date, *args: Any) -> int:
+                if (name, day) == (step, step_day):
+                    if effect == "fail":
+                        raise dagster.Failure(description=f"{name} failed for {day}")
+                    traveller.shift(timedelta(hours=2))
+                return 5
+
+            return run_step
 
         with (
+            patch.object(ShardBackfill, "wait_for_parts_to_merge", side_effect=patched("wait_for_parts_to_merge")),
             patch.object(ShardBackfill, "check_disk_headroom"),
             patch.object(ShardBackfill, "check_consumer_lag"),
-            patch.object(ShardBackfill, "copy_day", side_effect=copy_past_midnight) as copy_day,
+            patch.object(ShardBackfill, "copy_day", side_effect=patched("copy_day")) as copy_day,
         ):
-            totals = backfill.run([first_day, boundary_day, expired_day])
+            totals = shard_backfill().run(days)
 
-    assert [call.args[0] for call in copy_day.call_args_list] == [first_day, boundary_day]
+    assert [call.args[0] for call in copy_day.call_args_list] == days[:2]
     assert totals == ShardBackfillTotals(days=2, rows=10)
 
 

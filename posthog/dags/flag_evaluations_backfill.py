@@ -303,15 +303,15 @@ class ShardBackfill:
         total_rows = 0
         copied_days = 0
         for day in days:
+            uncopied_days = len(days) - copied_days
+            if self._reached_expired_day(day, uncopied_days=uncopied_days):
+                break
             self.wait_for_parts_to_merge(day)
             blocking_run_check = self.wait_for_blocking_runs()
             self.check_disk_headroom()
             self.check_consumer_lag()
-            if day < earliest_backfill_day(datetime.now(UTC).date()):
-                self.log.warning(
-                    f"Shard {self.shard_num}: stopping at {day}, because the TTL has already expired it. "
-                    f"{len(days) - copied_days} planned day(s) are not copied."
-                )
+            # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
+            if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
                 rows = self.copy_day(day, copy_query, settings)
@@ -323,6 +323,15 @@ class ShardBackfill:
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
         return ShardBackfillTotals(days=copied_days, rows=total_rows)
+
+    def _reached_expired_day(self, day: date, *, uncopied_days: int) -> bool:
+        if day >= earliest_backfill_day(datetime.now(UTC).date()):
+            return False
+        self.log.warning(
+            f"Shard {self.shard_num}: stopping at {day}, because the TTL has already expired it. "
+            f"{uncopied_days} planned day(s) are not copied."
+        )
+        return True
 
     def wait_for_parts_to_merge(self, day: date) -> None:
         if self.config.max_unmerged_parts <= 0:
