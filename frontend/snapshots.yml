@@ -124,18 +124,22 @@ snapshots:
         hash: v1.k794b7964.c18261f8a8a79a5e0902ddce51785b490a0989efa6795851640fc3652f196e80.YIgWf5MpUsQDOzGjlEXNDlIrEyg9GEBXU5HZn8A3GNA
     components-account-assignment-filter--unassigned-only--light:
         hash: v1.k794b7964.4144ad0cfd0b53bd92cb7360bc27c693863338b5d393d69ddd900c542bc6f382.nk0C9Ks32zxldf1ffLBSBoB2xP_PQEKlyBbBOiiNP1c
-    components-account-project-switcher--no-pending-invite--dark:
-        hash: v1.k794b7964.ddbb5d27187cb1eb9341734e0b780c762cdfbc09aae81833c970369bd7ad4f32.3HNFMfb4Lflcg3uKD1-KNl09d3leMhmfuhR2WVLjLRE
-    components-account-project-switcher--no-pending-invite--light:
-        hash: v1.k794b7964.3f8d66ba04469cdf3e92d78483c58125e84531888eedde628469fde5e9e39a08.MhOzPyXhl7CeOLA5Em19cktkdgffO_BL7CojWkngtMQ
+    components-account-org-switcher--no-pending-invite--dark:
+        hash: v1.k794b7964.4388a2607493bd36d9bc8960e2db7720df10102c5e2675bd7b5043f32519aed2.vrUvJ1500oMMFj1Gdc8hWdOaDEMfJRLhHNevwJW_ShQ
+    components-account-org-switcher--no-pending-invite--light:
+        hash: v1.k794b7964.db6c1002f011be274c4d274319f422724d8ef4b9c56f7f2f0f29ce23268b1f9b.G8SN1NyxYZSFc-HXe2Jhp1J-2szjpnPFrcuzD_UDLxw
+    components-account-org-switcher--with-pending-invite--dark:
+        hash: v1.k794b7964.7e7973392507a753037f4f094c2610038922d5f7c24f53cb34e5eb382847f834.byvdYZq4qgwYwUrcp82ijCWn4wDtvKVHr5qjj0LN3Os
+    components-account-org-switcher--with-pending-invite--light:
+        hash: v1.k794b7964.a9b3da4207480a66210bba2a464ba36ec9088faba11571c76a3836bb8ec3224e.pynJGDeHW4VhZJ_1FDVwCNbJc7rqGK17NwwSmkRqg2I
+    components-account-project-switcher--default--dark:
+        hash: v1.k794b7964.ddbb5d27187cb1eb9341734e0b780c762cdfbc09aae81833c970369bd7ad4f32.3WklDJAVVmzyrW0Qg1WBXMN0EamqUuc7HcYoGYBjMec
+    components-account-project-switcher--default--light:
+        hash: v1.k794b7964.3f8d66ba04469cdf3e92d78483c58125e84531888eedde628469fde5e9e39a08.yksh25-a4q1Q-SmXQSq_IMBe7LNW0d2waKZw_tDj0_A
     components-account-project-switcher--with-data-freshness--dark:
         hash: v1.k794b7964.33311041a0feedba12322f5c99b05b91db51c7f26793b837fce7c0666c5ef6f5.EPYhVoP42oDcDI9m3qloUEuvND0yjchkisUylND2Y-s
     components-account-project-switcher--with-data-freshness--light:
         hash: v1.k794b7964.825e1ea3745d1f526c46a4d7b365778ce2d3307933461503fca588f68916a3a9.6Bpu71WRfMaGy8N4X06ixaXTIYkj-4jg44eVXhgWkCw
-    components-account-project-switcher--with-pending-invite--dark:
-        hash: v1.k794b7964.b0c1c0b0b8d1a0c77cd873a1cc0b391924cd64ff7de46b1b4d309a50d98eca8a.ddWvJC0f1_fBpYhfDKtUrKeuZSrY5xR8ViHWVdiIfqk
-    components-account-project-switcher--with-pending-invite--light:
-        hash: v1.k794b7964.769ba5491bf515d4c18234cbb1b0965e4af8f190b5823914c8955194bb28d356.5QmxWM1jcZVZCAYm6oCJrI2XXnzoIHP19CyfFNvmiog
     components-action-step-description--step-variants--dark:
         hash: v1.k794b7964.19f9bee33652dbf2425e6df03ae732ed625840c249efc00589e0a1c0457b45d4.rVZ9Ek86XyAHV2eXwI_PDDTdDVv0QnEup4nMHmBjRKk
     components-action-step-description--step-variants--light:
