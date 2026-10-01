@@ -33,6 +33,8 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
     _aggregate_add_action_stats,
+    _parse_commit_actions,
+    _parse_log_value,
     compute_table_statistics_activity,
     compute_table_statistics_sync,
 )
@@ -136,6 +138,45 @@ class TestAggregateAddActionStats:
         assert stats["v"].max_value == expected_max
 
 
+class TestParseCommitActions:
+    @parameterized.expand([("next_line", "\u0085"), ("line_separator", "\u2028"), ("paragraph_separator", "\u2029")])
+    def test_string_stat_holding_a_unicode_line_boundary_stays_one_action(self, _name, char) -> None:
+        # Regression: splitlines() broke the commit on these characters, which a string column's
+        # min/max carries through into `stats`, so the fragment raised JSONDecodeError. delta-rs
+        # writes them raw rather than escaped, hence ensure_ascii=False here.
+        stats = json.dumps(
+            {"numRecords": 3, "minValues": {"title": f"a{char}b"}, "maxValues": {"title": "z"}}, ensure_ascii=False
+        )
+        raw = (json.dumps({"add": {"path": "part-0.parquet", "stats": stats}}, ensure_ascii=False) + "\n").encode()
+        assert char.encode() in raw
+
+        actions = _parse_commit_actions(raw)
+
+        assert len(actions) == 1
+        assert json.loads(actions[0]["add"]["stats"])["minValues"]["title"] == f"a{char}b"
+
+    def test_reads_every_action_and_keeps_stats_floats_exact(self) -> None:
+        raw = b'{"protocol": {"minReaderVersion": 1}}\n{"add": {"path": "part-0.parquet", "size": 0.1}}\n'
+
+        actions = _parse_commit_actions(raw)
+
+        assert [next(iter(action)) for action in actions] == ["protocol", "add"]
+        assert actions[1]["add"]["size"] == Decimal("0.1")
+
+
+class TestParseLogValue:
+    def test_decimal_using_its_full_precision_is_not_mistaken_for_unparseable(self) -> None:
+        # Regression: quantize() used the default decimal context (28 significant digits), which is
+        # narrower than Delta allows (up to 38). A high-precision decimal(38,32) value legitimately
+        # using all 38 digits blew that context and raised _UnparseableValue even though the value
+        # fits its column's type fine.
+        value = Decimal("123456.12345678901234567890123456789012")
+        assert _parse_log_value("decimal(38,32)", value) == value
+
+    def test_decimal_rounds_to_the_columns_scale(self) -> None:
+        assert _parse_log_value("decimal(10,2)", Decimal("1.505")) == Decimal("1.50")
+
+
 @pytest.mark.django_db
 class TestComputeTableStatisticsSync:
     def _team(self, *, ai_approved: bool = False) -> Team:
@@ -166,7 +207,8 @@ class TestComputeTableStatisticsSync:
         delta_table.version.return_value = version
         delta_table.get_add_actions.return_value = add_actions
         delta_table.table_uri = "s3://bucket/data/stripe_charge/"
-        fields = [{"name": name, "type": kind} for name, kind in (delta_types or {"amount": "long"}).items()]
+        types = {"amount": "long"} if delta_types is None else delta_types
+        fields = [{"name": name, "type": kind} for name, kind in types.items()]
         delta_table.schema.return_value.to_json.return_value = json.dumps({"type": "struct", "fields": fields})
         helper = MagicMock()
         helper.get_delta_table = AsyncMock(return_value=delta_table)
@@ -236,7 +278,6 @@ class TestComputeTableStatisticsSync:
         }
         helper = self._mock_delta(pa.table({"num_records": [999]}), version=9)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", side_effect=lambda _uri, _options, version: commits[version]),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -265,7 +306,6 @@ class TestComputeTableStatisticsSync:
 
         # First fold: version 7 -> 8.
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(10, amount=(1, 60, 1))]),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=8)),
         ):
@@ -285,7 +325,6 @@ class TestComputeTableStatisticsSync:
         # Second fold: version 8 -> 9. A fold that reset full_scan_at would make the row look like
         # it was freshly full-scanned; it must not.
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(5, amount=(3, 7, 0))]),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(pa.table({"num_records": [999]}), version=9)),
         ):
@@ -302,7 +341,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [999], "null_count.amount": [0], "min.amount": [0], "max.amount": [100]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(2, amount=(0, 100, 0))]) as mock_read,
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=10)),
         ):
@@ -329,7 +367,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=8)),
         ):
@@ -357,6 +394,26 @@ class TestComputeTableStatisticsSync:
                 "2023-12-31 23:00:00+00:00",
                 "2024-06-01 12:30:00.000123+00:00",
             ),
+            (
+                "timestamp_logged_without_an_offset",
+                "timestamp",
+                "2024-01-01 00:00:00+00:00",
+                "2024-02-01 00:00:00+00:00",
+                "2023-12-31T23:00:00",
+                "2024-06-01T12:30:00.000123",
+                "2023-12-31 23:00:00+00:00",
+                "2024-06-01 12:30:00.000123+00:00",
+            ),
+            (
+                "timestamp_ntz_logged_with_an_offset",
+                "timestamp_ntz",
+                "2024-01-01 00:00:00",
+                "2024-02-01 00:00:00",
+                "2023-12-31T23:00:00Z",
+                "2024-06-01T12:30:00Z",
+                "2023-12-31 23:00:00",
+                "2024-06-01 12:30:00",
+            ),
             ("decimal", "decimal(10,2)", "1.50", "9.99", 0.5, 12.5, "0.50", "12.50"),
         ]
     )
@@ -374,13 +431,14 @@ class TestComputeTableStatisticsSync:
         # The stored bound is `str()` of the typed value the Add-action scan yields; the commit log
         # carries the same value in JSON form. A fold that compared the two as text, or stored the
         # log's spelling, would drift from what the next full scan writes.
+        # A timestamp is the one type whose two sides can disagree on spelling the offset, which
+        # made the fold compare a naive datetime with an aware one and abandon itself.
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
         self._stored(team, table, min_value=stored_min, max_value=stored_max)
         helper = self._mock_delta(pa.table({"num_records": [999]}), version=8, delta_types={"amount": delta_type})
         commit = [self._add(1, amount=(log_min, log_max, 0))]
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -441,7 +499,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=table_version, delta_types=columns)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
@@ -468,7 +525,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=8, delta_types={"amount": "long"})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
             patch.object(comp, "capture_exception") as mock_capture,
             patch(DELTA_HELPER_PATH, return_value=helper),
@@ -481,6 +537,34 @@ class TestComputeTableStatisticsSync:
         mock_capture.assert_called_once()
         reported = str(mock_capture.call_args[0][0])
         assert "not-a-number" not in reported
+
+    @parameterized.expand(
+        [
+            ("turned_nested", {"amount": {"type": "struct", "fields": []}}),
+            ("left_the_schema", {}),
+        ]
+    )
+    def test_a_column_whose_stored_bounds_lost_their_type_falls_back(self, _name: str, delta_types: dict) -> None:
+        # Schema evolution can turn a column the last full scan recorded bounds for into a nested
+        # type, or drop it from the Delta schema. The fold cannot keep those bounds current, so it
+        # has to fall back to the full scan rather than raise.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        self._stored(team, table, min_value="2", max_value="50")
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=8, delta_types=delta_types)
+        with (
+            patch.object(comp, "_read_commit_actions", return_value=[self._add(1, amount=(1, 1, 0))]) as mock_read,
+            patch.object(comp, "capture_exception") as mock_capture,
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["basis"] == "full"
+        assert not mock_read.called
+        mock_capture.assert_not_called()
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert stat.row_count == 99
 
     def test_a_nested_column_neither_blocks_nor_gains_bounds_from_the_fold(self) -> None:
         team = self._team()
@@ -496,7 +580,6 @@ class TestComputeTableStatisticsSync:
             delta_types={"amount": "long", "payload": {"type": "struct", "fields": []}},
         )
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch.object(comp, "_read_commit_actions", return_value=commit),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
@@ -510,15 +593,6 @@ class TestComputeTableStatisticsSync:
         amount = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
         assert amount.max_value == "60"
 
-    def test_skipped_when_flag_disabled(self) -> None:
-        team = self._team()
-        self._schema_table_job(team)
-        schema = ExternalDataSchema.objects.get(team=team)
-        with patch.object(comp, "statistics_enabled", return_value=False):
-            result = compute_table_statistics_sync(team.id, schema.id)
-        assert result == {"status": "skipped", "reason": "flag_disabled"}
-        assert WarehouseColumnStatistics.objects.for_team(team.id).count() == 0
-
     def test_persists_per_column_statistics(self) -> None:
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
@@ -526,7 +600,6 @@ class TestComputeTableStatisticsSync:
             {"num_records": [10, 30], "null_count.amount": [1, 3], "min.amount": [5, 2], "max.amount": [9, 50]}
         )
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=12)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -550,7 +623,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         add_actions = pa.table({"num_records": [10], "null_count.amount": [1], "min.amount": [5], "max.amount": [9]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
             patch.object(
                 comp, "_upsert_statistics", side_effect=[OperationalError("server conn crashed?"), None]
@@ -580,7 +652,6 @@ class TestComputeTableStatisticsSync:
 
         with (
             patch.object(comp.Team.objects, "select_related", side_effect=select_related_losing_first_deadlock),
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
             patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"),
             patch(
@@ -606,7 +677,6 @@ class TestComputeTableStatisticsSync:
             return self._mock_delta(add_actions)
 
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, side_effect=_capture_helper),
         ):
             compute_table_statistics_sync(team.id, schema.id)
@@ -622,7 +692,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -642,7 +711,6 @@ class TestComputeTableStatisticsSync:
         )
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions, version=5)),
         ):
             compute_table_statistics_sync(team.id, schema.id)
@@ -681,7 +749,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=table_version)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -739,7 +806,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -775,7 +841,6 @@ class TestComputeTableStatisticsSync:
         add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -817,7 +882,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(add_actions, version=7)
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -833,7 +897,6 @@ class TestComputeTableStatisticsSync:
         schema, _, _ = self._schema_table_job(team, columns={})
         helper = self._mock_delta(pa.table({"num_records": [1]}))
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -849,7 +912,6 @@ class TestComputeTableStatisticsSync:
         )
         helper = self._mock_delta(pa.table({"num_records": [1]}))
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=helper) as mock_helper,
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
@@ -878,8 +940,7 @@ class TestComputeTableStatisticsSync:
             source_id="src", connection_id="conn", team=team, source_type="Stripe"
         )
         schema = ExternalDataSchema.objects.create(name="Charge", team=team, source=source, table=None)
-        with patch.object(comp, "statistics_enabled", return_value=True):
-            result = compute_table_statistics_sync(team.id, schema.id)
+        result = compute_table_statistics_sync(team.id, schema.id)
         assert result == {"status": "skipped", "reason": "no_table"}
 
     def test_skipped_when_no_files(self) -> None:
@@ -887,7 +948,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(team)
         empty = pa.table({"num_records": pa.array([], type=pa.int64())})
         with (
-            patch.object(comp, "statistics_enabled", return_value=True),
             patch(DELTA_HELPER_PATH, return_value=self._mock_delta(empty)),
         ):
             result = compute_table_statistics_sync(team.id, schema.id)

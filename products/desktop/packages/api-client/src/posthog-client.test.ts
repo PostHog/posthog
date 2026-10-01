@@ -2669,6 +2669,48 @@ describe("PostHogAPIClient", () => {
         task_id: "t1",
         created_by: null,
       },
+      {
+        id: "a15",
+        type: "work_claim",
+        content: { display_name: "Ada" },
+        created_at: "2026-06-01T00:00:14Z",
+      },
+      {
+        id: "a16",
+        type: "work_release",
+        content: { reason: "taken_over" },
+        created_at: "2026-06-01T00:00:15Z",
+      },
+      {
+        id: "a17",
+        type: "ranking_score",
+        content: {
+          scored_at: "2026-06-01T00:00:16Z",
+          manifest_version: "12",
+          served_key: "report_embeddings@2026-05-31",
+          results: {
+            "signal_counts@2026-05-31": {
+              status: "skipped",
+              roles: ["challenger"],
+              skip_reason: "missing report vector",
+              scores: {},
+            },
+            "report_embeddings@2026-05-31": {
+              status: "scored",
+              roles: ["served"],
+              scores: { pr_merged: 0.52, action: 0.78, refund: 0.04 },
+              metadata: {
+                heads: [
+                  { head: "action", readable: true },
+                  { head: "pr_merged", readable: true },
+                  { head: "refund", readable: false },
+                ],
+              },
+            },
+          },
+        },
+        created_at: "2026-06-01T00:00:16Z",
+      },
     ];
 
     it("normalizes every backend artefact type without dropping rows", async () => {
@@ -2685,6 +2727,30 @@ describe("PostHogAPIClient", () => {
       expect(results.map((a) => a.id)).toEqual(ROWS.map((r) => r.id));
       expect(results.map((a) => a.type)).toEqual(ROWS.map((r) => r.type));
       expect(results.every((a) => !a.degraded)).toBe(true);
+      expect(results.at(-1)?.content).toEqual({
+        scored_at: "2026-06-01T00:00:16Z",
+        manifest_version: "12",
+        served: {
+          key: "report_embeddings@2026-05-31",
+          roles: ["served"],
+          status: "scored",
+          skip_reason: null,
+          heads: [
+            { name: "action", probability: 0.78, readable: true },
+            { name: "pr_merged", probability: 0.52, readable: true },
+            { name: "refund", probability: 0.04, readable: false },
+          ],
+        },
+        challengers: [
+          {
+            key: "signal_counts@2026-05-31",
+            roles: ["challenger"],
+            status: "skipped",
+            skip_reason: "missing report vector",
+            heads: [],
+          },
+        ],
+      });
     });
 
     it("keeps rows whose content does not match the type's shape as degraded previews", async () => {
@@ -2711,6 +2777,13 @@ describe("PostHogAPIClient", () => {
           content: {},
           created_at: "2026-06-01T00:00:02Z",
         },
+        // served model missing from the results
+        {
+          id: "bad4",
+          type: "ranking_score",
+          content: { served_key: "gone@1", results: {} },
+          created_at: "2026-06-01T00:00:03Z",
+        },
       ];
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
@@ -2720,7 +2793,12 @@ describe("PostHogAPIClient", () => {
 
       const { results } = await client.getSignalReportArtefacts("r1");
 
-      expect(results.map((a) => a.id)).toEqual(["bad1", "bad2", "bad3"]);
+      expect(results.map((a) => a.id)).toEqual([
+        "bad1",
+        "bad2",
+        "bad3",
+        "bad4",
+      ]);
       expect(results.every((a) => a.degraded)).toBe(true);
       expect(results[0].type).toBe("commit");
       expect((results[1].content as { content: string }).content).toBe(
@@ -3486,4 +3564,56 @@ describe("manual scout run refusals", () => {
       expect(error).toMatchObject({ status });
     },
   );
+});
+
+describe("report read sync", () => {
+  it("batches simultaneous report reads and resolves duplicate callers", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ states: { first: true, second: false } }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    expect(
+      await Promise.all([
+        client.getReportReadState("first"),
+        client.getReportReadState("second"),
+        client.getReportReadState("first"),
+      ]),
+    ).toEqual([true, false, true]);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+      report_ids: ["first", "second"],
+    });
+  });
+
+  it("rejects every waiting caller when read sync fails", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response("Unavailable", { status: 503 }));
+    const client = new PostHogAPIClient(
+      "https://example.com",
+      async () => "test-token",
+      async () => "test-token",
+      1,
+      { fetch },
+    );
+    const outcomes = await Promise.allSettled([
+      client.getReportReadState("first"),
+      client.getReportReadState("second"),
+    ]);
+    expect(outcomes.map((outcome) => outcome.status)).toEqual([
+      "rejected",
+      "rejected",
+    ]);
+  });
 });

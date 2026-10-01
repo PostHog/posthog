@@ -52,6 +52,7 @@ import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
+import { RecordingEventMatchScopeSelect } from 'scenes/session-recordings/filters/RecordingEventMatchScopeSelect'
 import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
 import { urls } from 'scenes/urls'
 
@@ -150,6 +151,7 @@ function HideRecordingsMenu(): JSX.Element {
 
     return (
         <SettingsMenu
+            data-attr="filters-hide-viewed-menu"
             highlightWhenActive={false}
             items={items}
             icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
@@ -282,21 +284,25 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
+                    data-attr="filters-timestamp-format-menu"
                     highlightWhenActive={false}
                     items={[
                         {
                             label: 'UTC',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                            'data-attr': 'filters-timestamp-utc',
                             active: playlistTimestampFormat === TimestampFormat.UTC,
                         },
                         {
                             label: 'Device',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                            'data-attr': 'filters-timestamp-device',
                             active: playlistTimestampFormat === TimestampFormat.Device,
                         },
                         {
                             label: 'Relative',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                            'data-attr': 'filters-timestamp-relative',
                             active: playlistTimestampFormat === TimestampFormat.Relative,
                         },
                     ]}
@@ -386,7 +392,14 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
                 size="small"
                 tabs={tabs}
                 barClassName="sticky top-0 z-10 bg-primary"
-                rightSlot={<LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />}
+                rightSlot={
+                    <LemonButton
+                        data-attr="filters-panel-collapse"
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => setIsFiltersExpanded(false)}
+                    />
+                }
             />
         </div>
     )
@@ -518,10 +531,16 @@ const SaveFiltersModal = ({
                     }}
                 />
                 <div className="flex justify-end gap-2 mt-4">
-                    <LemonButton type="secondary" onClick={closeSaveFiltersModal} tooltip="Close">
+                    <LemonButton
+                        data-attr="filters-save-modal-close"
+                        type="secondary"
+                        onClick={closeSaveFiltersModal}
+                        tooltip="Close"
+                    >
                         Close
                     </LemonButton>
                     <LemonButton
+                        data-attr="filters-save-modal-save"
                         type="primary"
                         size="small"
                         disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
@@ -578,8 +597,20 @@ function SavedFilterNameEditor({
                     fullWidth
                     onPressEnter={() => void doRename()}
                 />
-                <LemonButton size="xsmall" icon={<IconCheck />} onClick={() => void doRename()} tooltip="Save name" />
-                <LemonButton size="xsmall" icon={<IconX />} onClick={() => setIsRenaming(false)} tooltip="Cancel" />
+                <LemonButton
+                    data-attr="filters-saved-filter-rename-save"
+                    size="xsmall"
+                    icon={<IconCheck />}
+                    onClick={() => void doRename()}
+                    tooltip="Save name"
+                />
+                <LemonButton
+                    data-attr="filters-saved-filter-rename-cancel"
+                    size="xsmall"
+                    icon={<IconX />}
+                    onClick={() => setIsRenaming(false)}
+                    tooltip="Cancel"
+                />
             </div>
         )
     }
@@ -599,6 +630,7 @@ function SavedFilterNameEditor({
                 </span>
             </LemonTag>
             <LemonButton
+                data-attr="filters-saved-filter-rename"
                 size="xsmall"
                 icon={<IconPencil />}
                 onClick={() => {
@@ -828,6 +860,7 @@ export const ReplayFiltersTab = ({
 
     const resetButton = (
         <LemonButton
+            data-attr="filters-reset-all"
             type="tertiary"
             size="small"
             onClick={handleResetFilters}
@@ -891,40 +924,43 @@ export const ReplayFiltersTab = ({
                     )}
                 </div>
             )}
-            <div className="flex items-center py-2 justify-between px-2">
-                <AndOrFilterSelect
-                    // Reflect the effective operand, not just the outer group: legacy saved filters can
-                    // carry the match-any on the inner group while the outer stays AND. Toggling syncs
-                    // both below, so interacting normalizes the structure.
-                    value={deriveOperand(filters.filter_group)}
-                    onChange={(type) => {
-                        // Clicking the already-effective operand is a no-op — don't rewrite the
-                        // group or mark the saved filter dirty just because the displayed value
-                        // came from a legacy inner group.
-                        if (type === deriveOperand(filters.filter_group)) {
-                            return
-                        }
+            <div className="flex flex-wrap items-center py-2 justify-between px-2 gap-y-2">
+                <div className="flex flex-wrap items-center gap-y-2">
+                    <AndOrFilterSelect
+                        // Reflect the effective operand, not just the outer group: legacy saved filters can
+                        // carry the match-any on the inner group while the outer stays AND. Toggling syncs
+                        // both below, so interacting normalizes the structure.
+                        value={deriveOperand(filters.filter_group)}
+                        onChange={(type) => {
+                            // Clicking the already-effective operand is a no-op — don't rewrite the
+                            // group or mark the saved filter dirty just because the displayed value
+                            // came from a legacy inner group.
+                            if (type === deriveOperand(filters.filter_group)) {
+                                return
+                            }
 
-                        let values = filters.filter_group.values
+                            let values = filters.filter_group.values
 
-                        // set the type on the nested child when only using a single filter group
-                        const hasSingleGroup = values.length === 1
-                        if (hasSingleGroup) {
-                            const group = values[0] as UniversalFiltersGroup
-                            values = [{ ...group, type }]
-                        }
+                            // set the type on the nested child when only using a single filter group
+                            const hasSingleGroup = values.length === 1
+                            if (hasSingleGroup) {
+                                const group = values[0] as UniversalFiltersGroup
+                                values = [{ ...group, type }]
+                            }
 
-                        setFilters({
-                            filter_group: {
-                                type: type,
-                                values: values,
-                            },
-                        })
-                    }}
-                    topLevelFilter={true}
-                    suffix={['filter', 'filters']}
-                    size="small"
-                />
+                            setFilters({
+                                filter_group: {
+                                    type: type,
+                                    values: values,
+                                },
+                            })
+                        }}
+                        topLevelFilter={true}
+                        suffix={['filter', 'filters']}
+                        size="small"
+                    />
+                    <RecordingEventMatchScopeSelect filters={filters} setFilters={setFilters} />
+                </div>
                 <div>
                     {compactActions ? (
                         resetButton
@@ -1082,7 +1118,12 @@ export const ReplayFiltersTab = ({
                                 </>
                             )}
                             {resetButton}
-                            <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                            <LemonButton
+                                data-attr="filters-save-modal-open"
+                                type="primary"
+                                size="small"
+                                onClick={() => setIsSaveFiltersModalOpen(true)}
+                            >
                                 Save as new filter
                             </LemonButton>
                         </div>

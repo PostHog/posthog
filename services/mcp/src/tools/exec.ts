@@ -1,6 +1,9 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
+import { getToolInputProperties } from '@posthog/mcp-analytics'
+
+import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { isEmptyToolResult } from '@/lib/discovery-hints'
@@ -14,8 +17,10 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { formatResponse } from '@/lib/response'
+import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
@@ -465,7 +470,7 @@ const TOOL_TARGETING_VERBS = new Set(['info', 'schema', 'call'])
  * reason (it echoes the caller's tool name); the rejection reason on the event says
  * which of the two failed, so the sentinel loses only the misspelling itself.
  */
-const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
+export const UNRECOGNIZED_EXEC_TOKEN = 'unrecognized'
 
 export interface ExecCommandShape {
     /** The dispatcher verb, or `unrecognized` when it isn't one we accept. */
@@ -593,6 +598,10 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // caller gets an unfiltered list instead of an error.
     'self-driving-inbox-get': () =>
         'Tool "self-driving-inbox-get" was removed. Use "inbox-reports-list", which lists the same reports. For the old default, pass { "view": "actionable", "use_priority_preference": true, "sort": "priority", "limit": 10 }. The array filters became comma-separated strings: `priorities` is now `priority`, `source_products` is now `source_product`, and `scouts` is now `scout`. `view`, `scope`, `teammate_uuid`, `search`, and `offset` keep their names.',
+    // The `experiment-get-all` -> `experiment-list` deprecation alias was deleted in #101042.
+    // Same arguments, so the redirect only has to hand over the new name.
+    'experiment-get-all': () =>
+        'Tool "experiment-get-all" was removed. It was a deprecation alias for "experiment-list", which takes the same arguments. Call "experiment-list" instead.',
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field
@@ -1023,13 +1032,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing-parameter
- *  rejection, so a tool with a long field description cannot inflate the
- *  analytics error message. */
-const MAX_MISSING_PARAM_HINT = 200
+/** Bound on the parameter description echoed back with a missing or wrong-type
+ *  parameter rejection, so a tool with a long field description cannot inflate
+ *  the analytics error message. */
+const MAX_PARAM_HINT = 200
 
 /**
- * The missing parameter's own description, appended to the rejection.
+ * The parameter's own description, appended to a missing or wrong-type rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1042,7 +1051,7 @@ const MAX_MISSING_PARAM_HINT = 200
  * input, so it is safe in the message returned to the caller and recorded as the
  * analytics error message.
  */
-function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+function parameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
     if (!schema || path.length !== 1) {
         return ''
     }
@@ -1054,9 +1063,7 @@ function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjec
         return ''
     }
     const capped =
-        description.length > MAX_MISSING_PARAM_HINT
-            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
-            : description
+        description.length > MAX_PARAM_HINT ? `${description.slice(0, MAX_PARAM_HINT).trimEnd()}...` : description
     return ` (${capped})`
 }
 
@@ -1276,7 +1283,7 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                const hint = missingParameterHint(issue.path, schema)
+                const hint = parameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
                     const rejected = unplaced.length
@@ -1295,7 +1302,9 @@ export function formatInputValidationError(
                 }
                 return `missing required parameter: ${path}${hint}`
             }
-            return `parameter "${path}" must be of type ${issue.expected}`
+            // The type alone does not say which values the field accepts, for
+            // example a bucket count where the caller sent a unit such as "day".
+            return `parameter "${path}" must be of type ${issue.expected}${parameterHint(issue.path, schema)}`
         }
         if (issue.code === 'invalid_union') {
             const expanded = describeUnionIssue(issue.errors, issue.path)
@@ -1478,9 +1487,6 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * `fields` are the offending field path + issue code, plus the received type where
  * that distinguishes the bug (e.g. `id:invalid_type:undefined` for an omitted
  * parameter vs `query:invalid_union:string` for an envelope the agent flattened).
- * `inputKeys` — the top-level keys the caller actually sent — is what surfaces an
- * unaccepted alias (e.g. `organizationId` where the schema wants `orgId`).
- *
  * Records only structural information: field names, issue codes, and the TYPE of a
  * rejected value. It never records input VALUES — the ZodError embeds those in
  * `issue.input` and in `.message` (see `formatInputValidationError`), so this reads
@@ -1488,11 +1494,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(
-    error: z.ZodError,
-    input: Record<string, unknown>,
-    schema: z.ZodType
-): { fields: string[]; inputKeys: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1508,11 +1510,22 @@ export function describeValidationError(
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    const inputKeys = Object.keys(input)
-        .sort()
-        .slice(0, MAX_VALIDATION_DESCRIPTORS)
-        .map((key) => key.slice(0, MAX_KEY_LENGTH))
-    return { fields, inputKeys }
+    return { fields }
+}
+
+/**
+ * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
+ * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
+ * alias names count as declared and each alias the normaliser relied on is recorded as
+ * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
+ * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
+ * schema declares them. Undeclared names become one `[redacted]` marker because caller-controlled
+ * names can contain credentials or personal data.
+ */
+export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
+    return getToolInputProperties(input, schema, {
+        inputAliases: schema ? readParamAliases(schema) : undefined,
+    })
 }
 
 /** Whether the tool's input schema declares an `output_format` field. Unwraps
@@ -1578,11 +1591,23 @@ function flagGatedToolMessage(gated: FlagGatedTool, tools: Tool<ZodObjectAny>[])
     return `Tool "${gated.name}" is retired on this PostHog connection. Use ${successors} instead.${hint}`
 }
 
+function missingScopeRecovery(context: Context | undefined): string {
+    switch (classifyAuthMethod(context?.api.config.apiToken)) {
+        case 'oauth':
+            return 'Reauthorize the PostHog MCP connection and approve these scopes.'
+        case 'personal_api_key':
+            return `Add these scopes to the personal API key. The change reaches this connection within ${API_KEY_CACHE_TTL_MS / 60_000} minutes, and reconnecting the client does not make it faster.`
+        default:
+            return 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.'
+    }
+}
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
     flagGatedTools: FlagGatedTool[],
-    name: string
+    name: string,
+    context: Context | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1597,7 +1622,7 @@ function findTool(
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
             throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`,
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
             )
         }
@@ -1756,7 +1781,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                                `required scope(s): ${requiredScopes.join(', ')}. ${missingScopeRecovery(context)}`,
                         })
                     }
                     if (matches.length === 0) {
@@ -1794,7 +1819,7 @@ export function createExecTool(
                     if (!infoArgs) {
                         throw new ExecCommandError('Usage: info [--json] <tool_name>', 'usage')
                     }
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, infoArgs, context)
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
                     // are optional and auto-filled. The default `io: 'output'` would list them as
@@ -1839,7 +1864,13 @@ export function createExecTool(
                         throw new ExecCommandError('Usage: schema <tool_name> [field_path]', 'usage')
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
-                    const schemaTool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, schemaToolName)
+                    const schemaTool = findTool(
+                        await resolveTools(),
+                        scopeGatedTools,
+                        flagGatedTools,
+                        schemaToolName,
+                        context
+                    )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
                     const fullJsonSchema =
@@ -1896,7 +1927,7 @@ export function createExecTool(
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
-                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
+                    const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName, context)
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -1963,7 +1994,7 @@ export function createExecTool(
                         // which field/alias was rejected — without the payload.
                         throw new ToolInputValidationError(
                             message,
-                            describeValidationError(validation.error, input, toolSchema)
+                            describeValidationError(validation.error, toolSchema)
                         )
                     }
                     input = validation.data as Record<string, unknown>

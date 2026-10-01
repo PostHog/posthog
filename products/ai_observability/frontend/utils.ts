@@ -1136,6 +1136,9 @@ type RawEvaluationRunRow = [
     score_min?: number | string | null,
     score_max?: number | string | null,
     categories?: string[] | string | null,
+    start_time?: string | null,
+    backfill_id?: string | null,
+    probability?: number | string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1296,7 +1299,10 @@ export function mapEvaluationRunRow(row: RawEvaluationRunRow): EvaluationRun {
         session_id: row[13] || null,
         ...normalizedResult,
         skipped: isExplicitEvaluationPass(row[14]),
-        reasoning: row[7] || 'No reasoning provided',
+        reasoning: row[7] ?? '',
+        probability: normalizeOptionalNumber(row[21]),
+        start_time: row[19] || null,
+        backfill_id: row[20] || null,
         status: 'completed' as const,
     }
 }
@@ -1345,7 +1351,10 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_evaluation_numeric_result as score,
             properties.$ai_evaluation_numeric_result_min as score_min,
             properties.$ai_evaluation_numeric_result_max as score_max,
-            properties.$ai_evaluation_categorical_result as categories
+            properties.$ai_evaluation_categorical_result as categories,
+            properties.$ai_evaluation_start_time as start_time,
+            properties.$ai_evaluation_backfill_id as backfill_id,
+            properties.$ai_evaluation_probability as probability
         FROM events
         WHERE
             event = '$ai_evaluation'

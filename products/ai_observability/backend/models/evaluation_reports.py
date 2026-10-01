@@ -7,7 +7,7 @@ from dateutil.rrule import rrulestr
 
 from posthog.models.utils import UUIDTModel
 
-from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
+from products.workflows.backend.facade.api import compute_next_occurrences, validate_rrule
 
 from .evaluation_configs import REPORTABLE_OUTPUT_TYPES_BY_TARGET
 
