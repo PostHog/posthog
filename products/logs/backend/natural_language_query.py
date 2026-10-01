@@ -101,8 +101,10 @@ Rules:
 - Words that describe log text rather than a field become a `message` filter with `icontains`.
   Do not put words that you already turned into a severity, service, time or attribute filter
   into a message filter.
-- `date_from` and `date_to` are relative ("-2h", "-30m", "-7d", "-1dStart") or ISO 8601 in UTC.
-  `date_to` is null for "until now". With no time in the request, keep `current_date_from` and
+- `date_from` and `date_to` are relative or ISO 8601 in UTC. Relative units are case-sensitive:
+  "M" is minutes, "h" hours, "d" days, "w" weeks, "m" months, "y" years. So "the last 30 minutes"
+  is "-30M", "the last 2 hours" is "-2h", and "-30m" means 30 months. "-1dStart" is the start of
+  yesterday. `date_to` is null for "until now". With no time in the request, keep `current_date_from` and
   `current_date_to`.
 - "errors" means severity error and fatal. "warnings" means warn.
 - `label` is a short plain-English summary of the candidate, under 80 characters.
