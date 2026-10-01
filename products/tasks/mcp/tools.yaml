@@ -639,7 +639,8 @@ tools:
         title: Set my agent instructions
         description: >
             Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project
-            instructions in Tasks runs the caller starts. Autonomous runs never load them. Replaces the stored text;
+            instructions in Tasks runs the caller starts. Autonomous runs never load them. Anyone who continues a task
+            the caller started can see them, so they must not hold anything private. Replaces the stored text;
             send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new
             text, not a diff.
         feature_flag: tasks

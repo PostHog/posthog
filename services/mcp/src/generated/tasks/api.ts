@@ -1913,7 +1913,7 @@ export const TasksMeConfigCreateBody = () => zod
     )
 
 /**
- * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Send an empty string to clear.
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
  */
 export const TasksMeConfigAgentInstructionsCreateParams = () => zod.object({
     project_id: zod
