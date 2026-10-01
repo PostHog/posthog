@@ -115,11 +115,12 @@ class TestDestinationScopedAppMetrics(WarehouseDestinationFallbackTestCase):
 
     def test_the_schema_scoped_rows_are_unchanged_by_destinations(self) -> None:
         # The number a chart already shows must not move because a destination was added.
-        without = self._payloads(_make_job(status=ExternalDataJob.Status.COMPLETED))
-        job = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a"])
-        schema_scoped = [p for p in self._payloads(job) if p["instance_id"] == str(job.schema_id)]
+        job_without = _make_job(status=ExternalDataJob.Status.COMPLETED)
+        without = [p for p in self._payloads(job_without) if p["instance_id"] == str(job_without.schema_id)]
+        job_with = _make_job(status=ExternalDataJob.Status.COMPLETED, destination_ids=["dest-a"])
+        with_destination = [p for p in self._payloads(job_with) if p["instance_id"] == str(job_with.schema_id)]
 
-        assert [(p["metric_kind"], p["metric_name"], p["count"]) for p in schema_scoped] == [
+        assert [(p["metric_kind"], p["metric_name"], p["count"]) for p in with_destination] == [
             (p["metric_kind"], p["metric_name"], p["count"]) for p in without
         ]
 
