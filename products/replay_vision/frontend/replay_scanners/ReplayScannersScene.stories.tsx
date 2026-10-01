@@ -759,7 +759,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
-                // One card per reason kind, plus one with no cited timestamps (no clip range on the tile).
+                // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
                     results: [
                         {
@@ -788,6 +788,7 @@ const meta: Meta = {
                                             { kind: 'text', value: ' Retried the payment form twice ' },
                                             { kind: 'chip', timestamp_ms: 154000 },
                                         ],
+                                        key_moment_ms: 154000,
                                     },
                                     signals_count: 2,
                                     verification: null,

@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconLock, IconStar, IconStarFilled } from '@posthog/icons'
+import { IconStar, IconStarFilled } from '@posthog/icons'
 import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { TodaySpaceGlyph } from '~/layout/today/TodaySpaceGlyph'
 import { isLockedSpace, spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { ChannelDTOApi } from '../generated/api.schemas'
@@ -28,7 +29,7 @@ export function SpacesIndexRow({ space }: { space: ChannelDTOApi }): JSX.Element
                 data-attr="today-spaces-index-row"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground" aria-hidden>
-                    {isLockedSpace(space) ? <IconLock /> : <span className="font-mono">#</span>}
+                    <TodaySpaceGlyph locked={isLockedSpace(space)} />
                 </span>
                 <span className="shrink-0 truncate font-medium">{spaceLabel(space)}</span>
                 <Text render={<span />} size="xs" variant="muted" className="min-w-0 flex-1 truncate">

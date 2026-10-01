@@ -12,6 +12,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.redis import get_client
 
 from products.ml_inference.backend.facade.contracts import (
@@ -136,7 +137,10 @@ class TestJudgeScannerWindow(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("refusal", 422, True),
+            ("bad_request", 400, True),
+            ("unprocessable", 422, True),
+            ("unauthorized", 401, False),
+            ("not_found", 404, False),
             ("rate_limit", 429, False),
             ("server_error", 503, False),
         ]
@@ -150,6 +154,16 @@ class TestJudgeScannerWindow(SimpleTestCase):
             judgment = judge_scanner_window(1, uuid4(), rows)
         assert judgment.failed_chunks == 1
         assert judgment.batch_failed_ids == ((str(rows[0]["id"]),) if charged else ())
+
+    def test_a_misconfigured_gateway_charges_no_retry_budget(self) -> None:
+        # GatewayNotConfiguredError subclasses ValueError, so the invalid-answer check must not
+        # catch it: a broken gateway config would otherwise park the newest rows within hours.
+        rows = [_prose_row(uuid4(), "summary")]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = GatewayNotConfiguredError("no gateway configured")
+            judgment = judge_scanner_window(1, uuid4(), rows)
+        assert judgment.failed_chunks == 1
+        assert judgment.batch_failed_ids == ()
 
     def test_rows_without_prose_are_reported_instead_of_sent(self) -> None:
         no_output, no_result = uuid4(), uuid4()
