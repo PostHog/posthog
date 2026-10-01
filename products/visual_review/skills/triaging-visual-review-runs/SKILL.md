@@ -57,6 +57,7 @@ Check every run of a change that touches UI.
 List the changed quarantined snapshots with
 `posthog:visual-review-runs-snapshots-list { id: <run_id>, include_quarantined: true, exclude_unchanged: true }`.
 With `exclude_unchanged`, `quarantined_count` counts only the changed ones.
+The list is paginated and does not put quarantined rows first, so follow `next` until every row is read.
 
 - A quarantined story that your change renders differently needs its new picture approved by identifier, then finalized.
   "Approve all" and `approve_all` skip quarantined snapshots.
@@ -67,7 +68,8 @@ With `exclude_unchanged`, `quarantined_count` counts only the changed ones.
   Nothing records the fix, and the quarantine stays until someone lifts it.
   Name the exact identifiers in the PR description, and lift only after the default branch renders them clean.
 - A change that deletes a quarantined story leaves its baseline entry behind.
-  Only a full run (the `run-ci-frontend` label) classifies the story `removed`, and only finalize prunes the entry.
+  Only a full run classifies the story `removed`, and only finalize prunes the entry.
+  The `run-ci-frontend` label takes effect on the next push or ready-for-review, not when it is added, so push after labeling and check that the new run is full.
   Finalize that run before the merge, or every full run reports the story `removed` once the quarantine ends.
 - One clean render does not prove a rare flake is gone, and neither does `variant_count: 0`, which counts only absorbed variants.
 
@@ -336,10 +338,14 @@ When the user is doing housekeeping rather than asking about a specific PR:
 5. Lift stale quarantines: entries in `visual-review-repos-flakiness-retrieve` with `needs_decision: true` stopped failing
    or expire soon. Lift one with `posthog:visual-review-repos-quarantine-expire-create { id, run_type, identifier }`
    only when it had no hard failure in the window, or a merged fix removed the cause.
-   Before a lift, check that the default branch renders the story as its entry now: list the latest default-branch run's
-   changed snapshots with `include_quarantined: true, exclude_unchanged: true`, and lift only when the story is not in that list.
+   Before a lift, check that the default branch renders the story as its entry now.
+   Use the latest completed default-branch run of the quarantine's run type whose commit contains the fix, and list its
+   changed snapshots with `include_quarantined: true, exclude_unchanged: true`, following `next`.
+   Lift only when the story is not in that list. A pending run, or one of another run type, proves nothing.
    The `broken` state alone does not decide it. The state covers 7 days, so it stays `broken` for days after a fix lands.
-   When the story is still in that list, re-baseline it first (the README's quarantine section has the procedure), then lift.
+   When the story is still in that list, check that recent default-branch runs render the same changed picture before you re-baseline it.
+   One changed render of a flaky story is a flake, and re-baselining it only swaps which variant fails. Keep the quarantine then.
+   For the same picture on run after run, re-baseline it first (the README's quarantine section has the procedure), then lift.
    Report a quarantine in that condition before its expiry date, because the expiry fails runs the same way.
 
 ## Output expectations
