@@ -440,6 +440,7 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
         table_schema_dict = internal_schema.to_hogql_types()
+        del pa_table
 
         prepared_queryable_folder = await run_post_load_operations(
             job=job,
@@ -1298,6 +1299,10 @@ def _process_message_reported(
             previous_file_uris=previous_file_uris,
             internal_schema=internal_schema,
         )
+
+        # Post-load compaction owns a full governor slot. Drop the input batch before entering it so
+        # Arrow's buffers do not remain resident alongside the compaction working set.
+        del pa_table
 
         # Every run whose final batch landed in this write completes now, in load order.
         if constituents is not None:
