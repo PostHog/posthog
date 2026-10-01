@@ -434,7 +434,12 @@ def resolve_scopes(
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
         elif scopes == "signals_scout_experiment":
-            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
+            reads = [
+                scope
+                for scope in (*MCP_READ_SCOPES, *internal)
+                if scope not in RESEARCH_WITHHELD_SCOPES and scope != "llm_gateway:read"
+            ]
             private_writes = (
                 [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
                 if include_internal_scopes

@@ -1415,12 +1415,20 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
     def test_snapshot_resume_env_includes_otel_config_when_configured(self, is_trial: bool, _api, _jwt) -> None:
         ctx, task = _gateway_ctx_task()
         task.is_scout_experiment = is_trial
-        with override_settings(
-            SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
-            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
-            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+        with (
+            override_settings(
+                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+                SANDBOX_AI_GATEWAY_URL="https://ai-gateway.example.com",
+                SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
+                SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+                SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+                SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+            ),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
         ):
+            post.return_value.status_code = 201
+            post.return_value.json.return_value = {"token": "phe_private", "capture_mode": "none"}
             env = build_sandbox_environment_variables(None, "access-token", ctx, task, otel_telemetry_enabled=True)
 
         assert env.get("POSTHOG_AGENT_OTEL_LOGS_URL") == (None if is_trial else "https://us.i.posthog.com/i/v1/logs")

@@ -221,6 +221,9 @@ class TestScoutTrialAPI(APIBaseTest):
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://gateway.example/v1",
+    SANDBOX_AI_GATEWAY_URL="https://gateway.example",
+    SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
 class TestScoutTrialLaunch(APIBaseTest):
     def setUp(self) -> None:
@@ -302,8 +305,19 @@ class TestScoutTrialLaunch(APIBaseTest):
         ):
             assert self.client.get(f"{base}{action}/").status_code == 403
 
-    @override_settings(SCOUT_LIVE_TRIALS_ENABLED=False)
-    def test_setup_remains_readable_when_disabled_and_excludes_inaccessible_models(self) -> None:
+    @parameterized.expand(
+        [
+            ("SCOUT_LIVE_TRIALS_ENABLED", False, "not enabled"),
+            ("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False, "Private capture"),
+            ("AI_GATEWAY_URL", "", "AI_GATEWAY_URL"),
+            ("SANDBOX_AI_GATEWAY_URL", "", "Go sandbox gateway"),
+            ("SANDBOX_AI_GATEWAY_MINT_KEY", "", "mint credential"),
+        ]
+    )
+    def test_setup_remains_readable_when_unavailable_and_excludes_inaccessible_models(
+        self, setting: str, value: object, blocked_reason: str
+    ) -> None:
+        self.enterContext(override_settings(**{setting: value}))
         base = self._internal_scout_base()
         self.config.write_scopes = ["dashboard:write"]
         self.config.save(update_fields=["write_scopes"])
@@ -315,7 +329,7 @@ class TestScoutTrialLaunch(APIBaseTest):
         assert response.status_code == 200, response.data
         setup = response.json()
         assert setup["ready"] is False
-        assert "not enabled" in setup["blocked_reason"]
+        assert blocked_reason in setup["blocked_reason"]
         assert "writes or external tools" in setup["blocked_reason"]
         assert setup["skill_body"] == self.skill.body
         assert setup["model"] == "gpt-5.5"

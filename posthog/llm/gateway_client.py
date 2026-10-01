@@ -70,14 +70,16 @@ _private_scout_gateway_token: ContextVar[str | None] = ContextVar("private_scout
 
 def ensure_scout_trial_capture_ready() -> None:
     if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
-        raise GatewayNotConfiguredError("Scout trial capture suppression must be enabled on the Python gateway")
+        raise GatewayNotConfiguredError("Private capture must be enabled for scout trials on the Go AI gateway")
+    if not urlparse(settings.AI_GATEWAY_URL).path.rstrip("/").endswith("/v1"):
+        raise GatewayNotConfiguredError("Scout trials require AI_GATEWAY_URL with the /v1 base path")
 
 
 @contextmanager
 def private_scout_gateway(api_key: str) -> Iterator[None]:
     ensure_scout_trial_capture_ready()
-    if not api_key or not settings.LLM_GATEWAY_URL:
-        raise GatewayNotConfiguredError("Scout trials require LLM_GATEWAY_URL and a trial OAuth credential")
+    if not api_key.startswith("phe_"):
+        raise GatewayNotConfiguredError("Scout trials require AI_GATEWAY_URL and a private scoped Go gateway token")
     token = _private_scout_gateway_token.set(api_key)
     try:
         with private_capture_context():
@@ -86,12 +88,9 @@ def private_scout_gateway(api_key: str) -> Iterator[None]:
         _private_scout_gateway_token.reset(token)
 
 
-def _python_gateway_api_key(product: Product, api_key: str | None = None) -> str:
-    trial_token = _private_scout_gateway_token.get()
-    if trial_token is not None:
-        if product != "signals":
-            raise GatewayNotConfiguredError("Scout trial credentials are restricted to the signals product")
-        return trial_token
+def _python_gateway_api_key(api_key: str | None = None) -> str:
+    if _private_scout_gateway_token.get() is not None:
+        raise GatewayNotConfiguredError("Scout trials require the Go AI gateway")
     return api_key or settings.LLM_GATEWAY_API_KEY
 
 
@@ -153,7 +152,7 @@ def get_llm_client(
         default_headers: Optional headers sent with every request. Product-owned headers such as
             team attribution override values supplied here.
     """
-    resolved_api_key = _python_gateway_api_key(product, api_key)
+    resolved_api_key = _python_gateway_api_key(api_key)
     gateway_url = settings.LLM_GATEWAY_URL
     if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and an API key must be configured")
@@ -181,7 +180,7 @@ def get_async_llm_client(
     attribution and how to attach extra per-call event properties.
     """
     gateway_url = settings.LLM_GATEWAY_URL
-    resolved_api_key = _python_gateway_api_key(product)
+    resolved_api_key = _python_gateway_api_key()
     if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
@@ -228,7 +227,7 @@ def get_async_anthropic_gateway_client(
     Bedrock instead of failing. Sent as the `x-posthog-use-bedrock-fallback` default header.
     """
     gateway_url = settings.LLM_GATEWAY_URL
-    resolved_api_key = _python_gateway_api_key(product)
+    resolved_api_key = _python_gateway_api_key()
     if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
@@ -255,7 +254,7 @@ def get_anthropic_gateway_client(
 ) -> Anthropic:
     """Synchronous variant of :func:`get_async_anthropic_gateway_client`."""
     gateway_url = settings.LLM_GATEWAY_URL
-    resolved_api_key = _python_gateway_api_key(product)
+    resolved_api_key = _python_gateway_api_key()
     if not gateway_url or not resolved_api_key:
         raise GatewayNotConfiguredError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
 
@@ -298,8 +297,9 @@ def resolve_ai_gateway_config() -> AIGatewayConfig | None:
     falls back to the current flow rather than failing the call (the fallback comes out once
     rollout completes).
     """
-    if _private_scout_gateway_token.get() is not None:
-        return None
+    trial_token = _private_scout_gateway_token.get()
+    if trial_token is not None:
+        return AIGatewayConfig(url=settings.AI_GATEWAY_URL, api_key=trial_token)
     url, api_key = settings.AI_GATEWAY_URL, settings.AI_GATEWAY_API_KEY
     if not (url or api_key):
         return None

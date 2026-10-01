@@ -12,11 +12,11 @@ Preserve the devbox's synthetic dataset. Keep credentials, prompts, transcripts 
 - The Trials UI and scoring require a staff user in project 2, with project membership and permission to edit the source skill.
 - The source scout must support reports through `emit_report` or `edit_report`. Trials reject extra product write scopes, external MCP servers and structured-output schemas.
 - Backend, frontend, MCP, Temporal, Docker sandboxes, databases, Redis and object storage must be ready. The normal Temporal worker runs both scouts and judging.
-- Trials currently use the Python LLM gateway with the trial capture policy installed. Subscription credentials are not supported. Moving to the Go gateway requires equivalent capture behavior and model support.
+- Trials use the [Go AI gateway](https://github.com/PostHog/ai-gateway) with private scoped tokens. They do not fall back to the Python gateway or subscription credentials.
 - Provider credentials must support the scout models returned by trial setup and the judge model, currently `gpt-6-astra`.
 
 Use the normal local OAuth setup, including `setup_tasks_oauth`, and register Temporal search attributes if the devbox has not already done so.
-The gateway must authenticate against the local database. Keep the Temporal worker on the same code revision as the backend.
+The gateway's mint credential must belong to the intended paying project. Keep the Temporal worker on the same code revision as the backend.
 Disable worker hot reload during paid runs with `TEMPORAL_DISABLE_HOT_RELOAD=1`.
 
 ### Routing and capture
@@ -28,26 +28,30 @@ For services on the devbox host, the usual settings are below; verify the actual
 SANDBOX_PROVIDER=docker
 SANDBOX_API_URL=http://host.docker.internal:8000
 SANDBOX_MCP_URL=http://host.docker.internal:8787/mcp
-SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308
-LLM_GATEWAY_URL=http://localhost:3308
+SANDBOX_AI_GATEWAY_URL=http://host.docker.internal:8080
+AI_GATEWAY_URL=http://localhost:8080/v1
 ```
 
 MCP also needs a direct `POSTHOG_API_BASE_URL` for backend calls. Keep `POSTHOG_PUBLIC_URL` and the application's `SITE_URL` on the public browser URL.
 
-Deploy the gateway's private capture policy before enabling trials. Then set both flags on the backend and worker:
+Configure `SANDBOX_AI_GATEWAY_MINT_KEY` through private local settings. Use a server credential authorized for team attribution; trial tokens pin the `signals_scout` product and must not bill customer credits.
+Trials route to Go independently of the ordinary scout rollout allowlist.
+
+Deploy support for scoped tokens with `capture_mode: none` to every gateway replica before enabling trials. Then set both flags on the backend and worker:
 
 ```dotenv
 SCOUT_LIVE_TRIALS_ENABLED=true
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 ```
 
-`SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` is an operator attestation, not automatic gateway detection.
-It confirms that gateway capture, query/task telemetry and warehouse replicas do not expose trial content to the project being inspected.
-The gateway suppresses trial generation, exception and rate-limit denial events, while retaining cost and rate-limit enforcement. Ordinary requests keep their normal capture behavior.
+`SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` confirms that query/task telemetry and warehouse replicas do not expose trial content to the project being inspected.
+The caller also requires the gateway to acknowledge capture suppression when minting each token. An older gateway's token is revoked and rejected.
+The gateway suppresses trial generation, exception and rate-limit denial events, while retaining usage accounting and spend/rate limits. Ordinary requests keep their normal capture behavior.
+Revoke or expire private tokens before rolling the gateway back to a version without this support.
 For local validation, direct telemetry to a separate destination. Globally disabling capture does not prove trial-specific suppression.
 
-Set a test budget before launching runs. Staff users bypass the gateway's per-user cost caps by default; use `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` to exercise those caps locally.
-Configure `LLM_GATEWAY_REDIS_URL` explicitly so gateway counters persist across restarts. An unavailable cost is not zero cost.
+Set a test budget before launching runs. The existing `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD` and product cap settings bound each scoped token's spend.
+The gateway needs its normal persistent Redis and ledger configuration. An unavailable cost is not zero cost.
 
 ## Run a trial
 
@@ -120,15 +124,15 @@ Only one CLI controller may use an output directory at a time.
 
 ## Troubleshooting and validation
 
-| Symptom                               | Check                                                                                                                    |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Setup/scoring returns 404             | Staff status, project 2, project membership and source skill access.                                                     |
-| Setup is blocked                      | `blocked_reason`, both trial flags, source capabilities, fleet enrollment and quotas.                                    |
-| Run stays queued                      | Temporal worker revision, local OAuth setup, task queue and Docker sandbox readiness.                                    |
-| Sandbox receives HTML or a login page | Direct sandbox URLs and MCP's backend URL; avoid the browser proxy.                                                      |
-| Gateway returns 401/403               | Local Signals OAuth identity, token scope/expiry and provider authorization. Readiness alone does not test model access. |
-| Result export or scoring fails        | Object storage readiness, worker logs and the saved error. Preserve IDs before retrying.                                 |
-| Most checks are unknown               | Missing or truncated tool evidence; do not turn missing proof into a pass.                                               |
+| Symptom                               | Check                                                                                                                                     |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Setup/scoring returns 404             | Staff status, project 2, project membership and source skill access.                                                                      |
+| Setup is blocked                      | `blocked_reason`, both trial flags, source capabilities, fleet enrollment and quotas.                                                     |
+| Run stays queued                      | Temporal worker revision, local OAuth setup, task queue and Docker sandbox readiness.                                                     |
+| Sandbox receives HTML or a login page | Direct sandbox URLs and MCP's backend URL; avoid the browser proxy.                                                                       |
+| Gateway returns 401/403               | Go mint credential, private capture acknowledgement, token expiry and provider authorization. Readiness alone does not test model access. |
+| Result export or scoring fails        | Object storage readiness, worker logs and the saved error. Preserve IDs before retrying.                                                  |
+| Most checks are unknown               | Missing or truncated tool evidence; do not turn missing proof into a pass.                                                                |
 
 Validate one complete real trial before increasing its size. Reopen and export the report, confirm no extra paid calls, and check that another local user and sibling sandbox cannot read its private state.
 Check private capture with an ordinary request and a trial request: ordinary telemetry should remain, trial content should be suppressed, and both should retain spend/rate limits.

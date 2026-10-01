@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models import Team, User
 from posthog.storage import object_storage
 
@@ -135,8 +136,12 @@ def trial_capabilities(config: SignalScoutConfig) -> dict[str, JsonValue]:
 def assert_trial_environment_ready() -> None:
     if not getattr(settings, "SCOUT_LIVE_TRIALS_ENABLED", False):
         raise ScoutTrialLaunchError("Live scout trials are not enabled on this deployment.")
-    if not getattr(settings, "SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False):
-        raise ScoutTrialLaunchError("Live scout trials require verified gateway capture suppression.")
+    try:
+        ensure_scout_trial_capture_ready()
+    except GatewayNotConfiguredError as error:
+        raise ScoutTrialLaunchError(str(error)) from None
+    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_MINT_KEY):
+        raise ScoutTrialLaunchError("Scout trials require the Go sandbox gateway URL and mint credential.")
 
 
 def load_trial_context(team_id: int, context_id: UUID | str) -> TrialContext:

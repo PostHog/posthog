@@ -728,7 +728,11 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, LLM_GATEWAY_URL="http://example.invalid"
+    SCOUT_LIVE_TRIALS_ENABLED=True,
+    SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://gateway.example/v1",
+    SANDBOX_AI_GATEWAY_URL="https://gateway.example",
+    SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
 class TestScoutTrialJudgeRequest(SimpleTestCase):
     async def _judge_with_client(
@@ -755,9 +759,9 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         )
         with (
             patch(f"{MODULE}.SignalScoutRun.objects.for_team") as for_team,
-            patch(f"{MODULE}.create_trial_gateway_token", return_value="synthetic-private-token") as mint,
+            patch(f"{MODULE}.create_trial_gateway_token", return_value="phe_synthetic_private_token") as mint,
             patch(f"{MODULE}.revoke_trial_gateway_token") as revoke,
-            patch(f"{MODULE}.get_async_llm_client", return_value=client),
+            patch(f"{MODULE}.build_async_openai_client", return_value=client),
         ):
             mint.side_effect = mint_error
             revoke.side_effect = revoke_error
@@ -769,7 +773,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             result = await judge_trial_run(snapshot, evidence)
         mint.assert_called_once()
         if mint_error is None:
-            revoke.assert_called_once_with("synthetic-private-token")
+            revoke.assert_called_once_with("phe_synthetic_private_token")
         else:
             revoke.assert_not_called()
         return result
@@ -884,16 +888,11 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 assert options["max_completion_tokens"] == 24000
                 if prompt_version in {"11", "12", "13", "14", "15"}:
                     assert options["reasoning_effort"] is omit
-                    assert options["extra_body"] == {
-                        "max_retries": 0,
-                        "timeout": 240.0 - index * 5,
-                        "drop_params": False,
-                    }
                 else:
                     assert options["reasoning_effort"] == "high"
-                    assert options["extra_body"] == {"max_retries": 0}
             else:
                 assert "timeout" not in options
+            assert "extra_body" not in options
         assert requested_ids == [criterion.id for criterion in snapshot.criteria]
         client.with_options.assert_called_once_with(max_retries=0, timeout=240.0)
 
@@ -1003,7 +1002,10 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                     ],
                 }
             )
-        with patch(f"{MODULE}.create_trial_gateway_token") as mint, patch(f"{MODULE}.get_async_llm_client") as client:
+        with (
+            patch(f"{MODULE}.create_trial_gateway_token") as mint,
+            patch(f"{MODULE}.build_async_openai_client") as client,
+        ):
             result = await judge_trial_run(snapshot, snapshot.runs[0])
         assert result.status == "judge_error" and result.criteria == []
         mint.assert_not_called()
@@ -1039,12 +1041,12 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
                 raise AssertionError("The test did not release credential minting.")
             if mint_fails:
                 raise RuntimeError("private-database-marker")
-            return "synthetic-private-token"
+            return "phe_synthetic_private_token"
 
         with (
             patch(f"{MODULE}._create_judge_token", side_effect=mint),
             patch(f"{MODULE}.revoke_trial_gateway_token") as revoke,
-            patch(f"{MODULE}.get_async_llm_client") as client,
+            patch(f"{MODULE}.build_async_openai_client") as client,
         ):
             task = asyncio.create_task(judge_trial_run(snapshot, snapshot.runs[0]))
             try:
@@ -1062,12 +1064,12 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         if mint_fails:
             revoke.assert_not_called()
         else:
-            revoke.assert_called_once_with("synthetic-private-token")
+            revoke.assert_called_once_with("phe_synthetic_private_token")
 
     async def test_excluded_run_does_not_request_a_model(self) -> None:
         snapshot = _snapshot()
         evidence = snapshot.runs[0].model_copy(update={"exclusion_reason": "The recorded runtime did not match."})
-        with patch(f"{MODULE}.get_async_llm_client") as client:
+        with patch(f"{MODULE}.build_async_openai_client") as client:
             result = await judge_trial_run(snapshot, evidence)
         assert result.status == "excluded"
         client.assert_not_called()
@@ -1189,9 +1191,9 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             client.chat.completions.create.side_effect = RuntimeError("private-response-marker")
         with (
             patch(f"{MODULE}.SignalScoutRun.objects.for_team") as for_team,
-            patch(f"{MODULE}.create_trial_gateway_token", return_value="synthetic-private-token"),
+            patch(f"{MODULE}.create_trial_gateway_token", return_value="phe_synthetic_private_token"),
             patch(f"{MODULE}.revoke_trial_gateway_token") as revoke,
-            patch(f"{MODULE}.get_async_llm_client", return_value=client),
+            patch(f"{MODULE}.build_async_openai_client", return_value=client),
         ):
             for_team.return_value.select_related.return_value.filter.return_value.first.return_value = run
             for_team.return_value.filter.return_value.values.return_value.first.return_value = {
@@ -1253,18 +1255,12 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
             assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] is omit
             request_timeout = client.chat.completions.create.call_args.kwargs["timeout"]
             assert 0 < request_timeout <= 240.0
-            assert client.chat.completions.create.call_args.kwargs["extra_body"] == {
-                "max_retries": 0,
-                "timeout": request_timeout,
-                "drop_params": False,
-            }
         elif prompt_version in {"8", "9", "10"}:
             assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] == "high"
-            assert client.chat.completions.create.call_args.kwargs["extra_body"] == {"max_retries": 0}
         else:
             assert client.chat.completions.create.call_args.kwargs["reasoning_effort"] is omit
-            assert client.chat.completions.create.call_args.kwargs["extra_body"] is None
-        revoke.assert_called_once_with("synthetic-private-token")
+        assert "extra_body" not in client.chat.completions.create.call_args.kwargs
+        revoke.assert_called_once_with("phe_synthetic_private_token")
 
     async def test_late_invalidation_prevents_credentials_and_model_calls(self) -> None:
         snapshot = _snapshot()
@@ -1285,7 +1281,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         with (
             patch(f"{MODULE}.SignalScoutRun.objects.for_team") as for_team,
             patch(f"{MODULE}.create_trial_gateway_token") as token,
-            patch(f"{MODULE}.get_async_llm_client") as client,
+            patch(f"{MODULE}.build_async_openai_client") as client,
         ):
             for_team.return_value.select_related.return_value.filter.return_value.first.return_value = run
             for_team.return_value.filter.return_value.values.return_value.first.return_value = {

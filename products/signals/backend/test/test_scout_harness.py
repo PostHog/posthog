@@ -1674,6 +1674,9 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://gateway.example/v1",
+    SANDBOX_AI_GATEWAY_URL="https://gateway.example",
+    SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
 async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_scout(
     ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, outcome_case: str

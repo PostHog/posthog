@@ -1,6 +1,6 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,7 +8,6 @@ import structlog
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-from llm_gateway.anthropic_stream import require_complete_anthropic_stream
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.config import get_settings
 from llm_gateway.metrics.prometheus import (
@@ -22,8 +21,6 @@ from llm_gateway.metrics.prometheus import (
 )
 from llm_gateway.observability import capture_exception
 from llm_gateway.request_context import (
-    bind_private_stream_logging,
-    is_private_scout_request,
     rebuild_request_context,
     set_auth_user,
     set_effort,
@@ -334,10 +331,6 @@ async def _handle_streaming_request(
     CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).inc()
     try:
         llm_response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
-        bind_private_stream_logging(llm_response)
-    except asyncio.CancelledError:
-        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
-        raise
     except TimeoutError:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
@@ -411,10 +404,7 @@ async def _handle_streaming_request(
         first_chunk_received = False
 
         try:
-            stream: AsyncIterator[bytes] = format_sse_stream(llm_response)
-            if product == "signals" and provider_config.endpoint_name == "anthropic_messages":
-                stream = require_complete_anthropic_stream(stream)
-            async for chunk in stream:
+            async for chunk in format_sse_stream(llm_response):
                 if not first_chunk_received:
                     first_chunk_received = True
                     time_to_first = time.monotonic() - provider_start
@@ -446,8 +436,6 @@ async def _handle_streaming_request(
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            if is_private_scout_request(user, product):
-                raise RuntimeError("Upstream stream failed") from None
             raise
         finally:
             duration_ms = round((time.monotonic() - start_time) * 1000, 2)

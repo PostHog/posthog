@@ -12,7 +12,7 @@ from pydantic import JsonValue, ValidationError
 
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import get_async_llm_client, private_scout_gateway
+from posthog.llm.gateway_client import build_async_openai_client, private_scout_gateway
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutRun
@@ -823,9 +823,9 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
             criteria: list[TrialCriterionVerdict] = []
             step = "gateway_setup"
             with private_scout_gateway(token):
-                async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
-                    max_retries=0, timeout=240.0
-                ) as client:
+                async with build_async_openai_client(
+                    product="signals", ai_product="signals_scout", properties={"team_id": str(snapshot.team_id)}
+                ).with_options(max_retries=0, timeout=240.0) as client:
                     async with asyncio.timeout_at(deadline):
                         for group, group_messages in zip(groups, messages, strict=True):
                             remaining = deadline - loop.time()
@@ -840,11 +840,6 @@ async def _judge_trial_run_grouped(snapshot: TrialEvaluationSnapshot, evidence: 
                                 reasoning_effort=omit
                                 if snapshot.judge_prompt_version in {"11", "12", "13", "14", "15"}
                                 else "high",
-                                extra_body=(
-                                    {"max_retries": 0, "timeout": min(remaining, 240.0), "drop_params": False}
-                                    if snapshot.judge_prompt_version in {"11", "12", "13", "14", "15"}
-                                    else {"max_retries": 0}
-                                ),
                                 timeout=min(remaining, 240.0),
                             )
                             step = "response_validation"
@@ -961,7 +956,9 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
             token = await database_sync_to_async(_create_judge_token, thread_sensitive=False)(snapshot, evidence)
             step = "gateway_setup"
             with private_scout_gateway(token):
-                async with get_async_llm_client(product="signals", team_id=snapshot.team_id).with_options(
+                async with build_async_openai_client(
+                    product="signals", ai_product="signals_scout", properties={"team_id": str(snapshot.team_id)}
+                ).with_options(
                     max_retries=0, timeout=240.0 if snapshot.judge_prompt_version in {"8", "9"} else 120.0
                 ) as client:
                     step = "judge_request"
@@ -973,7 +970,6 @@ async def judge_trial_run(snapshot: TrialEvaluationSnapshot, evidence: TrialRunE
                             snapshot.judge_prompt_version, 8000
                         ),
                         reasoning_effort="high" if snapshot.judge_prompt_version in {"8", "9"} else omit,
-                        extra_body={"max_retries": 0} if snapshot.judge_prompt_version in {"8", "9"} else None,
                     )
             step = "response_validation"
             if response.usage is not None:

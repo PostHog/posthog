@@ -555,14 +555,10 @@ class TestPrivateScoutGateway:
     @pytest.mark.parametrize(
         ("builder", "sdk", "suffix"),
         [
-            ("get_llm_client", "OpenAI", "/signals/v1"),
-            ("get_async_llm_client", "AsyncOpenAI", "/signals/v1"),
-            ("get_anthropic_gateway_client", "Anthropic", "/signals"),
-            ("get_async_anthropic_gateway_client", "AsyncAnthropic", "/signals"),
-            ("build_openai_client", "OpenAI", "/signals/v1"),
-            ("build_async_openai_client", "AsyncOpenAI", "/signals/v1"),
-            ("build_anthropic_client", "Anthropic", "/signals"),
-            ("build_async_anthropic_client", "AsyncAnthropic", "/signals"),
+            ("build_openai_client", "OpenAI", "/v1"),
+            ("build_async_openai_client", "AsyncOpenAI", "/v1"),
+            ("build_anthropic_client", "Anthropic", ""),
+            ("build_async_anthropic_client", "AsyncAnthropic", ""),
         ],
     )
     @override_settings(
@@ -572,26 +568,29 @@ class TestPrivateScoutGateway:
         LLM_GATEWAY_URL="https://gateway.example/",
         LLM_GATEWAY_API_KEY="",
     )
-    def test_every_builder_uses_private_gateway_even_when_go_is_configured(
+    def test_every_builder_uses_scoped_go_token_instead_of_shared_key(
         self, builder: str, sdk: str, suffix: str
     ) -> None:
-        with patch.object(gateway_client, sdk) as client, private_scout_gateway("pha_trial_credential"):
+        with patch.object(gateway_client, sdk) as client, private_scout_gateway("phe_trial_credential"):
             getattr(gateway_client, builder)(product="signals")
-        assert client.call_args.kwargs["base_url"] == f"https://gateway.example{suffix}"
-        assert client.call_args.kwargs["api_key"] == "pha_trial_credential"
+        assert client.call_args.kwargs["base_url"] == f"https://ai-gateway.example{suffix}"
+        assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
 
     @pytest.mark.parametrize(
         ("enabled", "url", "token"),
         [
-            (False, "https://gateway.example", "pha_trial_credential"),
-            (True, "", "pha_trial_credential"),
-            (True, "https://gateway.example", ""),
+            (False, AI_GATEWAY_URL, "phe_trial_credential"),
+            (True, "", "phe_trial_credential"),
+            (True, "https://ai-gateway.example", "phe_trial_credential"),
+            (True, AI_GATEWAY_URL, ""),
+            (True, AI_GATEWAY_URL, "pha_trial_credential"),
+            (True, AI_GATEWAY_URL, AI_GATEWAY_KEY),
         ],
     )
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     def test_invalid_private_config_fails_before_building_any_client(self, enabled: bool, url: str, token: str) -> None:
         with (
-            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=enabled, LLM_GATEWAY_URL=url),
+            override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=enabled, AI_GATEWAY_URL=url),
             patch.object(gateway_client, "OpenAI") as client,
         ):
             with pytest.raises(GatewayNotConfiguredError), private_scout_gateway(token):
@@ -608,7 +607,7 @@ class TestPrivateScoutGateway:
     )
     def test_context_crosses_async_bridges_and_isolates_concurrent_calls(self) -> None:
         def read_credential() -> str:
-            with get_llm_client("signals") as client:
+            with build_openai_client("signals") as client:
                 return client.api_key
 
         async def read_config() -> tuple[AIGatewayConfig | None, str]:
@@ -622,21 +621,30 @@ class TestPrivateScoutGateway:
                     return await read_config()
 
             first, second, ordinary = await asyncio.gather(
-                trial("pha_first_credential"), trial("pha_second_credential"), read_config()
+                trial("phe_first_credential"), trial("phe_second_credential"), read_config()
             )
-            assert first == (None, "pha_first_credential")
-            assert second == (None, "pha_second_credential")
-            assert ordinary == (AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY), "shared-credential")
+            assert first == (
+                AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_first_credential"),
+                "phe_first_credential",
+            )
+            assert second == (
+                AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_second_credential"),
+                "phe_second_credential",
+            )
+            assert ordinary == (AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY), AI_GATEWAY_KEY)
 
         async_to_sync(run_concurrently)()
-        with pytest.raises(RuntimeError), private_scout_gateway("pha_trial_credential"):
-            with private_scout_gateway("pha_nested_credential"):
-                assert async_to_sync(read_config)() == (None, "pha_nested_credential")
-            assert resolve_ai_gateway_config() is None
-            assert read_credential() == "pha_trial_credential"
+        with pytest.raises(RuntimeError), private_scout_gateway("phe_trial_credential"):
+            with private_scout_gateway("phe_nested_credential"):
+                assert async_to_sync(read_config)() == (
+                    AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_nested_credential"),
+                    "phe_nested_credential",
+                )
+            assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key="phe_trial_credential")
+            assert read_credential() == "phe_trial_credential"
             raise RuntimeError("validation failed")
         assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
-        assert read_credential() == "shared-credential"
+        assert read_credential() == AI_GATEWAY_KEY
         assert get_query_tags().is_scout_experiment is not True
 
     @override_settings(
@@ -645,21 +653,27 @@ class TestPrivateScoutGateway:
         AI_GATEWAY_URL=AI_GATEWAY_URL,
         AI_GATEWAY_API_KEY=AI_GATEWAY_KEY,
     )
-    def test_go_only_client_cannot_escape_private_context(self) -> None:
-        with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway("pha_trial_credential"):
-            with pytest.raises(ValueError, match="AI_GATEWAY_URL"):
-                build_ai_gateway_anthropic_client()
-        client.assert_not_called()
+    def test_go_only_client_uses_private_context(self) -> None:
+        with patch.object(gateway_client, "Anthropic") as client, private_scout_gateway("phe_trial_credential"):
+            build_ai_gateway_anthropic_client()
+        assert client.call_args.kwargs["api_key"] == "phe_trial_credential"
 
     @override_settings(
         SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+        AI_GATEWAY_URL=AI_GATEWAY_URL,
         LLM_GATEWAY_URL="https://gateway.example",
         LLM_GATEWAY_API_KEY="shared-credential",
     )
-    def test_trial_credential_cannot_be_replaced_or_used_for_another_product(self) -> None:
-        with patch.object(gateway_client, "OpenAI") as client, private_scout_gateway("pha_trial_credential"):
-            get_llm_client(product="signals", api_key="caller-credential")
-            assert client.call_args.kwargs["api_key"] == "pha_trial_credential"
-            with pytest.raises(GatewayNotConfiguredError, match="restricted to the signals product"):
-                get_llm_client(product="django")
-            assert client.call_count == 1
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            "get_llm_client",
+            "get_async_llm_client",
+            "get_anthropic_gateway_client",
+            "get_async_anthropic_gateway_client",
+        ],
+    )
+    def test_private_context_cannot_use_python_gateway(self, builder: str) -> None:
+        with private_scout_gateway("phe_trial_credential"):
+            with pytest.raises(GatewayNotConfiguredError, match="require the Go AI gateway"):
+                getattr(gateway_client, builder)(product="signals")

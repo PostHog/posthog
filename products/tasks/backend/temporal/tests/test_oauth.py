@@ -397,6 +397,7 @@ def test_private_scout_token_requires_trusted_task_and_cannot_be_widened(
     assert granted == "signals_scout_experiment"
     assert mock_create.call_args.kwargs["sandbox_task_id"] == test_task.id
     resolved = set(resolve_scopes(granted))
+    assert "llm_gateway:read" not in resolved
     assert {
         "scout_experiment_internal:read",
         "signal_scratchpad_internal:write",
