@@ -11,6 +11,7 @@ from django.test import SimpleTestCase
 
 import httpx
 from anthropic import APIConnectionError
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.egress.firecrawl.client import (
@@ -20,6 +21,7 @@ from posthog.egress.firecrawl.client import (
     FirecrawlSearchResult,
 )
 
+from products.web_analytics.backend.content_autopilot import generation
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits
 from products.web_analytics.backend.content_autopilot.generation import (
     Draft,
@@ -61,6 +63,7 @@ from products.web_analytics.backend.models import (
     ContentAutopilotRun,
 )
 from products.web_analytics.backend.public_url_fetch import FetchedPublicUrl
+from products.web_analytics.backend.tasks.content_autopilot import generate_content_autopilot_run_task
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
     create_content_autopilot_opportunity,
     create_content_autopilot_profile,
@@ -383,6 +386,68 @@ class TestContentAutopilotGeneration(BaseTest):
             "The site's domain changed after this run started. Draft it again."
         ]
         assert self.model.draft_calls == 0
+
+    def test_a_run_that_times_out_keeps_the_drafts_it_finished(self) -> None:
+        first = self._opportunity("first")
+        second = self._opportunity("second")
+
+        def time_out_on_second_draft() -> None:
+            if self.model.draft_calls == 1:
+                raise SoftTimeLimitExceeded()
+
+        self.model.on_draft = time_out_on_second_draft
+        run = draft_opportunities(
+            team=self.team,
+            profile_id=str(self.profile.id),
+            opportunity_ids=[str(first.id), str(second.id)],
+            triggered_by_id=None,
+        )
+
+        with patch("products.web_analytics.backend.content_autopilot.generation.build_client", return_value=object()):
+            generate_content_autopilot_run_task(self.team.id, str(run.id))
+
+        run.refresh_from_db()
+        statuses = sorted(
+            ContentAutopilotProposal.objects.for_team(self.team.id)
+            .filter(run=run)
+            .values_list("lifecycle_status", flat=True)
+        )
+        assert run.run_status == ContentAutopilotRun.RunStatus.READY_FOR_REVIEW
+        assert [entry["error_code"] for entry in run.errors] == ["timed_out"]
+        assert statuses == ["failed", "ready_for_review"]
+        assert set(
+            ContentAutopilotOpportunity.objects.for_team(self.team.id)
+            .filter(id__in=[first.id, second.id])
+            .values_list("status", flat=True)
+        ) == {ContentAutopilotOpportunity.Status.DRAFTED}
+
+    def test_a_timeout_right_after_a_draft_is_saved_keeps_it_ready(self) -> None:
+        opportunity = self._opportunity()
+        run = draft_opportunities(
+            team=self.team,
+            profile_id=str(self.profile.id),
+            opportunity_ids=[str(opportunity.id)],
+            triggered_by_id=None,
+        )
+        save_result = generation._save_result
+
+        def save_then_time_out(*args: Any, **kwargs: Any) -> None:
+            save_result(*args, **kwargs)
+            raise SoftTimeLimitExceeded()
+
+        with (
+            patch("products.web_analytics.backend.content_autopilot.generation.build_client", return_value=object()),
+            patch(
+                "products.web_analytics.backend.content_autopilot.generation._save_result",
+                side_effect=save_then_time_out,
+            ),
+        ):
+            generate_content_autopilot_run_task(self.team.id, str(run.id))
+
+        run.refresh_from_db()
+        proposal = ContentAutopilotProposal.objects.for_team(self.team.id).get(run=run)
+        assert proposal.lifecycle_status == ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW
+        assert run.run_status == ContentAutopilotRun.RunStatus.READY_FOR_REVIEW
 
     def test_canceling_a_run_stops_before_the_next_opportunity(self) -> None:
         first = self._opportunity("first")
