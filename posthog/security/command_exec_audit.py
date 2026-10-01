@@ -2,7 +2,6 @@
 
 import os
 import re
-import ast
 import uuid
 import shlex
 import subprocess
@@ -36,7 +35,6 @@ COMMAND_EXEC_AUDIT_COUNTER = Counter(
         "has_shell_operators",
         "has_encoded_blob",
         "replaces_process",
-        "multiprocessing",
         "suppressed",
     ],
 )
@@ -97,22 +95,6 @@ _SHELL_OPERATORS = frozenset(";|&$`<>\n")
 # With shell=False the arguments still reach a shell parser when the program itself is one, so
 # `["bash", "-c", "curl x | sh"]` carries the same risk as shell=True.
 _SHELL_BINARIES = frozenset({"sh", "bash", "dash", "zsh", "ksh", "csh", "tcsh", "fish", "busybox"})
-
-# Python's own multiprocessing bootstrap children (spawn / forkserver / resource_tracker). These
-# run continuously on dagster and the Temporal workers, so alerts exclude them by label. The label
-# hides an execution from those alerts, so it must match the exact `-c` program CPython builds
-# (multiprocessing/spawn.py, forkserver.py, resource_tracker.py), never a substring of argv.
-# The forkserver preload list and preparation dict are reprs of arbitrary data, so every captured
-# group there must parse as a Python literal: an expression inside them would run on the child.
-_PYTHON_EXECUTABLE_RE = re.compile(r"^python(?:\d+(?:\.\d+)?)?$")
-_MULTIPROCESSING_PROGRAM_RES = (
-    re.compile(r"^from multiprocessing\.spawn import spawn_main; spawn_main\(\w+=\d+(?:, \w+=\d+)*\)$"),
-    re.compile(r"^from multiprocessing\.resource_tracker import main;main\(\d+\)$"),
-    re.compile(
-        r"^(?:import sys; )?from multiprocessing\.forkserver import main; "
-        r"main\(\d+, \d+, (\[.*?\]), (?:sys_argv=sys\.argv\[1:\], )?\*\*(\{.*\})\)$"
-    ),
-)
 
 _VOLUME_SUPPRESSION_RULES: dict[str, Callable[[list[str]], bool]] = {
     "uname": lambda tail: all(a.startswith("-") for a in tail),
@@ -184,32 +166,6 @@ def _runs_a_shell(command: Any, binary: Optional[str]) -> bool:
     if program is None:
         return False
     return os.path.basename(_to_text(program).strip()).lower() in _SHELL_BINARIES
-
-
-def _is_multiprocessing_bootstrap(command: Any, shell: bool) -> bool:
-    if shell or not isinstance(command, (list, tuple)) or len(command) < 3:
-        return False
-    argv = [_to_text(token) for token in command]
-    if not _PYTHON_EXECUTABLE_RE.match(os.path.basename(argv[0])):
-        return False
-    try:
-        code_index = argv.index("-c")
-    except ValueError:
-        return False
-    if code_index + 1 >= len(argv):
-        return False
-    program = argv[code_index + 1]
-    for pattern in _MULTIPROCESSING_PROGRAM_RES:
-        match = pattern.match(program)
-        if match is None:
-            continue
-        try:
-            for group in match.groups():
-                ast.literal_eval(group)
-        except Exception:
-            return False
-        return True
-    return False
 
 
 def _scrub_args(tokens: Any) -> list[str]:
@@ -309,7 +265,6 @@ def _count(sink: str, payload: Mapping[str, Any], *, suppressed: bool = False) -
             has_shell_operators=str(bool(payload.get("has_shell_operators", False))).lower(),
             has_encoded_blob=str(bool(payload.get("has_encoded_blob", False))).lower(),
             replaces_process=str(bool(payload.get("replaces_process", False))).lower(),
-            multiprocessing=str(bool(payload.get("multiprocessing", False))).lower(),
             suppressed=str(suppressed).lower(),
         ).inc()
     except Exception:
@@ -338,10 +293,6 @@ def _emit(
         return
     token = _in_audit.set(True)
     try:
-        if _is_volume_suppressed(command, shell):
-            # Counted so the metric is a true execution rate; still not logged.
-            _count(sink, {"shell": shell, **(extra or {})}, suppressed=True)
-            return
         payload: dict[str, Any] = {"component": component, "sink": sink, "shell": bool(shell)}
         # raw = the real command (un-redacted) for detection scans; scrubbed = what we store.
         if isinstance(command, (list, tuple)):
@@ -366,8 +317,10 @@ def _emit(
         if _BLOB_RE.search(raw):
             payload["has_encoded_blob"] = True
 
-        if _is_multiprocessing_bootstrap(command, shell):
-            payload["multiprocessing"] = True
+        if _is_volume_suppressed(command, shell):
+            # Counted with its detection labels so the metric is a true execution rate; still not logged.
+            _count(sink, {**payload, **(extra or {})}, suppressed=True)
+            return
 
         if cwd is not None:
             payload["cwd"] = _coerce_str(cwd)

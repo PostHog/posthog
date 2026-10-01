@@ -158,7 +158,7 @@ class TestCommandExecAuditPatching(TestCase):
 
     def _audit_count(self, sink: str, **flags: str) -> float:
         labels = dict.fromkeys(
-            ("shell", "has_shell_operators", "has_encoded_blob", "replaces_process", "multiprocessing", "suppressed"),
+            ("shell", "has_shell_operators", "has_encoded_blob", "replaces_process", "suppressed"),
             "false",
         )
         labels.update(flags)
@@ -176,80 +176,6 @@ class TestCommandExecAuditPatching(TestCase):
                 {"has_encoded_blob": "true"},
             ),
             ("replaces_process", ["/bin/true"], False, {"replaces_process": True}, {"replaces_process": "true"}),
-            (
-                "multiprocessing_spawn",
-                [
-                    "/usr/bin/python3.13",
-                    "-c",
-                    "from multiprocessing.spawn import spawn_main; spawn_main(tracker_fd=5, pipe_handle=7)",
-                    "--multiprocessing-fork",
-                ],
-                False,
-                None,
-                {"multiprocessing": "true"},
-            ),
-            (
-                "multiprocessing_resource_tracker_with_interpreter_flags",
-                ["python", "-X", "faulthandler", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
-                False,
-                None,
-                {"multiprocessing": "true"},
-            ),
-            (
-                "multiprocessing_forkserver",
-                [
-                    "python",
-                    "-c",
-                    "import sys; from multiprocessing.forkserver import main; "
-                    "main(5, 6, ['__main__'], sys_argv=sys.argv[1:], **{'sys_path': ['/app']})",
-                    "manage.py",
-                    "start_temporal_worker",
-                ],
-                False,
-                None,
-                {"multiprocessing": "true"},
-            ),
-            # The label hides an execution from alerts, so a marker string in an arbitrary argument,
-            # a non-python binary, or extra code appended to the bootstrap program must not earn it.
-            ("spoof_flag_in_argument", ["/bin/evil", "--multiprocessing-fork"], False, None, {}),
-            (
-                "spoof_non_python_binary",
-                ["/bin/evil", "-c", "from multiprocessing.resource_tracker import main;main(5)"],
-                False,
-                None,
-                {},
-            ),
-            (
-                "spoof_code_appended_to_bootstrap",
-                ["python", "-c", "from multiprocessing.resource_tracker import main;main(5); import evil"],
-                False,
-                None,
-                {},
-            ),
-            (
-                "spoof_expression_in_forkserver_preload",
-                [
-                    "python",
-                    "-c",
-                    "import sys; from multiprocessing.forkserver import main; "
-                    "main(5, 6, [__import__('os').system('id')], **{})",
-                ],
-                False,
-                None,
-                {},
-            ),
-            (
-                "spoof_replaces_process",
-                [
-                    "python",
-                    "-c",
-                    "import evil",
-                    "from multiprocessing.spawn import spawn_main; spawn_main(pipe_handle=1)",
-                ],
-                False,
-                {"replaces_process": True},
-                {"replaces_process": "true"},
-            ),
             ("volume_suppressed", ["uname", "-rs"], False, None, {"suppressed": "true"}),
             (
                 "volume_suppressed_exec_keeps_flags",
@@ -257,6 +183,14 @@ class TestCommandExecAuditPatching(TestCase):
                 False,
                 {"replaces_process": True},
                 {"suppressed": "true", "replaces_process": "true"},
+            ),
+            # A payload behind a suppressed basename still carries its detection labels.
+            (
+                "volume_suppressed_keeps_detection_labels",
+                ["uname", "-" + "A" * 80],
+                False,
+                None,
+                {"suppressed": "true", "has_encoded_blob": "true"},
             ),
         ]
     )
@@ -277,7 +211,6 @@ class TestCommandExecAuditPatching(TestCase):
             self.assertIsNone(entry)
             return
         assert entry is not None
-        self.assertEqual(entry.get("multiprocessing", False), flags.get("multiprocessing") == "true")
         self.assertNotIn("suppressed", entry)
 
     def test_subprocess_run_is_logged(self) -> None:
