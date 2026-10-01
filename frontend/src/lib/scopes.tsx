@@ -161,6 +161,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
+    {
+        key: 'messaging_preference',
+        objectName: 'Messaging preference',
+        objectPlural: 'messaging preferences',
+        info: "Recipients' opt-outs for workflow messages. Write changes preferences but does not include read, so it can't list or export opt-outs.",
+    },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -295,7 +301,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
-    'hog_flow:write',
+    'messaging_preference:read',
+    'messaging_preference:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -392,7 +399,7 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
-    { value: 'messaging_preferences', label: 'Messaging preference updates', scopes: ['hog_flow:write'] },
+    { value: 'messaging_preferences', label: 'Messaging preference updates', scopes: ['messaging_preference:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each grantable
@@ -493,6 +500,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'batch_import',
             'hog_function',
             'hog_flow',
+            'messaging_preference',
             'endpoint',
             'streamlit_app',
             'webhook',

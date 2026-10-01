@@ -50,6 +50,11 @@ class TestDowngradeScopesToReadOnly(SimpleTestCase):
                 "organization:write feature_flag:write",
                 "organization:read feature_flag:read",
             ),
+            (
+                "write_without_read_object_dropped",
+                "messaging_preference:write feature_flag:write",
+                "feature_flag:read",
+            ),
         ]
     )
     def test_basic_cases(self, _name: str, given: str, expected: str) -> None:

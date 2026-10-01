@@ -1,5 +1,3 @@
-import json
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -52,7 +50,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
     )
     @patch("products.messaging.backend.tasks.sync_preferences_to_customerio")
     def test_sdk_request_writes_the_preference(self, endpoint, expected_status, mock_sync):
-        token = self._create_project_secret_key(self.team, ["hog_flow:write"])
+        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self._sdk_request(
@@ -67,22 +65,46 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         self.assertIsNone(preference.created_by)
         mock_sync.assert_called_once_with(self.team.id, "user@example.com", preference.preferences)
 
+    def test_bulk_opt_outs_record_no_creator(self):
+        token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_preferences/bulk_add_opt_outs/",
+            {"opt_outs": [{"identifier": "user@example.com"}]},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        preference = MessageRecipientPreference.objects.get(team=self.team, identifier="user@example.com")
+        self.assertIsNone(preference.created_by)
+
     @parameterized.expand(
         [
-            ("bulk_add_opt_outs", "post"),
-            ("opt_outs", "get"),
-            ("export_opt_outs_csv", "get"),
-            ("generate_link", "post"),
-            ("webhook_url", "get"),
+            (["messaging_preference:write"], "opt_outs", status.HTTP_403_FORBIDDEN),
+            (["messaging_preference:write"], "export_opt_outs_csv", status.HTTP_403_FORBIDDEN),
+            (["messaging_preference:read"], "opt_outs", status.HTTP_200_OK),
+            (["messaging_preference:read"], "export_opt_outs_csv", status.HTTP_200_OK),
         ]
     )
-    def test_other_actions_reject_project_secret_keys(self, endpoint, http_method):
-        token = self._create_project_secret_key(self.team, ["hog_flow:read", "hog_flow:write"])
+    def test_reading_the_opt_out_list_needs_the_read_scope(self, scopes, endpoint, expected_status):
+        token = self._create_project_secret_key(self.team, scopes)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_preferences/{endpoint}/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("generate_link", "post"), ("webhook_url", "get")])
+    def test_session_only_actions_reject_project_secret_keys(self, endpoint, http_method):
+        token = self._create_project_secret_key(self.team, ["messaging_preference:read", "messaging_preference:write"])
 
         response = self.client.generic(
             http_method.upper(),
             f"/api/projects/{self.team.id}/messaging_preferences/{endpoint}/",
-            json.dumps({"opt_outs": [{"identifier": "user@example.com"}]}),
+            "{}",
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -90,8 +112,8 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertIn("does not support project secret API key", response.json()["detail"])
 
-    @parameterized.expand([(["hog_flow:read"],), (["endpoint:read"],)])
-    def test_project_secret_key_needs_hog_flow_write(self, scopes):
+    @parameterized.expand([(["messaging_preference:read"],), (["hog_flow:write"],), (["endpoint:read"],)])
+    def test_writing_needs_the_messaging_preference_write_scope(self, scopes):
         token = self._create_project_secret_key(self.team, scopes)
 
         response = self._sdk_request("add_opt_out", f"Bearer {token}")
@@ -101,7 +123,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     def test_project_secret_key_cannot_write_to_another_project(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
-        token = self._create_project_secret_key(other_team, ["hog_flow:write"])
+        token = self._create_project_secret_key(other_team, ["messaging_preference:write"])
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/messaging_preferences/add_opt_out/",
@@ -115,7 +137,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     def test_the_secret_key_decides_the_project_not_the_public_token(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
-        token = self._create_project_secret_key(other_team, ["hog_flow:write"])
+        token = self._create_project_secret_key(other_team, ["messaging_preference:write"])
 
         response = self._sdk_request("add_opt_out", f"Bearer {token}")
 
@@ -134,7 +156,7 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         elif case == "project_token_as_bearer":
             authorization = f"Bearer {self.team.api_token}"
         else:
-            token = self._create_project_secret_key(self.team, ["hog_flow:write"])
+            token = self._create_project_secret_key(self.team, ["messaging_preference:write"])
             ProjectSecretAPIKey.objects.filter(team=self.team).delete()
             authorization = f"Bearer {token}"
 
@@ -147,8 +169,8 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
     @patch.object(MessagingPreferencesProjectSecretKeyTeamBurstThrottle, "rate", "1/minute")
     def test_project_secret_keys_share_one_rate_limit_per_project(self, _rate_limit_enabled):
         cache.clear()
-        first_key = self._create_project_secret_key(self.team, ["hog_flow:write"], label="first")
-        second_key = self._create_project_secret_key(self.team, ["hog_flow:write"], label="second")
+        first_key = self._create_project_secret_key(self.team, ["messaging_preference:write"], label="first")
+        second_key = self._create_project_secret_key(self.team, ["messaging_preference:write"], label="second")
 
         first_response = self._sdk_request("add_opt_out", f"Bearer {first_key}")
         second_response = self._sdk_request("add_opt_out", f"Bearer {second_key}")

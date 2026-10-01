@@ -144,6 +144,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'mcp_analytics:write',
     'mcp_registry:read',
     'mcp_registry:write',
+    'messaging_preference:read',
+    'messaging_preference:write',
     'metrics:read',
     'metrics:write',
     'notebook:read',

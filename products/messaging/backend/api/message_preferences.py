@@ -18,7 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.user import User
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.plugins import plugin_server_api
 from posthog.rate_limit import (
     BurstRateThrottle,
@@ -26,6 +26,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
     SustainedRateThrottle,
 )
+from posthog.scopes import scopes_not_covered
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
@@ -58,6 +59,15 @@ class MessagingPreferencesProjectSecretKeyTeamBurstThrottle(ProjectSecretApiKeyT
 class MessagingPreferencesProjectSecretKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "messaging_preferences_psak_team_sustained"
     rate = SustainedRateThrottle.rate
+
+
+MESSAGING_PREFERENCE_SCOPE_BY_ACTION: dict[str, str] = {
+    "opt_outs": "messaging_preference:read",
+    "export_opt_outs_csv": "messaging_preference:read",
+    "add_opt_out": "messaging_preference:write",
+    "bulk_add_opt_outs": "messaging_preference:write",
+    "remove_opt_out": "messaging_preference:write",
+}
 
 
 class OptOutsPagination(PageNumberPagination):
@@ -223,10 +233,10 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # in neither.
     scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
     scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out"]
-    # A customer's server sets a recipient's preferences with a project secret key, which
-    # outlives the person who created it. Every other action stays on user credentials.
+    # A customer's server manages preferences with a project secret key, which outlives the
+    # person who created it. Every other action stays on user credentials.
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["add_opt_out", "remove_opt_out"]
+    psak_allowed_actions = list(MESSAGING_PREFERENCE_SCOPE_BY_ACTION)
     # Same buckets as the default throttles, which let project secret keys through unthrottled,
     # plus one per project so minting more keys does not multiply its budget.
     throttle_classes = [
@@ -248,6 +258,17 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # a single workflow could read or rewrite the whole team's opt-out list.
         if not self.user_access_control.check_access_level_for_resource("hog_flow", required_level):
             raise PermissionDenied(message)
+
+    def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSet) -> list[str] | None:
+        # A token may carry the narrow messaging_preference scope or the broader hog_flow one that
+        # existing keys and MCP clients hold. Project secret keys only get the narrow one.
+        narrow_scope = MESSAGING_PREFERENCE_SCOPE_BY_ACTION.get(self.action)
+        if narrow_scope is None:
+            return None
+        held_scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        if is_authenticated_via_project_secret_api_key(request) or not scopes_not_covered(held_scopes, [narrow_scope]):
+            return [narrow_scope]
+        return None
 
     def _requesting_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
@@ -434,7 +455,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_resource_access("viewer", "You need hog_flow viewer access to view the opt-out list.")
 
         category_key = request.query_params.get("category_key")
-        service = OptOutService(team_id=self.team_id, user=request.user)
+        service = OptOutService(team_id=self.team_id, user=self._requesting_user())
 
         try:
             rows = service.export_rows(category_key)
@@ -471,7 +492,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for entry in serializer.validated_data["opt_outs"]
         ]
 
-        service = OptOutService(team_id=self.team_id, user=request.user)
+        service = OptOutService(team_id=self.team_id, user=self._requesting_user())
         try:
             result = service.opt_out_recipients(entries, serializer.validated_data.get("category_key") or None)
         except UnknownCategoryError as e:

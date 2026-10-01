@@ -97,6 +97,8 @@ APIScopeObject = Literal[
     "mcp_builtin_agent",
     "mcp_analytics",
     "mcp_registry",
+    # Reads and writes recipients' messaging preferences (opt-outs), and nothing else in workflows.
+    "messaging_preference",
     "metrics",
     "notebook",
     "offline_evaluation_ingestion",
@@ -217,6 +219,15 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
+# Scope objects whose `:write` does not cover `:read`. A key that only writes messaging
+# preferences must not be able to list every recipient's email address and opt-out status.
+WRITE_EXCLUDES_READ_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"messaging_preference"})
+
+
+def _write_excludes_read(scope: str) -> bool:
+    return scope.split(":", 1)[0] in WRITE_EXCLUDES_READ_SCOPE_OBJECTS
+
+
 # Scope objects available via personal API keys but never advertised through
 # OAuth metadata. Used where a user can manually paste the scope into a PAT but
 # we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
@@ -266,10 +277,10 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
-    # Lets a customer's server opt recipients in to or out of workflow messages. Only the
-    # messaging preference writes accept a project secret key, so it can't edit workflows. Like
-    # every write scope it covers the read half, so endpoint runs can query hog_flow system tables.
-    ("hog_flow", "write"),
+    # Lets a customer's server set recipients' messaging preferences, and separately read the
+    # opt-out list. Write does not include read, see WRITE_EXCLUDES_READ_SCOPE_OBJECTS.
+    ("messaging_preference", "read"),
+    ("messaging_preference", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -324,7 +335,8 @@ def get_scope_descriptions() -> dict[str, str]:
 def downgrade_scopes_to_read_only(scope_str: str) -> str:
     """Strip write access from a space-separated OAuth scope string.
 
-    - `<object>:write` becomes `<object>:read`.
+    - `<object>:write` becomes `<object>:read`, unless `WRITE_EXCLUDES_READ_SCOPE_OBJECTS` holds the
+      object. Consent to write those does not include read, so the scope is dropped.
     - `*` is the full-access wildcard (see `posthog/permissions.py` — `if "*" in key_scopes`
       short-circuits the scope check, granting read+write). Pass-through would defeat the
       downgrade, so `*` is expanded to every public `*:read` scope.
@@ -344,7 +356,8 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
         if raw == "*":
             expanded.extend(all_public_read_scopes)
         elif raw.endswith(":write"):
-            expanded.append(raw[: -len(":write")] + ":read")
+            if not _write_excludes_read(raw):
+                expanded.append(raw[: -len(":write")] + ":read")
         else:
             expanded.append(raw)
     seen: set[str] = set()
@@ -442,14 +455,22 @@ def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
 
 
 def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
-    return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
+    return frozenset(
+        scopes
+        | {
+            scope.replace(":write", ":read")
+            for scope in scopes
+            if scope.endswith(":write") and not _write_excludes_read(scope)
+        }
+    )
 
 
 def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
     """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
-    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
-    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
-    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    covers the matching `:read`, except for `WRITE_EXCLUDES_READ_SCOPE_OBJECTS`. APIScopePermission
+    and project secret API key issuance share this rule, so an issued key cannot get a scope that
+    the issuing credential cannot use. Callers handle `*` themselves, because APIScopePermission
+    does not let `*` reach INTERNAL scope objects."""
     covered = _with_read_halves(frozenset(held_scopes))
     return [scope for scope in required_scopes if scope not in covered]
 
