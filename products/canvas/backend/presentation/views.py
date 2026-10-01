@@ -34,6 +34,7 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
+from products.canvas.backend.artifacts import create_canvas_sandbox_document_url
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -811,6 +812,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             "has_active_build": newest_active is not None,
             "source": source,
             "layout": layout,
+            "sandbox_document_url": create_canvas_sandbox_document_url(),
         }
         if layout is not None:
             instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)

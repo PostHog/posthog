@@ -1748,6 +1748,11 @@ export interface CanvasViewResponseApi {
     layout?: CanvasLayoutApi | null
     /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
     component_lifecycles?: CanvasComponentLifecycleApi[]
+    /**
+     * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+     * @nullable
+     */
+    readonly sandbox_document_url: string | null
 }
 
 /**

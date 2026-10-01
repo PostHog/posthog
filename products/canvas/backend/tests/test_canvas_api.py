@@ -1,3 +1,4 @@
+import re
 import json
 from datetime import timedelta
 from types import SimpleNamespace
@@ -1041,6 +1042,9 @@ class TestCanvasViewEndpoint(CanvasAPIBaseTest):
         assert body["has_active_build"] is True
         assert "src/canvas.tsx" in body["source"]["files"]
         assert body["layout"] is None
+        assert re.fullmatch(
+            r"http://localhost:8010/canvas-artifacts/sandbox/[0-9a-f]{64}/index\.html", body["sandbox_document_url"]
+        )
 
     def test_view_after_build_returns_artifact_url_and_omits_source(self):
         canvas_id = self._create_canvas()

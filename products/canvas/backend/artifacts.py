@@ -11,11 +11,15 @@ Integrity is verified when artifacts are written and again when they are read
 from object storage. The manifest hash is also used as the response ETag.
 """
 
+import re
+import html
 import math
 import time
 import hashlib
+import functools
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 from uuid import UUID
 
 from django.conf import settings
@@ -23,6 +27,8 @@ from django.core import signing
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from posthog.csp_middleware import app_frame_ancestor_sources
+from posthog.dataclasses import frozen
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import artifact_csp
@@ -34,6 +40,11 @@ ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # churn on every lifecycle poll) while still expiring: a token is accepted for
 # its own bucket and the next one, i.e. between one and two hours.
 ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
+
+# Generated from the desktop's sandboxRuntime.ts by `pnpm --filter @posthog/ui
+# generate-web-sandbox`. Do not edit it by hand.
+SANDBOX_DOCUMENT_PATH = Path(__file__).parent / "sandbox" / "sandbox_document.html"
+ARTIFACT_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
 
 
 def _configured_artifact_host() -> str | None:
@@ -56,11 +67,15 @@ def _artifact_signing_keys() -> list[str]:
     return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
 
 
+def _artifact_delivery_enabled(keys: list[str]) -> bool:
+    if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
+        return False
+    return bool(settings.DEBUG or settings.TEST) or (len(keys[0]) >= 32 and _configured_artifact_host() is not None)
+
+
 def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
     keys = _artifact_signing_keys()
-    if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
-        return None
-    if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
+    if not _artifact_delivery_enabled(keys):
         return None
     bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
     return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(
@@ -102,11 +117,83 @@ def _read_token(token: str) -> dict[str, Any]:
     raise Http404
 
 
-@xframe_options_exempt
-def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
+def _require_artifact_host(request: HttpRequest) -> None:
     configured_host = _configured_artifact_host()
     if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or request.get_host().lower() != configured_host):
         raise Http404
+
+
+@frozen
+class _SandboxDocument:
+    content: bytes
+    content_hash: str
+    declared_csp: tuple[str, ...]
+
+
+@functools.cache
+def _sandbox_document() -> _SandboxDocument:
+    content = SANDBOX_DOCUMENT_PATH.read_bytes()
+    match = re.search(rb'<meta http-equiv="Content-Security-Policy" content="([^"]*)"', content)
+    if match is None:
+        raise RuntimeError(f"{SANDBOX_DOCUMENT_PATH} declares no Content-Security-Policy meta tag")
+    return _SandboxDocument(
+        content=content,
+        content_hash=hashlib.sha256(content).hexdigest(),
+        declared_csp=tuple(part.strip() for part in html.unescape(match.group(1).decode()).split(";") if part.strip()),
+    )
+
+
+def _canvas_sandbox_document_csp(document: _SandboxDocument) -> str:
+    site = urlsplit(settings.SITE_URL)
+    ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
+    return "; ".join(
+        [
+            *document.declared_csp,
+            # The document runs in an opaque origin even when it opens top-level or in a frame
+            # without the sandbox attribute.
+            "sandbox allow-scripts",
+            # A meta tag cannot carry frame-ancestors or sandbox, so only the header applies them.
+            f"frame-ancestors {' '.join(ancestors)}",
+        ]
+    )
+
+
+def create_canvas_sandbox_document_url() -> str | None:
+    """The URL of the draft canvas sandbox document, or None when artifact delivery is off.
+
+    The content hash in the path makes each URL immutable, so a deploy that changes the
+    document changes the URL too.
+    """
+    if not _artifact_delivery_enabled(_artifact_signing_keys()):
+        return None
+    return f"{_artifact_origin()}/canvas-artifacts/sandbox/{_sandbox_document().content_hash}/index.html"
+
+
+@xframe_options_exempt
+def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResponse:
+    """The bootstrap document that renders a draft canvas in a sandboxed iframe.
+
+    The web app cannot use this document as srcdoc, because a srcdoc frame inherits the app's CSP,
+    which refuses the CDNs the document transpiles and resolves imports from. It holds no
+    credentials: the canvas code arrives later by postMessage.
+    """
+    _require_artifact_host(request)
+    document = _sandbox_document()
+    if content_hash != document.content_hash:
+        raise Http404
+    response = HttpResponse(document.content, content_type="text/html; charset=utf-8")
+    response["ETag"] = f'"{document.content_hash}"'
+    response["Cache-Control"] = "public, max-age=31536000, immutable"
+    response["Referrer-Policy"] = "no-referrer"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = _canvas_sandbox_document_csp(document)
+    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
+    return response
+
+
+@xframe_options_exempt
+def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
+    _require_artifact_host(request)
     claims = _read_token(token)
     token_expires_at = (claims["bucket"] + 2) * ARTIFACT_TOKEN_BUCKET_SECONDS
     team_id = claims.get("team_id")
@@ -185,5 +272,5 @@ def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, to
     response["X-Content-Type-Options"] = "nosniff"
     network_origins = ((manifest.get("capabilities") or {}).get("network") or {}).get("origins") or []
     response["Content-Security-Policy"] = artifact_csp(network_origins)
-    response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response

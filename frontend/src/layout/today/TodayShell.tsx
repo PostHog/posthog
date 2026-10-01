@@ -11,6 +11,8 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { cn } from 'lib/utils/css-classes'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
+import { NewCanvasDialog } from 'products/canvas/frontend/newCanvas/NewCanvasDialog'
+
 import { NewSpaceDialog } from 'products/tasks/frontend/spaces/NewSpaceDialog'
 
 import { TodayLibrarySidebar } from './TodayLibrarySidebar'
@@ -20,8 +22,9 @@ import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, tod
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySpacesSidebar } from './TodaySpacesSidebar'
 import { TodayToolsSidebar } from './TodayToolsSidebar'
+import { TodayViewsSidebar } from './TodayViewsSidebar'
 
-const PANE_LABELS = { home: 'Today', spaces: 'Spaces', library: 'Library', tools: 'Tools' }
+const PANE_LABELS = { home: 'Today', spaces: 'Spaces', views: 'Views', library: 'Library', tools: 'Tools' }
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
@@ -71,6 +74,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <TodayPreviewCardProvider>
                     <TodaySpacesSidebar />
                 </TodayPreviewCardProvider>
+            ) : activePane === 'views' ? (
+                <TodayViewsSidebar />
             ) : activePane === 'library' ? (
                 <TodayLibrarySidebar />
             ) : (
@@ -127,6 +132,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 )}
                 {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
                 <NewSpaceDialog />
+                <NewCanvasDialog />
             </div>
         </ToastProvider>
     )

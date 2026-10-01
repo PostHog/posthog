@@ -92,6 +92,19 @@ def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
 
+def app_frame_ancestor_sources() -> list[str]:
+    """The origins that may frame the app, as `frame-ancestors` sources.
+
+    A frame the app embeds has these origins in its ancestor chain too, so its own policy must
+    admit them.
+    """
+    sources = ["https://posthog.com", "https://preview.posthog.com"]
+    if not (settings.DEBUG or settings.TEST) and settings.SITE_URL.endswith(".dev.posthog.dev"):
+        # The posthog.com dev server frames the dev app.
+        sources.append("http://localhost:8001")
+    return sources
+
+
 CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG = "csp-enforce-other-signed-out-pages"
 
 # The pages that take a password or a one-time code. Other signed-out pages follow the flag above.
@@ -274,18 +287,19 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'default="{reporting_endpoint}"'
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         elif "Content-Security-Policy" in response.headers:
-            # The view picked this policy for this document: a canvas artifact runs untrusted code,
-            # and the workflow asset endpoint sandboxes captured email HTML. The app policy would
-            # drop that sandbox and impose a frame-ancestors list the app's own origin does not
-            # match. Adding it report-only is no better, because these documents never aim to
-            # satisfy it, so each load would report a violation of a policy we chose not to apply.
+            # The view picked this policy for this document: a canvas artifact and the draft canvas
+            # sandbox document run untrusted code, and the workflow asset endpoint sandboxes
+            # captured email HTML. The app policy would drop that sandbox and impose a
+            # frame-ancestors list the app's own origin does not match. Adding it report-only is no
+            # better, because these documents never aim to satisfy it, so each load would report a
+            # violation of a policy we chose not to apply.
             return response
         else:
             resource_url = "https://*.posthog.com"
             # Enforced for every viewer, flag or not, because this directive is what admits these
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
-            frame_ancestors = "frame-ancestors https://posthog.com https://preview.posthog.com"
+            frame_ancestors = f"frame-ancestors {' '.join(app_frame_ancestor_sources())}"
             js_url = urlsplit(settings.JS_URL)
             bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
@@ -293,8 +307,6 @@ class CSPMiddleware:
                 resource_url = " ".join(dict.fromkeys(filter(None, ["http://localhost:8234", bundle_origin])))
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
-                # The posthog.com dev server frames the dev app.
-                frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
             object_storage_source = object_storage_upload_source()
