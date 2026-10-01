@@ -8,6 +8,7 @@ import {
   matchesKey,
   stripTerminalSequences,
   type TUI,
+  truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
 import type { RunCommand } from "./models";
@@ -140,9 +141,11 @@ export class Composer {
   }
 
   // The input and its rule, and apart from them any suggestion list, which the pane floats over the chat.
+  // A status, such as context and cost, ends the top rule on the right.
   render(
     width: number,
     focused: boolean,
+    status = "",
   ): { editor: string[]; popup: string[] } {
     this.editor.focused = focused;
     // Shell mode turns the rule and the prompt PostHog orange, so it is hard to miss.
@@ -169,7 +172,12 @@ export class Composer {
           ? `${prompt} ${line}`
           : `${" ".repeat(PROMPT_WIDTH)}${line}`,
       );
-    const editor = [fullWidth(lines[0]), ...input];
+    const statusWidth = status ? visibleWidth(status) + 1 : 0;
+    const top =
+      status && statusWidth < width
+        ? `${truncateToWidth(fullWidth(lines[0]), width - statusWidth, "")} ${status}`
+        : fullWidth(lines[0]);
+    const editor = [top, ...input];
     if (found <= 0) return { editor, popup: [] };
     // A plain closing rule goes: the pane edge already closes the input.
     if (!PLAIN_RULE.test(stripTerminalSequences(lines[found])))

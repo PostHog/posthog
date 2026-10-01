@@ -171,6 +171,19 @@ describe("Composer", () => {
     expect(lines).toContain("❯ x");
   });
 
+  it("ends the top rule with a status, still the pane's full width", () => {
+    const composer = new Composer(
+      () => {},
+      () => {},
+    );
+    const top = stripTerminalSequences(
+      composer.render(30, true, "◑ • $3.12").editor[0],
+    );
+
+    expect(top).toMatch(/^─+ ◑ • \$3\.12$/);
+    expect(top).toHaveLength(30);
+  });
+
   it("hands back slash suggestions apart from the input, so they can float over the chat", async () => {
     let repaints = 0;
     const composer = new Composer(

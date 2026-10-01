@@ -44,6 +44,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `sheet.ts`, `actions.ts` | The reusable bottom sheet, and the agent's `show_actions` offers on it |
 | `prompts.ts` | A local agent's dialogs and MCP permission requests, shown on the sheet and answered through the pi extension response |
 | `status.ts` | The PR and status chips in the pane header |
+| `usage.ts` | The context donut and task cost at the right end of the composer's top rule |
 | `theme.ts`, `faint.ts` | Light or dark from the terminal's OSC 11 background reply, and the dimming of unfocused panes |
 | `mouse.ts`, `shortcuts.ts` | Raw input: mouse reports, app keys, kitty and legacy key forms |
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |

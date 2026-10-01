@@ -21,6 +21,8 @@ export class LocalSession {
   private readonly listeners = new Set<(view: RunView) => void>();
   private view: RunView = emptyRunView;
   private prompts: AgentPrompt[] = [];
+  // The model's context window; turn usage carries it, so the composer can show how full the context is.
+  private contextWindow: number | undefined;
   private readonly promptListeners = new Set<
     (prompts: AgentPrompt[]) => void
   >();
@@ -29,7 +31,7 @@ export class LocalSession {
     private readonly client: PiRpcClient,
     private readonly policies: McpToolPolicyUpdater,
   ) {
-    this.runtime = new PiRuntime(client);
+    this.runtime = new PiRuntime(client, () => this.contextWindow);
     this.runtime.onExtensionEvent((event) => {
       if (event.type !== "extension_ui_request") return;
       if (
@@ -53,7 +55,22 @@ export class LocalSession {
         entries: [...this.view.entries, asEntry(event)],
       }),
     );
-    this.control = controlOf(client, (command) => this.bash(command));
+    const control = controlOf(client, (command) => this.bash(command));
+    this.control = {
+      ...control,
+      setModel: async (model) => {
+        await control.setModel(model);
+        await this.refreshContextWindow();
+      },
+    };
+  }
+
+  // Without a window the composer hides its donut, so a failed read costs nothing else.
+  private async refreshContextWindow(): Promise<void> {
+    try {
+      const { model } = await this.client.getState();
+      this.contextWindow = model?.contextWindow;
+    } catch {}
   }
 
   // The runtime emits the command's conversation events itself, so the chat shows it like any other entry.
@@ -76,6 +93,7 @@ export class LocalSession {
   // Starts the agent and replays the conversation its session file already holds.
   async start(): Promise<void> {
     await this.client.start();
+    await this.refreshContextWindow();
     const history = await getRemotePiConversation(this.client);
     this.publish({
       ...this.view,
