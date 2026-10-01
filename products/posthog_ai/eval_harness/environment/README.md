@@ -18,6 +18,28 @@ Use `--state-dir /private/path/another-import` to create a separate project or r
 
 The command only accepts local development database settings. It never stops another checkout's app. If the running app belongs to another checkout and this checkout needs migrations, it refuses the import: start a compatible normal app before retrying. For its own checkout, it waits for startup migrations and can apply the normal forward PostgreSQL migrations. The workspace retains private startup and migration logs.
 
+## Share and restore private bundles through S3
+
+The bundle owner uploads the archive to an approved private S3 bucket under a new versioned path, then shares its S3 URI and the SHA-256 printed by `pack` through a private channel. Keep each version for the full comparison period, outside short-lived export or query-cache expiration rules. Configure public-access blocking, read-only access for consumers, and separate publishing access on the bucket. The setup command does not create buckets, upload data, or change access policies.
+
+On a devbox with an AWS machine role that can read the bundle, run one command, replacing the example URI and checksum placeholder:
+
+```bash
+products/posthog_ai/eval_harness/prepare-devbox \
+  s3://example-eval-datasets/environments/example/v1/environment.tar.gz \
+  --sha256 REPLACE_WITH_PUBLISHED_SHA256
+```
+
+The SDK uses the devbox's role automatically; the AWS CLI is not required to download. If your machine instead uses a named [AWS profile](https://docs.aws.amazon.com/boto3/latest/guide/credentials.html), add `--aws-profile eval-reader`. For an SSO profile, log in first with your usual AWS setup, such as `aws sso login --profile eval-reader`.
+
+The checksum is required for S3. It pins the exact archive even if someone replaces the object at that path. Downloads stream to a private temporary file in the state directory, with a 2 GiB compressed-size limit. A complete, matching download is saved as `download-<sha256>.tar.gz`; existing archive checks then validate its contents before app startup or import. Failures remove partial downloads and leave the database untouched. Public HTTP URLs and presigned URLs are not accepted.
+
+Repeat runs recheck and reuse the private cached archive without contacting S3. A changed or symbolic-link cache file is rejected. The first import records the S3 URI and archive checksum in its private receipt; later reuse preserves that original provenance. Local archives can also use `--sha256`; unpacked folders continue to use their manifest checksums.
+
+Use `--aws-profile` to select a named profile in `~/.aws/config`. The repository wrapper clears ambient shell variables, including exported AWS credentials and `AWS_PROFILE`; named profiles and their normal local credential/SSO files survive because the home directory is preserved. Without the flag, the SDK uses its default credential chain inside that environment. S3 downloads use AWS endpoints independently of the app's `OBJECT_STORAGE_*` settings and configured endpoint overrides. No model keys are needed.
+
+Uploading can happen on a laptop using its normal AWS login. After packing and copying the bundle, verify its SHA-256 still matches the `pack` output, then use `aws s3 cp environment.tar.gz s3://example-eval-datasets/environments/example/v1/environment.tar.gz` with your real private destination. Use a new object path for each version. The bucket must grant the consuming devbox's role or profile read access; uploading from a laptop does not grant that access automatically.
+
 ## Build a bundle
 
 Use the canonical `EnvironmentEvent` and `EnvironmentMetric` models with `EVENT_TABLE` and `METRIC_TABLE`. These helpers write the exact Parquet column types, including JSON-encoded properties and timezone-aware timestamps. Arbitrary query-export Parquet schemas are not accepted.

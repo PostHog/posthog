@@ -9,6 +9,7 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 
 For a persistent local project with reusable event and metric fixtures, see the
 [evaluation environment setup guide](../../products/posthog_ai/eval_harness/environment/README.md).
+It accepts local bundles or authenticated S3 downloads pinned by archive checksum.
 Preparing that environment does not run an evaluation or upload results.
 
 ## Capture settings

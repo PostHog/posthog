@@ -28,6 +28,7 @@ from django.db import DatabaseError
 from pydantic import ValidationError
 
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
+from products.posthog_ai.eval_harness.environment.download import S3EnvironmentSource, validate_sha256
 from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrationsPending, assert_local_databases
 from products.posthog_ai.eval_harness.environment.schema import EnvironmentTextPolicy
 
@@ -449,27 +450,41 @@ def source_provenance(app_checkout: str | None) -> dict[str, str]:
 
 
 def prepare(args: argparse.Namespace) -> None:
-    source = require_private_path(args.environment)
-    if not source.exists():
-        raise ValueError("The fixture input does not exist")
+    source: Path | S3EnvironmentSource
+    if "://" in str(args.environment):
+        source = S3EnvironmentSource(str(args.environment), sha256=args.sha256, profile=args.aws_profile)
+    else:
+        if args.aws_profile is not None:
+            raise ValueError("--aws-profile applies only to S3 inputs")
+        source = require_private_path(Path(args.environment))
+        if not source.exists():
+            raise ValueError("The fixture input does not exist")
+        if args.sha256 is not None:
+            expected = validate_sha256(args.sha256)
+            if not source.is_file() or file_sha256(source) != expected:
+                raise ValueError("The local bundle does not match --sha256")
     workspace = require_private_path(args.state_dir)
-    if workspace == source or workspace.is_relative_to(source):
+    if isinstance(source, Path) and (workspace == source or workspace.is_relative_to(source)):
         raise ValueError("The state directory must be outside the fixture folder")
     with workspace_lock(workspace):
         print("Validating the environment data...", flush=True)
-        folder = EnvironmentInput.unpack(source, workspace)
+        source_path = source.fetch(workspace) if isinstance(source, S3EnvironmentSource) else source
+        folder = EnvironmentInput.unpack(source_path, workspace)
         dataset = EnvironmentDataset.load(folder / "environment.json")
         validate_receipt(dataset, workspace, args.target_cutoff, args.user_id)
         app_checkout = LocalApp.ensure(timeout=args.timeout, workspace=workspace)
         backend = load_backend()
         LocalApp.ensure_postgres_migrations(backend, checkout=app_checkout, workspace=workspace, timeout=args.timeout)
         print("Preparing the project and checking its data...", flush=True)
+        provenance = source_provenance(app_checkout)
+        if isinstance(source, S3EnvironmentSource):
+            provenance.update(bundle_source=source.uri, bundle_sha256=source.sha256)
         result = backend.restore(
             dataset,
             workspace=workspace,
             target_cutoff=args.target_cutoff,
             user_id=args.user_id,
-            provenance=source_provenance(app_checkout),
+            provenance=provenance,
         )
         print(f"{'Reused' if result.reused else 'Prepared'} project with {result.event_count:,} events.")
         print(f"Project: {project_link(result.team_id)}")
@@ -549,7 +564,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     prepare_parser = commands.add_parser("prepare", help="Restore a persistent local project")
-    prepare_parser.add_argument("environment", type=Path, help="Environment folder or private .tar.gz bundle")
+    prepare_parser.add_argument(
+        "environment", help="Environment folder, private .tar.gz bundle, or s3://bucket/key.tar.gz"
+    )
+    prepare_parser.add_argument("--sha256", help="Published archive SHA-256; required for S3 inputs")
+    prepare_parser.add_argument("--aws-profile", help="AWS profile from ~/.aws/config; applies only to S3 inputs")
     prepare_parser.add_argument("--state-dir", type=Path, default=REPO_ROOT / ".flox/cache/eval-environment")
     prepare_parser.add_argument(
         "--target-cutoff", type=parse_cutoff, help="First import defaults to UTC now; reruns reuse the receipt"
@@ -571,7 +590,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     invocation_dir = Path(os.environ.get("EVAL_ENVIRONMENT_INVOCATION_DIR", Path.cwd()))
     if args.command == "prepare":
-        args.environment = invocation_dir / args.environment
+        if "://" not in args.environment:
+            args.environment = invocation_dir / args.environment
         args.state_dir = invocation_dir / args.state_dir
     else:
         args.events = [invocation_dir / path for path in args.events]
