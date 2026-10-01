@@ -18,7 +18,11 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, stamp_calculation_keys
+from products.experiments.backend.metric_calculation.spec import (
+    ExperimentCalculationSettings,
+    stamp_calculation_keys,
+    team_experiments_configs,
+)
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -98,12 +102,11 @@ def rewrite_stored_fingerprints(
         if not batch:
             break
         last_id = batch[-1].id
+        team_configs.update(
+            team_experiments_configs({experiment.team_id for experiment in batch} - team_configs.keys())
+        )
         for experiment in batch:
             scanned += 1
-            if experiment.team_id not in team_configs:
-                team_configs[experiment.team_id] = TeamExperimentsConfig.objects.filter(
-                    team_id=experiment.team_id
-                ).first() or TeamExperimentsConfig(team=experiment.team)
             team_config = team_configs[experiment.team_id]
             try:
                 fields, changed_metrics = _rewritten_fields(experiment, team_config)
