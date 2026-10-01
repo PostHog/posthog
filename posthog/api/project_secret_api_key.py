@@ -250,6 +250,8 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def roll(self, request, *args, **kwargs):
         instance = self.get_object()
         _enforce_caller_holds_scopes(request, instance.scopes or [])
+        # Rolling hands back a usable secret, so it needs what granting the scopes needs.
+        _enforce_caller_may_grant_billing_read(request, self.team.organization, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

@@ -182,6 +182,28 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand(
+        [
+            ("rolled_with_full_billing_access", False, 200),
+            ("refused_without_full_billing_access", True, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_roll_billing_read_key_needs_full_billing_access(
+        self, _name, owner_only_billing, expected_status, mock_owner_only
+    ):
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="owner's billing key", secure_value="sha256$owner", scopes=["billing:read"]
+        )
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == expected_status, response.json()
+        key.refresh_from_db()
+        assert (key.secure_value != "sha256$owner") == (expected_status == 200)
+
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
     def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
         mock_feature_enabled.return_value = False
