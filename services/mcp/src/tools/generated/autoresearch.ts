@@ -262,6 +262,27 @@ const autoresearchRetrieve = (): ToolBase<
     },
 })
 
+const AutoresearchScoreCreateSchema = () => {
+    const AutoresearchScoreCreateParams = orvalSchemas.AutoresearchScoreCreateParams()
+    return AutoresearchScoreCreateParams.omit({ project_id: true })
+}
+
+const autoresearchScoreCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchScoreCreateSchema>,
+    Schemas.AutoresearchRun
+> => ({
+    name: 'autoresearch-score-create',
+    schema: AutoresearchScoreCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchScoreCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoresearchRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/score/`,
+        })
+        return result
+    },
+})
+
 const AutoresearchSuggestionsCreateSchema = () => {
     const AutoresearchSuggestionsCreateBody = orvalSchemas.AutoresearchSuggestionsCreateBody()
     const AutoresearchSuggestionsCreateParams = orvalSchemas.AutoresearchSuggestionsCreateParams()
@@ -767,6 +788,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
+    'autoresearch-score-create': autoresearchScoreCreate,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,

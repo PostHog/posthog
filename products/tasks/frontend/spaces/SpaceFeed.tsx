@@ -13,6 +13,7 @@ import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
 import { SpaceFeedSkeleton } from './SpaceFeedSkeleton'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
+import { SpaceFeedWelcome } from './SpaceFeedWelcome'
 import { SpaceFeedSourceStatus, spaceSceneLogic } from './spaceSceneLogic'
 
 const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: 'canvases', pr: 'pull requests' }
@@ -21,11 +22,7 @@ const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: '
 function emptyNote(types: SpaceFeedType[]): string {
     const nouns = SPACE_FEED_TYPES.filter(({ value }) => types.includes(value)).map(({ value }) => EMPTY_NOUNS[value])
     const last = nouns.pop()
-    const note = `No ${nouns.length ? `${nouns.join(', ')} or ${last}` : last} in this space yet.`
-    if (!types.includes('task')) {
-        return note
-    }
-    return `${note} ${nouns.length ? 'Start a session' : 'Start one'} from the composer above.`
+    return `No ${nouns.length ? `${nouns.join(', ')} or ${last}` : last} in this space yet.`
 }
 
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
@@ -88,7 +85,9 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                 </div>
             )}
             {feedPending && <SpaceFeedSkeleton listRows={listRows} />}
-            {feedEmpty && (
+            {feedEmpty && !filtersActive && emptyTypes.includes('task') ? (
+                <SpaceFeedWelcome id={id} />
+            ) : feedEmpty ? (
                 <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
                     <Text size="sm" variant="muted">
                         {filtersActive ? 'Nothing here matches these filters.' : emptyNote(emptyTypes)}
@@ -104,7 +103,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                         </Button>
                     )}
                 </div>
-            )}
+            ) : null}
             {feedSections.map((section) => {
                 const entries = section.entries.filter(
                     (entry) => entry.kind === 'canvas' || sessionsById[entry.item.id]

@@ -3028,6 +3028,13 @@ export interface SignalReportBulkStateResponseApi {
     not_found_count: number
 }
 
+export interface SignalReportsForYouResponseApi {
+    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+    results: SignalReportListApi[]
+    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+    count: number
+}
+
 /**
  * * `passing` - Passing
  * * `failing` - Failing
@@ -6775,6 +6782,15 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
         /** Member's email address. */
         email: string
     }
+}
+
+export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * How many of the top reports to return, 1 to 20. Defaults to 5.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

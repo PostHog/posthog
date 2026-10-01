@@ -24,13 +24,15 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address            string `mapstructure:"address"`
-	Port               string `mapstructure:"port"`
-	TLS                bool   `mapstructure:"tls"`
-	FlushIntervalMs    int    `mapstructure:"flush_interval_ms"`
-	UsePubSub          bool   `mapstructure:"use_pub_sub"`
-	PublishBufferSize  int    `mapstructure:"publish_buffer_size"`
-	PublishWorkers     int    `mapstructure:"publish_workers"`
+	Address           string `mapstructure:"address"`
+	Port              string `mapstructure:"port"`
+	TLS               bool   `mapstructure:"tls"`
+	FlushIntervalMs   int    `mapstructure:"flush_interval_ms"`
+	UsePubSub         bool   `mapstructure:"use_pub_sub"`
+	PublishBufferSize int    `mapstructure:"publish_buffer_size"`
+	PublishWorkers    int    `mapstructure:"publish_workers"`
+	// Skip publishing events for tokens that have no registered subscriber. Off by default.
+	SubscriberAware bool `mapstructure:"subscriber_aware"`
 }
 
 // ConsumerConfig holds connection and tuning parameters for a single Kafka consumer.
@@ -142,6 +144,7 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("redis.use_pub_sub")         // LIVESTREAM_REDIS_USE_PUB_SUB
 	_ = viper.BindEnv("redis.publish_buffer_size") // LIVESTREAM_REDIS_PUBLISH_BUFFER_SIZE
 	_ = viper.BindEnv("redis.publish_workers")     // LIVESTREAM_REDIS_PUBLISH_WORKERS
+	_ = viper.BindEnv("redis.subscriber_aware")    // LIVESTREAM_REDIS_SUBSCRIBER_AWARE
 }
 
 func LoadConfig() (*Config, error) {

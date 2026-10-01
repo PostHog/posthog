@@ -153,7 +153,7 @@ def _canvas_sandbox_document_csp() -> str:
         [
             # A stored document's meta policy must not widen the web preview's network access.
             "default-src 'none'",
-            "script-src 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net/npm/@tailwindcss/ https://esm.sh",
+            "script-src 'unsafe-inline' blob: https://cdn.jsdelivr.net/npm/@tailwindcss/ https://esm.sh",
             "style-src 'unsafe-inline' https://esm.sh",
             "font-src data: https://esm.sh",
             "img-src data: blob:",

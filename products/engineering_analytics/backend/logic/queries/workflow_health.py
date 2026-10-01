@@ -24,6 +24,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.workload import Workload
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     RepoRef,
     TimeToGreenBucket,
     WorkflowHealthBucket,
@@ -42,6 +43,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     CONCLUSIVE_RUN_CONDITION,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     LATEST_COMPLETED_RUN_FAILED,
+    LATEST_RUN_ORDER,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
     UNPAGED_SCAN_LIMIT,
@@ -76,11 +78,12 @@ _SELECT = f"""
         max(if(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
-        argMaxIf(conclusion, (run_started_at, id), status = 'completed') AS latest_conclusion,
-        argMaxIf(id, (run_started_at, id), status = 'completed') AS latest_run_id,
-        argMaxIf(run_attempt, (run_started_at, id), status = 'completed') AS latest_run_attempt,
+        argMaxIf(conclusion, {LATEST_RUN_ORDER}, status = 'completed') AS latest_conclusion,
+        argMaxIf(id, {LATEST_RUN_ORDER}, status = 'completed') AS latest_run_id,
+        argMaxIf(run_attempt, {LATEST_RUN_ORDER}, status = 'completed') AS latest_run_attempt,
         countIf(run_attempt > 1) AS rerun_cycles,
-        countIf(is_merge_queue) AS merge_queue_run_count
+        countIf(is_merge_queue) AS merge_queue_run_count,
+        argMaxIf(ci_engine, {LATEST_RUN_ORDER}, status = 'completed') AS latest_ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name
@@ -412,6 +415,7 @@ def query_workflow_health(
             # cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
             latest_run_conclusion=(latest_conclusion or None) if completed_count else None,
             latest_run_id=int(latest_run_id) if completed_count else None,
+            latest_ci_engine=CIEngine(latest_ci_engine) if completed_count else None,
             latest_run_attempt=int(latest_run_attempt) if completed_count else None,
             granularity=granularity,
             buckets=[
@@ -434,5 +438,5 @@ def query_workflow_health(
                 else int(merge_queue_run_count or 0)
             ),
         )
-        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count in response.results
+        for repo_owner, repo_name, workflow_name, run_count, successful_run_count, conclusive_run_count, percentile_run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, latest_run_id, latest_run_attempt, rerun_cycles, merge_queue_run_count, latest_ci_engine in response.results
     ]

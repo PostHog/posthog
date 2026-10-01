@@ -30,6 +30,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
+    ChannelContributorsDTO,
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
@@ -2434,6 +2435,23 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
+
+
+class ChannelContributorsSerializer(DataclassSerializer):
+    """The people who own at least one task or canvas in a channel."""
+
+    channel = serializers.UUIDField(help_text="The channel these people worked in.")
+    people = TaskUserBasicInfoSerializer(
+        many=True,
+        help_text=(
+            "Everyone who owns at least one task or canvas in the channel, most recently active first. "
+            "Deleted tasks and canvases do not count."
+        ),
+    )
+
+    class Meta:
+        dataclass = ChannelContributorsDTO
+        fields = ["channel", "people"]
 
 
 class OnboardingSessionSerializer(serializers.Serializer):
@@ -4987,6 +5005,11 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
             "Whether the agent is currently active (true) or idle (false). "
             "This is true for 'heartbeat' and 'agent_activity', and false otherwise."
         ),
+    )
+    activity_started = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether this heartbeat marks new activity after the agent was idle, bypassing throttling.",
     )
     turn_completed = serializers.BooleanField(
         required=False,
