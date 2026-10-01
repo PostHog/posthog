@@ -182,15 +182,23 @@ class TestLimitController(SimpleTestCase):
 
         assert self._written_limits() == {Pool.OFFLINE: 352, Pool.ONLINE: 352}
 
-    def test_missing_node_holds_the_limit_across_leaders_until_the_hold_runs_out(self) -> None:
+    @parameterized.expand(
+        [
+            ("after_a_complete_read", 2),
+            ("when_no_read_was_ever_complete", 3),
+        ]
+    )
+    def test_missing_node_holds_the_limit_across_leaders_until_the_hold_runs_out(
+        self, _name: str, cluster_nodes: int
+    ) -> None:
         hot = _node("off1", "offline", overload=0.9)
         cold = _node("off2", "offline")
         complete_at = self.clock.now
-        self._controller(_FakeFetch(_sample(hot, cold))).tick()
+        self._controller(_FakeFetch(_sample(hot, cold, cluster_nodes=cluster_nodes))).tick()
         assert self._written_limits() == {Pool.OFFLINE: 340}
         self.redis.delete(config.CONTROLLER_LEADER_KEY)
 
-        controller = self._controller(_FakeFetch(_sample(cold, cluster_nodes=2)))
+        controller = self._controller(_FakeFetch(_sample(cold, cluster_nodes=cluster_nodes)))
         results = []
         limits = []
         for seconds_since_complete in (1, PARTIAL_SAMPLE_HOLD_SECONDS, PARTIAL_SAMPLE_HOLD_SECONDS + 1):

@@ -87,7 +87,8 @@ LIMIT_TTL_SECONDS = 15
 
 CONTROLLER_LEADER_KEY = "query_router:controller:leader"
 
-# Epoch seconds of the last load read that reached every node of the cluster.
+# Epoch seconds of the last load read that reached every node of the cluster, or of the first partial
+# read when no read has reached every node.
 CONTROLLER_LAST_COMPLETE_SAMPLE_KEY = "query_router:controller:last_complete_sample"
 
 

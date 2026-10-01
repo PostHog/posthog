@@ -232,8 +232,12 @@ class LimitController:
         return int(stored) if stored is not None else bounds.ceiling
 
     def _partial_sample_may_increase(self, now: float) -> bool:
-        last_complete = self._redis.get(config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY)
-        return last_complete is None or now - float(last_complete) > PARTIAL_SAMPLE_HOLD_SECONDS
+        hold_started = self._redis.get(config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY)
+        if hold_started is None:
+            # No read has reached every node yet, so the hold starts with this read.
+            self._redis.set(config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY, now, nx=True)
+            return False
+        return now - float(hold_started) > PARTIAL_SAMPLE_HOLD_SECONDS
 
     def _write_limit(self, pool: Pool, load: float | None, now: float, *, may_increase: bool) -> None:
         limit = self._limits.get(pool)
