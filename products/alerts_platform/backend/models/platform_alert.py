@@ -77,6 +77,13 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
                 fields=["team_id", "enabled", "source_kind", "next_check_at"],
                 name="platform_alert_cfg_batch_idx",
             ),
+            # The read API's page. `source_kind` stays out of it: the API filters that column
+            # with IN, which cannot yield globally ordered rows, so including it would put
+            # back the sort this index exists to remove.
+            models.Index(
+                fields=["team_id", "-created_at", "-id"],
+                name="platform_alert_cfg_list_idx",
+            ),
         ]
 
 

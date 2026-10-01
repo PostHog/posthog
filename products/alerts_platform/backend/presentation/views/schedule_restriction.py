@@ -7,7 +7,9 @@ they sit on the presentation surface, not in the facade.
 
 from __future__ import annotations
 
+from drf_spectacular.utils import extend_schema_field
 from pydantic import BaseModel, ConfigDict, Field
+from rest_framework import serializers
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -39,3 +41,12 @@ class AlertScheduleRestriction(BaseModel):
             "At most five windows before normalization; empty array clears quiet hours."
         ),
     )
+
+
+@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
+class ScheduleRestrictionField(serializers.JSONField):
+    """The quiet hours column, described to drf-spectacular by the model above.
+
+    Every alert product declares this field, so it lives beside the type it points at rather
+    than being redeclared once per adopter.
+    """

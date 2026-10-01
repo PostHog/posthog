@@ -115,7 +115,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
-from products.alerts_platform.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -456,11 +456,6 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
             return insight
 
         self.fail("does_not_exist", pk_value=data)
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
 
 
 class ThresholdSerializer(serializers.ModelSerializer):

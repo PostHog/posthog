@@ -66,17 +66,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 firing_started_at=firing_started_at,
                 last_notified_at=firing_started_at,
             )
-        other_team = Team.objects.create(organization=self.organization, name="Other team")
-        other_configuration = self._create_configuration(other_team, "Other team errors")
-        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
-
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
-        child_retrieve_response = self.client.get(
-            f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/"
-        )
-        other_retrieve_response = self.client.get(
-            f"/api/projects/{self.team.id}/platform_alerts/{other_configuration.id}/"
-        )
 
         assert list_response.status_code == status.HTTP_200_OK, list_response.json()
         results = list_response.json()["results"]
@@ -92,9 +82,27 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "snooze_until": None,
             }
         ]
-        assert child_retrieve_response.status_code == status.HTTP_200_OK, child_retrieve_response.json()
-        assert child_retrieve_response.json() == results[0]
-        assert other_retrieve_response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_a_child_environment_reads_its_parents_configurations(self) -> None:
+        # The viewset resolves a child environment to its parent before reading, so a request
+        # against the child sees the parent's rows rather than an empty project.
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+
+        response = self.client.get(f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == str(configuration.id)
+
+    def test_another_teams_configuration_is_not_found(self) -> None:
+        self._set_flag(True)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_configuration = self._create_configuration(other_team, "Other team errors")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{other_configuration.id}/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [

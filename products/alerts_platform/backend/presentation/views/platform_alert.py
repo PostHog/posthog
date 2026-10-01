@@ -1,4 +1,6 @@
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from typing import cast
+
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
@@ -11,12 +13,7 @@ from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind, PlatformAlertState
-from products.alerts_platform.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 
 
 class PlatformAlertSerializer(serializers.Serializer):
@@ -140,10 +137,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         return readable
 
     def list(self, request: Request, **kwargs) -> Response:
-        paginator = self.paginator
-        assert isinstance(paginator, PrecountedLimitOffsetPagination)
-        # `get_limit` falls back to the REST framework's PAGE_SIZE, so None would mean that
-        # setting is gone rather than that this request asked for an unbounded page.
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
         limit = paginator.get_limit(request)
         assert limit is not None
         page = platform_api.list_configurations(

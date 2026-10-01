@@ -1,6 +1,7 @@
 """Reads of the shared alert tables, as a consumer outside this product sees them.
 
-Separate from `platform_lifecycle`, which decides and writes. Nothing here changes a row.
+Separate from `platform_lifecycle`, which serves the source adapters. These serve a reader
+outside the product, so they return views rather than rows and never change one.
 """
 
 from collections.abc import Sequence
