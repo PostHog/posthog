@@ -34,7 +34,6 @@ from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.canvas.backend import build_service, error_reports
 from products.canvas.backend.actions import CANVAS_ACTIONS, CanvasActionDenied, canvas_actions_disabled
-from products.canvas.backend.artifacts import create_canvas_sandbox_document_url
 from products.canvas.backend.capabilities import declared_actions, declared_connectors, declared_state_scopes
 from products.canvas.backend.contract import contract_limits
 from products.canvas.backend.facade.api import (
@@ -44,6 +43,7 @@ from products.canvas.backend.facade.api import (
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
+    create_canvas_sandbox_document_url,
     default_layout,
     native_connector_listings,
     seed_home_canvas,

@@ -3,6 +3,27 @@ import { useMocks } from '~/mocks/jest'
 import { fetchViewItems } from './fetchViewItems'
 
 describe('fetchViewItems', () => {
+    it('bounds pagination and marks an incomplete list', async () => {
+        let requests = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/canvases/': { results: [], next: null },
+                '/api/projects/:team_id/notebooks/': { results: [], next: null },
+                '/api/projects/:team_id/task_channels/': [],
+                '/api/projects/:team_id/dashboards/': () => {
+                    requests += 1
+                    return {
+                        results: [{ id: requests, name: 'Dashboard', created_at: '2026-01-01' }],
+                        next: requests < 8 ? `?offset=${requests}` : null,
+                    }
+                },
+            },
+        })
+        const page = await fetchViewItems('1', '')
+        expect(requests).toBe(5)
+        expect(page.truncated).toBe(true)
+    })
+
     it('includes recent dashboards from later pages', async () => {
         useMocks({
             get: {

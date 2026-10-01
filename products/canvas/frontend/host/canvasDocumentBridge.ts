@@ -27,6 +27,7 @@ export class CanvasDocumentBridge {
         const { port1, port2 } = new MessageChannel()
         this.port = port1
         port1.onmessage = (event) => this.onMessage(event.data)
+        // nosemgrep: wildcard-postmessage-configuration -- Opaque sandbox origin; this transfers only the first document's private port.
         this.iframe.contentWindow?.postMessage({ channel: CANVAS_CHANNEL, type: 'connect' }, '*', [port2])
         this.onConnect()
     }

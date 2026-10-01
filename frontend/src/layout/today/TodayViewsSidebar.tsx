@@ -85,6 +85,11 @@ export function TodayViewsSidebar(): JSX.Element {
                                     {retryButton('xsmall')}
                                 </div>
                             )}
+                            {recentViews.truncated && (
+                                <div className="TodayPane__state">
+                                    Some views are not shown. Open All views and use search to find them.
+                                </div>
+                            )}
                             {recentItems.map((item) => (
                                 <TodayPaneRow
                                     key={`${item.type}-${item.id}`}

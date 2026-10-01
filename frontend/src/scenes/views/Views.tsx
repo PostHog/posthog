@@ -185,6 +185,11 @@ function ViewsContent(): JSX.Element {
                         </Button>
                     </div>
                 )}
+                {views?.truncated && (
+                    <Text size="sm" variant="muted">
+                        Some views are not shown. Use search to find more views.
+                    </Text>
+                )}
                 {renderList()}
             </div>
         </SceneContent>

@@ -1,20 +1,21 @@
-import api from 'lib/api'
+import {
+    taskChannelsList,
+    taskChannelsProvisionDefaultsCreate,
+    taskChannelsRetrieve,
+    tasksCreate,
+    tasksRetrieve,
+    tasksRunCreate,
+} from 'products/tasks/frontend/generated/api'
+import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-// Spaces and tasks belong to the tasks product. Its generated client lives in
-// products/tasks/frontend/generated, which another product must not import, and the
-// core generated client does not cover these endpoints. So these calls go through
-// lib/api, and the types below project only the fields a canvas reads.
+export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role'>
 
-export interface CanvasSpace {
-    id: string
-    name: string
-    system_role: 'personal' | 'general' | null
+export type CanvasGenerationTask = Pick<TaskDetailDTOApi, 'id' | 'title'> & {
+    latest_run: Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'status'> | null
 }
 
-export interface CanvasGenerationTask {
-    id: string
-    title: string
-    latest_run: { status: string } | null
+function toCanvasTask(task: Pick<TaskDetailDTOApi, 'id' | 'title' | 'latest_run'>): CanvasGenerationTask {
+    return { id: task.id, title: task.title, latest_run: task.latest_run ?? null }
 }
 
 // pinned: task run statuses from the tasks API
@@ -35,18 +36,16 @@ function toSpaces(response: unknown): CanvasSpace[] {
 
 /** The spaces the user can see. Provisions the personal space when it does not exist yet. */
 export async function loadCanvasSpaces(projectId: string): Promise<CanvasSpace[]> {
-    const spaces = toSpaces(await api.get(`api/projects/${projectId}/task_channels/`))
+    const spaces = toSpaces(await taskChannelsList(projectId))
     if (spaces.some((space) => space.system_role === 'personal')) {
         return spaces
     }
-    const provisioned = await api.create<{ channels: unknown[] }>(
-        `api/projects/${projectId}/task_channels/provision_defaults/`
-    )
+    const provisioned = await taskChannelsProvisionDefaultsCreate(projectId)
     return toSpaces(provisioned.channels)
 }
 
 export async function loadCanvasSpace(projectId: string, spaceId: string): Promise<CanvasSpace> {
-    const [space] = toSpaces([await api.get(`api/projects/${projectId}/task_channels/${spaceId}/`)])
+    const [space] = toSpaces([await taskChannelsRetrieve(projectId, spaceId)])
     return space
 }
 
@@ -64,25 +63,29 @@ export async function createCanvasGenerationTask(
     projectId: string,
     input: { description: string; namingSource: string; spaceId: string; startRun?: boolean }
 ): Promise<CanvasGenerationTask> {
-    return api.create<CanvasGenerationTask>(`api/projects/${projectId}/tasks/`, {
-        description: input.description,
-        // The server titles the task from this, so the title reflects the request, not the injected instructions.
-        naming_source: input.namingSource,
-        origin_product: 'user_created',
-        channel: input.spaceId,
-        start_run: input.startRun ?? true,
-        initial_permission_mode: 'bypassPermissions',
-    })
+    return toCanvasTask(
+        await tasksCreate(projectId, {
+            description: input.description,
+            // The server titles the task from this, so the title reflects the request, not the injected instructions.
+            naming_source: input.namingSource,
+            origin_product: 'user_created',
+            channel: input.spaceId,
+            start_run: input.startRun ?? true,
+            initial_permission_mode: 'bypassPermissions',
+        })
+    )
 }
 
 export async function loadCanvasGenerationTask(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
-    return api.get<CanvasGenerationTask>(`api/projects/${projectId}/tasks/${taskId}/`)
+    return toCanvasTask(await tasksRetrieve(projectId, taskId))
 }
 
 export async function startCanvasGenerationRun(projectId: string, taskId: string): Promise<CanvasGenerationTask> {
-    return api.create<CanvasGenerationTask>(`api/projects/${projectId}/tasks/${taskId}/run/`, {
-        mode: 'background',
-        run_source: 'agent',
-        initial_permission_mode: 'bypassPermissions',
-    })
+    return toCanvasTask(
+        await tasksRunCreate(projectId, taskId, {
+            mode: 'background',
+            run_source: 'agent',
+            initial_permission_mode: 'bypassPermissions',
+        })
+    )
 }
