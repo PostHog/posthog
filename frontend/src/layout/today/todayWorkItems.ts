@@ -45,6 +45,22 @@ export interface TodayWorkGroup {
     items: TodayWorkItem[]
 }
 
+export type TodaySessionBadge =
+    | { kind: 'source'; source: string }
+    | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
+    | { kind: 'local' }
+
+const BADGE_SOURCES = new Set([
+    'slack',
+    'signal_report',
+    'signals_scout',
+    'support_queue',
+    'session_summaries',
+    'error_tracking',
+    'eval_clusters',
+    'task_analysis',
+])
+
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
 
@@ -145,6 +161,21 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         pullRequests: [],
         finalMessage: null,
     }
+}
+
+export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
+    const badges: TodaySessionBadge[] = []
+    if (item.originProduct && BADGE_SOURCES.has(item.originProduct)) {
+        badges.push({ kind: 'source', source: item.originProduct })
+    }
+    const [pullRequest] = item.pullRequests
+    if (pullRequest) {
+        badges.push({ kind: 'pullRequest', pullRequest })
+    }
+    if (badges.length === 0 && item.runEnvironment === 'local') {
+        badges.push({ kind: 'local' })
+    }
+    return badges
 }
 
 /** "2h ago", with the exact time for the tooltip. The same scale as PostHog Desktop's row details. */

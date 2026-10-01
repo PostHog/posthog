@@ -209,6 +209,7 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -1240,7 +1241,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
                 # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
                 team=run.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 title=data["title"],
                 summary=data["summary"],
                 evidence=evidence,

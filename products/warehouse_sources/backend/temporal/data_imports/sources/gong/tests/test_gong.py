@@ -4,6 +4,7 @@ from typing import Any
 from urllib.parse import unquote
 
 import pytest
+import time_machine
 from unittest import mock
 
 from parameterized import parameterized
@@ -256,6 +257,11 @@ class TestWindowedCalls:
                 '{"errors":["No calls found corresponding to the provided filters"]}',
                 False,
             ),
+            (
+                "no_records_of_another_kind_skips_window",
+                '{"errors":["No answered scorecards found corresponding to the provided filters"]}',
+                False,
+            ),
             # A 404 for any other reason must still surface rather than be swallowed.
             ("unrelated_404_raises", '{"errors":["Not Found"]}', True),
         ]
@@ -322,20 +328,24 @@ class TestWindowedCalls:
 class TestGongSource:
     @parameterized.expand(
         [
-            ("calls", "id", "started", "asc"),
-            ("transcripts", "callId", "started", "asc"),
-            ("users", "id", "created", "asc"),
-            ("scorecards", "scorecardId", "created", "asc"),
-            ("workspaces", "id", None, "asc"),
+            ("calls", ["id"], "started", "asc"),
+            ("transcripts", ["callId"], "started", "asc"),
+            ("users", ["id"], "created", "asc"),
+            ("scorecards", ["scorecardId"], "created", "asc"),
+            ("trackers", ["trackerId"], "created", "asc"),
+            ("answered_scorecards", ["answeredScorecardId"], "callStartTime", "asc"),
+            # A user's stats are one row per day, so the user id alone would merge every day into one.
+            ("interaction_stats", ["userId", "day"], "day", "asc"),
+            ("workspaces", ["id"], None, "asc"),
         ]
     )
     def test_source_response_shape(
-        self, endpoint: str, primary_key: str, partition_key: str | None, sort_mode: str
+        self, endpoint: str, primary_keys: list[str], partition_key: str | None, sort_mode: str
     ) -> None:
         response = gong_source("key", "secret", endpoint, mock.MagicMock(), _FakeResumableManager())
 
         assert response.name == endpoint
-        assert response.primary_keys == [primary_key]
+        assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_keys == [partition_key]
@@ -352,6 +362,9 @@ class TestGongSource:
             "transcripts",
             "users",
             "scorecards",
+            "trackers",
+            "answered_scorecards",
+            "interaction_stats",
             "workspaces",
         }
 
@@ -496,6 +509,7 @@ class TestExtensiveCalls:
                 [{"calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}]}, {"callTranscripts": [{"callId": "c1"}]}],
                 False,
             ),
+            ("answered_scorecards", [{"answeredScorecards": [{"answeredScorecardId": 1}]}], False),
             ("users", [{"users": [{"id": "u1"}]}], True),
         ]
     )
@@ -610,3 +624,110 @@ class TestTranscripts:
             # it out of the watermark, so no later run would ever correct it.
             with pytest.raises(ValueError):
                 list(rows)
+
+
+class TestDateFilteredStats:
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_answered_scorecards_filter_by_whole_review_days_and_page_in_body(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={"answeredScorecards": [{"answeredScorecardId": 1}], "records": {"cursor": "page2"}}
+                ),
+                _FakeResponse(json_data={"answeredScorecards": [{"answeredScorecardId": 2}]}),
+            ]
+        )
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "answered_scorecards",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value="2026-03-05T18:30:00Z",
+                )
+            )
+
+        assert batches == [[{"answeredScorecardId": 1}], [{"answeredScorecardId": 2}]]
+        assert session.requested_urls == [f"{GONG_BASE_URL}/v2/stats/activity/scorecards"] * 2
+        # Gong reads the dates in the company's time zone, so the day before the watermark is
+        # re-read, and the window ends at UTC yesterday so it never reaches past the company's today.
+        assert session.posted_bodies == [
+            {"filter": {"reviewFromDate": "2026-03-04", "reviewToDate": "2026-03-09", "reviewMethod": "BOTH"}},
+            {
+                "filter": {"reviewFromDate": "2026-03-04", "reviewToDate": "2026-03-09", "reviewMethod": "BOTH"},
+                "cursor": "page2",
+            },
+        ]
+        assert manager.saved_states == [GongResumeConfig(window_start="2026-03-09T00:00:00Z")]
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_interaction_stats_request_one_day_at_a_time_and_stamp_the_day(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"peopleInteractionStats": [{"userId": "u1"}]}),
+                _FakeResponse(
+                    status_code=404,
+                    text='{"errors":["No users found corresponding to the provided filters"]}',
+                ),
+                _FakeResponse(json_data={"peopleInteractionStats": [{"userId": "u1"}, {"userId": "u2"}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "interaction_stats",
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=date(2026, 3, 7),
+                )
+            )
+
+        # Gong aggregates over the whole range it is asked for, so one-day windows are what make
+        # each row one user's stats for one day.
+        assert [body["filter"] for body in session.posted_bodies if body] == [
+            {"fromDate": "2026-03-06", "toDate": "2026-03-07"},
+            {"fromDate": "2026-03-07", "toDate": "2026-03-08"},
+            {"fromDate": "2026-03-08", "toDate": "2026-03-09"},
+        ]
+        assert batches == [
+            [{"userId": "u1", "day": "2026-03-06"}],
+            [{"userId": "u1", "day": "2026-03-08"}, {"userId": "u2", "day": "2026-03-08"}],
+        ]
+
+    @time_machine.travel("2026-03-10T15:00:00Z", tick=False)
+    def test_unchanged_cursor_stops_the_sync(self) -> None:
+        page = {"answeredScorecards": [{"answeredScorecardId": 1}], "records": {"cursor": "same"}}
+        session = _FakeSession([_FakeResponse(json_data=page), _FakeResponse(json_data=page)])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "answered_scorecards",
+                mock.MagicMock(),
+                _FakeResumableManager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2026-03-05T18:30:00Z",
+            )
+            with pytest.raises(ValueError):
+                list(rows)
+
+        assert len(session.requested_urls) == 2

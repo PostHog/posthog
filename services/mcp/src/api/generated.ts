@@ -11891,6 +11891,12 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /**
+         * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+         * @minimum 0
+         * @maximum 100
+         */
+      evaluation_delay_intervals?: number;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -11968,6 +11974,12 @@ export namespace Schemas {
     }
 
     export interface AlertSimulate {
+      /**
+         * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
+         * @minimum 0
+         * @maximum 100
+         */
+      evaluation_delay_intervals?: number;
       /** Numeric insight ID or saved insight short ID to simulate the detector on. */
       insight: number | string;
       /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
@@ -12009,6 +12021,14 @@ export namespace Schemas {
     }
 
     export interface AlertSimulateResponse {
+      /** Completed intervals skipped. */
+      evaluation_delay_intervals?: number;
+      /** Start of the latest eligible interval. */
+      evaluated_interval_start?: string;
+      /** Exclusive end of the latest eligible interval. */
+      evaluated_interval_end?: string;
+      /** Project timezone of the interval. */
+      evaluated_interval_timezone?: string;
       /** Data values for each point. */
       data: number[];
       /** Date labels for each point. */
@@ -12614,6 +12634,136 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface Author {
+      /** Login handle of the pull request author. */
+      handle: string;
+      /** Human-readable name; equals the handle in v1. */
+      display_name: string;
+      /** URL of the author's avatar image. */
+      avatar_url: string;
+      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+      is_bot: boolean;
+    }
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface CIStatusRollup {
+      /** Distinct workflows run on the PR's head SHA. */
+      runs: number;
+      /** Latest runs that completed with conclusion 'success'. */
+      passing: number;
+      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
+      failing: number;
+      /** Latest runs not yet completed (queued or in progress). */
+      pending: number;
+      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
+      inconclusive: number;
+      /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+      failing_workflows?: string[];
+    }
+
+    export interface PushCISample {
+      /** Head commit SHA of this push (CI round). */
+      head_sha: string;
+      /** Earliest workflow-run start on this push. */
+      started_at: string;
+      /**
+         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
+         * @nullable
+         */
+      wall_seconds: number | null;
+      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
+      failed: boolean;
+      /** True when any latest-per-workflow run on this push hasn't completed yet. */
+      pending: boolean;
+    }
+
+    /**
+     * * `open` - OPEN
+     * * `closed` - CLOSED
+     * * `merged` - MERGED
+     */
+    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+
+
+    export const EngineeringAnalyticsPRStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    export interface PullRequestListItem {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** CI status from the latest workflow runs on the head SHA. */
+      ci: CIStatusRollup;
+      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
+      push_history: PushCISample[];
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+       *
+       * * `open` - OPEN
+       * * `closed` - CLOSED
+       * * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+         * @nullable
+         */
+      open_to_merge_seconds: number | null;
+      /**
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
+         * @nullable
+         */
+      ready_to_merge_seconds: number | null;
+      /** GitHub label names on the pull request. */
+      labels: string[];
+      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
+      pushes: number;
+      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+      rerun_cycles: number;
+      /**
+         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd?: number | null;
+      /**
+         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
+         * @nullable
+         */
+      billable_minutes?: number | null;
+    }
+
+    export interface AttentionPullRequestList {
+      /** Open pull requests needing attention, failing CI first, then newest, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** Number of open pull requests needing attention, including the ones past the cap. */
+      total: number;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     export interface AttributeBreakdownRow {
       count: number;
       error_count: number;
@@ -12735,17 +12885,6 @@ export namespace Schemas {
       Oauth: 'oauth',
       Credentials: 'credentials',
     } as const;
-
-    export interface Author {
-      /** Login handle of the pull request author. */
-      handle: string;
-      /** Human-readable name; equals the handle in v1. */
-      display_name: string;
-      /** URL of the author's avatar image. */
-      avatar_url: string;
-      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
-      is_bot: boolean;
-    }
 
     /**
      * * `ci` - CI
@@ -18532,15 +18671,6 @@ export namespace Schemas {
       text: string;
     }
 
-    export interface RepoRef {
-      /** Code host provider, e.g. 'github'. */
-      provider: string;
-      /** Repository owner or organization. */
-      owner: string;
-      /** Repository name. */
-      name: string;
-    }
-
     export interface CIJobFailureLog {
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
@@ -18670,21 +18800,6 @@ export namespace Schemas {
     export interface CISignalsConfigUpdate {
       /** Enable or disable every CI signal detector atomically. */
       enabled: boolean;
-    }
-
-    export interface CIStatusRollup {
-      /** Distinct workflows run on the PR's head SHA. */
-      runs: number;
-      /** Latest runs that completed with conclusion 'success'. */
-      passing: number;
-      /** Latest runs that ended in failure, timeout, startup failure, or staleness. */
-      failing: number;
-      /** Latest runs not yet completed (queued or in progress). */
-      pending: number;
-      /** Latest runs that completed without a pass-or-fail verdict: cancelled, skipped, neutral, or action required. Together with the three counts above this covers every run, so a PR whose CI was entirely cancelled is not readable as passing. */
-      inconclusive: number;
-      /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
-      failing_workflows?: string[];
     }
 
     /**
@@ -37938,20 +38053,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `open` - OPEN
-     * * `closed` - CLOSED
-     * * `merged` - MERGED
-     */
-    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
-
-
-    export const EngineeringAnalyticsPRStateEnum = {
-      Open: 'open',
-      Closed: 'closed',
-      Merged: 'merged',
-    } as const;
-
-    /**
      * * `allow` - Allow
      * * `reject` - Reject
      */
@@ -39040,7 +39141,7 @@ export namespace Schemas {
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
       /**
-         * Volume buckets. Maximum 200.
+         * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.
          * @minimum 0
          * @maximum 200
          */
@@ -39229,7 +39330,7 @@ export namespace Schemas {
          */
       offset?: number;
       /**
-         * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
+         * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
          * @minimum 0
          * @maximum 200
          */
@@ -41094,6 +41195,20 @@ export namespace Schemas {
       Recording: 'recording',
       Session: 'session',
     } as const;
+
+    export interface EventPropertyValue {
+      /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+      name: string;
+      /** How many times the value occurs, when the lookup counts values. */
+      count?: number;
+    }
+
+    export interface EventPropertyValuesResponse {
+      /** Values of the property that match the request. */
+      results: EventPropertyValue[];
+      /** True when these results come from a stale cache and a refresh runs in the background. */
+      refreshing: boolean;
+    }
 
     /**
      * * `DateTime` - DateTime
@@ -67938,7 +68053,12 @@ export namespace Schemas {
       name: string;
       /** @maxLength 500 */
       property_name: string;
+      /** 'manual-options' shows the options you define. 'auto-discovery' shows property values found in recent events, and ignores 'options'.
+       *
+       * * `manual-options` - manual-options
+       * * `auto-discovery` - auto-discovery */
       type?: QuickFilterTypeEnum;
+      /** Options to show in the dropdown. Each option is an object with 'id', 'value', 'label', and 'operator'. Required for 'manual-options', stored as an empty list for 'auto-discovery'. */
       options?: unknown;
       readonly contexts: readonly string[];
       readonly created_at: string;
@@ -70110,7 +70230,7 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
-      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
     }
 
@@ -73611,6 +73731,12 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /**
+         * Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, not the check frequency. Allows late data to arrive, but also delays detection of real problems.
+         * @minimum 0
+         * @maximum 100
+         */
+      evaluation_delay_intervals?: number;
       /** How often the alert is checked: real time (Scale+), every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `real_time` - real_time
@@ -79541,7 +79667,12 @@ export namespace Schemas {
       name?: string;
       /** @maxLength 500 */
       property_name?: string;
+      /** 'manual-options' shows the options you define. 'auto-discovery' shows property values found in recent events, and ignores 'options'.
+       *
+       * * `manual-options` - manual-options
+       * * `auto-discovery` - auto-discovery */
       type?: QuickFilterTypeEnum;
+      /** Options to show in the dropdown. Each option is an object with 'id', 'value', 'label', and 'operator'. Required for 'manual-options', stored as an empty list for 'auto-discovery'. */
       options?: unknown;
       readonly contexts?: readonly string[];
       readonly created_at?: string;
@@ -82869,6 +83000,11 @@ export namespace Schemas {
          * @nullable
          */
       origin: string | null;
+      /**
+         * Id of the source the run belongs to, for linking to it. Null for model runs.
+         * @nullable
+         */
+      source_id?: string | null;
     }
 
     export interface PipelineActivityResponse {
@@ -86446,78 +86582,6 @@ export namespace Schemas {
       available: boolean;
       /** Pull requests merged in this many days before the view last refreshed. */
       window_days: number;
-    }
-
-    export interface PushCISample {
-      /** Head commit SHA of this push (CI round). */
-      head_sha: string;
-      /** Earliest workflow-run start on this push. */
-      started_at: string;
-      /**
-         * Wall-clock CI seconds for this push: earliest run start to latest completed run end. Null while nothing has completed.
-         * @nullable
-         */
-      wall_seconds: number | null;
-      /** True when any latest-per-workflow run on this push ended in a decisive failure. */
-      failed: boolean;
-      /** True when any latest-per-workflow run on this push hasn't completed yet. */
-      pending: boolean;
-    }
-
-    export interface PullRequestListItem {
-      /** The pull request author. */
-      author: Author;
-      /** Repository the pull request belongs to. */
-      repo: RepoRef;
-      /** CI status from the latest workflow runs on the head SHA. */
-      ci: CIStatusRollup;
-      /** This PR's CI rounds oldest-first, capped to the most recent pushes - one sample per push for the push-history sparkline. `pushes` stays the uncapped count. */
-      push_history: PushCISample[];
-      /** Pull request number within the repository. */
-      number: number;
-      /** Pull request title. */
-      title: string;
-      /** Derived state: 'open', 'closed', or 'merged'.
-       *
-       * * `open` - OPEN
-       * * `closed` - CLOSED
-       * * `merged` - MERGED */
-      state: EngineeringAnalyticsPRStateEnum;
-      /** True if the pull request is a draft. */
-      is_draft: boolean;
-      /** When the pull request was opened. */
-      created_at: string;
-      /**
-         * When the pull request was merged, or null.
-         * @nullable
-         */
-      merged_at: string | null;
-      /**
-         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
-         * @nullable
-         */
-      open_to_merge_seconds: number | null;
-      /**
-         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
-         * @nullable
-         */
-      ready_to_merge_seconds: number | null;
-      /** GitHub label names on the pull request. */
-      labels: string[];
-      /** CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed. */
-      pushes: number;
-      /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
-      rerun_cycles: number;
-      /**
-         * Estimated CI cost in USD summed over this PR's jobs (billable runners only). Null when nothing was costable or the job-level source isn't synced.
-         * @nullable
-         */
-      estimated_cost_usd?: number | null;
-      /**
-         * Billable (self-hosted) minutes summed over this PR's jobs. Null when the job source isn't synced.
-         * @nullable
-         */
-      billable_minutes?: number | null;
     }
 
     export interface PullRequestList {
@@ -114706,10 +114770,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     * Which outcome to return: 'completed', 'failed', or 'all' for every run that finished either way. Defaults to 'completed'. Running jobs come from `running_activity` instead.
      *
      * * `completed` - completed
      * * `failed` - failed
+     * * `all` - all
      * @minLength 1
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome;
@@ -114730,6 +114795,7 @@ export namespace Schemas {
     export const DataWarehouseCompletedActivityRetrieveOutcome = {
       Completed: 'completed',
       Failed: 'failed',
+      All: 'all',
     } as const;
 
     export type DataWarehouseJobStatsRetrieveParams = {
@@ -114813,6 +114879,39 @@ export namespace Schemas {
      */
     source_id: string;
     };
+
+    export type DataWarehouseRunningActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number;
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseRunningActivityRetrieveKind;
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number;
+    };
+
+    export type DataWarehouseRunningActivityRetrieveKind = typeof DataWarehouseRunningActivityRetrieveKind[keyof typeof DataWarehouseRunningActivityRetrieveKind];
+
+
+    export const DataWarehouseRunningActivityRetrieveKind = {
+      All: 'all',
+      Import: 'import',
+      Model: 'model',
+    } as const;
 
     export type DatasetItemsListParams = {
     /**
@@ -115091,6 +115190,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsAttentionPullRequestsParams = {
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
     };
 
     export type EngineeringAnalyticsAuthorFrictionParams = {
@@ -116389,7 +116499,23 @@ export namespace Schemas {
     export type EventsRetrieve200Two = { [key: string]: unknown };
 
     export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[];
     format?: EventsValuesRetrieveFormat;
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean;
+    /**
+     * The property to list values for.
+     */
+    key: string;
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string;
     };
 
     export type EventsValuesRetrieveFormat = typeof EventsValuesRetrieveFormat[keyof typeof EventsValuesRetrieveFormat];
@@ -123697,6 +123823,10 @@ export namespace Schemas {
 
     export type VisualReviewRunsSnapshotsListParams = {
     /**
+     * Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.
+     */
+    exclude_unchanged?: boolean;
+    /**
      * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
      */
     include_quarantined?: boolean;
@@ -123708,6 +123838,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
+     */
+    snapshot_id?: string;
     };
 
     export type VisualReviewRunsToleratedHashesListParams = {
