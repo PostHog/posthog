@@ -57,6 +57,7 @@ dependencies = [
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
     "drf-spectacular~=0.30.0",
+    "drf-spectacular-sidecar~=2026.9.1",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
@@ -717,7 +718,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
-    "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
@@ -761,14 +761,6 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
-    "products.workflows.backend.presentation.views.hog_flow_batch_job -> products.workflows.backend.models.hog_flow_batch_job",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.cdp.backend.models.hog_function_template",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.models.hog_flow.hog_flow_template",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.templates",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_scout_runs -> products.workflows.backend.service_jwt",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.models",
-    "products.workflows.backend.presentation.views.workflow_tasks -> products.workflows.backend.service_jwt",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",

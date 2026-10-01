@@ -180,10 +180,12 @@ export interface visualReviewRunSceneLogicActions {
         reason: string,
         identifiers: string[],
         expiresAt: string | null,
-        sourceRunId?: string | null
+        sourceRunId?: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifiers: string[]
+        notifyOwners: boolean
         reason: string
         sourceRunId: string | null
     }
@@ -265,12 +267,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             reason: string,
             identifiers: string[],
             expiresAt: string | null,
-            sourceRunId: string | null = null
+            sourceRunId: string | null = null,
+            notifyOwners: boolean = false
         ) => ({
             reason,
             identifiers,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
@@ -645,7 +649,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 lemonToast.error(e?.detail || e?.message || 'Failed to mark as tolerated')
             }
         },
-        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId }) => {
+        quarantineSnapshot: async ({ reason, identifiers, expiresAt, sourceRunId, notifyOwners }) => {
             const { run } = values
             if (!run) {
                 return
@@ -657,12 +661,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             const effectiveSourceRunId = sourceRunId ?? run.id
             try {
                 await Promise.all(
-                    identifiers.map((identifier) =>
+                    identifiers.map((identifier, index) =>
                         visualReviewReposQuarantineCreate(String(values.currentProjectId), run.repo_id, run.run_type, {
                             identifier,
                             reason,
                             expires_at: expiresAt,
                             source_run_id: effectiveSourceRunId,
+                            // Theme variants of one story share a team, so only the first asks for a notice.
+                            notify_owners: notifyOwners && index === 0,
                         })
                     )
                 )
