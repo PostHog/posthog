@@ -1039,7 +1039,7 @@ export interface WarehouseStatusResponseApi {
     failed_at: string | null
     /** Postgres connection target. Null for organizations on the Trino Data ops variant. */
     connection?: WarehouseConnectionApi | null
-    /** Trino status for organizations on the Trino Data ops variant. Null otherwise. */
+    /** Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise. */
     trino?: WarehouseTrinoStatusApi | null
     /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
     has_backfill: boolean
