@@ -371,7 +371,7 @@ class TestTicketAPI(APIBaseTest):
     ):
         self.ticket.tagged_items.create(tag=Tag.objects.create(name="bug", team_id=self.team.id))
         self.ticket.tagged_items.create(tag=Tag.objects.create(name="urgent", team_id=self.team.id))
-        # A concurrent request attached "bug" after this one loaded the ticket, so the
+        # Another request changed the tags after this one loaded the ticket, so the
         # prefetched snapshot is stale. add and remove must not write from it.
         self.ticket.prefetched_tags = []
 
