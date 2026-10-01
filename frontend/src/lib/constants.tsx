@@ -457,6 +457,7 @@ export const FEATURE_FLAGS = {
     POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS: 'posthog-ai-conversation-feedback-llma-sessions', // owner: #team-posthog-ai
     POSTHOG_AI_QUEUE_MESSAGES_SYSTEM: 'posthog-ai-queue-messages-system', // owner: #team-posthog-ai
     POSTHOG_CODE_BILLING: 'posthog-code-billing', // owner: #team-desktop
+    POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD: 'posthog-code-codex-own-subscription-cloud', // owner: #team-desktop, gates the Codex subscription settings and the composer billing row
     POSTHOG_CODE_TASK_ANALYSIS: 'posthog-code-task-analysis', // owner: #team-desktop
     POSTHOG_CONNECT: 'posthog-connect', // owner: @Gilbert09, gates the "connect another PostHog project" personal integration
     POSTHOG_DESKTOP_CLOUD_COMPUTE_BILLING: 'posthog-desktop-cloud-compute-billing', // owner: #team-desktop
@@ -569,7 +570,7 @@ export const FEATURE_FLAGS = {
     VISION_ENTRYPOINT_ERROR_TRACKING: 'vision-entrypoint-error-tracking', // owner: #team-replay, cross-sell entry point from the error tracking issue recording tab
     VISION_ENTRYPOINT_EXPERIMENTS: 'vision-entrypoint-experiments', // owner: #team-replay, cross-sell entry points from experiments
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
-    VISION_GOAL_BASED_CREATION_FLOW: 'vision-goal-based-creation-flow', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
+    VISION_GOAL_FLOW_V2: 'vision-goal-flow-v2', // owner: #team-replay multivariate=control,test — gate on === 'test'; a truthy check turns on for control too
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)

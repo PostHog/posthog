@@ -5,10 +5,12 @@
     },
     "dependencies": {
         "@posthog/products-mcp-store": "workspace:*",
-        "@posthog/quill": "workspace:*"
+        "@posthog/quill": "workspace:*",
+        "kea-disposables": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "kea-test-utils": "catalog:",
+        "tailwindcss": "4.3.0"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",

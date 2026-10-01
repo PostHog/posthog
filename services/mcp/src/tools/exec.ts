@@ -1032,13 +1032,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing-parameter
- *  rejection, so a tool with a long field description cannot inflate the
- *  analytics error message. */
-const MAX_MISSING_PARAM_HINT = 200
+/** Bound on the parameter description echoed back with a missing or wrong-type
+ *  parameter rejection, so a tool with a long field description cannot inflate
+ *  the analytics error message. */
+const MAX_PARAM_HINT = 200
 
 /**
- * The missing parameter's own description, appended to the rejection.
+ * The parameter's own description, appended to a missing or wrong-type rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1051,7 +1051,7 @@ const MAX_MISSING_PARAM_HINT = 200
  * input, so it is safe in the message returned to the caller and recorded as the
  * analytics error message.
  */
-function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
+function parameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjectAny | undefined): string {
     if (!schema || path.length !== 1) {
         return ''
     }
@@ -1063,9 +1063,7 @@ function missingParameterHint(path: ReadonlyArray<PropertyKey>, schema: ZodObjec
         return ''
     }
     const capped =
-        description.length > MAX_MISSING_PARAM_HINT
-            ? `${description.slice(0, MAX_MISSING_PARAM_HINT).trimEnd()}...`
-            : description
+        description.length > MAX_PARAM_HINT ? `${description.slice(0, MAX_PARAM_HINT).trimEnd()}...` : description
     return ` (${capped})`
 }
 
@@ -1285,7 +1283,7 @@ export function formatInputValidationError(
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
-                const hint = missingParameterHint(issue.path, schema)
+                const hint = parameterHint(issue.path, schema)
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     const { shape, unplaced } = acceptedWrapperShape(path, input, schema)
                     const rejected = unplaced.length
@@ -1304,7 +1302,9 @@ export function formatInputValidationError(
                 }
                 return `missing required parameter: ${path}${hint}`
             }
-            return `parameter "${path}" must be of type ${issue.expected}`
+            // The type alone does not say which values the field accepts, for
+            // example a bucket count where the caller sent a unit such as "day".
+            return `parameter "${path}" must be of type ${issue.expected}${parameterHint(issue.path, schema)}`
         }
         if (issue.code === 'invalid_union') {
             const expanded = describeUnionIssue(issue.errors, issue.path)
