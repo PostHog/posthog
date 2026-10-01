@@ -282,7 +282,11 @@ export function ThreadView({
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                    {/* A human message reveals its own footer, through the same store as a turn, so both behave alike. */}
+                    <TurnReveal
+                        store={turnHoverStore}
+                        turnId={item.type === 'human_message' ? item.id : turns?.rowTurnIds.get(item.id)}
+                    >
                         <ThreadRow
                             item={item}
                             isLast={index === displayItems.length - 1}

@@ -9,6 +9,7 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import type { TurnFeedbackActionsProps } from '../turnFeedbackTypes'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { useTurnRating } from '../useTurnRating'
+import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
 
 export function QuillTurnFeedbackActions({
@@ -27,10 +28,7 @@ export function QuillTurnFeedbackActions({
     return (
         <div className="flex flex-col gap-2">
             <ChatMessageFooter
-                className={cn(
-                    'min-h-5 items-center gap-1 ps-0 transition-opacity focus-within:opacity-100',
-                    rating || turnHovered ? 'opacity-100' : 'opacity-0'
-                )}
+                className={cn('min-h-5 items-center gap-1 ps-0', footerRevealClass(!!rating || turnHovered))}
             >
                 {timestamp !== undefined && (
                     <TZLabel time={new Date(timestamp).toISOString()} className="text-xs text-foreground" />
