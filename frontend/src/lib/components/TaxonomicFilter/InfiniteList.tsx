@@ -106,7 +106,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Stale</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -156,7 +156,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Not seen</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Not seen</LemonTag>
         </Tooltip>
     )
 }
@@ -268,8 +268,10 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
-        (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
-        !(item as PropertyDefinition).is_seen_on_filtered_events
+        // Only an explicit false means "not seen on these events". The flag is undefined
+        // for items the backend never scored (virtual properties, suggested-filter rows
+        // synthesized from primary properties), and those must not be tagged.
+        (item as PropertyDefinition).is_seen_on_filtered_events === false
 
     const icon = rowContentsIcon(item, itemGroup, isActive)
 

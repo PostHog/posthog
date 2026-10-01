@@ -73,6 +73,12 @@ assert_result "backend-only PR is out of scope" 2 0 "No products/desktop changes
 register_pr 3 "[]" products/desktop/apps/foo.ts posthog/models.py
 assert_result "coupled PR fails with split guidance" 3 1 "must be separated into different PRs"
 
+register_pr 7 "[]" packages/agent/packages/agent/src/agent.ts posthog/models.py
+assert_result "agent workspace package coupled with backend fails" 7 1 "must be separated into different PRs"
+
+register_pr 8 "[]" packages/agent/agent-shadow/main.go products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
+assert_result "agent-shadow ships with the sandbox image, so it is out of scope" 8 0 "No products/desktop changes"
+
 register_pr 4 '[{"name": "desktop-skip-backend-check"}]' products/desktop/apps/foo.ts posthog/models.py
 assert_result "skip label suppresses the check" 4 0 "skipping the coupling check"
 
