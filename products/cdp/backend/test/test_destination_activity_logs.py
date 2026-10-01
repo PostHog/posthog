@@ -49,6 +49,18 @@ class TestDestinationActivityLogs(BaseTest):
                 {"type": "HogFunction", "field": "description", "action": "changed", "before": "a", "after": "b"},
             ],
         )
+        workflow = self._log(
+            "HogFlow",
+            [
+                {
+                    "type": "HogFlow",
+                    "field": "actions",
+                    "action": "changed",
+                    "before": [{"config": {"inputs": {"api_key": {"value": "key-1"}}}}],
+                    "after": [{"config": {"inputs": {"api_key": {"value": "key-2"}}}}],
+                },
+            ],
+        )
         already_masked = self._log(
             "HogFunction",
             [{"type": "HogFunction", "field": "inputs", "action": "changed", "before": "masked", "after": "masked"}],
@@ -60,16 +72,21 @@ class TestDestinationActivityLogs(BaseTest):
         untouched = {log.pk: log.detail for log in (already_masked, flag)}
         scope = ActivityLogScope(team_id=self.team.pk, batch_size=1)
 
-        assert count_unmasked_activity_logs(scope).rows == 1
-        assert mask_activity_logs(scope) == 1
+        assert count_unmasked_activity_logs(scope).rows == 2
+        assert mask_activity_logs(scope) == 2
 
         destination.refresh_from_db()
         assert destination.detail is not None
         assert [(c["field"], c.get("before"), c.get("after")) for c in destination.detail["changes"]] == [
-            ("inputs", "masked", "masked"),
+            ("inputs", {"api_key": "masked"}, {"api_key": "changed"}),
             ("mappings", None, "masked"),
             ("transpiled", "masked", "masked"),
             ("description", "a", "b"),
+        ]
+        workflow.refresh_from_db()
+        assert workflow.detail is not None
+        assert [(c["field"], c["before"], c["after"]) for c in workflow.detail["changes"]] == [
+            ("actions", "masked", "masked")
         ]
         assert {log.pk: log.detail for log in ActivityLog.objects.filter(pk__in=untouched)} == untouched
         assert count_unmasked_activity_logs(scope).rows == 0

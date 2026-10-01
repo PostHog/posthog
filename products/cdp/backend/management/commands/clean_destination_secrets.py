@@ -4,7 +4,8 @@ Three stores hold them, and each step cleans one:
 
 - `debug-logs`: debug lines in `log_entries` where native and Segment destinations dumped
   their resolved config. Needs `--debug-logs-before`, the deploy time of the redaction fix.
-- `activity-logs`: activity log rows that recorded destination input values before the log masked them.
+- `activity-logs`: activity log rows that recorded values of masked fields, such as destination and
+  workflow inputs, before the log masked them.
 - `mapping-secrets`: secret mapping inputs, moved into the destination's encrypted inputs.
 
 Dry run by default. Every step skips what is already clean, so a rerun is safe.
