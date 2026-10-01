@@ -752,6 +752,13 @@ list — every 10s while a run is in progress or freshly triggered, every 30s ot
 tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
 refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
 
+An active review stays visible while its report or working artefacts have activity within `IN_PROGRESS_STALE_AFTER` (30 minutes).
+Long-running chunking, selection, review, deduplication, and validation activities also refresh `ReviewReport.updated_at` every minute, so an agent can keep working without producing an artefact during that window.
+Each refresh is scoped to the team, report, active status, and reviewed commit.
+These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
+Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
+
 ---
 
 ## Known issues & tech debt
