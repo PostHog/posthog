@@ -79,8 +79,7 @@ def run_duration_percentile_expr(quantile: float) -> str:
     )
 
 
-# The engine and the id break a same-second tie the same way in every aggregate that reads the
-# latest run, so the aggregates of one workflow all describe one run.
+# The engine and the id make a same-second tie resolve deterministically.
 LATEST_RUN_ORDER = "(run_started_at, ci_engine, id)"
 
 # The one "failing right now" signal, per workflow: did the latest completed run fail?

@@ -71,7 +71,6 @@ def branch(jobs_alias: str, runs_alias: str) -> str:
 
 
 def build_query(table_name: str, *, created_floor: bool = False) -> str:
-    """``table_name`` is a jobs source of ``depot_ci.with_depot_jobs``, which carries the engine columns."""
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
     # so a WHERE there would compare the parsed DateTime against the floor string. Both the jobs scan

@@ -44,8 +44,7 @@ _FETCH_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(minutes=15),
 )
 
-# A Depot run id can equal a GitHub run id. The top bit of the 128-bit trace id keeps a Depot trace
-# apart from the GitHub trace of the same number, and leaves GitHub's trace ids as they are.
+# Reserve a trace namespace for Depot without changing GitHub's existing trace IDs.
 _DEPOT_TRACE_NAMESPACE = 1 << 127
 
 
