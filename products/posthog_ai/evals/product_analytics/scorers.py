@@ -713,7 +713,17 @@ TYPED_QUERY_TOOLS = frozenset(
 )
 SERIES_QUERY_TOOLS = frozenset({QUERY_TRENDS_TOOL_NAME, QUERY_FUNNEL_TOOL_NAME})
 
-_QUERY_TOOL_BY_KIND = {"TrendsQuery": QUERY_TRENDS_TOOL_NAME, "FunnelsQuery": QUERY_FUNNEL_TOOL_NAME}
+_QUERY_TOOL_BY_KIND = {
+    "TrendsQuery": QUERY_TRENDS_TOOL_NAME,
+    "FunnelsQuery": QUERY_FUNNEL_TOOL_NAME,
+    "RetentionQuery": QUERY_RETENTION_TOOL_NAME,
+    "PathsQuery": "query-paths",
+    "StickinessQuery": "query-stickiness",
+    "LifecycleQuery": "query-lifecycle",
+    "WebStatsTableQuery": "query-web-stats",
+    "WebOverviewQuery": "query-web-overview",
+    "HogQLQuery": "execute-sql",
+}
 
 _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
     QUERY_TRENDS_TOOL_NAME: AssistantTrendsQuery,
@@ -725,8 +735,8 @@ _ANSWER_TOOL_SCHEMAS: dict[str, type[BaseModel]] = {
 class InsightShape(Scorer):
     """Binary: did the agent's answer query have the expected skeleton?
 
-    When the agent saved a trends or funnel insight, the most recent saved query is the
-    answer query, and it is checked as ``query-trends`` or ``query-funnel``.
+    When the agent saved an insight, the most recent saved query is the answer query, and
+    it is checked as the query tool for its kind, such as ``query-trends`` or ``execute-sql``.
     Otherwise the most recent successful typed query is the answer query. A later SQL call is
     ignored because the desktop agent can rerun a typed query as SQL to render it.
     When no typed query ran, the most recent non-discovery SQL call is the answer.
@@ -758,7 +768,7 @@ class InsightShape(Scorer):
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         calls = parser.get_tool_calls()
-        saved = [answer for answer in map(_saved_series_query, calls) if answer]
+        saved = [answer for answer in map(_saved_query, calls) if answer]
         successful = [
             call
             for call in calls
@@ -798,16 +808,16 @@ class InsightShape(Scorer):
         )
 
 
-def _saved_series_query(call: ToolCall) -> tuple[str, dict[str, Any]] | None:
+def _saved_query(call: ToolCall) -> tuple[str, dict[str, Any]] | None:
     if call.is_error or call.name not in ("insight-create", "insight-update") or not isinstance(call.input, dict):
         return None
     query = call.input.get("query")
-    if isinstance(query, dict) and query.get("kind") == "InsightVizNode":
+    if isinstance(query, dict) and query.get("kind") in ("InsightVizNode", "DataVisualizationNode"):
         query = query.get("source")
     if not isinstance(query, dict):
         return None
-    tool_name = _QUERY_TOOL_BY_KIND.get(str(query.get("kind")))
-    return (tool_name, query) if tool_name else None
+    kind = str(query.get("kind"))
+    return _QUERY_TOOL_BY_KIND.get(kind, kind), query
 
 
 def _query_of(tool_name: str, raw: dict[str, Any]) -> dict[str, Any]:

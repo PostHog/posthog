@@ -110,6 +110,19 @@ PAGEVIEWS_BY_BROWSER = {
             1.0,
             [],
         ),
+        (
+            [
+                _trends_call("ActionsBarValue", "file_type", ["uploaded_file"]),
+                (
+                    "mcp__posthog__insight-create",
+                    {"name": "Uploads", "query": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+                    "ok",
+                ),
+            ],
+            UPLOADS_BY_FILE_TYPE,
+            0.0,
+            ["tool"],
+        ),
         ([_sql_call()], PAGEVIEWS_BY_BROWSER, 0.0, ["tool"]),
         ([_trends_call("ActionsLineGraph", "$browser"), _sql_call()], {"tool": "execute-sql"}, 0.0, ["tool"]),
         (

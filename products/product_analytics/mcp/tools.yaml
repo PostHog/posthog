@@ -130,8 +130,9 @@ tools:
             in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per
             X-axis value.
         agent_note: >
-            When you tell the user about this insight, name the display you chose and one or two other displays that
-            also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with
+            When this is a trends insight, name the display you chose and one or two other displays that also fit
+            this query, in one short sentence, and offer to change it. Do not suggest displays for other insight
+            kinds. If the user agrees, change it with
             insight-update. Suggest only displays that fit: for change over time `ActionsLineGraph`, `ActionsAreaGraph`,
             `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`,
             `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than
