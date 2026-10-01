@@ -63,6 +63,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         experiment.save()
         expected_query_to = datetime.fromisoformat("2020-01-05T00:00:00+00:00")
         self._hold_window(experiment.id, metric_dict["uuid"], expected_query_to, holder)
+        key = metric_calculation_keys(experiment.id, team_id=self.team.id).inline[metric_dict["uuid"]]
 
         with (
             patch("posthog.temporal.experiments.activities.close_old_connections"),
@@ -71,7 +72,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
 
             activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
+                experiment.id, metric_dict["uuid"], key
             )
 
         self.assertTrue(activity_result.success, msg=activity_result.error_message)
@@ -79,7 +80,8 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
-        assert (result_row.fingerprint, result_row.result) == ("fingerprint", {"variant_results": []})
+        assert (result_row.fingerprint, result_row.result) == (key, {"variant_results": []})
+        assert result_row.spec is not None
 
     @parameterized.expand(_WINDOW_HOLDERS)
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
@@ -106,6 +108,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             metadata={"type": "primary"},
         )
         self._hold_window(experiment.id, metric_dict["uuid"], expected_query_to, holder)
+        [key] = metric_calculation_keys(experiment.id, team_id=self.team.id).saved.values()
 
         with (
             patch("posthog.temporal.experiments.activities.close_old_connections"),
@@ -114,7 +117,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
             mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
 
             activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
+                experiment.id, metric_dict["uuid"], key
             )
 
         self.assertTrue(activity_result.success, msg=activity_result.error_message)
@@ -122,7 +125,8 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
-        assert (result_row.fingerprint, result_row.result) == ("fingerprint", {"variant_results": []})
+        assert (result_row.fingerprint, result_row.result) == (key, {"variant_results": []})
+        assert result_row.spec is not None
 
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_temporal_activity_warms_query_cache(self):

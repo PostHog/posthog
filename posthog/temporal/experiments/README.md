@@ -39,6 +39,7 @@ When a schedule triggers, it starts a workflow that:
 Each metric activity stores its result through the experiments facade (`record_daily_metric_result`, `record_daily_metric_failure`).
 The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
+The write also stores the calculation spec of the metric, as long as the current configuration still gives the key that the discovery computed.
 
 ### Handing fresh points to the recalculation reader
 

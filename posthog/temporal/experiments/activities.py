@@ -223,6 +223,7 @@ def _calculate_experiment_regular_metric_sync(
 
         record_daily_metric_result(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
@@ -248,6 +249,7 @@ def _calculate_experiment_regular_metric_sync(
     except (StatisticError, ZeroDivisionError) as e:
         record_daily_metric_failure(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
@@ -289,6 +291,7 @@ def _calculate_experiment_regular_metric_sync(
 
         record_daily_metric_failure(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
@@ -515,6 +518,7 @@ def _calculate_experiment_saved_metric_sync(
 
         record_daily_metric_result(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
@@ -540,6 +544,7 @@ def _calculate_experiment_saved_metric_sync(
     except (StatisticError, ZeroDivisionError) as e:
         record_daily_metric_failure(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
@@ -581,6 +586,7 @@ def _calculate_experiment_saved_metric_sync(
 
         record_daily_metric_failure(
             experiment_id,
+            team_id=experiment.team_id,
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             window=query_to_utc,
