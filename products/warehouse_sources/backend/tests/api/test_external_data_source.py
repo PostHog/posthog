@@ -1278,7 +1278,11 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
-            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            data={
+                "schemas": [
+                    {"id": str(schema.id), "full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"}
+                ]
+            },
             format="json",
         )
 
@@ -1286,7 +1290,9 @@ class TestExternalDataSource(APIBaseTest):
         assert response.json()[0]["full_refresh_interval_days"] == 7
         schema.refresh_from_db()
         assert schema.full_refresh_interval_days == 7
+        assert str(schema.full_refresh_time_of_day) == "03:00:00"
         assert schema.next_full_refresh_at is not None
+        assert schema.next_full_refresh_at.strftime("%H:%M:%S") == "03:00:00"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -3176,6 +3182,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "full_refresh_interval_days": None,
+                    "full_refresh_time_of_day": None,
                     "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
