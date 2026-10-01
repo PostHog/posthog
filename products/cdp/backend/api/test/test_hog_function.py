@@ -1171,10 +1171,11 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("add_duplicate_to_mapping", [{"key": "added", "type": "string"}] * 2, False, status.HTTP_400_BAD_REQUEST),
             ("add_third_copy", [{"key": "click_id", "type": "string"}], False, status.HTTP_400_BAD_REQUEST),
             ("new_mapping_repeats_key", [], True, status.HTTP_400_BAD_REQUEST),
+            ("new_mapping_in_the_stored_position", [], "replace", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_stored_duplicate_mapping_keys_do_not_block_full_saves(
-        self, _name: str, extra_schema: list[dict], add_mapping: bool, expected_status: int
+        self, _name: str, extra_schema: list[dict], add_mapping: bool | str, expected_status: int
     ) -> None:
         mapping = {
             "name": "Signed up",
@@ -1195,16 +1196,20 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/hog_functions/{function.id}",
             data={
                 "name": "Renamed",
-                "mappings": [
-                    {**mapping, "inputs_schema": [*mapping["inputs_schema"], *extra_schema]},
-                    *([{**mapping, "name": "Logged in"}] if add_mapping else []),
-                ],
+                "mappings": (
+                    [{**mapping, "name": "Logged in"}]
+                    if add_mapping == "replace"
+                    else [
+                        {**mapping, "inputs_schema": [*mapping["inputs_schema"], *extra_schema]},
+                        *([{**mapping, "name": "Logged in"}] if add_mapping else []),
+                    ]
+                ),
             },
         )
 
         assert res.status_code == expected_status, res.json()
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert res.json()["attr"] == f"mappings__{1 if add_mapping else 0}__inputs_schema"
+            assert res.json()["attr"] == f"mappings__{1 if add_mapping is True else 0}__inputs_schema"
 
     @parameterized.expand(
         [

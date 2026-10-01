@@ -362,11 +362,12 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
 
 
 def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) -> Optional[dict]:
-    # Match by name so that removing or reordering mappings keeps each one's allowance.
-    named = [stored for stored in stored_mappings if mapping.get("name") and stored.get("name") == mapping.get("name")]
-    if len(named) == 1:
-        return named[0]
-    return stored_mappings[index] if index < len(stored_mappings) else None
+    # Only a stored mapping with the same name counts as this mapping's earlier version. Position breaks
+    # ties between equal names, so a new mapping placed where an old one was cannot take its allowance.
+    candidates = [stored for stored in stored_mappings if stored.get("name") == mapping.get("name")]
+    if index < len(stored_mappings) and any(stored is stored_mappings[index] for stored in candidates):
+        return stored_mappings[index]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
