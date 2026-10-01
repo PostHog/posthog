@@ -327,10 +327,11 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.client.force_login(self.user)
         self.assertEqual(self.client.get(f"{self.scanners_url}{scanner.id}/").json()["scanner_config"], config)
 
-    def test_save_by_an_editor_denied_the_experiment_keeps_the_config_scope(self) -> None:
-        # The read path strips the experiment keys for such an editor, and the editor form writes
-        # the whole config back on save. Without the restore, a prompt edit would fail validation
-        # (or clear a scope the caller can't see).
+    def test_config_writes_by_an_editor_denied_the_experiment_read_as_not_found(self) -> None:
+        # The scan injects the experiment's own description into the prompt, so a prompt written by
+        # a caller who can't view the experiment could instruct the model to copy that private text
+        # into output on the team-visible $recording_observed event. A viewing editor stays the
+        # control: the redacted round-trip (scope keys omitted) still restores the stored scope.
         experiment = create_experiment(self.team, "hidden-flag", created_by=self.user)
         config = {"prompt": "p", "experiment_id": experiment.id, "variants": ["test"]}
         scanner = self._create_scanner(name="config-scoped", scanner_type=ScannerType.EXPERIMENT, scanner_config=config)
@@ -342,6 +343,18 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
             data={"scanner_config": {"prompt": "sharper prompt"}},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertIn("Experiment not found", str(resp.json()))
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.scanner_config, config)
+
+        # The creator can view the experiment, so their redacted-shape save restores the scope.
+        self.client.force_login(self.user)
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "sharper prompt", "variants": ["test"]}},
             format="json",
         )
         self.assertEqual(resp.status_code, 200, resp.json())

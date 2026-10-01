@@ -843,10 +843,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         The experiment decides the population, the prompt, and the meaning of every observation,
         so it is as identity-defining as the scanner type: retargeting is a new scanner, not an
         edit (and per-scanner readouts would otherwise mix two populations). That also makes a
-        written-back config with no experiment_id unambiguous, so the stored id is restored
-        whoever the caller is; to_representation strips it for callers denied the experiment,
-        and the editor form writes the whole config back on save. `variants` stays editable and
-        is restored only for a caller who never saw it.
+        written-back config with no experiment_id unambiguous, so the stored id is restored.
         """
         if self.instance is None or self.instance.scanner_type != ScannerType.EXPERIMENT:
             return
@@ -856,13 +853,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
         if stored.get("experiment_id") is None:
             return
-        can_view = self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]})
-        if not can_view and (config.get("experiment_id") is not None or "variants" in config):
-            # to_representation strips the scope keys from this caller's read, so a legitimate save
-            # writes the config back without them. An explicit id or variants value from a denied
-            # caller is a probe: answering "fixed" only on a mismatch would confirm the hidden id
-            # (and accepting only the stored variants would confirm those), so every explicit scope
-            # key reads as not-found, matching or not.
+        if not self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]}):
+            # A caller denied the experiment can't write this config at all. The scan injects the
+            # experiment's own description into the prompt (see resolve_experiment_variant), so a
+            # prompt they wrote could instruct the model to copy that private text into output that
+            # lands on the team-visible $recording_observed event. One uniform answer for every
+            # write also keeps the hidden id and variants from being enumerated by probing PATCHes.
             raise serializers.ValidationError({"scanner_config": "Experiment not found in this project."})
         if config.get("experiment_id") is not None and config["experiment_id"] != stored["experiment_id"]:
             raise serializers.ValidationError(
@@ -872,10 +868,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                     )
                 }
             )
-        restored = {**config, "experiment_id": stored["experiment_id"]}
-        if "variants" not in restored and "variants" in stored and not can_view:
-            restored["variants"] = stored["variants"]
-        attrs["scanner_config"] = restored
+        attrs["scanner_config"] = {**config, "experiment_id": stored["experiment_id"]}
 
     def _validate_experiment_scanner(self, attrs: dict[str, Any]) -> None:
         """The experiment-type checks that need a viewer or the experiments product, which the
@@ -892,8 +885,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             return
         config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None)) or {}
         if self.instance is not None and config_experiment_scope(config) == self.instance.experiment_scope():
-            # Unchanged scope: an editor denied the experiment may still edit the prompt, and the
-            # experiment's launch state was already checked when the scope was written.
+            # Unchanged scope (the restore already required experiment access on updates): the
+            # experiment's launch state was checked when the scope was written.
             return
         experiment_id = config.get("experiment_id")
         if not isinstance(experiment_id, int):
