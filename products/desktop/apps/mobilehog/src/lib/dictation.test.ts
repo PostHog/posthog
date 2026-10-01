@@ -194,12 +194,12 @@ describe("useDictation stop", () => {
     expect(native.stop).toHaveBeenCalledTimes(1);
   });
 
-  it("drops the words when cancel comes during a stop", async () => {
+  it("resolves with null when cancel comes during a stop", async () => {
     const dictation = await listen();
     emit("result", result("Ship it.", true));
     const stopped = dictation.stop();
     dictation.cancel();
-    await expect(stopped).resolves.toBe("");
+    await expect(stopped).resolves.toBeNull();
     expect(native.abort).toHaveBeenCalledTimes(1);
   });
 

@@ -105,7 +105,7 @@ export function Composer({
 
   const stopDictation = async (): Promise<void> => {
     const heard = await dictation.stop();
-    setText((current) => withSpeech(current, heard));
+    if (heard !== null) setText((current) => withSpeech(current, heard));
   };
 
   // The input shows the live transcript, so an edit already holds it. Dropping the transcript keeps it from being added twice.
@@ -116,9 +116,10 @@ export function Composer({
 
   const submit = async (): Promise<void> => {
     if (dictation.stopping || sending) return;
-    const value = (
-      dictation.active ? withSpeech(text, await dictation.stop()) : text
-    ).trim();
+    const heard = dictation.active ? await dictation.stop() : "";
+    // An edit, cancel or blur during the wait ends the send and keeps the draft.
+    if (heard === null) return;
+    const value = withSpeech(text, heard).trim();
     if ((!value && !photos.length) || sending) return;
     const attached = photos;
     setText("");

@@ -23,8 +23,9 @@ export interface Dictation {
   start: () => void;
   // Ends dictation and resolves with what was heard once the recognizer delivers its final result.
   // A second call during the wait resolves with "", so each caller gets the words only once.
-  stop: () => Promise<string>;
-  // Ends dictation and drops what was heard. A pending stop resolves with "".
+  // Resolves with null when cancel ends the wait.
+  stop: () => Promise<string | null>;
+  // Ends dictation and drops what was heard.
   cancel: () => void;
 }
 
@@ -86,7 +87,7 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   const listening = useRef(false);
   // True from this hook's native start call until the recognizer reports start or a startup error.
   const starting = useRef(false);
-  const pendingStop = useRef<((heard: string) => void) | null>(null);
+  const pendingStop = useRef<((heard: string | null) => void) | null>(null);
   const stopTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
   );
@@ -112,7 +113,7 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     [levels, head],
   );
 
-  const finish = useCallback((kept = ""): boolean => {
+  const finish = useCallback((kept: string | null = ""): boolean => {
     const wasListening = listening.current;
     const resolve = pendingStop.current;
     session.current++;
@@ -214,13 +215,13 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   }, [levels, head, finish]);
 
   // Results keep arriving after native stop, so the session stays live until the recognizer reports end.
-  const stop = useCallback((): Promise<string> => {
+  const stop = useCallback((): Promise<string | null> => {
     if (!live.current || pendingStop.current) return Promise.resolve("");
     if (!listening.current) {
       finish();
       return Promise.resolve(joinHeard(heard.current));
     }
-    const done = new Promise<string>((resolve) => {
+    const done = new Promise<string | null>((resolve) => {
       pendingStop.current = resolve;
     });
     stopTimer.current = setTimeout(() => {
@@ -234,7 +235,7 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   }, [finish]);
 
   const cancel = useCallback(() => {
-    if (finish()) ExpoSpeechRecognitionModule.abort();
+    if (finish(null)) ExpoSpeechRecognitionModule.abort();
     heard.current = nothingHeard();
     setTranscript("");
   }, [finish]);
