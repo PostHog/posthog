@@ -3,33 +3,17 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
-import {
-    awaitRun,
-    buildResultProp,
-    dispatchRun,
-    shapeRunForModel,
-    wrapRunResultAsInformational,
-    type ShapedRunResult,
-} from './cellRuns'
-import {
-    collectRunRefs,
-    directDependents,
-    findCellTag,
-    parseCellTags,
-    replaceCellTag,
-    normalizeForTagScan,
-    startsComponentTag,
-    upsertProp,
-} from './cellTags'
+import { wrapRunResultAsInformational } from './cellRuns'
+import { findCellTag, replaceCellTag, normalizeForTagScan, startsComponentTag, upsertProp } from './cellTags'
 import {
     applyVisualization,
     CellVisualizationSchema,
     storedVisualizationWarnings,
     VISUALIZATION_PARAM_DESCRIPTION,
-    visualizationWarnings,
 } from './cellVisualization'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
+import { runExistingCell, type RunCellResult } from './runCell'
 
 /**
  * The two id shapes a markdown block can carry: derived from its text by
@@ -49,7 +33,7 @@ const UpdateCellInputSchema = z
             .string()
             .optional()
             .describe(
-                'New SQL or Python source. Omit code and visualization to re-run the cell as-is (e.g. a stale cell).'
+                'New SQL or Python source. Omitting code and visualization still re-runs the cell as-is, but prefer notebooks-run-cell for that.'
             ),
         markdown: z
             .string()
@@ -67,12 +51,7 @@ const UpdateCellInputSchema = z
 
 export const NotebooksUpdateCellSchema = z.preprocess(notebookIdAliases('notebook_id'), UpdateCellInputSchema)
 
-export interface UpdateCellResult {
-    node_id: string
-    run: ShapedRunResult
-    stale_dependents: { node_id: string; dataframe_name?: string }[]
-    visualization_warnings?: string[]
-}
+export type UpdateCellResult = RunCellResult
 
 export interface UpdateVisualizationResult {
     node_id: string
@@ -257,40 +236,13 @@ export const updateCellHandler: ToolBase<
         throw new Error(`Cell ${params.node_id} has no code to run.`)
     }
 
-    const projectId = await context.stateManager.getProjectId()
-    const notebookPath = notebookPathFor(projectId, params.notebook_id)
-    const cells = parseCellTags(markdown)
-    const runId = await dispatchRun(context, notebookPath, {
-        node_id: params.node_id,
-        node_type: existing.tagName === 'SQLV2' ? 'hogql' : 'python',
-        code,
-        output_name: existing.returnVariable,
-        refs: collectRunRefs(cells, params.node_id),
-        variables: notebook.variables,
-    })
-    const outcome = await awaitRun(context, notebookPath, runId)
-    let warnings: string[] = []
-    await applyMarkdownEdit(context, params.notebook_id, (current) => {
-        const block = findCellTag(current, params.node_id)
-        if (!block) {
-            return current
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-            // New code can drop a column the stored chart plots, so every run re-checks the chart.
-            warnings = visualizationWarnings(source, outcome.envelope)
-        }
-        return replaceCellTag(current, block, source)
-    })
-
-    return wrapRunResultAsInformational({
-        node_id: params.node_id,
-        run: shapeRunForModel(outcome),
-        stale_dependents:
-            outcome.status === 'done' ? directDependents(cells, existing.returnVariable, params.node_id) : [],
-        ...(warnings.length ? { visualization_warnings: warnings } : {}),
-    })
+    return await runExistingCell(
+        context,
+        params.notebook_id,
+        { nodeId: params.node_id, tagName: existing.tagName, code, returnVariable: existing.returnVariable },
+        markdown,
+        notebook.variables
+    )
 }
 
 const tool = (): ToolBase<

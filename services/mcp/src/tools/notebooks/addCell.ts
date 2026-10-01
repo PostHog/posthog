@@ -5,31 +5,21 @@ import type { Schemas } from '@/api/generated'
 import type { Context, ToolBase } from '@/tools/types'
 
 import {
-    awaitRun,
-    buildResultProp,
-    dispatchRun,
-    shapeRunForModel,
+    NOT_RUN_HINT,
+    runCellAndWriteBack,
     wrapRunResultAsInformational,
+    type NotRunResult,
     type ShapedRunResult,
 } from './cellRuns'
 import {
     buildCellTag,
-    collectRunRefs,
     COMPONENT_TAG_REGEX,
     DATAFRAME_NAME_REGEX,
     findCellTag,
     parseCellTags,
-    replaceCellTag,
     uniqueDataframeName,
-    upsertProp,
-    type CellTagBlock,
 } from './cellTags'
-import {
-    applyVisualization,
-    CellVisualizationSchema,
-    VISUALIZATION_PARAM_DESCRIPTION,
-    visualizationWarnings,
-} from './cellVisualization'
+import { applyVisualization, CellVisualizationSchema, VISUALIZATION_PARAM_DESCRIPTION } from './cellVisualization'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 import { getNotebookWidgetTagNames, getNotebookWidgetViewError } from './widgetCatalog'
@@ -85,6 +75,12 @@ const AddCellInputSchema = z
                 'Insert after this block: any node_id notebooks-get returns, a markdown block included. Defaults to the end of the document. A markdown block id comes from the text, so pass one from the read you are acting on.'
             ),
         visualization: CellVisualizationSchema.optional().describe(VISUALIZATION_PARAM_DESCRIPTION),
+        run: z
+            .boolean()
+            .optional()
+            .describe(
+                'SQL and Python cells only. Defaults to true: the cell runs as soon as it is added. Pass false to add the cell without a run, for example to lay out dependent cells before running them in order, or to leave a heavy query for the user to run. Run it later with notebooks-run-cell, or run the whole notebook with notebooks-run.'
+            ),
     })
     .strict()
 
@@ -93,7 +89,7 @@ export const NotebooksAddCellSchema = z.preprocess(notebookIdAliases('notebook_i
 export interface AddCellResult {
     node_id?: string
     dataframe_name?: string
-    run?: ShapedRunResult
+    run?: ShapedRunResult | NotRunResult
     visualization_warnings?: string[]
 }
 
@@ -304,47 +300,6 @@ async function resolveInsertAnchor(
     return { nodeId: afterNodeId, source: block.code, start: block.start, end: block.end, version: state.version }
 }
 
-async function runAndWriteBack(
-    context: Context,
-    notebookId: string,
-    nodeId: string,
-    nodeType: 'hogql' | 'python',
-    code: string,
-    outputName: string,
-    cells: CellTagBlock[],
-    variables: Schemas.NotebookVariable[] | undefined
-): Promise<{ run: ShapedRunResult; warnings: string[] }> {
-    const projectId = await context.stateManager.getProjectId()
-    const notebookPath = notebookPathFor(projectId, notebookId)
-    const refs = collectRunRefs(cells, nodeId)
-    const runId = await dispatchRun(context, notebookPath, {
-        node_id: nodeId,
-        node_type: nodeType,
-        code,
-        output_name: outputName,
-        refs,
-        variables,
-    })
-    const outcome = await awaitRun(context, notebookPath, runId)
-    let warnings: string[] = []
-    // Mirror the editor's write-back so humans opening the notebook see the result: runId
-    // always, the envelope once terminal. Anchored on nodeId, so concurrent edits to other
-    // parts of the document survive the retry inside applyMarkdownEdit.
-    await applyMarkdownEdit(context, notebookId, (markdown) => {
-        const block = findCellTag(markdown, nodeId)
-        if (!block) {
-            return markdown
-        }
-        let source = upsertProp(block.source, 'runId', runId)
-        if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
-            source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
-            warnings = visualizationWarnings(source, outcome.envelope)
-        }
-        return replaceCellTag(markdown, block, source)
-    })
-    return { run: shapeRunForModel(outcome), warnings }
-}
-
 /**
  * A `<Query>` whose source is HogQL is the legacy SQL cell. It renders a result table or chart but
  * does not run through the sandbox, so it names no dataframe other cells can reference and keeps no
@@ -469,13 +424,13 @@ export const addCellHandler: ToolBase<typeof NotebooksAddCellSchema, AddCellResu
     const { notebook, markdown } = await applyMarkdownEdit(context, params.notebook_id, (current, version) =>
         insertBlock(current, tag, params.after_node_id, proseAnchor, version)
     )
-    const { run, warnings } = await runAndWriteBack(
+    if (params.run === false) {
+        return { node_id: nodeId, dataframe_name: dataframeName, run: { status: 'not_run', hint: NOT_RUN_HINT } }
+    }
+    const { run, warnings } = await runCellAndWriteBack(
         context,
         params.notebook_id,
-        nodeId,
-        params.cell_type === 'sql' ? 'hogql' : 'python',
-        params.code!,
-        dataframeName,
+        { nodeId, tagName, code: params.code!, returnVariable: dataframeName },
         parseCellTags(markdown),
         notebook.variables
     )
