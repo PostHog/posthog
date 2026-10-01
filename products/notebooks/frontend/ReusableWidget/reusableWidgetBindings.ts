@@ -1,4 +1,5 @@
 import api from 'lib/api'
+import { retryImport } from 'lib/utils/retryImport'
 
 import type { WidgetFrameApi, WidgetStatusApiInputBindings } from 'products/notebooks/frontend/generated/api.schemas'
 
@@ -48,7 +49,7 @@ export async function applyReusableWidgetBinding(
         throw new Error(`The input mapping for "${logicalName}" has invalid compiled Hog code.`)
     }
     const sourceRows = frameRowsAsObjects(frame)
-    const { convertHogToJS, execHog } = await import('lib/hog')
+    const { convertHogToJS, execHog } = await retryImport(() => import('lib/hog'))
     const execution = execHog(bytecode, {
         globals: {
             columns: frame.columns,

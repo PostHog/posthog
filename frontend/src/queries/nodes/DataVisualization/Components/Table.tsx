@@ -171,14 +171,19 @@ export const Table = (props: TableProps): JSX.Element => {
 
     // The Hog VM and its crypto polyfills are large, so only a table with formatting rules loads them.
     const [hog, setHog] = useState<typeof import('lib/hog') | null>(null)
+    const [hogLoadError, setHogLoadError] = useState<unknown>(null)
     const needsHog = conditionalFormattingRules.length > 0
     useEffect(() => {
         if (needsHog && !hog) {
             retryImport(() => import('lib/hog'))
                 .then(setHog)
-                .catch((error) => posthog.captureException(error))
+                .catch(setHogLoadError)
         }
     }, [needsHog, hog])
+    // Throw in render so an error boundary shows the failure, and a stale chunk reloads the page.
+    if (hogLoadError) {
+        throw hogLoadError
+    }
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
