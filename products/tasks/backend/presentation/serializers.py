@@ -5192,7 +5192,7 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     agent_instructions = serializers.CharField(
         help_text=(
             "Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project "
-            "instructions. Empty when unset."
+            "instructions. Anyone who continues a task you started can see them. Empty when unset."
         )
     )
 

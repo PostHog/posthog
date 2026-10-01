@@ -200,7 +200,8 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         responses={200: TasksAgentInstructionsSerializer},
         description=(
             "Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the "
-            "project instructions. Autonomous runs never get them. Send an empty string to clear."
+            "project instructions. Autonomous runs never get them. Anyone who continues a task you started can "
+            "see them, so leave out anything private. Send an empty string to clear."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="agent_instructions", required_scopes=["task:write"])
