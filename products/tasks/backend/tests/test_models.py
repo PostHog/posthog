@@ -1773,6 +1773,10 @@ class TestTaskRun(TestCase):
         run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_not_called()
 
+        run.heartbeat_workflow(agent_active=True, force=True)
+        mock_connect.assert_called_once()
+        handle.signal.assert_called_once()
+
         cache.delete(cache_key)
 
     @patch("posthog.temporal.common.client.sync_connect")

@@ -14,6 +14,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { MarkdownMessage } from '../../messages/MarkdownMessage'
 import type { ThreadItem } from '../../types/streamTypes'
+import { userMessageDisplayText } from '../../utils/userMessageDisplay'
 import { ThreadAttachments } from '../ThreadAttachments'
 import { QuillCopyButton } from './QuillFooterButton'
 
@@ -64,7 +65,7 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
 }
 
 export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {
-    const text = item.text ?? ''
+    const text = userMessageDisplayText(item.text ?? '')
     return (
         <ChatMessage align="end" className="group" data-attr="posthog-ai-human-message">
             <ChatMessageContent className="gap-1">
