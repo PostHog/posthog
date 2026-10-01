@@ -1088,6 +1088,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             context={
                 "get_team": lambda: self._team,
                 "user": self._user,
+                "user_access_control": self.user_access_control,
                 "event_source": EventSource.POSTHOG_AI,
             },
         )
@@ -1248,7 +1249,13 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             scanner,
             data=data,
             partial=True,
-            context={"get_team": lambda: self._team, "user": self._user},
+            # No HTTP request here, so the serializer can't derive the access control from one; without
+            # it the experiment-scope write guard would treat the caller as unrestricted.
+            context={
+                "get_team": lambda: self._team,
+                "user": self._user,
+                "user_access_control": self.user_access_control,
+            },
         )
         if not serializer.is_valid():
             return _first_error(serializer.errors), {"error": "invalid_config"}
