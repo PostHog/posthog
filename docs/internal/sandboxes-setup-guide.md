@@ -329,6 +329,14 @@ cd services/mcp && cp .env.example .env
 
 Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
+### Memory pressure during Claude validation
+
+The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
+
+Cloud Claude sessions deliver each watchdog warning separately to subagents and their parent. Shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM.
+
+Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
+
 ### Local agent packages
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.

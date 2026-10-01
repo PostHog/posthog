@@ -327,3 +327,22 @@ export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
         await userEvent.click(await canvas.findByText('Connect Codex'))
     },
 }
+
+export const SettingsEnvironmentAgentInstructions: Story = {
+    args: { sectionId: 'environment-task-agent-instructions' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/tasks/config/': {
+                    ai_run_preferences: null,
+                    agent_instructions: 'Use pnpm, not npm.\nOpen pull requests as drafts.',
+                },
+                '/api/projects/:id/tasks/@me/config/': {
+                    ai_run_preferences: null,
+                    resolved_ai_run_defaults: null,
+                    agent_instructions: '',
+                },
+            },
+        }),
+    ],
+}
