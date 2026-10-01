@@ -259,6 +259,23 @@ describe('alertFormLogic', () => {
         expect(simulationRuns).toEqual([['alert simulation run', expect.objectContaining({ success: true })]])
     })
 
+    it.each([
+        { status: 400, reported: false },
+        { status: 500, reported: true },
+    ])('reports a $status simulation failure to error tracking: $reported', async ({ status, reported }) => {
+        const error = new ApiError('Request failed', status, undefined, { detail: 'Simulation could not run.' })
+        jest.spyOn(generatedApi, 'alertsSimulateCreate').mockRejectedValue(error)
+        const logic = mountForm()
+        logic.actions.setAlertFormValue('detector_config', { type: 'zscore', threshold: 0.95, window: 30 })
+
+        logic.actions.simulateAlert()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(errorToastSpy).toHaveBeenCalledWith(expect.stringContaining('Simulation failed'))
+        expect(captureSpy).toHaveBeenCalledWith('alert simulation run', expect.objectContaining({ success: false }))
+        expect(captureExceptionSpy.mock.calls.some(([captured]) => captured === error)).toBe(reported)
+    })
+
     it('shows success toast and no error toast when create succeeds', async () => {
         const logic = mountForm()
 

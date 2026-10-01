@@ -127,6 +127,14 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 */
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
+/*
+Actions whose 400 is a validation result that their own failure listener shows to the user, so it
+is not reported as an exception. The alert simulate endpoint returns a 400 for configurations or
+data the detector cannot score (for example, too few rows). Owned by alertFormLogic's
+simulateAlertFailure listener.
+*/
+const VALIDATION_SELF_HANDLED = new Set(['simulateAlert'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -265,7 +273,13 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
+                const isSelfHandledValidation = error?.status === 400 && VALIDATION_SELF_HANDLED.has(String(actionKey))
+                if (
+                    shouldReportApiFailure(error) &&
+                    !isSelfHandledNotFound &&
+                    !isSelfHandledExistingMember &&
+                    !isSelfHandledValidation
+                ) {
                     posthog.captureException(error)
                 }
             },
