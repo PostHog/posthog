@@ -452,23 +452,24 @@ function ArtifactToolbar({
     return (
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
             <KindIcon kind={kind} className="size-4 shrink-0 text-muted-foreground" />
-            <Text size="sm" weight="medium" render={<span />} className="min-w-0 truncate">
-                {artifact.name}
-            </Text>
+            {/* The name truncates and the meta hides on narrow panes, so the tooltip carries both in full. */}
             <Tooltip>
-                <TooltipTrigger
-                    render={
-                        <Text
-                            size="xs"
-                            variant="muted"
-                            render={<span />}
-                            className="hidden shrink-0 tabular-nums @[40rem]/main-content:inline"
-                        />
-                    }
-                >
-                    {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                <TooltipTrigger render={<span className="flex min-w-0 items-baseline gap-2" />}>
+                    <Text size="sm" weight="medium" render={<span />} className="min-w-0 truncate">
+                        {artifact.name}
+                    </Text>
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<span />}
+                        className="hidden shrink-0 tabular-nums @[40rem]/main-content:inline"
+                    >
+                        {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                    </Text>
                 </TooltipTrigger>
-                <TooltipContent>{dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}</TooltipContent>
+                <TooltipContent>
+                    {`${artifact.name} · ${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}`}
+                </TooltipContent>
             </Tooltip>
             {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
             {kind === 'html' && (
