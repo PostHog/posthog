@@ -26,10 +26,10 @@ export interface todayListAppearanceLogicActions {
     }
     moveDraftField: (
         field: TodayListItemField,
-        offset: -1 | 1
+        offset: 1 | -1
     ) => {
-        field: TodayListItemField
-        offset: -1 | 1
+        field: 'activity' | 'branch' | 'creator' | 'repository' | 'space'
+        offset: 1 | -1
     }
     openAppearanceDialog: () => {
         value: true
@@ -41,14 +41,14 @@ export interface todayListAppearanceLogicActions {
         draft: TodayListAppearanceDraft
     }
     setFields: (fields: TodayListItemField[]) => {
-        fields: TodayListItemField[]
+        fields: ('activity' | 'branch' | 'creator' | 'repository' | 'space')[]
     }
     toggleDraftField: (
         field: TodayListItemField,
         checked: boolean
     ) => {
         checked: boolean
-        field: TodayListItemField
+        field: 'activity' | 'branch' | 'creator' | 'repository' | 'space'
     }
 }
 
