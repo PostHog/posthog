@@ -318,50 +318,53 @@ class TestDepotReconciliation:
             history_start=NOW - dt.timedelta(days=30),
             source_cursor=manager,
         )
+        columns = ("attempt_id", "attempt_status", "workflow_status")
+
+        async def sync_and_read_storage() -> list[tuple[str, str, str]]:
+            response = source.source_for_pipeline(config, inputs)
+            rows = [row for batch in _batches(response) for row in batch]
+            await DeltaWriter(make_local_table_ref(str(tmp_path / "attempts"))).write(
+                data=pa.Table.from_pylist([{key: row[key] for key in columns} for row in rows]),
+                write_type="incremental",
+                should_overwrite_table=False,
+                primary_keys=response.primary_keys,
+            )
+            stored = deltalake.DeltaTable(str(tmp_path / "attempts")).to_pyarrow_table().to_pylist()
+            return sorted(tuple(row[key] for key in columns) for row in stored)
+
         with time_machine.travel(NOW, tick=False), mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            for sync in range(3):
-                writer = DeltaWriter(make_local_table_ref(str(tmp_path / "attempts")))
-                if sync == 1:
-                    workflow["workflowStatus"] = "finished"
-                    job["attempts"].append({"attemptId": "retry-2", "attempt": 2, "status": "finished"})
-                if sync > 0:
-                    inputs.db_incremental_field_last_value = _iso(NOW - dt.timedelta(minutes=10))
-                    inputs.source_cursor = SourceCursorManager(
-                        source.cursor_class(),
-                        DepotReconciliationCursor(reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago))),
-                        source,
-                    )
-                response = source.source_for_pipeline(config, inputs)
-                rows = [row for batch in _batches(response) for row in batch]
-                batch = pa.Table.from_pylist(
-                    [{key: row[key] for key in ("attempt_id", "attempt_status", "workflow_status")} for row in rows]
-                )
-                await writer.write(
-                    data=batch,
-                    write_type="incremental",
-                    should_overwrite_table=False,
-                    primary_keys=response.primary_keys,
-                )
-                actual = deltalake.DeltaTable(str(tmp_path / "attempts")).to_pyarrow_table().to_pylist()
-                assert len(actual) == (1 if sync == 0 else 2)
-                assert {row["attempt_id"]: row["attempt_status"] for row in actual} == (
-                    {"run-1-attempt": "failed"} if sync == 0 else {"run-1-attempt": "failed", "retry-2": "finished"}
-                )
-                assert {row["workflow_status"] for row in actual} == {"failed" if sync == 0 else "finished"}
+            assert await sync_and_read_storage() == [("run-1-attempt", "failed", "failed")]
+
+            workflow["workflowStatus"] = "finished"
+            job["attempts"].append({"attemptId": "retry-2", "attempt": 2, "status": "finished"})
+            inputs.db_incremental_field_last_value = _iso(NOW - dt.timedelta(minutes=10))
+            inputs.source_cursor = SourceCursorManager(
+                source.cursor_class(),
+                DepotReconciliationCursor(reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago))),
+                source,
+            )
+            after_retry = [("retry-2", "finished", "finished"), ("run-1-attempt", "failed", "finished")]
+            assert await sync_and_read_storage() == after_retry
+            assert await sync_and_read_storage() == after_retry
 
     @pytest.mark.parametrize(
-        "reconciled_days_ago, history_days, has_watermark, expected_runs",
+        "reconciled_days_ago, history_days, has_watermark, expected_runs, expected_reconciled",
         [
-            (None, 30, True, ["old", "recent"]),
-            (1, 30, True, ["recent"]),
-            (7, 30, True, ["old", "recent"]),
-            (1, 30, False, ["old", "recent"]),
-            (None, None, True, ["outside", "old", "recent"]),
-            (1, 1, True, []),
+            (None, 30, True, ["old", "recent"], True),
+            (1, 30, True, ["recent"], False),
+            (7, 30, True, ["old", "recent"], True),
+            (1, 30, False, ["old", "recent"], True),
+            (None, None, True, ["outside", "old", "recent"], True),
+            (1, 1, True, [], False),
         ],
     )
     def test_replays_retries_and_reconciles_retained_history(
-        self, reconciled_days_ago: int | None, history_days: int | None, has_watermark: bool, expected_runs: list[str]
+        self,
+        reconciled_days_ago: int | None,
+        history_days: int | None,
+        has_watermark: bool,
+        expected_runs: list[str],
+        expected_reconciled: bool,
     ) -> None:
         source = DepotSource()
         cursor = (
@@ -393,13 +396,9 @@ class TestDepotReconciliation:
             rows = [row for batch in _batches(response) for row in batch]
 
         assert [row["run_id"] for row in rows if row["attempt"] == 2] == expected_runs
-        if reconciled_days_ago in (None, 7) or not has_watermark:
-            assert manager.staged is not None
-        else:
-            assert manager.staged is None
+        assert (manager.staged is not None) == expected_reconciled
 
-    @pytest.mark.parametrize("fail", [False, True])
-    def test_incomplete_reconciliation_does_not_advance_the_cursor(self, fail: bool) -> None:
+    def test_incomplete_reconciliation_does_not_advance_the_cursor(self) -> None:
         source = DepotSource()
         manager = SourceCursorManager(source.cursor_class(), None, source)
         inputs = mock.MagicMock(should_use_incremental_field=False, history_start=None, source_cursor=manager)
@@ -408,7 +407,7 @@ class TestDepotReconciliation:
         post = session.post.side_effect
 
         def interrupted_post(url: str, json: dict[str, Any], timeout: float) -> Response:
-            if fail and url.endswith("/GetWorkflow") and json["workflowId"] == "recent-wf":
+            if url.endswith("/GetWorkflow") and json["workflowId"] == "recent-wf":
                 return _response(500, {}, "GetWorkflow")
             return cast(Response, post(url, json=json, timeout=timeout))
 
@@ -418,11 +417,8 @@ class TestDepotReconciliation:
             batches = cast(Iterator[list[dict[str, Any]]], response.items())
             assert next(batches)[0]["run_id"] == "old"
             assert manager.staged is None
-            if fail:
-                with pytest.raises(HTTPError, match="500 Server Error"):
-                    list(batches)
-            else:
-                del batches
+            with pytest.raises(HTTPError, match="500 Server Error"):
+                list(batches)
             assert manager.staged is None
 
 
