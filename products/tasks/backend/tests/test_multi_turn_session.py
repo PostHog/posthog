@@ -1618,6 +1618,34 @@ class TestMultiTurnSessionStartFallback:
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
 
+    @parameterized.expand(
+        [
+            ("retry_recovers", json.dumps({"value": "ok"}), _Resp(value="ok")),
+            ("retry_still_prose", "still prose", None),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_retry_prompt_asks_once_on_the_same_session(self, _name, retry_reply, expected):
+        session = self._fake_session()
+        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            if expected is None:
+                with pytest.raises(ValueError):
+                    await MultiTurnSession.start(prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON")
+            else:
+                _, parsed = await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON"
+                )
+                assert parsed == expected
+
+        session.send_followup_raw.assert_awaited_once()  # type: ignore[attr-defined]
+        assert session.send_followup_raw.await_args.args[0] == "JSON"  # type: ignore[attr-defined]
+        if expected is None:
+            assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+        else:
+            session.end.assert_not_awaited()  # type: ignore[attr-defined]
+
 
 class TestPollForTurnConnectionDrop:
     """poll_for_turn runs for many minutes while the activity's pooled DB connection sits idle;

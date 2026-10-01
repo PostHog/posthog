@@ -83,6 +83,7 @@ class MultiTurnSession:
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
+        json_retry_prompt: str | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
@@ -106,6 +107,11 @@ class MultiTurnSession:
         to persist. Single-turn callers (e.g. the Signals scout, whose summary is a
         free-text markdown close-out) use this so an unparseable end-turn no longer
         discards the entire run and its scan-position close-out.
+
+        `json_retry_prompt`, if given, is sent once as a follow-up turn on the same
+        session when the first turn does not parse/validate against `model`. The agent
+        keeps its context, so it can restate its answer as JSON without a new sandbox
+        run. `fallback_from_text` applies only if the retry turn fails too.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -128,7 +134,18 @@ class MultiTurnSession:
             output_schema=output_schema,
         )
         try:
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            try:
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            except Exception as e:
+                if json_retry_prompt is None:
+                    raise
+                logger.warning(
+                    "multi_turn: end-turn did not validate against %s for run=%s, asking for JSON once (%s)",
+                    model.__name__,
+                    session.task_run.id,
+                    e,
+                )
+                parsed = await session.send_followup(json_retry_prompt, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
