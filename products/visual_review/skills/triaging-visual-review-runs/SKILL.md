@@ -141,8 +141,7 @@ Triage tools (they do NOT change the baseline; the gate changes only after `reco
 
 Branch protection requires the `Visual regression tests pass` and `Playwright tests pass` job checks, not the `visual-review` status.
 So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the completing job.
-Never call `recompute-create` on a run with approved snapshots: it counts an approval as resolved but commits no baseline,
-so the PR merges with a stale baseline and the merge queue fails on the drift. Finalize those runs instead.
+Approved changes keep the gate red until finalize commits them, so recompute never ships an approval.
 
 Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
 
@@ -321,7 +320,6 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 ## What NOT to do
 
 - Do not tolerate to get past a gate, and do not quarantine a diff your own change caused or a `broken` entry.
-- Do not call `recompute-create` on a run with approved snapshots; finalize it instead, with a human yes.
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
 - Do not read an empty run list on a fork PR as a broken or pending run.

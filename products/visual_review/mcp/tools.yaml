@@ -354,8 +354,8 @@ tools:
             Re-check the gate of a completed, unfinalized run after a quarantine or toleration: recount unresolved
             snapshots, post the commit status, and re-run the CI job that completed the run (about a minute, no new
             capture; a run from an older CLI captures again). Call it on the pull request's latest non-stale run.
-            Approved snapshots count as resolved but are not committed, so never use it to pass approved changes;
-            finalize those. `ci_rerun_triggered` and `ci_rerun_error` report the re-run.
+            Approved changes keep the gate red until finalize commits them. `ci_rerun_triggered` and `ci_rerun_error`
+            report the re-run.
         feature_flag: visual-review
     visual-review-runs-retrieve:
         operation: visual_review_runs_retrieve
