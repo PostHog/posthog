@@ -206,6 +206,7 @@ import {
     SidebarLayoutSetting,
     SidebarMyProductsSetting,
 } from './user/SidebarSettings'
+import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -2653,6 +2654,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <RealtimeNotificationPreferences />,
                 flag: 'REAL_TIME_NOTIFICATIONS',
                 keywords: ['notification', 'in-app', 'realtime', 'popover', 'mention'],
+            },
+            {
+                id: 'task-comments-slack-dm',
+                title: 'Agent tasks',
+                description:
+                    'Get a Slack direct message when someone mentions you, replies to your comment, or comments on a task you own.',
+                component: <TaskCommentSlackNotifications />,
+                flag: 'TODAY_RAIL_NAV',
+                keywords: ['slack', 'dm', 'direct message', 'comments', 'tasks', 'desktop', 'notifications'],
             },
         ],
     },
