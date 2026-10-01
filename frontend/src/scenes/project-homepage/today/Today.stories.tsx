@@ -554,7 +554,7 @@ export const SpacesPane: Story = {
     },
 }
 
-// A hovered space row shows no buttons, so the faces and the unread dot keep their place.
+// A hovered space row shows no buttons, so the faces keep their place.
 // Its actions, New session first, are in the hover card that opens beside it.
 export const SpacesPaneHoveringSpaceRow: Story = {
     play: async ({ canvasElement }) => {

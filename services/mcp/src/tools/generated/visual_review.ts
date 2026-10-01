@@ -564,9 +564,11 @@ const visualReviewRunsSnapshotsList = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
                 query: {
+                    exclude_unchanged: params.exclude_unchanged,
                     include_quarantined: params.include_quarantined,
                     limit: params.limit,
                     offset: params.offset,
+                    snapshot_id: params.snapshot_id,
                 },
             })
             return await withPostHogUrl(context, result, '/visual_review')
