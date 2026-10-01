@@ -301,8 +301,8 @@ class CapabilityNotch:
 # so a rung naming a retired model drops out instead of becoming a stop that fails on send.
 CAPABILITY_LADDER_BY_RUNTIME_ADAPTER: dict[str, tuple[CapabilityNotch, ...]] = {
     CLAUDE: (
-        CapabilityNotch("claude-sonnet-5", MEDIUM),
-        CapabilityNotch("claude-sonnet-5", HIGH),
+        CapabilityNotch("claude-sonnet-5-5", MEDIUM),
+        CapabilityNotch("claude-sonnet-5-5", HIGH),
         CapabilityNotch("claude-opus-5-5", MEDIUM),
         CapabilityNotch("claude-opus-5-5", XHIGH),
         CapabilityNotch("claude-fable-5-1", MAX),
