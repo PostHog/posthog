@@ -91,7 +91,7 @@ _MONITORING_ERROR_RESPONSES = {
     ),
     status.HTTP_404_NOT_FOUND: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
-        description="The organization does not have a managed warehouse.",
+        description="The organization does not have a managed warehouse, or this endpoint does not match its query engine.",
     ),
     status.HTTP_501_NOT_IMPLEMENTED: OpenApiResponse(
         response=ManagedWarehouseMonitoringErrorResponseSerializer,
@@ -106,6 +106,16 @@ _MONITORING_ERROR_RESPONSES = {
         description="The managed warehouse monitoring service timed out.",
     ),
 }
+
+
+_TRINO_VARIANT_MONITORING_ERROR = (
+    "This warehouse runs on Trino. Use the Trino monitoring endpoints "
+    "(managed-warehouse-trino-monitoring and managed-warehouse-trino-monitoring-timeseries) instead."
+)
+
+
+def _wrong_monitoring_variant_response(message: str) -> Response:
+    return Response({"error": message}, status=status.HTTP_404_NOT_FOUND)
 
 
 def _managed_warehouse_monitoring_error_response(upstream_response: Response) -> Response:
@@ -249,6 +259,11 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _readable_team_schema_ids(self) -> list:
         return list(self._readable_schema_ids(list(self._team_schemas())))
+
+    def _managed_warehouse_disabled_response(self) -> Response | None:
+        if managed_warehouse.is_enabled(self.team.organization_id):
+            return None
+        return Response({"error": "This feature is not enabled"}, status=status.HTTP_403_FORBIDDEN)
 
     def _require_organization_admin(self, request: Request, action: str) -> Response | None:
         if not request.user.is_authenticated:
@@ -1374,6 +1389,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        # Workers still run a Trino organization's internal writes. That data is not for its users.
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         upstream_response = managed_warehouse.monitoring_snapshot_for(organization_id)
         if upstream_response.status_code != status.HTTP_200_OK:
             return _managed_warehouse_monitoring_error_response(upstream_response)
@@ -1413,6 +1431,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_monitoring_timeseries(self, request: Request, **kwargs) -> Response:
         organization_id = str(self.team.organization_id)
+        if managed_warehouse.data_ops_variant(organization_id) == "trino":
+            return _wrong_monitoring_variant_response(_TRINO_VARIANT_MONITORING_ERROR)
         metric = cast(
             managed_warehouse.ManagedWarehouseMonitoringMetric,
             request.validated_query_data["metric"],
@@ -1450,6 +1470,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def managed_warehouse_data_status(self, request: Request, **kwargs) -> Response:
         """Get events, persons, and imported source readiness for the managed warehouse."""
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         return Response(get_managed_warehouse_data_status(self.team_id, user_access_control=self.user_access_control))
 
     @validated_request(
@@ -1467,6 +1489,8 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["warehouse_view:read", "external_data_source:read"],
     )
     def managed_warehouse_source_schemas(self, request: Request, **kwargs) -> Response:
+        if (disabled := self._managed_warehouse_disabled_response()) is not None:
+            return disabled
         source_id = str(request.validated_query_data["source_id"])
         return Response(
             {

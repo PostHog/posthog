@@ -26,6 +26,21 @@ from products.warehouse_sources.backend.facade.models import (
 class TestDataWarehouseAPI(APIBaseTest):
     @parameterized.expand(
         [
+            ("data_status", "managed-warehouse-data-status/"),
+            ("source_schemas", "managed-warehouse-source-schemas/?source_id=00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_overview_endpoints_require_a_managed_warehouse_flag(self, _name: str, path: str) -> None:
+        with patch(
+            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            return_value=False,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
             ("onboarded", True, True),
             ("not_onboarded", False, False),
         ]
