@@ -836,42 +836,198 @@ describe('RoutingPersonsStore', () => {
             expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
         })
 
+        /** Unsettled through the first `unsettledCalls` calls, settled from then on; call `hangingCall` never answers. */
+        const unsettledUntil = (stores: ReturnType<typeof makeStores>, unsettledCalls: number, hangingCall = 0) => {
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            stores.personhogMock.mergePersons.mockImplementation(() => {
+                const call = stores.personhogMock.mergePersons.mock.calls.length
+                if (call === hangingCall) {
+                    return new Promise<never>(() => {})
+                }
+                return Promise.resolve(
+                    call <= unsettledCalls
+                        ? {
+                              survivor: person(1, '1'),
+                              results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                          }
+                        : {
+                              survivor: person(1, '1'),
+                              results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                          }
+                )
+            })
+        }
+
+        /** A merge whose three attempts all come back unsettled, so the store defers it. */
+        const deferredMerge = async (store: RoutingPersonsStore, request: unknown) => {
+            const merging = store.mergePersons(request as never, 0)
+            await jest.advanceTimersByTimeAsync(1_000)
+            await merging
+        }
+
         it.each([
-            ['settles at the re-drive', 3, 4, 'settled'],
-            ['stays unsettled at the re-drive', 6, 6, 'unsettled'],
+            ['settles at the first re-drive', 3, [4], ['settled'], 'settled'],
+            ['settles at a later re-drive', 6, [6, 7], ['deferred', 'settled'], 'settled'],
+            [
+                'stays unsettled and is dropped once its window closes',
+                Infinity,
+                [6, 9, 12, 15, 18],
+                ['deferred', 'deferred', 'deferred', 'deferred', 'dropped'],
+                'dropped',
+            ],
         ])(
-            'a shadow merge unsettled through its retries is re-driven once at flush and %s',
-            async (_name, unsettledAttempts, expectedCalls, outcome) => {
+            'a shadow merge unsettled through its retries %s',
+            async (_name, unsettledAttempts, expectedCallsPerFlush, outcomes, finalOutcome) => {
+                jest.useFakeTimers()
+                try {
+                    const stores = makeStores()
+                    unsettledUntil(stores, unsettledAttempts)
+                    const store = makeStore(stores, 'shadow')
+                    const request = mergeRequest() as never
+                    await deferredMerge(store, request)
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+
+                    // A flush inside the delay leaves the merge waiting.
+                    await store.flush()
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+
+                    for (const [index, expectedCalls] of expectedCallsPerFlush.entries()) {
+                        // Past the delay each time, and the last re-drive lands inside the window with its next
+                        // turn outside it, so the drop happens at that re-drive rather than at a later flush.
+                        await jest.advanceTimersByTimeAsync(4_500)
+                        const flushing = store.flush()
+                        await jest.advanceTimersByTimeAsync(1_000)
+                        await flushing
+                        expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                        expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
+                        expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenNthCalledWith(index + 1, {
+                            outcome: outcomes[index],
+                        })
+                    }
+                    // Settled or dropped, the merge is gone from the next flush.
+                    await jest.advanceTimersByTimeAsync(5_000)
+                    await store.flush()
+                    expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(
+                        expectedCallsPerFlush[expectedCallsPerFlush.length - 1]
+                    )
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenLastCalledWith({
+                        outcome: finalOutcome,
+                    })
+                    expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
+                } finally {
+                    jest.useRealTimers()
+                }
+            }
+        )
+
+        it('the ceiling ends a re-drive loop and re-queues the merges it had not run', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                // Two deferred merges; the first re-drive's call, the seventh, never answers.
+                unsettledUntil(stores, 6, 7)
+                const store = makeStore(stores, 'shadow')
+                await deferredMerge(store, mergeRequest())
+                await deferredMerge(store, mergeRequest())
+                await jest.advanceTimersByTimeAsync(5_000)
+
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(60_000)
+                await flushing
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(7)
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenLastCalledWith({
+                    outcome: 'abandoned',
+                })
+
+                // Both windows closed while the leg hung, so the next flush drops both rather than leaving them
+                // behind the call that never answered.
+                await store.flush()
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(7)
+                const outcomes = (personhogStoreShadowMergeRedriveCounter.labels as jest.Mock).mock.calls.map(
+                    ([labels]) => labels.outcome
+                )
+                expect(outcomes.filter((outcome) => outcome === 'dropped')).toHaveLength(2)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a flush re-drives a bounded number of deferred merges and the rest wait for the next', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                const deferrals = 17
+                unsettledUntil(stores, deferrals * 3)
+                const store = makeStore(stores, 'shadow')
+                for (let i = 0; i < deferrals; i++) {
+                    await deferredMerge(store, mergeRequest())
+                }
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3)
+
+                await jest.advanceTimersByTimeAsync(5_000)
+                await store.flush()
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3 + 16)
+                await store.flush()
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(deferrals * 3 + 17)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('the store keeps a bounded number of deferred merges and drops the oldest past it', async () => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                unsettledUntil(stores, Infinity)
+                const store = makeStore(stores, 'shadow')
+                for (let i = 0; i < 1_000; i++) {
+                    await deferredMerge(store, mergeRequest())
+                }
+                expect(personhogStoreShadowMergeRedriveCounter.labels).not.toHaveBeenCalled()
+
+                await deferredMerge(store, mergeRequest())
+
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledTimes(1)
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome: 'dropped' })
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a flush runs the lanes before the deferred re-drives', async () => {
+            jest.useFakeTimers()
+            try {
                 const stores = makeStores()
                 stores.pg.mergePersons.mockResolvedValue({
                     survivor: person(1, '1'),
                     results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
                 })
-                for (let i = 0; i < unsettledAttempts; i++) {
-                    stores.personhogMock.mergePersons.mockResolvedValueOnce({
-                        survivor: person(1, '1'),
-                        results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
-                    })
-                }
                 stores.personhogMock.mergePersons.mockResolvedValue({
                     survivor: person(1, '1'),
-                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
                 })
                 const store = makeStore(stores, 'shadow')
-                const request = mergeRequest() as never
-                await store.mergePersons(request, 0)
-                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+                const merging = store.mergePersons(mergeRequest() as never, 0)
+                await jest.advanceTimersByTimeAsync(1_000)
+                await merging
+                stores.personhogMock.mergePersons.mockClear()
 
-                await store.flush()
+                await jest.advanceTimersByTimeAsync(5_000)
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await flushing
 
-                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
-                expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
-                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome })
-                // One re-drive per deferral: the next flush does not run it again.
-                await store.flush()
-                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                expect(stores.personhogMock.flush.mock.invocationCallOrder[0]).toBeLessThan(
+                    stores.personhogMock.mergePersons.mock.invocationCallOrder[0]
+                )
+            } finally {
+                jest.useRealTimers()
             }
-        )
+        })
 
         it('prefetch warms both worlds', async () => {
             const stores = makeStores()

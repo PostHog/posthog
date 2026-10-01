@@ -4,8 +4,9 @@ import { DateTime } from 'luxon'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
 import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
-import { PersonUpdate, toInternalPerson } from '~/common/persons/person-update-batch'
+import { MergePersonUpdate, PersonUpdate, toInternalPerson } from '~/common/persons/person-update-batch'
 import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson } from '~/types'
@@ -383,6 +384,19 @@ class FakePersonRepository {
     fetchPersonDistinctIdMappings = jest.fn().mockResolvedValue([])
     inTransaction = jest.fn(async (_description: string, body: (tx: unknown) => Promise<unknown>) => body({}))
 
+    /** The merge's statement as the transaction: the merge holds the row locks, so it answers at once. */
+    tx = {
+        updatePersonsBatch: (updates: PersonUpdate[]) => {
+            const held = this.holdWrites
+            this.holdWrites = false
+            try {
+                return this.updatePersonsBatch(updates)
+            } finally {
+                this.holdWrites = held
+            }
+        },
+    } as unknown as PersonRepositoryTransaction
+
     private lookup(teamId: number, distinctId: string): InternalPerson | undefined {
         const uuid = this.distinctToUuid.get(`${teamId}:${distinctId}`)
         const row = uuid === undefined ? undefined : this.rows.get(uuid)
@@ -759,8 +773,9 @@ async function runSeed(seed: number, steps: number, log: string[]): Promise<Seed
             fake.otherPodUnset(uuid, key)
             log.push(`other ${uuid} unset ${key}`)
         } else if (op === 'podMerge') {
-            // This pod's merge, as the store sees it: the carried keys go as set-once with the merge's own
-            // version, the ids move in the transaction, the source row goes, and its cache clears after commit.
+            // This pod's merge, as the store sees it: the ids move, the outcome is written to the survivor inside
+            // the transaction with the carried keys as set-once, the source row goes, and after the commit the
+            // survivor's entry takes the row and the source's clears.
             const alive = [...fake.rows.keys()]
             const idOf = (uuid: string): string =>
                 [...fake.distinctToUuid].find(([, mapped]) => mapped === uuid)![0].slice(2)
@@ -820,21 +835,21 @@ async function runSeed(seed: number, steps: number, log: string[]): Promise<Seed
                     }
                 }
                 const targetDistinctId = idOf(targetUuid)
-                const targetPerson = { ...target, properties: { ...target.properties } }
+                // The merge sees the target as this pod does: the row with its pending changes applied.
+                const targetEntry = store.getCachedPersonForUpdateByPersonId(1, target.id)
+                const targetPerson = targetEntry
+                    ? toInternalPerson(targetEntry)
+                    : { ...target, properties: { ...target.properties } }
                 // A key the survivor's pending unset hides goes as a set, as the merge does, or the unset would win.
-                const hidden = new Set(store.pendingChanges(1, target.id)?.toUnset ?? [])
-                await store.updatePersonForMerge(
-                    targetPerson,
-                    {
-                        properties: Object.fromEntries(Object.entries(carried).filter(([key]) => hidden.has(key))),
-                        properties_to_set_once: Object.fromEntries(
-                            Object.entries(carried).filter(([key]) => !hidden.has(key))
-                        ),
-                        is_identified: true,
-                    },
-                    targetDistinctId,
-                    batch
-                )
+                const targetPending = store.pendingChanges(1, target.id)
+                const hidden = new Set(targetPending?.toUnset ?? [])
+                const outcome: MergePersonUpdate = {
+                    properties: Object.fromEntries(Object.entries(carried).filter(([key]) => hidden.has(key))),
+                    properties_to_set_once: Object.fromEntries(
+                        Object.entries(carried).filter(([key]) => !hidden.has(key))
+                    ),
+                    is_identified: true,
+                }
                 await store.moveDistinctIds(
                     { ...source },
                     targetPerson,
@@ -842,6 +857,12 @@ async function runSeed(seed: number, steps: number, log: string[]): Promise<Seed
                     undefined,
                     fake as unknown as Parameters<typeof store.moveDistinctIds>[4],
                     batch
+                )
+                const [row, , written] = await store.updatePersonForMerge(
+                    targetPerson,
+                    outcome,
+                    targetDistinctId,
+                    fake.tx
                 )
                 log.push(`podMerge ${sourceUuid}->${targetUuid} carried=${Object.keys(carried).join(',') || '-'}`)
                 // A read of a moved id that began before the merge returns the source until the commit, so an event on
@@ -869,6 +890,9 @@ async function runSeed(seed: number, steps: number, log: string[]): Promise<Seed
                     log.push(`event ${heldRead.distinctId} ${key}=${value} on ${landedOn} before the release`)
                 }
                 fake.rows.delete(sourceUuid)
+                if (written) {
+                    store.takeMergedRow(row, targetDistinctId, outcome, targetPending, batch)
+                }
                 store.releaseMergedSource(1, source.id, sourcePending)
             }
         } else if (op === 'event') {
@@ -1132,43 +1156,40 @@ describe('BatchWritingPersonsStore against a row model', () => {
         expect(cacheRowDisagreements(store, fake)).toEqual([])
     })
 
-    const seen = DateTime.fromISO('2026-01-02T00:00:00Z', { zone: 'utc' })
-    const born = DateTime.fromISO('2025-06-01T00:00:00Z', { zone: 'utc' })
-    it.each([
-        [
-            'last_seen_at an event advanced',
-            (source: InternalPerson) =>
-                store.updatePersonWithPropertiesDiffForUpdate(source, {}, [], { last_seen_at: seen }, 's'),
-            (row: InternalPerson) => row.last_seen_at,
-            seen,
-        ],
-        [
-            'created_at a merge backdated',
-            (source: InternalPerson) => store.updatePersonForMerge(source, { created_at: born }, 's', 0),
-            (row: InternalPerson) => row.created_at,
-            born,
-        ],
-    ])(
-        'a re-targeted write carries the %s on the live entry after the flush snapshot',
-        async (_case, change, column, expected) => {
-            fake.addPerson('T', ['t'], {})
-            fake.addPerson('S', ['s'], {})
-            await store.fetchForUpdate(1, 't', 0)
-            const source = await store.fetchForUpdate(1, 's', 0)
-            await store.updatePersonWithPropertiesDiffForUpdate(source!, { k: 'A' }, [], {}, 's')
-            fake.mergeAway('S', 'T')
-            fake.holdWrites = true
-            const flushing = store.flush()
-            await fake.settle(() => fake.labels().length === 1)
-            await change(source!)
-            fake.holdWrites = false
-            fake.releaseAll()
-            await flushing
+    it('a re-targeted write carries the last_seen_at an event advanced on the live entry after the flush snapshot', async () => {
+        const seen = DateTime.fromISO('2026-01-02T00:00:00Z', { zone: 'utc' })
+        fake.addPerson('T', ['t'], {})
+        fake.addPerson('S', ['s'], {})
+        await store.fetchForUpdate(1, 't', 0)
+        const source = await store.fetchForUpdate(1, 's', 0)
+        await store.updatePersonWithPropertiesDiffForUpdate(source!, { k: 'A' }, [], {}, 's')
+        fake.mergeAway('S', 'T')
+        fake.holdWrites = true
+        const flushing = store.flush()
+        await fake.settle(() => fake.labels().length === 1)
+        await store.updatePersonWithPropertiesDiffForUpdate(source!, {}, [], { last_seen_at: seen }, 's')
+        fake.holdWrites = false
+        fake.releaseAll()
+        await flushing
 
-            expect(column(fake.rows.get('T')!)?.toISO()).toBe(expected.toISO())
-            expect(cacheRowDisagreements(store, fake)).toEqual([])
+        expect(fake.rows.get('T')!.last_seen_at?.toISO()).toBe(seen.toISO())
+        expect(cacheRowDisagreements(store, fake)).toEqual([])
+    })
+
+    /** The merge's survivor write under its transaction, and the survivor's entry taking the row at the commit. */
+    const mergeInto = async (
+        target: InternalPerson,
+        update: MergePersonUpdate,
+        distinctId: string
+    ): Promise<() => void> => {
+        const read = store.pendingChanges(1, target.id)
+        const [row, , written] = await store.updatePersonForMerge(target, update, distinctId, fake.tx)
+        return () => {
+            if (written) {
+                store.takeMergedRow(row, distinctId, update, read, 0)
+            }
         }
-    )
+    }
 
     it("an event that reaches a source's entry after the merge read its pending changes lands on the survivor", async () => {
         fake.addPerson('S', ['s1', 's2'], {})
@@ -1180,8 +1201,8 @@ describe('BatchWritingPersonsStore against a row model', () => {
         fake.holdFetches = true
         const reading = store.fetchForUpdate(1, 's2', 0)
         fake.holdFetches = false
-        // The merge as person-merge-postgres orders it: move, read the pending changes, queue on the survivor,
-        // delete, commit, release.
+        // The merge as person-merge-postgres orders it: move, read the pending changes, write the survivor,
+        // delete, commit, take the row, release.
         await store.moveDistinctIds(
             source!,
             target!,
@@ -1191,12 +1212,13 @@ describe('BatchWritingPersonsStore against a row model', () => {
             0
         )
         const read = store.pendingChanges(1, source!.id)
-        await store.updatePersonForMerge(target!, { properties_to_set_once: read!.toSet, is_identified: true }, 't', 0)
+        const committed = await mergeInto(target!, { properties_to_set_once: read!.toSet, is_identified: true }, 't')
         fake.releaseAll()
         const stale = await reading
         expect(stale!.uuid).toBe('S')
         await store.applyEventOps(stale!, setOps({ j: 'late' }), 's2', 0)
         fake.rows.delete('S')
+        committed()
         store.releaseMergedSource(1, source!.id, read)
         // The leftover waits for the re-target, but the moved id already reads the survivor.
         expect((await store.fetchForUpdate(1, 's2', 0))!.uuid).toBe('T')
@@ -1225,12 +1247,13 @@ describe('BatchWritingPersonsStore against a row model', () => {
             0
         )
         const read = store.pendingChanges(1, source!.id)
-        await store.updatePersonForMerge(target!, { is_identified: true }, 't', 0)
+        const committed = await mergeInto(target!, { is_identified: true }, 't')
         // One read answers inside the window and carries an event onto the source's entry, so the release keeps
         // it; the other answers after the release.
         fake.release(0)
         await store.applyEventOps((await readingS2)!, setOps({ j: 'late' }), 's2', 0)
         fake.rows.delete('S')
+        committed()
         store.releaseMergedSource(1, source!.id, read)
         fake.releaseAll()
 
@@ -1262,10 +1285,11 @@ describe('BatchWritingPersonsStore against a row model', () => {
             0
         )
         const read = store.pendingChanges(1, source!.id)
-        await store.updatePersonForMerge(target!, { is_identified: true }, 't', 0)
+        const committed = await mergeInto(target!, { is_identified: true }, 't')
         fake.releaseAll()
         await store.applyEventOps((await reading)!, leftover, 's2', 0)
         fake.rows.delete('S')
+        committed()
         store.releaseMergedSource(1, source!.id, read)
         arrange(fake)
 
@@ -1289,8 +1313,9 @@ describe('BatchWritingPersonsStore against a row model', () => {
             0
         )
         const read = store.pendingChanges(1, source!.id)
-        await store.updatePersonForMerge(target!, { properties_to_set_once: read!.toSet, is_identified: true }, 't', 0)
+        const committed = await mergeInto(target!, { properties_to_set_once: read!.toSet, is_identified: true }, 't')
         fake.rows.delete('S')
+        committed()
 
         store.releaseMergedSource(1, source!.id, read)
 

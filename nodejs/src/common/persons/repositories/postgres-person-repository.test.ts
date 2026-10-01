@@ -365,7 +365,7 @@ describe('PostgresPersonRepository', () => {
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
         })
 
-        it('readMergeRows locks the sources and reads the target as it stands', async () => {
+        it('readMergeRows locks the target and the sources', async () => {
             const target = await createTestPerson(team.id, 'merge-rows-target')
             const source = await createTestPerson(team.id, 'merge-rows-source')
             const probe = (id: string) =>
@@ -379,8 +379,24 @@ describe('PostgresPersonRepository', () => {
             await postgres.transaction(PostgresUse.PERSONS_WRITE, 'mergeRowsHold', async (tx) => {
                 const rows = await repository.readMergeRows(team.id, target.id, [source.id], tx)
                 expect(rows.map((row) => row.id).sort()).toEqual([target.id, source.id].sort())
-                await expect(probe(target.id)).resolves.toBeDefined()
+                await expect(probe(target.id)).rejects.toThrow('could not obtain lock')
                 await expect(probe(source.id)).rejects.toThrow('could not obtain lock')
+            })
+        })
+
+        it('updatePersonsBatch under a transaction leaves it usable after a failed statement', async () => {
+            const person = await createTestPerson(team.id, 'savepoint-person')
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'savepointHold', async (tx) => {
+                const failed = await repository.updatePersonsBatch(
+                    [{ ...buildPersonUpdate(person, 'savepoint-person', person.version), uuid: 'not-a-uuid' }],
+                    tx
+                )
+                expect(failed.get('not-a-uuid')?.success).toBe(false)
+                const landed = await repository.updatePersonsBatch(
+                    [buildPersonUpdate(person, 'savepoint-person', person.version)],
+                    tx
+                )
+                expect(landed.get(person.uuid)?.success).toBe(true)
             })
         })
 

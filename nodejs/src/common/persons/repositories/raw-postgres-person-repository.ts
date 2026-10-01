@@ -51,7 +51,10 @@ export interface RawPostgresPersonRepository {
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
-    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[],
+        tx?: TransactionClient
+    ): Promise<
         Map<
             string,
             {
@@ -83,7 +86,7 @@ export interface RawPostgresPersonRepository {
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
 
-    /** The sources are row-locked; the target is read unlocked. */
+    /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(
         teamId: number,
         targetId: string,

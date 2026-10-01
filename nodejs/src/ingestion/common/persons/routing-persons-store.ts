@@ -116,6 +116,18 @@ function stableEqual(left: unknown, right: unknown): boolean {
  */
 const SHADOW_VERB_TIMEOUT_MS = 60_000
 
+/**
+ * A deferred shadow merge waits this long before a flush re-drives it, since the op holding its person usually
+ * completes within it, and stays in play for the identity service's execute timeout for that op.
+ */
+const SHADOW_MERGE_REDRIVE_DELAY_MS = 5_000
+const SHADOW_MERGE_REDRIVE_WINDOW_MS = 30_000
+/** Re-drives one flush runs, and deferred merges one store keeps; past them the oldest are dropped, counted. */
+const SHADOW_MERGE_REDRIVES_PER_FLUSH = 16
+const SHADOW_MERGE_DEFERRED_LIMIT = 1_000
+
+type DeferredShadowMerge = { request: MergePersonsRequest; batchId: number; notBefore: number; expiresAt: number }
+
 /** Raised when a shadow verb outruns its ceiling and the batch abandons it. */
 class ShadowVerbTimeoutError extends Error {
     constructor(verb: string) {
@@ -499,8 +511,8 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    /** Shadow merges whose retries ended unsettled, re-driven once at the next flush. */
-    private deferredShadowMerges: { request: MergePersonsRequest; batchId: number }[] = []
+    /** Shadow merges whose retries ended unsettled, re-driven at a flush once their delay has passed. */
+    private deferredShadowMerges: DeferredShadowMerge[] = []
 
     /**
      * The merge service's retries wrap the routed call, which never throws
@@ -538,7 +550,7 @@ export class RoutingPersonsStore implements PersonsStore {
         } catch (error) {
             if (error instanceof PersonMergeUnsettledError && unsettled !== undefined) {
                 if (deferOnUnsettled) {
-                    this.deferredShadowMerges.push({ request, batchId })
+                    this.deferShadowMerge(request, batchId)
                 }
                 return unsettled
             }
@@ -546,31 +558,87 @@ export class RoutingPersonsStore implements PersonsStore {
         }
     }
 
+    private deferShadowMerge(request: MergePersonsRequest, batchId: number): void {
+        const now = Date.now()
+        this.deferredShadowMerges.push({
+            request,
+            batchId,
+            notBefore: now + SHADOW_MERGE_REDRIVE_DELAY_MS,
+            expiresAt: now + SHADOW_MERGE_REDRIVE_WINDOW_MS,
+        })
+        if (this.deferredShadowMerges.length > SHADOW_MERGE_DEFERRED_LIMIT) {
+            this.dropShadowMerge(this.deferredShadowMerges.shift()!, 'the store holds its limit')
+        }
+    }
+
+    private dropShadowMerge(entry: DeferredShadowMerge, reason: string): void {
+        personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'dropped' }).inc()
+        logger.warn('shadow merge dropped unsettled', {
+            team_id: entry.request.teamId,
+            target_distinct_id: entry.request.targetDistinctId,
+            sources: entry.request.sources.map((source) => source.distinctId),
+            reason,
+        })
+    }
+
+    private requeueAbandonedShadowMerges(entries: DeferredShadowMerge[]): void {
+        personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'abandoned' }).inc(entries.length)
+        this.deferredShadowMerges.push(...entries)
+    }
+
+    /** Rejects when the ceiling abandons the leg, so a loop can stop waiting on a call it cannot cancel. */
+    private abandonment(abandoned: AbortSignal): Promise<never> {
+        return new Promise((_resolve, reject) =>
+            abandoned.addEventListener('abort', () => reject(new ShadowVerbTimeoutError('mergePersons')), {
+                once: true,
+            })
+        )
+    }
+
     /**
      * The identity service refuses a merge as a conflict while another op
-     * holds one of its persons, and the retries within one verb can all
-     * land inside that hold. The flush comes later, so each deferred merge
-     * gets one more run there; one still unsettled is dropped, counted.
+     * holds one of its persons, and a re-drive run too soon lands inside
+     * the same hold. A deferred merge runs at the first flush past its
+     * delay and is dropped once its window closes; one the ceiling
+     * abandons is re-queued, counted, and a flush runs a bounded number of
+     * them after the lanes.
      */
     private async redriveDeferredShadowMerges(abandoned: AbortSignal): Promise<void> {
-        const deferred = this.deferredShadowMerges
-        this.deferredShadowMerges = []
-        for (const { request, batchId } of deferred) {
-            let outcome: string
-            try {
-                const result = await this.retriedShadowMerge(request, batchId, abandoned, false)
-                outcome = result.results.every((source) => source.settled !== false) ? 'settled' : 'unsettled'
-            } catch (error) {
-                outcome = errorClassLabel(error)
+        const now = Date.now()
+        for (const entry of this.deferredShadowMerges.filter((entry) => entry.expiresAt <= now)) {
+            this.dropShadowMerge(entry, 'its window closed')
+        }
+        const live = this.deferredShadowMerges.filter((entry) => entry.expiresAt > now)
+        const due = live.filter((entry) => entry.notBefore <= now).slice(0, SHADOW_MERGE_REDRIVES_PER_FLUSH)
+        this.deferredShadowMerges = live.filter((entry) => !due.includes(entry))
+        for (const [index, entry] of due.entries()) {
+            if (abandoned.aborted) {
+                this.requeueAbandonedShadowMerges(due.slice(index))
+                return
             }
-            personhogStoreShadowMergeRedriveCounter.labels({ outcome }).inc()
-            if (outcome !== 'settled') {
-                logger.warn('shadow merge re-drive left it unsettled', {
-                    team_id: request.teamId,
-                    target_distinct_id: request.targetDistinctId,
-                    sources: request.sources.map((source) => source.distinctId),
-                    outcome,
-                })
+            let settled = false
+            // The call itself cannot be cancelled, so the loop stops waiting for it at the ceiling and the entry
+            // keeps its turn; a flush's re-drives never outlive its leg.
+            const attempt = this.retriedShadowMerge(entry.request, entry.batchId, abandoned, false)
+            void attempt.catch(() => {})
+            try {
+                const result = await Promise.race([attempt, this.abandonment(abandoned)])
+                settled = result.results.every((source) => source.settled !== false)
+            } catch (error) {
+                if (abandoned.aborted) {
+                    this.requeueAbandonedShadowMerges(due.slice(index))
+                    return
+                }
+                this.recordShadowFailure('mergePersons', error)
+            }
+            const notBefore = Date.now() + SHADOW_MERGE_REDRIVE_DELAY_MS
+            if (settled) {
+                personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'settled' }).inc()
+            } else if (notBefore >= entry.expiresAt) {
+                this.dropShadowMerge(entry, 'its window closed')
+            } else {
+                personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'deferred' }).inc()
+                this.deferredShadowMerges.push({ ...entry, notBefore })
             }
         }
     }
@@ -750,8 +818,10 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.personhog.flush(),
             {
                 shadow: async (abandoned) => {
+                    // The lanes first; the re-drives take what is left of the ceiling.
+                    const flushed = await this.personhog.flush()
                     await this.redriveDeferredShadowMerges(abandoned)
-                    return this.personhog.flush()
+                    return flushed
                 },
             }
         )
@@ -784,6 +854,15 @@ export class RoutingPersonsStore implements PersonsStore {
                 // The store's unwritten-lanes rejection is the right alarm
                 // only when it owns the data; a shadow-only fault must not
                 // stop shutdown.
+                if (this.deferredShadowMerges.length > 0) {
+                    personhogStoreShadowMergeRedriveCounter
+                        .labels({ outcome: 'dropped' })
+                        .inc(this.deferredShadowMerges.length)
+                    logger.warn('shadow merges dropped unsettled at shutdown', {
+                        count: this.deferredShadowMerges.length,
+                    })
+                    this.deferredShadowMerges = []
+                }
                 await this.shadowed('shutdown', () => this.personhog.shutdown())
             }
         }

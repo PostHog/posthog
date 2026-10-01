@@ -53,10 +53,9 @@ export class PersonsStoreTransaction {
     async updatePersonForMerge(
         person: InternalPerson,
         update: MergePersonUpdate,
-        distinctId: string,
-        batchId: number
+        distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return await this.store.updatePersonForMerge(person, update, distinctId, batchId, this.tx)
+        return await this.store.updatePersonForMerge(person, update, distinctId, this.tx)
     }
 
     async updatePersonWithPropertiesDiffForUpdate(

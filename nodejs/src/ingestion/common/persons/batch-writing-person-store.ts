@@ -85,9 +85,8 @@ type MethodName =
     | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'updateCohortsAndFeatureFlagsForMergeBatch'
-    | 'addPersonUpdateToBatch'
 
-type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert'
+type UpdateType = 'updatePersonAssertVersion' | 'updatePersonNoAssert' | 'updatePersonForMerge'
 
 interface PersonUpdateResult {
     success: boolean
@@ -1266,21 +1265,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         if (error instanceof PersonPropertiesSizeViolationError) {
-            await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
-                type: 'person_properties_size_violation',
-                details: {
-                    personId: update.uuid,
-                    distinctId: update.distinct_id,
-                    teamId: update.team_id,
-                    message: 'Person properties exceeds size limit and was rejected',
-                },
-                pipelineStep: 'person-store',
-            })
-            personWriteMethodAttemptCounter.inc({
-                db_write_mode: this.options.dbWriteMode,
-                method: this.options.dbWriteMode,
-                outcome: 'properties_size_violation',
-            })
+            await this.rejectOversizedWrite(update, this.options.dbWriteMode)
             return []
         }
 
@@ -1608,29 +1593,86 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
-    updatePersonForMerge(
+    /**
+     * Writes the outcome under the merge's transaction, so it commits with the sources' deletion; the cache takes
+     * the row through takeMergedRow after the commit. The flag says whether the outcome is on the row: one the
+     * view already shows is not written, and an oversized one is dropped with a warning, as at the flush.
+     */
+    async updatePersonForMerge(
         person: InternalPerson,
         update: MergePersonUpdate,
         distinctId: string,
-        batchId: number,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, PersonMessage[], boolean]>
-    updatePersonForMerge(
-        person: InternalPerson,
-        update: MergePersonUpdate,
-        distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<[InternalPerson, PersonMessage[], boolean]>
-    updatePersonForMerge(
-        person: InternalPerson,
-        update: MergePersonUpdate,
-        distinctId: string,
-        batchIdOrTx?: number | PersonRepositoryTransaction,
-        _tx?: PersonRepositoryTransaction
+        tx: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         this.incrementCount('updatePersonForMerge', distinctId)
-        const batchId = typeof batchIdOrTx === 'number' ? batchIdOrTx : 0
-        return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId, batchId))
+        const record = this.mergeUpdateIntoPersonUpdate(fromInternalPerson(person, distinctId), update, true)
+        if (this.getPersonUpdateOutcome(record) !== 'changed') {
+            return [person, [], false]
+        }
+        this.incrementDatabaseOperation('updatePersonForMerge', distinctId)
+        personWriteMethodAttemptCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            method: 'merge',
+            outcome: 'attempt',
+        })
+        const start = performance.now()
+        const result = (await tx.updatePersonsBatch([record])).get(record.uuid)
+        this.recordUpdateLatency('updatePersonForMerge', (performance.now() - start) / 1000, distinctId)
+        if (result?.error instanceof PersonPropertiesSizeViolationError) {
+            // The statement rolled back to its savepoint, so the merge goes on without the outcome, as the flush
+            // drops any oversized write. The warning's produce is not awaited: it must not hold the row locks.
+            void this.rejectOversizedWrite(record, 'merge').catch((error) =>
+                logger.warn('oversized merge survivor warning failed', { error: String(error) })
+            )
+            return [person, [], false]
+        }
+        if (!result?.success || !result.person || !result.kafkaMessage) {
+            throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${record.uuid}" was not updated`)
+        }
+        personWriteMethodAttemptCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            method: 'merge',
+            outcome: 'success',
+        })
+        return [result.person, [result.kafkaMessage], true]
+    }
+
+    /**
+     * After a merge commits, the survivor's entry takes the row and drops the pending changes the merge wrote
+     * over: those it read, for the keys its outcome carried. A change made since the read, or to a key the merge
+     * left alone, stays pending. With no entry, the row is cached as it stands. Returns the survivor as this pod
+     * sees it, the row with its pending changes applied.
+     */
+    takeMergedRow(
+        row: InternalPerson,
+        distinctId: string,
+        written: MergePersonUpdate,
+        read: PendingPersonChanges | null,
+        batchId: number
+    ): InternalPerson {
+        const entry = this.personCache.getLiveUpdate(row.team_id, row.id)
+        if (!entry) {
+            this.setCachedPersonForUpdate(row.team_id, distinctId, fromInternalPerson(row, distinctId), batchId)
+            return row
+        }
+        if (row.version > entry.version) {
+            takeRow(entry, row, row.version)
+        }
+        if (read) {
+            const carried = new Set([
+                ...Object.keys(written.properties ?? {}),
+                ...Object.keys(written.properties_to_set_once ?? {}),
+                ...(written.properties_to_unset ?? []),
+            ])
+            const pick = (lane: Properties): Properties =>
+                Object.fromEntries(Object.entries(lane).filter(([key]) => carried.has(key)))
+            retireCarried(entry, {
+                properties_to_set: pick(read.toSet),
+                properties_to_set_once: pick(read.toSetOnce),
+                properties_to_unset: read.toUnset.filter((key) => carried.has(key)),
+            })
+        }
+        return toInternalPerson(entry)
     }
 
     async applyEventOps(
@@ -2210,32 +2252,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return result
     }
 
-    private addPersonUpdateToBatch(
-        person: InternalPerson,
-        update: MergePersonUpdate,
-        distinctId: string,
-        batchId: number
-    ): [InternalPerson, PersonMessage[], boolean] {
-        const cache = this.personCache.obtainForBatchId(batchId)
-        const existingUpdate = cache.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
-
-        let personUpdate: PersonUpdate
-        if (!existingUpdate) {
-            // Create new PersonUpdate from the person and apply the update
-            personUpdate = fromInternalPerson(person, distinctId)
-            personUpdate = this.mergeUpdateIntoPersonUpdate(personUpdate, update, true)
-            personUpdate.id = person.id
-            cache.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
-        } else {
-            // Merge updates into existing cached PersonUpdate
-            personUpdate = this.mergeUpdateIntoPersonUpdate(existingUpdate, update, true)
-            personUpdate.id = person.id
-            cache.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
-        }
-        // Return the merged person from the cache
-        return [toInternalPerson(personUpdate), [], false]
-    }
-
     /**
      * Helper method to merge an update into a PersonUpdate
      * Handles properties and is_identified merging with proper logic
@@ -2420,6 +2436,24 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(person, start, 'updatePersonNoAssert')
         return { success: true, messages }
+    }
+
+    private async rejectOversizedWrite(update: PersonUpdate, method: string): Promise<void> {
+        personWriteMethodAttemptCounter.inc({
+            db_write_mode: this.options.dbWriteMode,
+            method,
+            outcome: 'properties_size_violation',
+        })
+        await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
+            type: 'person_properties_size_violation',
+            details: {
+                personId: update.uuid,
+                distinctId: update.distinct_id,
+                teamId: update.team_id,
+                message: 'Person properties exceeds size limit and was rejected',
+            },
+            pipelineStep: 'person-store',
+        })
     }
 
     /**

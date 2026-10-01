@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
@@ -40,8 +41,22 @@ export interface PersonRepositoryTransaction {
     /** See PersonRepository.isPersonLive; only meaningful while holding the person's mark. */
     isPersonLive(person: InternalPerson): Promise<boolean>
 
-    /** The sources are row-locked; the target is read unlocked. */
+    /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[]): Promise<InternalPerson[]>
+
+    /** See PersonRepository.updatePersonsBatch; the rows are written under this transaction. */
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    >
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 

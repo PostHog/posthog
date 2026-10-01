@@ -4,7 +4,7 @@ import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
 import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { PersonPropertiesSizeViolationError, PersonRepository } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson } from '~/types'
@@ -181,6 +181,8 @@ class FakeRepository {
         claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
         releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
         isPersonLive: jest.fn().mockResolvedValue(true),
+        /** The merge's own statement: its rows are locked by the merge, so it answers at once. */
+        updatePersonsBatch: jest.fn((updates: PersonUpdate[]) => Promise.resolve(this.applyBatch(updates))),
         readMergeRows: jest.fn((teamId: number, targetId: string, sourceIds: string[]) =>
             Promise.resolve(
                 [...this.rows.values()]
@@ -247,19 +249,22 @@ function mergeRequest(
     }
 }
 
+const makeOutputs = () =>
+    createMockIngestionOutputs<
+        PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT | PersonMergeEventsOutput
+    >()
+
 describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
     let fake: FakeRepository
+    let outputs: ReturnType<typeof makeOutputs>
     let store: BatchWritingPersonsStore
 
     beforeEach(() => {
         fake = new FakeRepository()
-        store = new BatchWritingPersonsStore(
-            fake as unknown as PersonRepository,
-            createMockIngestionOutputs<
-                PersonsOutput | PersonDistinctIdsOutput | typeof INGESTION_WARNINGS_OUTPUT | PersonMergeEventsOutput
-            >(),
-            { optimisticUpdateRetryInterval: 1 }
-        )
+        outputs = makeOutputs()
+        store = new BatchWritingPersonsStore(fake as unknown as PersonRepository, outputs, {
+            optimisticUpdateRetryInterval: 1,
+        })
     })
 
     afterEach(async () => {
@@ -402,6 +407,59 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
         await flushing
 
         expect(fake.rows.get('P3')!.properties).toEqual({ k: 'A' })
+    })
+
+    it("a merge's outcome is on the row when the pod stops right after the commit", async () => {
+        fake.addPerson('T', ['t'], { k: 'B' })
+        fake.addPerson('S', ['s'], { a: 1 })
+        await store.fetchForUpdate(1, 's', 0)
+        await store.fetchForUpdate(1, 't', 0)
+        jest.spyOn(store, 'takeMergedRow').mockImplementationOnce(() => {
+            throw new Error('pod stopped')
+        })
+
+        await expect(store.mergePersons(mergeRequest('t', 's'), 0)).rejects.toThrow('pod stopped')
+
+        expect(fake.rows.get('S')).toBeUndefined()
+        expect(fake.rows.get('T')).toMatchObject({ properties: { k: 'B', a: 1 }, is_identified: true })
+    })
+
+    it('an oversized survivor commits the merge without the outcome and warns', async () => {
+        fake.addPerson('T', ['t'], { k: 'B' })
+        fake.addPerson('S', ['s'], { a: 1 })
+        await store.fetchForUpdate(1, 's', 0)
+        await store.fetchForUpdate(1, 't', 0)
+        fake.tx.updatePersonsBatch.mockImplementationOnce((updates: PersonUpdate[]) =>
+            Promise.resolve(
+                new Map(
+                    updates.map((update) => [
+                        update.uuid,
+                        { success: false, error: new PersonPropertiesSizeViolationError('too big', 1, update.id) },
+                    ])
+                )
+            )
+        )
+
+        const result = await store.mergePersons(mergeRequest('t', 's'), 0)
+
+        expect(result.results[0].outcome).toBe('merged')
+        expect(fake.rows.get('S')).toBeUndefined()
+        expect(fake.rows.get('T')!.properties).toEqual({ k: 'B' })
+        const warning = outputs.queueMessages.mock.calls.find(([output]) => output === INGESTION_WARNINGS_OUTPUT)
+        expect(String(warning?.[1][0].value)).toContain('person_properties_size_violation')
+    })
+
+    it("the survivor a merge hands back shows this pod's unflushed changes", async () => {
+        fake.addPerson('T', ['t'], { k: 'B' })
+        fake.addPerson('S', ['s'], { a: 1 })
+        await store.fetchForUpdate(1, 's', 0)
+        const target = await store.fetchForUpdate(1, 't', 0)
+        await store.applyEventOps(target!, setOps({ p: 'pending' }), 't', 0)
+
+        const result = await store.mergePersons(mergeRequest('t', 's'), 0)
+
+        expect(result.survivor!.properties).toEqual({ k: 'B', a: 1, p: 'pending' })
+        expect(fake.rows.get('T')!.properties).toEqual({ k: 'B', a: 1 })
     })
 
     it('a merge that rolls back leaves nothing of it queued on the survivor', async () => {

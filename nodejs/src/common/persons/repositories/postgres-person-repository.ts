@@ -1538,16 +1538,11 @@ export class PostgresPersonRepository
         // Ascending id order, as the batch write locks, so the two cannot deadlock.
         const { rows } = await this.postgres.query<RawPerson>(
             tx ?? PostgresUse.PERSONS_WRITE,
-            `WITH sources AS MATERIALIZED (
-                SELECT ${PERSON_COLUMNS} FROM posthog_person
-                 WHERE team_id = $1 AND id = ANY($3::bigint[]) AND is_deleted = false
-                 ORDER BY id
-                 FOR NO KEY UPDATE
-             )
-             SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = $1 AND id = $2 AND is_deleted = false
-             UNION ALL
-             SELECT * FROM sources`,
-            [teamId, targetId, sourceIds],
+            `SELECT ${PERSON_COLUMNS} FROM posthog_person
+              WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
+              ORDER BY id
+              FOR NO KEY UPDATE`,
+            [teamId, [targetId, ...sourceIds]],
             'readMergeRows'
         )
         return rows.map((row) => this.toPerson(row))
@@ -2131,7 +2126,10 @@ export class PostgresPersonRepository
      *
      * No version assertion: every column merges with the row, so a stale snapshot cannot undo another writer's flush.
      */
-    async updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+    async updatePersonsBatch(
+        personUpdates: PersonUpdate[],
+        tx?: TransactionClient
+    ): Promise<
         Map<
             string,
             {
@@ -2180,12 +2178,18 @@ export class PostgresPersonRepository
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
         }
 
+        let savepoint = false
         try {
+            if (tx) {
+                // A failed statement aborts the transaction; the savepoint keeps it usable after a size violation.
+                await this.postgres.query(tx, 'SAVEPOINT person_write', undefined, 'updatePersonsBatchSavepoint')
+                savepoint = true
+            }
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
             // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
             // Lock in ascending id order first, as a merge does, so the two cannot deadlock.
             const { rows } = await this.postgres.query<RawPerson>(
-                PostgresUse.PERSONS_WRITE,
+                tx ?? PostgresUse.PERSONS_WRITE,
                 `
                 WITH locked AS MATERIALIZED (
                     SELECT p.id FROM posthog_person AS p
@@ -2256,7 +2260,19 @@ export class PostgresPersonRepository
                     })
                 }
             }
+            if (tx) {
+                savepoint = false
+                await this.postgres.query(tx, 'RELEASE SAVEPOINT person_write', undefined, 'updatePersonsBatchRelease')
+            }
         } catch (error) {
+            if (tx && savepoint) {
+                await this.postgres.query(
+                    tx,
+                    'ROLLBACK TO SAVEPOINT person_write',
+                    undefined,
+                    'updatePersonsBatchRollback'
+                )
+            }
             // If the batch update fails due to properties size constraint, we need to handle it
             // For now, mark all as failed - the caller can fall back to individual updates
             if (this.isPropertiesSizeConstraintViolation(error)) {

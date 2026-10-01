@@ -192,7 +192,7 @@ export const personhogStoreShadowFoldRedriveCounter = new Counter({
 
 export const personhogStoreShadowMergeRedriveCounter = new Counter({
     name: 'personhog_store_shadow_merge_redrive_total',
-    help: 'Shadow merges re-driven at flush after their retries ended unsettled, by outcome',
+    help: 'Shadow merges re-driven at a flush after their retries ended unsettled: settled, deferred to a later flush, or dropped; abandoned counts a re-queue at the ceiling before the final outcome',
     labelNames: ['outcome'],
 })
 

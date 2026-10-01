@@ -177,6 +177,7 @@ describe('BatchWritingPersonStore', () => {
             releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             isPersonLive: jest.fn().mockResolvedValue(true),
             readMergeRows: jest.fn().mockResolvedValue([]),
+            updatePersonsBatch: jest.fn().mockResolvedValue(new Map()),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             moveDistinctIdsFromPersons: jest
@@ -985,14 +986,14 @@ describe('BatchWritingPersonStore', () => {
                 })
                 mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []])
                 await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'v' }, [], {}, 'test')
-                await personStore.updatePersonForMerge(person, { properties_to_set_once: { carried: 'c' } }, 'test')
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person, {}, ['gone'], {}, 'test')
 
                 await personStore.flush()
 
                 expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toMatchObject({
-                    properties: expect.objectContaining({ new_value: 'v', carried: 'c' }),
+                    properties: expect.objectContaining({ new_value: 'v' }),
                     properties_to_set: {},
-                    properties_to_set_once: {},
+                    properties_to_unset: [],
                 })
             })
 
@@ -1464,22 +1465,6 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(expectedWrites)
             }
         )
-
-        it('a $set of the value a pending set-once carries still writes as a set', async () => {
-            await personStore.updatePersonForMerge(
-                person,
-                { properties_to_set_once: { k: 'carried' } },
-                'test-distinct'
-            )
-            const view = toInternalPerson(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)!)
-
-            await personStore.applyEventOps(view, ops({ set: { k: 'carried' } }), 'test-distinct', 0)
-            await personStore.flush()
-
-            expect(mockRepo.updatePersonsBatch).toHaveBeenLastCalledWith([
-                expect.objectContaining({ properties_to_set: { k: 'carried' } }),
-            ])
-        })
     })
 
     describe('moveDistinctIds', () => {
@@ -1516,16 +1501,18 @@ describe('BatchWritingPersonStore', () => {
                 fromInternalPerson(targetPerson, 'target-distinct')
             )
 
-            // Step 2: Update target person with merged properties (simulating updatePersonForMerge)
-            const mergeUpdate = {
-                properties: {
+            // Step 2: Queue changes on the target person
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                targetPerson,
+                {
                     source_prop: 'source_value',
                     rich_property: 'rich_value',
                     merged_from_source: 'merged_value',
                 },
-                is_identified: true,
-            }
-            await personStore.updatePersonForMerge(targetPerson, mergeUpdate, 'target-distinct')
+                [],
+                { is_identified: true },
+                'target-distinct'
+            )
 
             // Verify the merge worked - check the final computed result
             const cacheAfterMerge = personStore.getCachedPersonForUpdateByDistinctId(teamId, 'target-distinct')
@@ -1693,27 +1680,26 @@ describe('BatchWritingPersonStore', () => {
                 fromInternalPerson(targetPerson, 'target-distinct')
             )
 
-            // Step 2: Multiple merge operations
-            await personStore.updatePersonForMerge(
+            // Step 2: Multiple queued changes
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
                 targetPerson,
                 {
-                    properties: {
-                        source_prop: 'source_value',
-                        shared_prop: 'updated_value', // This should override
-                    },
-                    is_identified: true,
+                    source_prop: 'source_value',
+                    shared_prop: 'updated_value', // This should override
                 },
+                [],
+                { is_identified: true },
                 'target-distinct'
             )
 
-            await personStore.updatePersonForMerge(
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
                 targetPerson,
                 {
-                    properties: {
-                        additional_prop: 'additional_value',
-                        source_only: 'source_only_value',
-                    },
+                    additional_prop: 'additional_value',
+                    source_only: 'source_only_value',
                 },
+                [],
+                {},
                 'target-distinct'
             )
 
@@ -3129,35 +3115,6 @@ describe('BatchWritingPersonStore', () => {
             expect(entry?.properties).toEqual(expect.objectContaining({ a: '1' }))
         })
 
-        it('a landed set-once another writer filled first leaves the row value in the entry', async () => {
-            const personStore = getPersonsStore()
-            await personStore.updatePersonForMerge(
-                person,
-                { properties_to_set_once: { k: 'carried' } },
-                'distinct_id_1'
-            )
-            mockRepo.updatePersonsBatch.mockImplementationOnce((updates: any[]) =>
-                Promise.resolve(
-                    new Map(
-                        updates.map((u: any) => [
-                            u.uuid,
-                            {
-                                success: true,
-                                version: u.version + 1,
-                                kafkaMessage: {},
-                                person: { ...toInternalPerson(u), properties: { k: 'other' } },
-                            },
-                        ])
-                    )
-                )
-            )
-
-            await personStore.flush()
-
-            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
-            expect(entry).toMatchObject({ properties: { k: 'other' }, properties_to_set_once: {} })
-        })
-
         it('a write that lands through the fallback retires what it carried', async () => {
             const personStore = getPersonsStore()
             await personStore.updatePersonWithPropertiesDiffForUpdate(person, { a: '1' }, [], {}, 'distinct_id_1')
@@ -3555,13 +3512,8 @@ describe('BatchWritingPersonStore', () => {
             expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-property')).toBeUndefined()
         })
 
-        it('tracks merge-update cache writes made under a batch', async () => {
-            await personStore.updatePersonForMerge(
-                person,
-                { properties: { merge_marker: 'tracked' } },
-                'batch-bound-merge',
-                0
-            )
+        it('tracks the row a merge installs under a batch', async () => {
+            personStore.takeMergedRow(person, 'batch-bound-merge', { properties: { merge_marker: 'tracked' } }, null, 0)
 
             expect(personStore.getCachedPersonForUpdateByDistinctId(teamId, 'batch-bound-merge')).toBeDefined()
 

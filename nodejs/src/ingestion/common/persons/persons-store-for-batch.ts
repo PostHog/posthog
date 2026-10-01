@@ -57,7 +57,7 @@ export interface PersonsStoreTransactionForBatch {
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
 
-    /** The sources are row-locked; the target is read unlocked. */
+    /** The target and sources are row-locked, in ascending id order, until the transaction ends. */
     readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
@@ -190,7 +190,7 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
         update: MergePersonUpdate,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return this.tx.updatePersonForMerge(person, update, distinctId, this.batchId)
+        return this.tx.updatePersonForMerge(person, update, distinctId)
     }
 
     updatePersonWithPropertiesDiffForUpdate(
