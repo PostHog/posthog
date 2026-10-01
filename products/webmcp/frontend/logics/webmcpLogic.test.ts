@@ -2,8 +2,10 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import _preflight from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { TeamType } from '~/types'
@@ -19,18 +21,24 @@ interface RegisteredTool {
 describe('webmcpLogic', () => {
     let registerTool: jest.Mock
     let postedCommands: string[]
+    let toolRequests: number
 
     beforeEach(() => {
         registerTool = jest.fn().mockResolvedValue(undefined)
         postedCommands = []
+        toolRequests = 0
         Object.defineProperty(document, 'modelContext', { value: { registerTool }, configurable: true })
 
         useMocks({
             get: {
-                '/api/projects/:team/webmcp/tool/': () => [
-                    200,
-                    { name: 'exec', description: 'Run PostHog commands', input_schema: { type: 'object' } },
-                ],
+                '/_preflight': () => [200, { ..._preflight, webmcp_available: true }],
+                '/api/projects/:team/webmcp/tool/': () => {
+                    toolRequests += 1
+                    return [
+                        200,
+                        { name: 'exec', description: 'Run PostHog commands', input_schema: { type: 'object' } },
+                    ]
+                },
             },
             post: {
                 '/api/projects/:team/webmcp/exec/': async ({ request }) => {
@@ -81,5 +89,16 @@ describe('webmcpLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
 
         await waitFor(() => expect(registerTool).toHaveBeenCalledTimes(1))
+    })
+
+    it('does not ask the proxy for the tool when the instance has no MCP server', async () => {
+        useMocks({ get: { '/_preflight': () => [200, { ..._preflight, webmcp_available: false }] } })
+        initKeaTests()
+        webmcpLogic.mount()
+
+        await waitFor(() => expect(preflightLogic.values.preflight).not.toBeNull())
+
+        expect(toolRequests).toEqual(0)
+        expect(registerTool).not.toHaveBeenCalled()
     })
 })

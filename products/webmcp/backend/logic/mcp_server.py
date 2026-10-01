@@ -1,5 +1,4 @@
-from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any
 
 from django.conf import settings
 
@@ -7,7 +6,7 @@ import requests
 
 from posthog.models import User
 
-from ..facade.contracts import ExecResult, ExecTool, McpServerError, McpServerUnauthorizedError
+from ..facade.contracts import ExecResult, ExecTool, McpServerError
 from .tokens import WebMCPTokenIssuer
 
 # The stateless MCP dialect needs no handshake, so each proxied call is one HTTP request.
@@ -17,15 +16,43 @@ EXEC_TOOL_NAME = "exec"
 # Connect, read. The read timeout covers slow tools such as SQL queries.
 REQUEST_TIMEOUT_SECONDS = (5, 120)
 
-T = TypeVar("T")
+
+def get_mcp_server_url() -> str | None:
+    """The MCP server URL that WebMCP can send user tokens to, or None when WebMCP is not available."""
+    url = settings.MCP_SERVER_URL
+    # Every request carries a bearer token for the user, so plain HTTP is for a local MCP server only.
+    if not url or (not url.startswith("https://") and not settings.DEBUG):
+        return None
+    return url
 
 
 class McpServerClient:
-    """Talks to the PostHog MCP server in single-`exec` mode."""
+    """Talks to the PostHog MCP server in single-`exec` mode, for one user and team.
+
+    The views that call this client are sync, so each call holds a web worker until the MCP server
+    answers, which can take up to the read timeout. The MCP server runs the tool by calling this
+    API with the minted token, so a slow call holds a second worker for the same time.
+
+    An async view would release the worker while it waits.
+    The larger step is for the browser to call the MCP server directly, which removes this proxy.
+    That is not simple, for these reasons:
+    - The MCP server accepts only bearer tokens. The session cookie belongs to the app origin, so
+      the browser does not send it to the MCP host.
+    - The browser must then hold an access token. Page scripts can read that token, so an XSS
+      gets a token that works outside the session. Here, the token never leaves the server.
+    - The MCP server must allow CORS from every app origin, and each region has its own MCP host.
+    """
 
     def __init__(self, *, url: str, token: str) -> None:
         self._url = url
         self._token = token
+
+    @classmethod
+    def for_user(cls, user: User, team_id: int) -> "McpServerClient":
+        url = get_mcp_server_url()
+        if url is None:
+            raise McpServerError("WebMCP is not available on this instance")
+        return cls(url=url, token=WebMCPTokenIssuer.for_instance().get_or_mint(user, team_id))
 
     def get_exec_tool(self) -> ExecTool:
         result = self._request("tools/list", {})
@@ -84,8 +111,10 @@ class McpServerClient:
 
         if 300 <= response.status_code < 400:
             raise McpServerError(f"The MCP server returned HTTP {response.status_code}")
+        # Revoking the app deletes its tokens, so get_or_mint never reuses a revoked token and a retry with a
+        # new token cannot fix a 401.
         if response.status_code == 401:
-            raise McpServerUnauthorizedError("The MCP server rejected the access token")
+            raise McpServerError("The MCP server rejected the access token")
         try:
             payload = response.json()
         except ValueError as error:
@@ -98,37 +127,3 @@ class McpServerClient:
         if not response.ok or not isinstance(payload.get("result"), dict):
             raise McpServerError(f"The MCP server returned HTTP {response.status_code}")
         return payload["result"]
-
-
-class WebMCPProxy:
-    """Runs MCP calls for one user and team, with a token exchanged for their session."""
-
-    def __init__(self, user: User, team_id: int, *, issuer: WebMCPTokenIssuer, url: str) -> None:
-        self._user = user
-        self._team_id = team_id
-        self._issuer = issuer
-        self._url = url
-
-    @classmethod
-    def for_user(cls, user: User, team_id: int) -> "WebMCPProxy":
-        if not settings.MCP_SERVER_URL:
-            raise McpServerError("WebMCP is not available on this instance")
-        # Every request carries a bearer token for the user, so plain HTTP is for a local MCP server only.
-        if not settings.MCP_SERVER_URL.startswith("https://") and not settings.DEBUG:
-            raise McpServerError("WebMCP needs an HTTPS MCP server URL")
-        return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=settings.MCP_SERVER_URL)
-
-    def get_exec_tool(self) -> ExecTool:
-        return self._call(lambda client: client.get_exec_tool())
-
-    def run_exec(self, command: str) -> ExecResult:
-        return self._call(lambda client: client.call_exec(command))
-
-    def _call(self, operation: Callable[[McpServerClient], T]) -> T:
-        token = self._issuer.get_or_mint(self._user, self._team_id)
-        try:
-            return operation(McpServerClient(url=self._url, token=token))
-        except McpServerUnauthorizedError:
-            # The user can revoke a reused token from their connected apps before it expires.
-            fresh_token = self._issuer.mint(self._user, self._team_id)
-            return operation(McpServerClient(url=self._url, token=fresh_token))

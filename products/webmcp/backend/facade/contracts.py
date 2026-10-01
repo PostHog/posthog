@@ -33,7 +33,3 @@ class ExecResult:
 
 class McpServerError(Exception):
     """The MCP server could not complete the call."""
-
-
-class McpServerUnauthorizedError(McpServerError):
-    pass

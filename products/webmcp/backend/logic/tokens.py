@@ -6,11 +6,10 @@ from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, get_or_c
 from posthog.models import OAuthAccessToken, OAuthApplication, User
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import effective_ceiling
+from posthog.temporal.oauth import WEBMCP_APP_CLIENT_ID
 
 from ..facade.contracts import McpServerError
 
-# The CIMD document lives in the posthog.com repo, so one client_id serves every region.
-WEBMCP_OAUTH_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
 TOKEN_LIFETIME = timedelta(hours=1)
 # A token this close to expiry is not reused, so a slow tool call cannot outlive it.
 TOKEN_REUSE_MARGIN = timedelta(minutes=10)
@@ -29,7 +28,7 @@ class WebMCPTokenIssuer:
     @classmethod
     def for_instance(cls) -> "WebMCPTokenIssuer":
         try:
-            return cls(get_or_create_cimd_application(WEBMCP_OAUTH_CLIENT_ID))
+            return cls(get_or_create_cimd_application(WEBMCP_APP_CLIENT_ID))
         except (CIMDFetchError, CIMDValidationError) as error:
             raise McpServerError("Could not load the WebMCP client metadata") from error
 

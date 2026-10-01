@@ -1,22 +1,24 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
+from posthog.temporal.oauth import WEBMCP_APP_CLIENT_ID
 
-from products.webmcp.backend.logic.mcp_server import WebMCPProxy
-from products.webmcp.backend.logic.tokens import WEBMCP_OAUTH_CLIENT_ID, WebMCPTokenIssuer
+from products.webmcp.backend.facade import api
+from products.webmcp.backend.logic.tokens import WebMCPTokenIssuer
 
 
 def create_webmcp_app(scopes: list[str] | None = None) -> OAuthApplication:
     return OAuthApplication.objects.create(
         name="PostHog WebMCP",
-        client_id=WEBMCP_OAUTH_CLIENT_ID,
+        client_id=WEBMCP_APP_CLIENT_ID,
         client_type=OAuthApplication.CLIENT_PUBLIC,
         authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
         redirect_uris="https://us.posthog.com/webmcp/callback",
@@ -71,23 +73,15 @@ class TestWebMCPTokenIssuer(BaseTest):
         assert OAuthAccessToken.objects.get(token=minted).scoped_teams == [self.team.id]
 
 
-class TestWebMCPProxy(BaseTest):
-    @patch("products.webmcp.backend.logic.mcp_server.requests.post")
-    def test_mints_a_fresh_token_when_the_reused_one_is_rejected(self, mock_post: MagicMock) -> None:
-        issuer = WebMCPTokenIssuer(create_webmcp_app())
-        revoked = issuer.get_or_mint(self.user, self.team.id)
-        mock_post.side_effect = [
-            mcp_response(401, {"error": "invalid_token"}),
-            mcp_response(
-                200,
-                {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "ok"}]}},
-            ),
+class TestWebMCPAvailability(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("https", "https://mcp.example.com/mcp", False, True),
+            ("plain_http", "http://mcp.example.com/mcp", False, False),
+            ("plain_http_in_debug", "http://localhost:8787/mcp", True, True),
+            ("unset", "", False, False),
         ]
-
-        result = WebMCPProxy(self.user, self.team.id, issuer=issuer, url="http://mcp.test/mcp").run_exec("tools")
-
-        assert result.content == [{"type": "text", "text": "ok"}]
-        assert result.is_error is False
-        authorizations = [call.kwargs["headers"]["Authorization"] for call in mock_post.call_args_list]
-        assert authorizations[0] == f"Bearer {revoked}"
-        assert authorizations[1] != authorizations[0]
+    )
+    def test_is_available(self, _name: str, url: str, debug: bool, expected: bool) -> None:
+        with override_settings(MCP_SERVER_URL=url, DEBUG=debug):
+            assert api.is_available() is expected
