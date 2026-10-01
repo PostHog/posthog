@@ -73,6 +73,8 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   const session = useRef(0);
   const live = useRef(false);
   const listening = useRef(false);
+  // True from this hook's native start call until the recognizer reports start or a startup error.
+  const starting = useRef(false);
   const endRef = useRef(onEnd);
   endRef.current = onEnd;
 
@@ -118,8 +120,18 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     setTranscript(joinHeard(heard.current));
   });
 
+  // On iOS, native start runs in a task that stop and abort do not wait for.
+  // A stop or cancel during startup can finish first, and the microphone then opens after dictation ended.
+  useSpeechRecognitionEvent("start", () => {
+    if (!starting.current) return;
+    starting.current = false;
+    if (!live.current) ExpoSpeechRecognitionModule.abort();
+  });
+
   useSpeechRecognitionEvent("error", (event) => {
-    if (event.error !== "aborted") endQuietly();
+    if (event.error === "aborted") return;
+    starting.current = false;
+    endQuietly();
   });
 
   useSpeechRecognitionEvent("end", endQuietly);
@@ -128,7 +140,9 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     () => () => {
       session.current++;
       live.current = false;
-      if (listening.current) ExpoSpeechRecognitionModule.abort();
+      if (listening.current || starting.current) {
+        ExpoSpeechRecognitionModule.abort();
+      }
     },
     [],
   );
@@ -151,6 +165,7 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
           return;
         }
         listening.current = true;
+        starting.current = true;
         ExpoSpeechRecognitionModule.start({
           lang: recognitionLang(Intl.DateTimeFormat().resolvedOptions().locale),
           interimResults: true,

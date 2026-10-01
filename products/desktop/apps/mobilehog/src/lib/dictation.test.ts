@@ -1,17 +1,42 @@
-import { describe, expect, it, vi } from "vitest";
+import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const listeners = vi.hoisted(
+  () => new Map<string, (event?: unknown) => void>(),
+);
 
 vi.mock("expo-speech-recognition", () => ({
-  ExpoSpeechRecognitionModule: {},
-  useSpeechRecognitionEvent: vi.fn(),
+  ExpoSpeechRecognitionModule: {
+    requestPermissionsAsync: vi.fn(async () => ({ granted: true })),
+    start: vi.fn(),
+    stop: vi.fn(),
+    abort: vi.fn(),
+  },
+  useSpeechRecognitionEvent: (
+    name: string,
+    listener: (event?: unknown) => void,
+  ) => listeners.set(name, listener),
 }));
-vi.mock("react-native-reanimated", () => ({}));
+vi.mock("react", () => ({
+  useCallback: <T>(fn: T) => fn,
+  useEffect: () => {},
+  useRef: <T>(current: T) => ({ current }),
+  useState: <T>(initial: T) => [initial, () => {}],
+}));
+vi.mock("react-native-reanimated", () => ({
+  Easing: { linear: (t: number) => t },
+  useSharedValue: <T>(value: T) => ({ value, modify: () => {} }),
+  withTiming: (value: number) => value,
+}));
 vi.mock("@/components/Waveform", () => ({ RING: 96, SAMPLE_MS: 80 }));
 
 import {
   applyResult,
+  type Dictation,
   type Heard,
   joinHeard,
   recognitionLang,
+  useDictation,
   volumeToLevel,
 } from "./dictation";
 
@@ -80,5 +105,43 @@ describe("recognitionLang", () => {
     ["", undefined],
   ])("maps locale %j to %j", (locale, lang) => {
     expect(recognitionLang(locale)).toBe(lang);
+  });
+});
+
+describe("useDictation", () => {
+  const native = vi.mocked(ExpoSpeechRecognitionModule);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listeners.clear();
+  });
+
+  const startNative = async (): Promise<Dictation> => {
+    const dictation = useDictation();
+    dictation.start();
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+    return dictation;
+  };
+
+  it.each([
+    ["stop", (dictation: Dictation) => dictation.stop()],
+    ["cancel", (dictation: Dictation) => dictation.cancel()],
+  ])("aborts a native start that finishes after %s", async (_, end) => {
+    end(await startNative());
+    native.abort.mockClear();
+    listeners.get("start")?.();
+    expect(native.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a native start while dictation is active", async () => {
+    await startNative();
+    listeners.get("start")?.();
+    expect(native.abort).not.toHaveBeenCalled();
+  });
+
+  it("ignores a native start that it did not request", () => {
+    useDictation();
+    listeners.get("start")?.();
+    expect(native.abort).not.toHaveBeenCalled();
   });
 });
