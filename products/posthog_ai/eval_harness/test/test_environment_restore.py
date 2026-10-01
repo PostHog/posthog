@@ -24,6 +24,7 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from products.cdp.backend.facade.models import HogFunction
 from products.data_catalog.backend.facade.api import Metric
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
+from products.posthog_ai.eval_harness.environment.events import EnvironmentEvents
 from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrationsPending
 from products.posthog_ai.eval_harness.environment.restore import PreparedEnvironment
 from products.posthog_ai.eval_harness.environment.schema import (
@@ -75,6 +76,32 @@ class TestEnvironmentRestoreValidation(SimpleTestCase):
             for preflight in (PreparedEnvironment.assert_local, PreparedEnvironment.assert_migrations_current):
                 with self.assertRaisesRegex(RuntimeError, "require"):
                     preflight()
+
+    @parameterized.expand(["function", "columns"])
+    def test_refuses_outdated_native_clickhouse_before_import(self, missing: str) -> None:
+        def schema_query(query: str, params: dict[str, object]) -> list[tuple[str]]:
+            if "system.tables" in query:
+                tables = params["tables"]
+                assert isinstance(tables, tuple)
+                return [(name,) for name in tables]
+            if "system.functions" in query:
+                available = {"JSONCleanPostHogEventProperties", "JSONCleanPostHogTemporaryProperties"}
+                if missing != "function":
+                    available.add("JSONCleanPostHogEvent")
+                functions = params["functions"]
+                assert isinstance(functions, tuple)
+                return [(name,) for name in functions if name in available]
+            if "system.columns" in query:
+                return [("properties_null_keys",)]
+            raise AssertionError("Preflight must only inspect the ClickHouse schema")
+
+        with (
+            override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None),
+            patch("products.posthog_ai.eval_harness.environment.events.use_new_events_schema", return_value=True),
+            patch("products.posthog_ai.eval_harness.environment.events.sync_execute", side_effect=schema_query),
+            self.assertRaisesRegex(RuntimeError, f"native JSON .*{missing}.*not ready"),
+        ):
+            EnvironmentEvents.preflight()
 
     @parameterized.expand(["default", "product"])
     def test_pending_migrations_refuse_restore_without_creating_import_state(self, database: str) -> None:
@@ -242,12 +269,16 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
                     PreparedEnvironment.restore(dataset, workspace)
                 Metric.objects.for_team(team.id).filter(id=restored_metric.id).update(**{field: previous})
 
-    def test_failed_import_cannot_append_on_retry(self) -> None:
+    @parameterized.expand(["storage", "team_schema"])
+    def test_failed_import_cannot_append_on_retry(self, failure: str) -> None:
         def fail_insert(query: str, params: dict[str, object] | None = None) -> object:
+            if failure == "team_schema" and "system.functions" in query:
+                return []
             if query.lstrip().startswith("INSERT"):
                 raise RuntimeError("storage unavailable")
             return sync_execute(query, params)
 
+        before = (Organization.objects.count(), Team.objects.count(), User.objects.count())
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             dataset = make_environment(
@@ -264,17 +295,34 @@ class TestEnvironmentRestore(ClickhouseTestMixin, BaseTest):
                 ],
             )
             workspace = root / "import"
-            with patch("products.posthog_ai.eval_harness.environment.events.sync_execute", side_effect=fail_insert):
-                with self.assertRaisesRegex(RuntimeError, "storage unavailable"):
+            with (
+                patch("products.posthog_ai.eval_harness.environment.events.sync_execute", side_effect=fail_insert),
+                patch(
+                    "products.posthog_ai.eval_harness.environment.events.use_new_events_schema",
+                    side_effect=(
+                        (lambda team_id=None: team_id is not None)
+                        if failure == "team_schema"
+                        else use_new_events_schema
+                    ),
+                ),
+            ):
+                expected = (
+                    "native JSON cleanup function is not ready" if failure == "team_schema" else "storage unavailable"
+                )
+                with self.assertRaisesRegex(RuntimeError, expected):
                     PreparedEnvironment.restore(dataset, workspace, user_id=self.user.id)
             receipt = PreparedEnvironment.read_receipt(workspace)
             assert receipt is not None
             self.assertEqual(receipt.phase, "failed")
-            self.assertIsNotNone(receipt.team_id)
-            before = Team.objects.count()
+            if failure == "team_schema":
+                self.assertIsNone(receipt.team_id)
+                self.assertEqual((Organization.objects.count(), Team.objects.count(), User.objects.count()), before)
+            else:
+                self.assertIsNotNone(receipt.team_id)
+            before_retry = Team.objects.count()
             with self.assertRaisesRegex(ValueError, "incomplete"):
                 PreparedEnvironment.restore(dataset, workspace, user_id=self.user.id)
-            self.assertEqual(Team.objects.count(), before)
+            self.assertEqual(Team.objects.count(), before_retry)
 
     def test_empty_devbox_gets_private_login_without_resetting_existing_accounts(self) -> None:
         User.objects.filter(is_active=True).update(is_active=False)

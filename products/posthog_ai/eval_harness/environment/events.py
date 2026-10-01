@@ -14,7 +14,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models import Team
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
+from posthog.models.event.sql import (
+    BULK_INSERT_EVENT_SQL,
+    EVENTS_DATA_TABLE,
+    EVENTS_JSON_CLEANER,
+    EVENTS_JSON_DATA_TABLE,
+)
 from posthog.models.event.util import _json_dumps_for_clickhouse
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
@@ -46,10 +51,10 @@ class RestoredEventSummary:
 
 class EnvironmentEvents:
     @staticmethod
-    def preflight() -> None:
+    def preflight(team_id: int | None = None) -> None:
         identity = assert_local_databases()
         required = {EVENTS_DATA_TABLE(), "events", PERSONS_TABLE, GROUPS_TABLE}
-        native = use_new_events_schema()
+        native = use_new_events_schema(team_id)
         if native:
             required.add(EVENTS_JSON_DATA_TABLE)
         with tags_context(
@@ -67,10 +72,28 @@ class EnvironmentEvents:
             if native:
                 functions = sync_execute(
                     "SELECT name FROM system.functions WHERE name IN %(functions)s",
-                    {"functions": ("JSONCleanPostHogEventProperties", "JSONCleanPostHogTemporaryProperties")},
+                    {"functions": (EVENTS_JSON_CLEANER,)},
                 )
-                if len(functions) != 2:
-                    raise RuntimeError("ClickHouse native JSON cleanup functions are not ready.")
+                if {row[0] for row in functions} != {EVENTS_JSON_CLEANER}:
+                    raise RuntimeError("ClickHouse native JSON cleanup function is not ready.")
+                required_columns = {
+                    "properties_null_keys",
+                    "temporary_properties_null_keys",
+                    "person_properties_null_keys",
+                }
+                columns = sync_execute(
+                    "SELECT name FROM system.columns WHERE database = %(database)s AND table = %(table)s "
+                    "AND name IN %(columns)s",
+                    {
+                        "database": identity["clickhouse_database"],
+                        "table": EVENTS_JSON_DATA_TABLE,
+                        "columns": tuple(sorted(required_columns)),
+                    },
+                )
+                if {row[0] for row in columns} != required_columns:
+                    raise RuntimeError(
+                        "ClickHouse native JSON columns are not ready; complete local migrations before importing."
+                    )
 
     @staticmethod
     def summaries(dataset: EnvironmentDataset, transformer: EnvironmentTransform) -> dict[str, RestoredEventSummary]:
