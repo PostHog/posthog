@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { slugify } from 'lib/utils/strings'
 
 import { messagingCategoriesCreate, messagingCategoriesPartialUpdate } from 'products/messaging/frontend/generated/api'
 import type { MessageCategoryTypeEnumApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -22,6 +23,10 @@ export type CategoryForm = {
 export type CategoryLogicProps = {
     category?: MessageCategory | null
     onSuccess?: () => void
+}
+
+function keyFollowsName({ name, key }: CategoryForm): boolean {
+    return key === slugify(name)
 }
 
 const NEW_CATEGORY: CategoryForm = {
@@ -165,9 +170,15 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, props, values, selectors }) => ({
         resetForm: () => {
             actions.resetCategoryForm()
+        },
+        setCategoryFormValue: ({ name: field }, _, __, previousState) => {
+            const previousForm = selectors.categoryForm(previousState)
+            if (field === 'name' && !props.category && keyFollowsName(previousForm)) {
+                actions.setCategoryFormValue('key', slugify(values.categoryForm.name))
+            }
         },
     })),
 ])
