@@ -141,10 +141,15 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
 
     def list(self, request: Request, **kwargs) -> Response:
         paginator = self.paginator
+        assert isinstance(paginator, PrecountedLimitOffsetPagination)
+        # `get_limit` falls back to the REST framework's PAGE_SIZE, so None would mean that
+        # setting is gone rather than that this request asked for an unbounded page.
+        limit = paginator.get_limit(request)
+        assert limit is not None
         page = platform_api.list_configurations(
             team_id=self._canonical_team_id(),
             source_kinds=self._readable_source_kinds(),
-            limit=paginator.get_limit(request),
+            limit=limit,
             offset=paginator.get_offset(request),
         )
         paginator.set_count(page.total)
