@@ -195,6 +195,7 @@ def render_final_body(
     resolved_from: str = "author",
     report_url: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    celebrate_clean_reviews: bool = True,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -209,7 +210,7 @@ def render_final_body(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = ["### \U0001f994 PostHog Review reviewed this pull request", ""]
-    if found_total == 0:
+    if found_total == 0 and celebrate_clean_reviews:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
         lines.extend(
             [
@@ -520,6 +521,7 @@ class FinalizeStatusCommentInput:
     # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
     resolved_from: str = "author"
     review_mode: str = REVIEW_MODE_FULL
+    celebrate_clean_reviews: bool = True
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -547,6 +549,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
+            celebrate_clean_reviews=input.celebrate_clean_reviews,
         )
         _edit_and_stamp(input.team_id, report, body)
     except Exception:

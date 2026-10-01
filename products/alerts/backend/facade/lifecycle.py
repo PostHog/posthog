@@ -25,6 +25,8 @@ from datetime import datetime, timedelta
 from enum import Enum, StrEnum
 from typing import Protocol
 
+from products.alerts.backend.facade.contracts import FiringEpisode
+
 MAX_CONSECUTIVE_FAILURES = 5
 
 
@@ -137,6 +139,7 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    firing_started_at: datetime | None = None
 
 
 class StatefulSnapshot(Protocol):
@@ -176,6 +179,10 @@ class ControlPlaneOutcome:
 
 Outcome = AlertCheckOutcome | ControlPlaneOutcome
 
+# States that mean the alert is inside a firing. PENDING_RESOLVE is one: the condition has
+# cleared but the resolution is not announced yet, so the firing has not ended.
+FIRING_STATES = (AlertState.FIRING, AlertState.PENDING_RESOLVE)
+
 
 def _stay(snapshot: AlertSnapshot) -> AlertCheckOutcome:
     return AlertCheckOutcome(
@@ -205,6 +212,52 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
         update_last_notified_at=False,
         muted_notification=outcome.notification,
     )
+
+
+def _firing_is_unannounced(snapshot: AlertSnapshot) -> bool:
+    """Whether the firing the alert is in was never announced, so one is still owed.
+
+    Derived rather than stored, because the two timestamps already say it: a firing that was
+    announced has a notification at or after its start. A mute, a cooldown or any other gate
+    leaves `last_notified_at` behind the start, which is exactly the set of fires still owed.
+
+    A firing that began before the platform recorded starts has no start to compare, and reads as
+    announced. Reading it the other way re-fires it on every later check, forever.
+    """
+    if snapshot.firing_started_at is None:
+        return False
+    return snapshot.last_notified_at is None or snapshot.last_notified_at < snapshot.firing_started_at
+
+
+def decide_firing_episode(
+    snapshot: AlertSnapshot, outcome: Outcome, now: datetime, *, policy: AlertPolicy
+) -> FiringEpisode | None:
+    """The firing this check concerns, or None when no firing is involved at all.
+
+    A check that leaves the state where it found it keeps the same firing, so an alert rides
+    through a failed or inconclusive check without starting a second one.
+
+    The rule lives here rather than in a product's persistence layer, because only a policy says
+    whether two states belong to one firing. Under `clear_check_ends_snooze` a breached alert
+    parks in SNOOZED with the firing still running underneath the mute, so a caller reading the
+    two state strings cannot tell that state from a resolve.
+    """
+    was_firing = snapshot.state in FIRING_STATES or (
+        policy.clear_check_ends_snooze and snapshot.state == AlertState.SNOOZED
+    )
+    if outcome.new_state == AlertState.SNOOZED:
+        if not (policy.clear_check_ends_snooze and was_firing):
+            return None
+        return FiringEpisode(started_at=snapshot.firing_started_at, ended=False)
+    if outcome.new_state in FIRING_STATES:
+        # A firing that began before the platform recorded starts keeps an unknown one rather
+        # than taking `now`, because a start later than `last_notified_at` would read as never
+        # announced.
+        started_at = snapshot.firing_started_at if was_firing else now
+        return FiringEpisode(started_at=started_at, ended=False)
+    if not was_firing:
+        return None
+    return FiringEpisode(started_at=snapshot.firing_started_at, ended=True)
 
 
 def evaluate_alert_check(
@@ -280,6 +333,12 @@ def evaluate_alert_check(
     elif snapshot.state in (AlertState.ERRORED, AlertState.BROKEN):
         # BROKEN is only reachable here when the policy allows checks to un-break.
         effective_state = AlertState.NOT_FIRING
+    elif policy.mute_gates_notification_only and not muted and _firing_is_unannounced(snapshot):
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED arm does for an expired snooze. Last in the chain, so a
+        # state that names its own re-entry keeps it: under `clear_check_ends_snooze` a parked
+        # breach reads as unannounced and still has to re-enter as FIRING to resolve.
+        effective_state = AlertState.NOT_FIRING
     else:
         effective_state = snapshot.state
 
@@ -296,7 +355,7 @@ def evaluate_alert_check(
         else:
             new_state = AlertState.NOT_FIRING
 
-    elif effective_state in (AlertState.FIRING, AlertState.PENDING_RESOLVE):
+    elif effective_state in FIRING_STATES:
         if breached:
             new_state = AlertState.FIRING
             if policy.renotify_while_firing:

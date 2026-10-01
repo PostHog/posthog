@@ -13,6 +13,7 @@ import { currentMarkIndex, timelineGapPx } from '../utils/observationTimeline'
 import { ObservationMarkTooltip } from './ObservationSeekbarMarks'
 
 const ROW_GRID = 'grid grid-cols-[2.5rem_1rem_minmax(0,1fr)] gap-x-1.5'
+const ROW_GRID_HOURS = 'grid grid-cols-[4rem_1rem_minmax(0,1fr)] gap-x-1.5'
 
 export function ObservationTimeline({
     sessionId,
@@ -28,6 +29,8 @@ export function ObservationTimeline({
     const { hoveredMarkMs } = useValues(logic)
     const { setHoveredMark } = useActions(logic)
     const currentIndex = currentMarkIndex(marks, currentPlayerTime)
+    const hasHours = marks.some((mark) => mark.timestampMs >= 3_600_000)
+    const rowGrid = hasHours ? ROW_GRID_HOURS : ROW_GRID
     useEffect(() => () => setHoveredMark(null), [setHoveredMark])
 
     return (
@@ -42,7 +45,7 @@ export function ObservationTimeline({
                     <Fragment key={mark.timestampMs}>
                         {gapPx > 0 && (
                             <div
-                                className={cn(ROW_GRID, 'px-2')}
+                                className={cn(rowGrid, 'px-2')}
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={{ height: gapPx }}
                             >
@@ -53,7 +56,7 @@ export function ObservationTimeline({
                         <div
                             data-current-moment={isCurrent ? true : undefined}
                             className={cn(
-                                ROW_GRID,
+                                rowGrid,
                                 'px-2 py-0.5 transition-colors',
                                 isCurrent && 'bg-fill-highlight-50',
                                 hoveredMarkMs === mark.timestampMs && 'bg-surface-secondary'
@@ -67,7 +70,7 @@ export function ObservationTimeline({
                                     isCurrent ? 'text-accent font-semibold' : 'text-secondary'
                                 )}
                             >
-                                {colonDelimitedDuration(Math.floor(mark.timestampMs / 1000), null)}
+                                {colonDelimitedDuration(Math.floor(mark.timestampMs / 1000), hasHours ? 3 : 2)}
                             </span>
                             <div className="flex flex-col items-center -my-0.5">
                                 <span className={cn('w-0.5 flex-1', railColor)} />

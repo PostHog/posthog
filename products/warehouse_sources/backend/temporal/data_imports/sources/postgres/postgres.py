@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_initial_value,
     incremental_type_to_operator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     open_ssh_tunnel,
     pinned_host_kwargs,
@@ -108,6 +109,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     iterate_partitions,
     list_child_partitions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import XminCursor
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
 # Sources created after this date must use SSL/TLS connections
@@ -153,6 +155,11 @@ _MAX_SETUP_RECOVERY_CONFLICT_RETRIES = 10
 _MAX_READ_RECOVERY_CONFLICT_RETRIES = 10
 # A shorter query holds its snapshot for less time, lowering the odds the replica cancels it.
 _MIN_RECOVERY_CONFLICT_CHUNK_SIZE = 100
+
+# A seek takes ACCESS SHARE once per page rather than once per read, so it meets a concurrent
+# ACCESS EXCLUSIVE (a DDL, a VACUUM FULL) far more often than a server cursor does. Blocking is
+# transient, so retry the page rather than fail the run; past this the lock is someone's problem.
+_MAX_KEYSET_PAGE_LOCK_RETRIES = 5
 
 # Bounded in-process retries for a transient connection drop hit *during* the setup metadata
 # probes (not just the initial connect). Mirrors `_connect_with_dropped_retry`'s default; past
@@ -377,18 +384,24 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
 # Supavisor session-mode pooler reports its own variant when every client slot it exposes is in use
 # ("(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size:
-# <n>"). All of these are transient capacity conditions on the customer's database or pooler — a
-# slot frees the moment another connection closes (or a session ends) — so a fresh connect after a
-# short backoff usually succeeds. Retried in-process on the read/sync connect path (see
+# <n>"). Supavisor also has an instance-wide sibling: when the pooler's total client-facing
+# connection count (across every tenant it serves, not just this one) hits its own configured cap,
+# it refuses new connects with "FATAL:  (EMAXCONN) max client connections reached, limit: <n>" — the
+# same transient capacity class, since a slot frees the moment any tenant's connection closes. All of
+# these are transient capacity conditions on the customer's database or pooler — a slot frees the
+# moment another connection closes (or a session ends) — so a fresh connect after a short backoff
+# usually succeeds. Retried in-process on the read/sync connect path (see
 # `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
-# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor match is on the stable
-# "max clients reached in session mode" phrase, excluding the volatile pool_size and the
-# "(EMAXCONNSESSION)" code (mirrors the `PostgresErrors` validation mapping in source.py).
+# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor matches are on the stable
+# "max clients reached in session mode" / "max client connections reached" phrases, excluding the
+# volatile pool_size/limit numbers and the "(EMAXCONNSESSION)" / "(EMAXCONN)" codes (mirrors the
+# `PostgresErrors` validation mapping in source.py).
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
     "max clients reached in session mode",
+    "max client connections reached",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
@@ -732,6 +745,23 @@ def _full_table_timeout_error() -> Exception:
     )
 
 
+def _keyset_page_timeout_error(keyset_primary_keys: list[str]) -> Exception:
+    """Build the timeout error for a keyset page cancelled by the statement_timeout.
+
+    A seek page reads a bounded `LIMIT n`, so exhausting a 10-minute timeout on one says the plan is
+    wrong, not that the table is large — `_full_table_timeout_error` would tell the customer to make
+    each run read less, which they already are. The usual cause is the walk not being served by the
+    primary-key index, so name that instead. Plain retryable Exception, matching that function: a
+    later attempt resumes at the last committed key rather than starting over.
+    """
+    keys = ", ".join(keyset_primary_keys)
+    return Exception(
+        f"Reading one page of this table hit your database's statement timeout. Each page reads a "
+        f"bounded range of ({keys}) and orders by it, so check that an index on ({keys}) serves that "
+        f"order — a row filter on another indexed column can pull the planner off it."
+    )
+
+
 def _raised_while_closing_generator(error: BaseException) -> bool:
     """True when `error` surfaced while the row generator was being closed.
 
@@ -995,6 +1025,45 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
         for row in cur:
             result.setdefault(row[0], []).append(row[1])
     return result
+
+
+def get_enforced_unique_keys(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, list[frozenset[str]]]:
+    """Column sets of each table's unique indexes that Postgres enforces on every row as it is written.
+
+    A deferrable constraint is checked only at the end of the statement or transaction, a partial index
+    leaves the rows outside its predicate free, and an expression index constrains no plain column. A
+    nullable key column lets any number of rows hold NULL there. Those are left out, so a set returned
+    here can never be held by two rows at once.
+    """
+    if not table_names:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.relname, array_agg(a.attname::text)
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a
+              ON a.attrelid = c.oid AND a.attnum = ANY((i.indkey::int2[])[0:i.indnkeyatts - 1])
+            WHERE i.indisunique
+              AND i.indimmediate
+              AND i.indisvalid
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            GROUP BY c.relname, i.indexrelid
+            HAVING bool_and(a.attnotnull)
+            """,
+            (schema, table_names),
+        )
+        keys: dict[str, list[frozenset[str]]] = {}
+        for table, columns in cur:
+            keys.setdefault(table, []).append(frozenset(columns))
+    return keys
 
 
 def get_leading_index_columns(
@@ -2509,6 +2578,50 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
+KEYSET_PLAN_WARNING_MIN_ROWS = 100_000
+_PLAN_ROWS_ESTIMATE = re.compile(r"\brows=(\d+)")
+
+
+def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger) -> None:
+    """Warn when a keyset page is not reading an index in key order.
+
+    A seek page is only cheap when the planner answers it as an index scan on the key: one descent,
+    then `LIMIT n` rows already in `ORDER BY` order. A row filter gives it another choice — take that
+    filter's index, lose the ordering, and sort the matched set — and the sort runs *per page*,
+    turning one table scan into thousands. A sequential scan is the same trap by another route.
+
+    Diagnostics only: log a stable token so the bad-plan rate is countable, and let the page run. It
+    is what says whether widening the seek past the flag is safe.
+    """
+    try:
+        cursor.execute(sql.SQL("EXPLAIN {}").format(query))
+        plan = "\n".join(str(column) for row in cursor.fetchall() for column in row)
+    except Exception as e:
+        # Best-effort, exactly like `_explain_query`: a failed EXPLAIN must never fail the page.
+        logger.debug(f"Keyset EXPLAIN raised an exception: {e}")
+        return
+
+    # Only the outermost node matters — a sort *under* a LIMIT is the per-page cost this looks for,
+    # and a seq scan means the key's index was not used at all.
+    problems = [marker for marker in ("Seq Scan", "Sort ", "Sort\n", "Incremental Sort") if marker in plan]
+    if not problems:
+        return
+
+    # The largest node estimate is the rows past the seek key, which is close to the whole table on
+    # the first seeking page. Below the threshold, a seq scan or a sort is the planner's correct choice
+    # and costs nothing per page. Warning there would bury the large tables this check exists for. A
+    # plan without estimates still warns, because it cannot show that the table is small.
+    estimated_rows = max((int(rows) for rows in _PLAN_ROWS_ESTIMATE.findall(plan)), default=None)
+    if estimated_rows is not None and estimated_rows < KEYSET_PLAN_WARNING_MIN_ROWS:
+        logger.debug(f"Keyset page plan uses {problems} on a small table: estimated_rows={estimated_rows}")
+        return
+
+    logger.warning(
+        f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan "
+        f"found={problems} estimated_rows={estimated_rows}"
+    )
+
+
 def _get_primary_keys(
     cursor: psycopg.Cursor, schema: str, table_name: str, logger: FilteringBoundLogger
 ) -> list[str] | None:
@@ -3448,11 +3561,11 @@ def postgres_source(
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     is_xmin: bool = False,
-    xmin_last_value: Optional[int] = None,
-    xmin_num_wraparound: Optional[int] = None,
+    xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
+    keyset_full_load_enabled: bool = False,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3522,8 +3635,9 @@ def postgres_source(
         setup_connection_dropped_errors = 0
         # Captured once at sync start on the row-serving connection (see `_capture_xmin_ceiling`).
         # Re-derived on each setup retry, which is harmless — a later ceiling just reads a slightly
-        # wider window. Persisted only at job completion (see the pipeline's xmin advance).
+        # wider window. Staged on `xmin_cursor` below, and persisted only once the run's rows are durable.
         xmin_bounds: XminBounds | None = None
+        stored_xmin = xmin_cursor.load() if xmin_cursor is not None else None
         while True:
             # Opening the setup connection can itself hit a transient drop ("server closed the
             # connection unexpectedly", idle cull, failover) — the same class of error the read
@@ -3570,7 +3684,12 @@ def postgres_source(
 
                         # Capture the xmin ceiling on this row-serving connection before streaming.
                         if is_xmin:
-                            xmin_bounds = _capture_xmin_ceiling(cursor, xmin_last_value, xmin_num_wraparound, logger)
+                            xmin_bounds = _capture_xmin_ceiling(
+                                cursor,
+                                stored_xmin.ceiling_xid if stored_xmin is not None else None,
+                                stored_xmin.num_wraparound if stored_xmin is not None else None,
+                                logger,
+                            )
 
                         try:
                             logger.debug("Checking if source is a read replica...")
@@ -3839,12 +3958,16 @@ def postgres_source(
         # measurable before the seek path is widened past its read-replica fallback.
         logger.info(f"Postgres keyset resume unavailable: reason={keyset.reason}")
 
-    # A server cursor idles in an open transaction through every Delta merge, and a replica that
+    # Two ways in. The flag makes seeking the default for a full load, which is what lets a drained
+    # worker resume rather than restart the read. The second arm is the original fallback, unchanged:
+    # a server cursor idles in an open transaction through every Delta merge, and a replica that
     # cancels reads during that idle kills each attempt at the same place — the cursor's order is
-    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. The seek
-    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Only from the
-    # second attempt, so a replica that never cancels keeps its one consistent snapshot.
-    takes_keyset_path = keyset.columns is not None and activity_attempt > 1 and using_read_replica
+    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. Seeking
+    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Leaving that arm
+    # conditioned on the second attempt is what makes a flag-off deploy read exactly as it does now.
+    takes_keyset_path = keyset.columns is not None and (
+        keyset_full_load_enabled or (activity_attempt > 1 and using_read_replica)
+    )
     can_checkpoint = resumable_source_manager is not None and keyset.checkpointable
 
     def keyset_resume_key(key_length: int) -> tuple[Any, ...] | None:
@@ -4040,6 +4163,8 @@ def postgres_source(
                 successive_errors = 0
                 successive_conn_errors = 0
                 floor_retries = 0
+                lock_retries = 0
+                plan_checked = False
                 # Open lazily inside the loop so a recovery conflict (or connection drop) raised by
                 # the connect itself is caught by the handlers below. A hot standby can cancel the
                 # connection's own startup with "conflict with recovery" when we reconnect
@@ -4087,6 +4212,11 @@ def postgres_source(
                         with psycopg.Cursor(connection) as cursor:
                             query_with_limit_sql = build_page_query()
                             logger.debug(f"Postgres query: {query_with_limit_sql}")
+                            # Check the first page that actually seeks. Page 1 carries no `key >`
+                            # predicate, so its plan says nothing about how the walk behaves.
+                            if keyset_primary_keys is not None and last_key is not None and not plan_checked:
+                                plan_checked = True
+                                _check_keyset_page_plan(cursor, query_with_limit_sql, logger)
                             cursor.execute(query_with_limit_sql)
 
                             column_names = [column.name for column in cursor.description or []]
@@ -4168,7 +4298,26 @@ def postgres_source(
                                 "max_standby_streaming_delay or enable hot_standby_feedback on the replica, "
                                 "or sync from the primary database instead."
                             ) from e
+                        if keyset_primary_keys is not None:
+                            raise _keyset_page_timeout_error(keyset_primary_keys) from e
                         raise _full_table_timeout_error() from e
+                    except psycopg.errors.LockNotAvailable as e:
+                        # A server cursor takes ACCESS SHARE once, at its DECLARE. A seek walk takes
+                        # it per page, so its cumulative chance of landing on a concurrent ACCESS
+                        # EXCLUSIVE is far higher. Without this clause `LockNotAvailable` reaches the
+                        # dropped-connection handler as an `OperationalError`, matches neither of its
+                        # predicates, and fails the whole activity. Retrying the same page is safe
+                        # because `last_key` does not advance until after the page is yielded.
+                        _safe_close_connection(connection)
+                        lock_retries += 1
+                        if lock_retries > _MAX_KEYSET_PAGE_LOCK_RETRIES:
+                            raise
+                        logger.debug(
+                            f"Keyset page blocked on a lock ({e}). Retrying the same page "
+                            f"({lock_retries}/{_MAX_KEYSET_PAGE_LOCK_RETRIES})"
+                        )
+                        time.sleep(min(2 * lock_retries, 30))
+                        continue
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
                         if _is_recovery_conflict_error(e):
                             # A recovery conflict raised by the (re)connect itself surfaces as a plain
@@ -4486,6 +4635,15 @@ def postgres_source(
 
     name = NamingConvention.normalize_identifier(table_name)
 
+    if xmin_cursor is not None and xmin_bounds is not None:
+        xmin_cursor.stage(
+            XminCursor(
+                ceiling_xid=xmin_bounds.upper,
+                ceiling_xid8=xmin_bounds.ceiling_xid8,
+                num_wraparound=xmin_bounds.num_wraparound,
+            )
+        )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4494,9 +4652,6 @@ def postgres_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
-        xmin_ceiling_xid=xmin_bounds.upper if xmin_bounds is not None else None,
-        xmin_ceiling_xid8=xmin_bounds.ceiling_xid8 if xmin_bounds is not None else None,
-        xmin_num_wraparound=xmin_bounds.num_wraparound if xmin_bounds is not None else None,
         # Both halves, because a run that seeks without a persistable key still cannot hand its
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.

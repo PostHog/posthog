@@ -13,8 +13,8 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     endpoint: string
     object: T
     idField?: keyof T
-    /** The request body besides `deleted`. Defaults to the whole `object`. */
-    payload?: Record<string, any>
+    /** The name the toast shows. It defaults to `object.name`, which the request body also sends. */
+    label?: string
     undoable?: boolean
     /** Runs before the error toast. Return true when it handled the error, which skips the toast. */
     onError?: (error: any) => boolean
@@ -23,13 +23,13 @@ export async function deleteWithUndo<T extends Record<string, any>>({
     try {
         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
         await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-            ...(props.payload ?? props.object),
+            ...props.object,
             deleted: !undo,
         })
         props.callback?.(undo, props.object)
         lemonToast[undo ? 'success' : 'info'](
             <>
-                <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
+                <b>{props.label || props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
                 {undo ? 'restored' : 'deleted'}
             </>,
             {

@@ -7,6 +7,7 @@ import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { ML_IMAGE_FETCH_OUTPUT, MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
@@ -272,7 +273,12 @@ export function createProduceCollectedUrlsStep<
                     } satisfies CollectedUrlsMessage)
                 )
                 MlMirrorMetrics.observeMlUrlRecord(slice.length, value.length)
-                return { key: domain, ...mlKafkaRecord(mlWireVersion(key), value) }
+                const record = mlKafkaRecord(mlWireVersion(key), value)
+                return {
+                    key: domain,
+                    value: record.value,
+                    headers: { [CAPTURE_TIMESTAMP_HEADER]: String(firstSeenAtMs), ...record.headers },
+                }
             })
         )
 

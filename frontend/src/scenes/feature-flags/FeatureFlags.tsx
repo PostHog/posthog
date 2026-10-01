@@ -337,8 +337,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             const versioned = rowVersionToken(featureFlag)
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
-                                                payload: versioned,
+                                                object: { id: featureFlag.id, ...versioned },
+                                                label: featureFlag.key,
                                                 undoable: isV1Config,
                                                 onError: (error) =>
                                                     reloadIfStaleRowVersion(versioned, error, loadFeatureFlags),
