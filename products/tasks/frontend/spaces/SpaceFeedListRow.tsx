@@ -18,18 +18,20 @@ import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/tod
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 
 import { TaskListItemApi } from '../generated/api.schemas'
+import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 interface SpaceFeedListRowProps {
+    spaceId: string
     task: TaskListItemApi
     pinned: boolean
     unread: boolean
 }
 
 /** A session as one compact row of the feed's list view, like PostHog Desktop's. */
-export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps): JSX.Element {
+export function SpaceFeedListRow({ spaceId, task, pinned, unread }: SpaceFeedListRowProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
@@ -44,6 +46,7 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
     if (renaming?.sessionId === task.id && renaming.surface === 'feed') {
         return (
             <div className="flex h-8 items-center gap-2 px-2">
+                <span aria-hidden className="size-3.5 shrink-0" />
                 <SpaceFeedStatusIcon item={item} />
                 <div className="min-w-0 flex-1">
                     <TodaySessionRenameInput sessionId={task.id} title={task.title} />
@@ -55,6 +58,11 @@ export function SpaceFeedListRow({ task, pinned, unread }: SpaceFeedListRowProps
         <>
             <TodaySessionContextMenu target={menu} surface="feed">
                 <div className="group/row relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
+                    <SpaceFeedSelectCheckbox
+                        spaceId={spaceId}
+                        sessionId={task.id}
+                        title={item.title || 'Untitled session'}
+                    />
                     <SpaceFeedStatusIcon item={item} />
                     <LinkPrimitive
                         to={urls.aiTask(task.id)}
