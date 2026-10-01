@@ -6,7 +6,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { personalCodexIntegrationLogic } from './personalCodexIntegrationLogic'
 
-const LOGIN_COMMAND = 'mkdir -p ~/.codex-posthog && CODEX_HOME=~/.codex-posthog codex login'
+const LOGIN_COMMAND = 'mkdir -p ~/.codex-posthog && CODEX_HOME=~/.codex-posthog codex login --device-auth'
 const COPY_COMMAND = 'cat ~/.codex-posthog/auth.json'
 
 export function CodexConnectModal(): JSX.Element {
@@ -18,7 +18,7 @@ export function CodexConnectModal(): JSX.Element {
             isOpen={connectModalOpen}
             onClose={closeConnectModal}
             title="Connect Codex"
-            description="Sign in to Codex on your computer. Then paste the sign-in file here."
+            description="Sign in to Codex with a device code on your computer. Then paste the sign-in file here."
             width={560}
             footer={
                 <>
@@ -43,13 +43,17 @@ export function CodexConnectModal(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                    <h4 className="mb-0">1. Sign in with your ChatGPT account</h4>
+                    <h4 className="mb-0">1. Sign in with a device code</h4>
                     <CodeSnippet language={Language.Bash} compact wrap thing="command">
                         {LOGIN_COMMAND}
                     </CodeSnippet>
                     <p className="mb-0 text-xs text-secondary">
-                        This uses a separate folder, so your local Codex sign-in keeps working. On a computer without a
-                        browser, add <code>--device-auth</code> to the command.
+                        Turn on device code login in your ChatGPT security settings first. In a ChatGPT workspace, an
+                        admin turns it on in the workspace permissions.
+                    </p>
+                    <p className="mb-0 text-xs text-secondary">
+                        Open the link that the command shows, sign in, and enter the one-time code. The command uses a
+                        separate folder, so your local Codex sign-in keeps working.
                     </p>
                 </div>
                 <div className="flex flex-col gap-2">
