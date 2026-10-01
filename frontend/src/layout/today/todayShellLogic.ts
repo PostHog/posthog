@@ -37,7 +37,7 @@ function isUnder(path: string, root: string): boolean {
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
 export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
-    if (path === '/' || isUnder(path, urls.projectHomepage())) {
+    if (path === '/' || isUnder(path, urls.projectHomepage()) || isUnder(path, '/loops')) {
         return 'home'
     }
     if (isUnder(path, '/ai') || isUnder(path, '/spaces')) {

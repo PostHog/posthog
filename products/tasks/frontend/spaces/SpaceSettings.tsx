@@ -37,6 +37,7 @@ import {
 
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
+import { SettingsSection } from '../components/SettingsSection'
 import { SpaceAccess } from './SpaceAccess'
 import { SpaceMembers } from './SpaceMembers'
 import { SpaceRepositories } from './SpaceRepositories'
@@ -47,7 +48,6 @@ import {
     AutoArchiveSelection,
     spaceSceneLogic,
 } from './spaceSceneLogic'
-import { SpaceSettingsSection } from './SpaceSettingsSection'
 
 const AUTO_ARCHIVE_OPTIONS: { value: AutoArchiveSelection; label: string }[] = [
     { value: null, label: 'Never' },
@@ -107,7 +107,7 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
                 </Text>
             </div>
             <div className="flex w-full max-w-200 flex-col gap-7 px-6 pt-6 pb-8">
-                <SpaceSettingsSection label="General">
+                <SettingsSection label="General">
                     <ItemGroup combined>
                         <Item variant="outline" size="sm">
                             <ItemContent className={ROW_CONTENT_CLASS}>
@@ -140,13 +140,13 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
                             </Field>
                         </Item>
                     </ItemGroup>
-                </SpaceSettingsSection>
+                </SettingsSection>
 
                 <SpaceRepositories id={id} />
                 <SpaceAccess id={id} />
                 <SpaceMembers id={id} />
 
-                <SpaceSettingsSection label="Sessions">
+                <SettingsSection label="Sessions">
                     <ItemGroup combined>
                         <Item variant="outline" size="sm">
                             <ItemContent className={ROW_CONTENT_CLASS}>
@@ -245,9 +245,9 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
                         Pinned and running sessions, and sessions someone is viewing, are never archived. In shared
                         spaces, only project admins can change this.
                     </Text>
-                </SpaceSettingsSection>
+                </SettingsSection>
 
-                <SpaceSettingsSection label="Danger zone">
+                <SettingsSection label="Danger zone">
                     <ItemGroup combined>
                         <Item variant="outline" size="sm">
                             <ItemContent className={ROW_CONTENT_CLASS}>
@@ -306,7 +306,7 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
                             </ItemActions>
                         </Item>
                     </ItemGroup>
-                </SpaceSettingsSection>
+                </SettingsSection>
             </div>
         </div>
     )

@@ -16,6 +16,7 @@ describe('todayShellLogic', () => {
     test.each([
         ['/project/1/home', 'home'],
         ['/project/1/home/reports/abc', 'home'],
+        ['/project/1/loops/abc', 'home'],
         ['/project/1/library', 'library'],
         ['/project/1/library/feature_flag', 'library'],
         ['/project/1/ai', 'spaces'],

@@ -28,8 +28,8 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullName } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { SettingsSection } from '../components/SettingsSection'
 import { spaceSceneLogic } from './spaceSceneLogic'
-import { SpaceSettingsSection } from './SpaceSettingsSection'
 import { TaskUserAvatar } from './TaskUserAvatar'
 
 export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
@@ -51,7 +51,7 @@ export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
     const allIds = [...new Set([...meFirstMembers.map((member) => member.user.id), ...memberIds])]
 
     return (
-        <SpaceSettingsSection
+        <SettingsSection
             label="Members"
             description="Any member can add or remove people. The creator always stays a member."
             action={
@@ -150,6 +150,6 @@ export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
                     </ItemGroup>
                 </div>
             )}
-        </SpaceSettingsSection>
+        </SettingsSection>
     )
 }

@@ -2,7 +2,7 @@ import { ReactNode } from 'react'
 
 import { Text } from '@posthog/quill'
 
-export interface SpaceSettingsSectionProps {
+export interface SettingsSectionProps {
     label: string
     description?: ReactNode
     /** Shown at the end of the label row, like a count or an add button. */
@@ -10,8 +10,8 @@ export interface SpaceSettingsSectionProps {
     children: ReactNode
 }
 
-/** A labeled block of the space settings page, modeled on PostHog Desktop's `SettingsSection`. */
-export function SpaceSettingsSection({ label, description, action, children }: SpaceSettingsSectionProps): JSX.Element {
+/** A labeled block of a settings page, modeled on PostHog Desktop's `SettingsSection`. */
+export function SettingsSection({ label, description, action, children }: SettingsSectionProps): JSX.Element {
     return (
         <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-0.5">

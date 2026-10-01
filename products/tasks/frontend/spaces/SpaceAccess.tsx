@@ -16,8 +16,8 @@ import {
     Text,
 } from '@posthog/quill'
 
+import { SettingsSection } from '../components/SettingsSection'
 import { spaceSceneLogic } from './spaceSceneLogic'
-import { SpaceSettingsSection } from './SpaceSettingsSection'
 
 type SharedAccess = 'public' | 'private'
 
@@ -50,11 +50,11 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
     }
     if (space.system_role === 'personal') {
         return (
-            <SpaceSettingsSection label="Access">
+            <SettingsSection label="Access">
                 <Text size="xs" variant="muted" className="px-0.5">
                     Only you can see this personal space.
                 </Text>
-            </SpaceSettingsSection>
+            </SettingsSection>
         )
     }
     const generalSpace = space.system_role === 'general'
@@ -62,7 +62,7 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
     const current = ACCESS[access]
 
     return (
-        <SpaceSettingsSection
+        <SettingsSection
             label="Access"
             description={generalSpace ? 'The general space is open to everyone in the project.' : undefined}
         >
@@ -119,6 +119,6 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
-        </SpaceSettingsSection>
+        </SettingsSection>
     )
 }

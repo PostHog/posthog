@@ -27,8 +27,8 @@ import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombo
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { SettingsSection } from '../components/SettingsSection'
 import { spaceSceneLogic } from './spaceSceneLogic'
-import { SpaceSettingsSection } from './SpaceSettingsSection'
 
 const MAX_REPOSITORIES = 10
 
@@ -61,7 +61,7 @@ export function SpaceRepositories({ id }: { id: string }): JSX.Element | null {
     }
 
     return (
-        <SpaceSettingsSection
+        <SettingsSection
             label="Repositories"
             description="Sessions in this space start with these repositories checked out."
         >
@@ -167,6 +167,6 @@ export function SpaceRepositories({ id }: { id: string }): JSX.Element | null {
                     )}
                 </CardContent>
             </Card>
-        </SpaceSettingsSection>
+        </SettingsSection>
     )
 }

@@ -171,6 +171,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
     TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
+    TaskLoop: () => import('../../products/tasks/frontend/loops/LoopScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     TracingRetentionNew: () =>

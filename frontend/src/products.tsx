@@ -283,6 +283,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/spaces': ['TaskSpaces', 'taskSpaces'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
+    '/loops/:id': ['TaskLoop', 'taskLoop'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
@@ -1100,6 +1101,7 @@ export const productConfiguration: Record<string, any> = {
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     TaskSpaces: { name: 'Spaces', projectBased: true },
     TaskSpace: { name: 'Space', projectBased: true },
+    TaskLoop: { name: 'Loop', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
         projectBased: true,
@@ -1742,6 +1744,7 @@ export const productUrls = {
     taskSpaces: (): string => '/spaces',
     taskSpace: (id: string): string => `/spaces/${id}`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
+    taskLoop: (id: string): string => `/loops/${id}`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     tracingOperation: (

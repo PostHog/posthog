@@ -19,12 +19,18 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/spaces/SpaceScene'),
             projectBased: true,
         },
+        TaskLoop: {
+            name: 'Loop',
+            import: () => import('./frontend/loops/LoopScene'),
+            projectBased: true,
+        },
     },
     routes: {
         '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
         '/spaces': ['TaskSpaces', 'taskSpaces'],
         '/spaces/:id': ['TaskSpace', 'taskSpace'],
         '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
+        '/loops/:id': ['TaskLoop', 'taskLoop'],
     },
     redirects: {},
     urls: {
@@ -32,6 +38,8 @@ export const manifest: ProductManifest = {
         taskSpaces: (): string => '/spaces',
         taskSpace: (id: string): string => `/spaces/${id}`,
         taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
+        /** Pass `new` to open the form for a new loop. */
+        taskLoop: (id: string): string => `/loops/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

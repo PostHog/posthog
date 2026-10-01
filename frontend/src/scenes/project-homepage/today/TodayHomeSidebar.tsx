@@ -4,9 +4,12 @@ import { router } from 'kea-router'
 import { IconHome, IconPlus } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
+
+import { LoopsSidebarSection } from 'products/tasks/frontend/loops/LoopsSidebarSection'
 
 import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
@@ -59,6 +62,7 @@ export function TodayHomeSidebar(): JSX.Element {
         personalBriefing,
     } = useValues(todayLogic)
     const { reportOpened, setHoveredReportId } = useActions(todayLogic)
+    const loopsEnabled = useFeatureFlag('LOOPS')
 
     // The team reports stand in until the personal briefing is written, so only their own load counts.
     const loading = topReports === null && !reportsFailed
@@ -119,6 +123,7 @@ export function TodayHomeSidebar(): JSX.Element {
                         ))
                     )}
                 </div>
+                {loopsEnabled && <LoopsSidebarSection />}
             </div>
         </div>
     )

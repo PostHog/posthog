@@ -163,6 +163,7 @@ export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 // if you want the script to properly create a multivariate flag. You can also specify the different
 // variant keys separated by commas, e.g. `multivariate=control,test,something_else`
 export const FEATURE_FLAGS = {
+    LOOPS: 'loops', // owner: #team-agent-infrastructure, gates Loops: agent tasks that run on a schedule, an API call, or a GitHub event
     POSTHOG_TERMINAL: 'posthog-terminal', // owner: @mariusandra
 
     // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
