@@ -14,7 +14,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { MarketingAnalyticsCrossSell } from './MarketingAnalyticsCrossSell'
+import { MarketingAnalyticsCrossSell } from 'products/web_analytics/frontend/marketing/MarketingAnalyticsCrossSell'
 
 describe('Marketing analytics cross sell', () => {
     let queries: jest.Mock
