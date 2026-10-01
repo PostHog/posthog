@@ -187,7 +187,7 @@ class WebhookDestination(_WebhookUrlDestination):
     url_input_key = "url"
 
     def build_name(self, data: AlertDestinationData) -> str:
-        return f"Webhook {data['webhook_url']}"
+        return f"Webhook {url_hostname(data['webhook_url'])}"
 
     def build_inputs(
         self,
@@ -250,6 +250,14 @@ DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
 }
 
 SPEC_BY_TEMPLATE_ID: dict[str, DestinationSpec] = {spec.template_id: spec for spec in DESTINATION_SPECS.values()}
+
+
+def url_hostname(value: str) -> str:
+    # hostname, not the raw authority: it drops any user:password@ prefix.
+    try:
+        return urlsplit(value).hostname or "destination"
+    except ValueError:
+        return "destination"
 
 
 def _redact_url(value: str) -> str:

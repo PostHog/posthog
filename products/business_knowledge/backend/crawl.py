@@ -9,16 +9,19 @@ Wraps `url_fetch.fetch_url` with:
   is bigger.
 - HTML parse hand-off (same `html_parse` used by Stage 2a).
 - Per-URL outcome records so the caller can upsert / tombstone cleanly.
+- A bounded number of fetches in flight, with outcomes yielded as they finish,
+  so the caller can write pages in batches instead of holding the whole crawl.
 
 Errors per URL are *isolated*: one broken page doesn't tank the batch.
 """
 
 from __future__ import annotations
 
+import time
 import threading
 import urllib.parse as urlparse
-from collections.abc import Callable
-from concurrent.futures import ALL_COMPLETED, ThreadPoolExecutor, wait
+from collections.abc import Callable, Iterator
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
 import structlog
@@ -27,9 +30,9 @@ from . import html_parse, url_fetch
 from .constants import MAX_TEXT_SIZE_BYTES, PER_HOST_CONCURRENCY
 from .url_fetch import sha256_of
 
-# Wall clock for one source's page fetches. A full source at PER_HOST_CONCURRENCY
-# has to finish inside the crawl activity, which still discovers URLs and writes
-# documents after this wait returns.
+# Wall clock for one source's page fetches, including the batch writes the caller
+# does between them. A full source at PER_HOST_CONCURRENCY has to finish inside the
+# crawl activity, which also discovers URLs and writes the last batch.
 CRAWL_TOTAL_TIMEOUT_SECONDS = 40 * 60
 
 logger = structlog.get_logger(__name__)
@@ -154,64 +157,91 @@ def _parse_outcome(url: str, result: url_fetch.FetchResult) -> CrawlOutcome:
     )
 
 
-def fetch_many(
+def _timeout_outcome(url: str) -> CrawlOutcome:
+    logger.warning("business_knowledge.crawl.timeout", url=url)
+    return CrawlOutcome(url=url, final_url=url, status="error", error="Crawl total timeout exceeded")
+
+
+def iter_fetch(
     urls: list[str],
     *,
     etag_for: Callable[[str], str | None] | None = None,
     per_host: int = PER_HOST_CONCURRENCY,
     max_workers: int | None = None,
+    max_in_flight: int | None = None,
     prefetched: dict[str, url_fetch.FetchResult] | None = None,
-) -> list[CrawlOutcome]:
+) -> Iterator[CrawlOutcome]:
     """
-    Fetch all `urls` in parallel, capped per-host by a threading semaphore.
+    Fetch `urls` in parallel, capped per-host by a threading semaphore, and yield
+    one outcome per URL in completion order.
 
-    `etag_for(url)` — optional; called once per URL to pull a stored ETag
-    for conditional GET. Returns None when we don't have one yet.
+    At most `max_in_flight` URLs are submitted but not yet yielded, so memory
+    holds that many parsed pages, not the whole crawl. Fetches keep running
+    while the caller handles a yielded outcome.
+
+    `etag_for(url)` — optional; called once per URL, when the URL is submitted,
+    to pull a stored ETag for conditional GET. Returns None when we don't have one yet.
 
     `prefetched` — optional bodies already downloaded during discovery
     (keyed by normalized URL); matching URLs skip the network entirely.
 
     `max_workers` — defaults to `max(PER_HOST_CONCURRENCY * 4, 8)`. We want
     enough threads to saturate the per-host semaphore without going wild;
-    the semaphore is the real throttle.
+    the semaphore is the real throttle. `max_in_flight` defaults to twice that.
     """
 
     if not urls:
-        return []
+        return
 
     registry = _PerHostSemaphoreRegistry(per_host)
     workers = max_workers if max_workers is not None else max(per_host * 4, 8)
+    in_flight_cap = max_in_flight if max_in_flight is not None else workers * 2
     cache = prefetched or {}
+    deadline = time.monotonic() + CRAWL_TOTAL_TIMEOUT_SECONDS
+    queued = iter(urls)
+    in_flight: dict[Future[CrawlOutcome], str] = {}
 
-    results: list[CrawlOutcome] = []
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        futures = {
-            pool.submit(
-                _fetch_one,
-                url,
-                etag=(etag_for(url) if etag_for else None),
-                registry=registry,
-                prefetched=cache,
-            ): url
-            for url in urls
-        }
-        done, not_done = wait(futures, timeout=CRAWL_TOTAL_TIMEOUT_SECONDS, return_when=ALL_COMPLETED)
-        for future in done:
-            try:
-                outcome = future.result()
-            except Exception as exc:  # defense in depth — _fetch_one shouldn't raise
-                url = futures[future]
-                logger.exception("business_knowledge.crawl.unexpected_error", url=url)
-                outcome = CrawlOutcome(url=url, final_url=url, status="error", error=str(exc))
-            results.append(outcome)
-        for future in not_done:
+
+        def _submit_up_to_cap() -> None:
+            while len(in_flight) < in_flight_cap:
+                url = next(queued, None)
+                if url is None:
+                    return
+                future = pool.submit(
+                    _fetch_one,
+                    url,
+                    etag=(etag_for(url) if etag_for else None),
+                    registry=registry,
+                    prefetched=cache,
+                )
+                in_flight[future] = url
+
+        _submit_up_to_cap()
+        while in_flight:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            done, _not_done = wait(in_flight, timeout=remaining, return_when=FIRST_COMPLETED)
+            if not done:
+                break
+            for future in done:
+                url = in_flight.pop(future)
+                try:
+                    outcome = future.result()
+                except Exception as exc:  # defense in depth — _fetch_one shouldn't raise
+                    logger.exception("business_knowledge.crawl.unexpected_error", url=url)
+                    outcome = CrawlOutcome(url=url, final_url=url, status="error", error=str(exc))
+                yield outcome
+            _submit_up_to_cap()
+
+        for future, url in list(in_flight.items()):
             future.cancel()
-            url = futures[future]
-            logger.warning("business_knowledge.crawl.timeout", url=url)
-            results.append(CrawlOutcome(url=url, final_url=url, status="error", error="Crawl total timeout exceeded"))
+            yield _timeout_outcome(url)
+        for url in queued:
+            yield _timeout_outcome(url)
     finally:
         # Don't block on still-running threads — let them drain in the
         # background. cancel_futures=True drops queued-but-not-started work.
         pool.shutdown(wait=False, cancel_futures=True)
-    return results

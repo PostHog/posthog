@@ -1027,6 +1027,45 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_enforced_unique_keys(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, list[frozenset[str]]]:
+    """Column sets of each table's unique indexes that Postgres enforces on every row as it is written.
+
+    A deferrable constraint is checked only at the end of the statement or transaction, a partial index
+    leaves the rows outside its predicate free, and an expression index constrains no plain column. A
+    nullable key column lets any number of rows hold NULL there. Those are left out, so a set returned
+    here can never be held by two rows at once.
+    """
+    if not table_names:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.relname, array_agg(a.attname::text)
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a
+              ON a.attrelid = c.oid AND a.attnum = ANY((i.indkey::int2[])[0:i.indnkeyatts - 1])
+            WHERE i.indisunique
+              AND i.indimmediate
+              AND i.indisvalid
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            GROUP BY c.relname, i.indexrelid
+            HAVING bool_and(a.attnotnull)
+            """,
+            (schema, table_names),
+        )
+        keys: dict[str, list[frozenset[str]]] = {}
+        for table, columns in cur:
+            keys.setdefault(table, []).append(frozenset(columns))
+    return keys
+
+
 def get_leading_index_columns(
     conn: psycopg.Connection, schema: str, table_names: list[str]
 ) -> dict[str, set[str]] | None:
@@ -2539,6 +2578,10 @@ def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: Filterin
         logger.debug(f"EXPLAIN raised an exception: {e}")
 
 
+KEYSET_PLAN_WARNING_MIN_ROWS = 100_000
+_PLAN_ROWS_ESTIMATE = re.compile(r"\brows=(\d+)")
+
+
 def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger) -> None:
     """Warn when a keyset page is not reading an index in key order.
 
@@ -2561,8 +2604,22 @@ def _check_keyset_page_plan(cursor: psycopg.Cursor, query: sql.Composed, logger:
     # Only the outermost node matters — a sort *under* a LIMIT is the per-page cost this looks for,
     # and a seq scan means the key's index was not used at all.
     problems = [marker for marker in ("Seq Scan", "Sort ", "Sort\n", "Incremental Sort") if marker in plan]
-    if problems:
-        logger.warning(f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan found={problems}")
+    if not problems:
+        return
+
+    # The largest node estimate is the rows past the seek key, which is close to the whole table on
+    # the first seeking page. Below the threshold, a seq scan or a sort is the planner's correct choice
+    # and costs nothing per page. Warning there would bury the large tables this check exists for. A
+    # plan without estimates still warns, because it cannot show that the table is small.
+    estimated_rows = max((int(rows) for rows in _PLAN_ROWS_ESTIMATE.findall(plan)), default=None)
+    if estimated_rows is not None and estimated_rows < KEYSET_PLAN_WARNING_MIN_ROWS:
+        logger.debug(f"Keyset page plan uses {problems} on a small table: estimated_rows={estimated_rows}")
+        return
+
+    logger.warning(
+        f"Keyset page not served by an index scan in key order: reason=bad_keyset_plan "
+        f"found={problems} estimated_rows={estimated_rows}"
+    )
 
 
 def _get_primary_keys(
