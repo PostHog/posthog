@@ -24,6 +24,7 @@ from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     AuthorFrictionDetail,
     AuthorFrictionList,
     BranchPRMatch,
@@ -438,6 +439,18 @@ def list_pull_requests(
 ) -> PullRequestList:
     return logic.build_pull_request_list(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
+    )
+
+
+def list_attention_pull_requests(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AttentionPullRequestList:
+    return logic.build_attention_pull_requests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo)
     )
 
 

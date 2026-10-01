@@ -72,4 +72,26 @@ describe('todayPreviewCards', () => {
         })
         expect([preview.spaceName, preview.pullRequestState]).toEqual([expected, 'merged'])
     })
+
+    it.each<[string, string | null, string | null, string | null, string | null]>([
+        ['names a Slack origin and the branch', 'slack', 'feature/checkout', 'Slack', 'feature/checkout'],
+        ['leaves out a session a person made by hand', 'user_created', null, null, null],
+        ['leaves out a session with no origin', null, '', null, null],
+    ])('session card %s', (_name, origin, branch, source, expectedBranch) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            origin_product: origin,
+            latest_run: { branch },
+        } as unknown as TaskListItemApi)
+        const preview = sessionPreview(item, {
+            unread: false,
+            pinned: false,
+            pullRequestStates: {},
+            spaceNames: {},
+            menuId: 'menu-1',
+            userId: null,
+        })
+        expect([preview.source, preview.branch]).toEqual([source, expectedBranch])
+    })
 })

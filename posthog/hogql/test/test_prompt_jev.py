@@ -65,6 +65,14 @@ class TestPromptJev(SimpleTestCase):
         budget.visit(parse_select(query))
         self.assertEqual(budget.decisions, expected)
 
+    @override_settings(HOGQL_JEV_MAX_ROWS=5000, HOGQL_JEV_MAX_DECISIONS=10000)
+    def test_raised_limits_reserve_and_allow_more_decisions(self) -> None:
+        budget = PromptJevBudget()
+        budget.visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q LIMIT 5000"))
+        self.assertEqual(budget.decisions, 10000)
+        with self.assertRaisesRegex(QueryError, "query budget of 10000"):
+            PromptJevBudget().visit(parse_select("SELECT jev('a', 'q') AS p, jev('b', 'q') AS q, jev('c', 'q') AS r"))
+
     def test_unused_ctes_do_not_reserve_budget(self) -> None:
         budget = PromptJevBudget()
         budget.visit(parse_select("WITH a AS (SELECT jev('a', 'q') AS p), b AS (SELECT jev('b', 'q') AS p) SELECT 1"))
@@ -339,14 +347,18 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(1,)])
         post.assert_not_called()
 
-    def test_explicit_limit_above_the_default_keeps_every_row(self) -> None:
-        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+    @parameterized.expand([(150, 1000), (1200, 2000)])
+    def test_explicit_limit_above_the_default_keeps_every_row(self, rows: int, limit: int) -> None:
+        with (
+            override_settings(HOGQL_JEV_MAX_ROWS=limit, HOGQL_JEV_MAX_DECISIONS=limit),
+            patch("httpx.AsyncClient.post", side_effect=gateway_response),
+        ):
             response = execute_hogql_query(
-                "SELECT jev(toString(number), 'Refund?') AS p FROM numbers(150) LIMIT 150",
+                f"SELECT jev(toString(number), 'Refund?') AS p FROM numbers({rows}) LIMIT {rows}",
                 self.team,
                 user=self.user,
             )
-        self.assertEqual(len(response.results or []), 150)
+        self.assertEqual(len(response.results or []), rows)
 
     def test_outer_query_reads_properties_off_a_passthrough_column(self) -> None:
         _create_event(
