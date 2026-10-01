@@ -1,10 +1,19 @@
 import json
 from typing import Any
 
+from django.utils import timezone
+
 from structlog import get_logger
 
-from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Team
+
+from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher, escape_table_name
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
+from products.signals.backend.models import SignalEmissionRecord
 
 logger = get_logger(__name__)
 
@@ -57,6 +66,9 @@ EXTRA_FIELDS = (
     "server_name",
     "synced_at",
 )
+
+# Upper bound on the issue ids read per sync before the dedupe. It is far above a realistic open backlog.
+ISSUE_ID_SCAN_LIMIT = 10_000
 
 
 def _parse_references(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -125,11 +137,88 @@ def _build_extra(record: dict[str, Any], references: list[dict[str, Any]]) -> di
     return extra
 
 
+def _fetch_issues_by_id(
+    team: Team, config: SignalSourceTableConfig, context: dict[str, Any], issue_ids: list[str]
+) -> list[dict[str, Any]]:
+    query = f"""
+        SELECT {", ".join(config.fields)}
+        FROM {escape_table_name(context["table_name"])}
+        WHERE id IN {{issue_ids}}
+        LIMIT {len(issue_ids)}
+    """
+    parsed = parse_select(
+        query, placeholders={"issue_ids": ast.Tuple(exprs=[ast.Constant(value=issue_id) for issue_id in issue_ids])}
+    )
+    result = execute_hogql_query(
+        query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_warehouse_access_control=True
+    )
+    if not result.results or not result.columns:
+        return []
+    return [dict(zip(result.columns, row)) for row in result.results]
+
+
+def pganalyze_issue_record_fetcher(
+    team: Team,
+    config: SignalSourceTableConfig,
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Fetch pganalyze issues that were not emitted before.
+
+    pganalyze's getIssues returns no timestamps, so the warehouse source stamps each row with the
+    sync time and merges on `id`. Thus the `synced_at` cursor returns every open issue again on each
+    sync. The dedupe runs before `max_records` applies, so a backlog larger than one batch drains
+    over the next syncs.
+    """
+    id_config = config.model_copy(update={"fields": ("id",), "max_records": ISSUE_ID_SCAN_LIMIT})
+    candidate_ids = sorted(
+        {str(row["id"]) for row in data_warehouse_record_fetcher(team, id_config, context) if row.get("id")}
+    )
+    if not candidate_ids:
+        return []
+
+    already_emitted = set(
+        SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product=config.source_product,
+            source_type=config.source_type,
+            source_id__in=candidate_ids,
+        ).values_list("source_id", flat=True)
+    )
+    new_ids = [issue_id for issue_id in candidate_ids if issue_id not in already_emitted][: config.max_records]
+    if not new_ids:
+        return []
+
+    try:
+        rows = _fetch_issues_by_id(team, config, context, new_ids)
+    except Exception as e:
+        logger.exception(f"Error querying pganalyze issues by id: {e}", **context.get("extra", {}))
+        raise
+    if not rows:
+        return []
+
+    now = timezone.now()
+    SignalEmissionRecord.objects.bulk_create(
+        [
+            SignalEmissionRecord(
+                team=team,
+                source_product=config.source_product,
+                source_type=config.source_type,
+                source_id=str(row["id"]),
+                emitted_at=now,
+            )
+            for row in rows
+        ],
+        ignore_conflicts=True,
+    )
+    return rows
+
+
 PGANALYZE_ISSUES_CONFIG = SignalSourceTableConfig(
     source_product="pganalyze",
     source_type="issue",
     emitter=pganalyze_issue_emitter,
-    record_fetcher=data_warehouse_record_fetcher,
+    record_fetcher=pganalyze_issue_record_fetcher,
+    # The fetcher reads only the rows of the latest sync, which are the issues that are open now.
     partition_field="synced_at",
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,
