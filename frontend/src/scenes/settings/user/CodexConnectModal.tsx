@@ -33,6 +33,7 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
         <LemonModal
             isOpen={connectModalOpener === opener}
             onClose={closeConnectModal}
+            closable={!connecting}
             title="Connect Codex"
             description="Sign in to ChatGPT with a device code in your terminal. Then paste the sign-in here."
             width={560}
@@ -79,9 +80,9 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
                         {codexLoginCommand(loginPlatform)}
                     </CodeSnippet>
                     <p className="mb-0 text-xs text-secondary">
-                        {PLATFORM_HINTS[loginPlatform]} Open the link that it shows, sign in, and enter the one-time
-                        code. The command copies your sign-in to the clipboard and deletes its temporary folder, so
-                        nothing stays on your computer.
+                        <span>{PLATFORM_HINTS[loginPlatform]}</span> Open the link that it shows, sign in, and enter the
+                        one-time code. The command copies your sign-in to the clipboard and deletes its temporary
+                        folder, so nothing stays on your computer.
                     </p>
                     <p className="mb-0 text-xs text-secondary">
                         Turn on device code login in your ChatGPT security settings first. In a ChatGPT workspace, an
@@ -120,8 +121,8 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
                 </div>
                 {connectError ? <LemonBanner type="error">{connectError}</LemonBanner> : null}
                 <LemonBanner type="info">
-                    PostHog never shows your sign-in and clears your clipboard after you paste. It stores the sign-in
-                    encrypted and uses it only for your Codex cloud tasks. You can disconnect at any time.
+                    PostHog never shows your sign-in and tries to clear your clipboard after you paste. It stores the
+                    sign-in encrypted and uses it only for your Codex cloud tasks. You can disconnect at any time.
                 </LemonBanner>
             </div>
         </LemonModal>

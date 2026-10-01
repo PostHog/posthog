@@ -21,8 +21,12 @@ import { type CodexLoginPlatform, browserCodexLoginPlatform } from './codexLogin
 const CONNECT_ERROR_FALLBACK = 'Could not connect Codex. Run the command again, then paste the new sign-in.'
 const CLIPBOARD_BLOCKED_ERROR = 'Your browser blocked clipboard access. Click the field and paste with your keyboard.'
 
-function clearClipboard(): void {
-    void navigator.clipboard?.writeText('').catch(() => undefined)
+async function clearClipboard(): Promise<void> {
+    try {
+        await navigator.clipboard.writeText('')
+    } catch {
+        lemonToast.warning('Could not clear your clipboard. Copy something else to remove the sign-in from it.')
+    }
 }
 
 function describeConnectError(error: unknown): string {
@@ -36,8 +40,10 @@ export interface personalCodexIntegrationLogicValues {
     codexIntegration: UserCodexIntegrationApi | null
     codexIntegrationLoadFailed: boolean
     codexIntegrationLoading: boolean
+    codexMutationCount: number
     connectError: string | null
     connectModalOpener: string | null
+    connectModalSession: number
     connecting: boolean
     loginPlatform: CodexLoginPlatform
 }
@@ -89,10 +95,10 @@ export interface personalCodexIntegrationLogicActions {
         errorObject?: any
     }
     loadCodexIntegrationSuccess: (
-        codexIntegration: UserCodexIntegrationApi,
+        codexIntegration: UserCodexIntegrationApi | null,
         payload?: any
     ) => {
-        codexIntegration: UserCodexIntegrationApi
+        codexIntegration: UserCodexIntegrationApi | null
         payload?: any
     }
     openConnectModal: (opener: string) => {
@@ -134,11 +140,16 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
         submitAuthFile: true,
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         codexIntegration: [
             null as UserCodexIntegrationApi | null,
             {
-                loadCodexIntegration: async () => await usersIntegrationsCodexRetrieve('@me'),
+                loadCodexIntegration: async () => {
+                    const mutationCount = values.codexMutationCount
+                    const integration = await usersIntegrationsCodexRetrieve('@me')
+                    // A connect or disconnect that started meanwhile is newer than this read.
+                    return values.codexMutationCount === mutationCount ? integration : values.codexIntegration
+                },
                 connectCodex: async (tokens: UserCodexAuthTokensApi) =>
                     await usersIntegrationsCodexCreate('@me', { tokens }),
                 disconnectCodex: async (): Promise<UserCodexIntegrationApi> => {
@@ -150,6 +161,21 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
     })),
 
     reducers({
+        codexMutationCount: [
+            0,
+            {
+                connectCodex: (count) => count + 1,
+                disconnectCodex: (count) => count + 1,
+            },
+        ],
+        connectModalSession: [
+            0,
+            {
+                openConnectModal: (session) => session + 1,
+                closeConnectModal: (session) => session + 1,
+                connectCodexSuccess: (session) => session + 1,
+            },
+        ],
         connectModalOpener: [
             null as string | null,
             {
@@ -212,10 +238,17 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             actions.submitAuthFile()
         },
         pasteFromClipboard: async () => {
+            const session = values.connectModalSession
+            let text: string
             try {
-                actions.pasteAuthFile(await navigator.clipboard.readText())
+                text = await navigator.clipboard.readText()
             } catch {
                 actions.setConnectError(CLIPBOARD_BLOCKED_ERROR)
+                return
+            }
+            // The read can outlive the dialog it came from. A closed or reopened dialog must not connect.
+            if (values.connectModalSession === session && values.connectModalOpener !== null) {
+                actions.pasteAuthFile(text)
             }
         },
         submitAuthFile: () => {
@@ -225,7 +258,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                 actions.setConnectError(result.error)
                 return
             }
-            clearClipboard()
+            void clearClipboard()
             actions.connectCodex(result.tokens)
         },
         connectCodexSuccess: () => {
