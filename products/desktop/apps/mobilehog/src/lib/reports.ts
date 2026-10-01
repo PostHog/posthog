@@ -24,6 +24,7 @@ import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
+import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
 import { useSessions } from "@/lib/session";
 
 export const reportKeys = {
@@ -32,6 +33,7 @@ export const reportKeys = {
   detail: (id: string) => ["reports", "detail", id] as const,
   signals: (id: string) => ["reports", id, "signals"] as const,
   artefacts: (id: string) => ["reports", id, "artefacts"] as const,
+  liveTask: (id: string) => ["reports", id, "live-task"] as const,
 };
 
 // Reports a person can act on right now, highest priority first.
@@ -97,6 +99,14 @@ export function useReportArtefacts(reportId: string | null) {
   });
 }
 
+export function useHasLiveImplementationTask(reportId: string) {
+  return useQuery({
+    queryKey: reportKeys.liveTask(reportId),
+    queryFn: () => fetchHasLiveImplementationTask(getClient(), reportId),
+    enabled: !!reportId,
+  });
+}
+
 // Takes an acted-on report out of every loaded list at once, wherever the
 // action came from. A failed action refetches and brings it back.
 async function dropFromLists(
@@ -142,6 +152,9 @@ export function useStartReport() {
       const prompt = buildCreatePrReportPrompt({ reportId: report.id });
       let taskId = unstartedTasks.get(report.id);
       if (!taskId) {
+        if (await fetchHasLiveImplementationTask(client, report.id)) {
+          throw new Error("This report already has a task in progress.");
+        }
         // The server picks the repository from the report's repo selection.
         const task = await client.createTask({
           description: prompt,

@@ -2,11 +2,18 @@ import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
 import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import { useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { CardButton, ReportDetail } from "@/components/ReportCard";
-import { useDismissReport, useReport, useStartReportTask } from "@/lib/reports";
+import {
+  useDismissReport,
+  useHasLiveImplementationTask,
+  useReport,
+  useSeenReports,
+  useStartReportTask,
+} from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
 
 export default function ReportScreen() {
@@ -15,6 +22,17 @@ export default function ReportScreen() {
   const { data: report, isLoading } = useReport(id);
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
+  const liveTask = useHasLiveImplementationTask(id);
+  const seenHydrated = useSeenReports((s) => s.hydrated);
+  const isSeen = useSeenReports((s) => s.seen.has(id));
+  const markSeen = useSeenReports((s) => s.markSeen);
+
+  const reportId = report?.id;
+  useEffect(() => {
+    if (reportId && seenHydrated && !isSeen) {
+      markSeen([reportId]).catch(() => {});
+    }
+  }, [reportId, seenHydrated, isSeen, markSeen]);
 
   if (!report) {
     return (
@@ -27,7 +45,11 @@ export default function ReportScreen() {
   }
 
   const canDismiss = !isDismissedReport(report);
-  const canStart = canCreateImplementationPr(report);
+  const canStart = canCreateImplementationPr(report, {
+    hasLiveImplementationTask: liveTask.data === true,
+    // Unknown task state must not offer a second task on live work.
+    isTaskLookupPending: liveTask.isPending || liveTask.isError,
+  });
 
   const onDismiss = (): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
