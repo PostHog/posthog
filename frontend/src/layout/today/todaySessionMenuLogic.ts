@@ -247,7 +247,8 @@ export const todaySessionMenuLogic = kea<todaySessionMenuLogicType>([
         // The hover card stays shut while one of these is up, so it can't open over the dialog.
         sessionDialogOpen: [
             (s) => [s.handoffMenuId, s.archiveConfirmMenuId],
-            (handoffMenuId, archiveConfirmMenuId): boolean => handoffMenuId !== null || archiveConfirmMenuId !== null,
+            (handoffMenuId: string | null, archiveConfirmMenuId: string | null): boolean =>
+                handoffMenuId !== null || archiveConfirmMenuId !== null,
         ],
     }),
     listeners(({ actions, values }) => {
