@@ -36,6 +36,8 @@ from products.logs.backend.temporal.constants import (
     WORKFLOW_NAME,
 )
 
+_PATCH_BOUNDED_BATCH_FANOUT = "logs-alerting-bounded-batch-fanout"
+
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
 class LogsAlertCheckWorkflow(PostHogWorkflow):
@@ -71,10 +73,10 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
-        # The workflow event loop is deterministic, so a semaphore here replays the same
-        # activity start order. It bounds ClickHouse concurrency across the whole cycle,
-        # which the per-batch cohort limit alone cannot do.
-        limit = discovery.max_concurrent_batches
+        # Bounds ClickHouse concurrency across the whole cycle, which the per-batch cohort
+        # limit alone cannot do. Activity scheduling order is recorded in history, so the
+        # patch keeps runs that started before the bound on the unbounded path.
+        limit = discovery.max_concurrent_batches if workflow.patched(_PATCH_BOUNDED_BATCH_FANOUT) else 0
         slot = asyncio.Semaphore(limit) if limit > 0 else contextlib.nullcontext()
 
         async def run_batch(batch: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
