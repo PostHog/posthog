@@ -16,7 +16,8 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # The Usage tab reads flag_evaluations, and the HogQL table is visible.
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
     # As READ_FLAG_EVALUATIONS, and ingestion stops writing $feature_flag_called to events. Ingestion
-    # ignores this mode until the change that implements it deploys. Until then the mode acts as
-    # READ_FLAG_EVALUATIONS. An organization already on this mode stops the events writes when that
-    # change deploys.
+    # ignores this mode until the change that implements it deploys. Until then the Usage tab and the
+    # HogQL table act as they do on READ_FLAG_EVALUATIONS. Some readers, such as the organization flag
+    # Projects tab, read flag_evaluations only in this mode. An organization already on this mode
+    # stops the events writes when that change deploys.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
