@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 
 
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryUtils'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
@@ -91,7 +92,7 @@ export const todayToolsLogic = kea<todayToolsLogicType>([
                             !item.href ||
                             !isToolItem(item) ||
                             seen.has(item.href) ||
-                            (item.flag && !featureFlags[item.flag as keyof FeatureFlagsSet]) ||
+                            !isFileSystemImportFlagEnabled(item, featureFlags) ||
                             getProductAccessDisabledReason(item)
                         ) {
                             return false

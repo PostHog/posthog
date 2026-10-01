@@ -11,6 +11,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -582,7 +583,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     if (
                         !item.href ||
                         DEFINITIONS_TAB_HREFS.has(item.href) ||
-                        (item.flag && !featureFlags[item.flag as keyof FeatureFlagsSet])
+                        !isFileSystemImportFlagEnabled(item, featureFlags)
                     ) {
                         continue
                     }
