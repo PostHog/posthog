@@ -297,6 +297,13 @@
             "iconType": "broadcasts",
             "type": "broadcasts",
             "intents": ["workflows"]
+        },
+        {
+            "path": "Audience",
+            "category": "Messaging",
+            "iconType": "cohort",
+            "type": "audience",
+            "intents": ["workflows"]
         }
     ],
     "games": [
