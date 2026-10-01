@@ -312,7 +312,11 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         ) => ({ item, surface, via }),
         closeCreateFromSuggestion: true,
         askForSuggestions: true,
-        suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface, config: SignalScoutConfig) => ({
+        suggestionCreated: (
+            item: ScoutSuggestionItemApi,
+            surface: ScoutSuggestionSurface,
+            config: SignalScoutConfig
+        ) => ({
             item,
             surface,
             config,
