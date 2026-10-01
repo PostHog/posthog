@@ -3,7 +3,6 @@ import { useValues } from 'kea'
 import { IconGitBranch } from '@posthog/icons'
 import {
     Badge,
-    Button,
     Card,
     Popover,
     PopoverContent,
@@ -13,6 +12,7 @@ import {
     Tooltip,
     TooltipContent,
     TooltipTrigger,
+    badgeVariants,
     cn,
 } from '@posthog/quill'
 
@@ -30,7 +30,7 @@ import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
-import { TaskPullRequestChip } from './TaskPullRequestChip'
+import { TASK_CHIP_CLASS, TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
@@ -57,22 +57,23 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     return (
         <Card
             size="sm"
-            className="group/card relative gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
+            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
         >
-            <div className="flex min-w-0 items-center gap-2">
-                <SpaceFeedStatusIcon item={item} />
+            <div className="flex min-w-0 items-center gap-3">
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
-                    <div className="min-w-0 flex-1">
-                        <TodaySessionRenameInput sessionId={task.id} title={task.title} />
+                    <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <SpaceFeedStatusIcon item={item} />
+                        <div className="min-w-0 flex-1">
+                            <TodaySessionRenameInput sessionId={task.id} title={task.title} />
+                        </div>
                     </div>
                 ) : (
                     <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
+                        {/* Nudged down so the icon sits on the title's baseline, like PostHog Desktop's feed cards. */}
+                        <SpaceFeedStatusIcon item={item} className="translate-y-0.5" />
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
-                            className={cn(
-                                'min-w-0 truncate text-sm text-foreground after:absolute after:inset-0 hover:underline',
-                                unread ? 'font-semibold' : 'font-medium'
-                            )}
+                            className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0 hover:underline"
                             data-attr="today-space-feed-card"
                         >
                             {item.title || 'Untitled session'}
@@ -112,22 +113,22 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             </div>
             {preview && (
-                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 break-words">
+                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 leading-normal break-words">
                     {preview}
                 </Text>
             )}
             {(repository || author || item.pullRequests.length > 0) && (
-                <div className="mt-3 flex min-w-0 items-center gap-1.5">
+                <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
                     {repository && (
-                        <Text
-                            render={<span />}
-                            size="xs"
-                            variant="muted"
-                            className="inline-flex min-w-0 items-center gap-1"
+                        <Badge
+                            className={cn(
+                                TASK_CHIP_CLASS,
+                                'min-w-0 border-transparent bg-transparent text-muted-foreground'
+                            )}
                         >
-                            <IconGitBranch className="shrink-0" />
-                            <span className="truncate">{repository}</span>
-                        </Text>
+                            <IconGitBranch className="size-3 shrink-0" />
+                            <span className="min-w-0 truncate">{repository}</span>
+                        </Badge>
                     )}
                     {pullRequests.visible.map((pullRequest) => (
                         <TaskPullRequestChip
@@ -141,14 +142,12 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                     {pullRequests.overflow.length > 0 && (
                         <Popover>
                             <PopoverTrigger
-                                render={
-                                    <Button
-                                        size="xs"
-                                        variant="outline"
-                                        className="relative shrink-0"
-                                        data-attr="today-pr-chip-overflow"
-                                    />
-                                }
+                                className={cn(
+                                    badgeVariants(),
+                                    TASK_CHIP_CLASS,
+                                    'border-dashed border-border bg-fill-hover text-muted-foreground hover:bg-fill-selected hover:text-foreground'
+                                )}
+                                data-attr="today-pr-chip-overflow"
                             >
                                 {`+${pullRequests.overflow.length} ${pullRequests.overflow.length === 1 ? 'PR' : 'PRs'}`}
                             </PopoverTrigger>
