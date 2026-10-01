@@ -1,9 +1,10 @@
 from datetime import timedelta
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -186,8 +187,8 @@ class TestResources(StripeProvisioningTestBase):
         self.organization.customer_id = customer_id
         self.organization.save(update_fields=["customer_id"])
         token = self._get_bearer_token()
-        billing_response = MagicMock(status_code=200)
-        billing_response.json.return_value = {"success": True, "subscription_id": "sub_example"}
+        billing_response = requests.Response()
+        billing_response.status_code = 201
 
         with (
             patch(

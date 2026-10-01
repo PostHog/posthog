@@ -1073,9 +1073,7 @@ class BillingManager:
 
         return res.json()
 
-    def authorize_with_shared_payment_token(
-        self, organization: Organization, shared_payment_token: str
-    ) -> dict[str, Any]:
+    def authorize_with_shared_payment_token(self, organization: Organization, shared_payment_token: str) -> None:
         raise_if_billing_managed_by_partner(organization)
 
         res = http_session.post(
@@ -1086,8 +1084,6 @@ class BillingManager:
         )
 
         handle_billing_service_error(res, valid_codes=(200, 201))
-
-        return res.json()
 
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(
