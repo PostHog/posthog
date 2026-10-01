@@ -73,11 +73,15 @@ export const liveRecordingsCountLogic = kea<liveRecordingsCountLogicType>([
             },
         ],
     })),
-    events(({ actions, cache }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             cache.disposables.add(() => {
                 actions.loadActiveRecordings()
-                const intervalId = setInterval(() => actions.loadActiveRecordings(), POLL_INTERVAL_MS)
+                const intervalId = setInterval(() => {
+                    if (!values.activeRecordingsLoading) {
+                        actions.loadActiveRecordings()
+                    }
+                }, POLL_INTERVAL_MS)
                 return () => clearInterval(intervalId)
             }, 'pollInterval')
         },
