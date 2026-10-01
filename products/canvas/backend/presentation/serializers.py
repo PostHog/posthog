@@ -1063,6 +1063,14 @@ class CanvasViewResponseSerializer(serializers.Serializer):
             "reference, so the grid renders from this one call. Absent for other kinds."
         ),
     )
+    sandbox_document_url = serializers.CharField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "URL of the sandbox document that renders the head source project in an iframe, served from "
+            "the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable."
+        ),
+    )
 
 
 class CanvasLayoutWithComponentsResponseSerializer(CanvasLayoutResponseSerializer):

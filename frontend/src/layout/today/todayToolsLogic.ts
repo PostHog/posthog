@@ -12,8 +12,8 @@ export interface ToolGroup {
     tools: FileSystemImport[]
 }
 
-// Workspaces for building queries and writing things up come first, apart from the product pages.
-const PINNED_TOOL_ICONS = ['sql_editor', 'notebook']
+// Workspaces for building queries come first, apart from the product pages.
+const PINNED_TOOL_ICONS = ['sql_editor']
 export const PINNED_TOOLS_CATEGORY = 'Workspace'
 
 export function toolLabel(tool: FileSystemImport): string {
