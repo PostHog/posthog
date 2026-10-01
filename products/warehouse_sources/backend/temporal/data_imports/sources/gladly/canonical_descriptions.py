@@ -176,7 +176,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     # One row per contact and agent from the WorkSessionEventsReportV4 metric set;
     # column names are the report's CSV headers, snake_cased.
     "work_session_events": {
-        "description": "A work session: the time one agent spent on one contact (a call, chat, or email session). Contacts no agent handled appear with a blank agent. From Gladly's work session report.",
+        "description": "A work session: the time one agent spent on one ended contact (a call, chat, or email session). Ended contacts no agent handled appear with a blank agent, and open contacts appear once they end. From Gladly's work session report.",
         "docs_url": "https://help.gladly.com/docs/work-sessions",
         "columns": {
             "timezone_filter": "Timezone the report was generated in (always UTC).",
@@ -193,7 +193,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact_session_routed_at": "Time at which the contact was routed to the agent.",
             "agent_id": "Identifier of the agent who worked the contact. Blank if no agent handled it.",
             "sla_fulfilled_at": "Time at which the contact's service level was fulfilled.",
-            "contact_session_ended_at": "Time at which the contact ended. Blank while the contact is open.",
+            "contact_session_ended_at": "Time at which the contact ended.",
             "status": "Outcome status of the contact.",
             "within_sla": "Whether the contact was fulfilled within its service level.",
             "work_session_handle_time_sec": "Seconds the agent spent handling the contact. Available after the contact ends.",

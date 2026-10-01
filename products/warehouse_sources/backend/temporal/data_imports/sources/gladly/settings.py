@@ -64,7 +64,7 @@ REPORT_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
 WORK_SESSION_INCREMENTAL_LOOKBACK_SECONDS = 7 * 24 * 60 * 60
 
 
-@dataclass
+@dataclass(frozen=True)
 class GladlyEndpointConfig:
     name: str
     # Filename inside each export job (e.g. customers.jsonl) for job-export streams.
@@ -80,6 +80,9 @@ class GladlyEndpointConfig:
     # injected `_row_id` then hashes only these, so a restated row merges onto its
     # earlier version. Left empty, it hashes the whole row.
     report_row_id_columns: tuple[str, ...] = ()
+    # Rows with this column blank are provisional and are skipped. They come back
+    # in a later window once the column is filled in.
+    report_final_row_column: str | None = None
     # Report streams request one date window at a time, oldest first. Event-grain
     # reports default to 1-day windows to stay clear of Gladly's 100k-row report
     # cap, which truncates silently.
@@ -158,12 +161,16 @@ GLADLY_ENDPOINTS: dict[str, GladlyEndpointConfig] = {
     # POST /api/v1/reports/work-session-events). The report's `id` column is
     # blank until the contact ends and was not unique before late 2022, so the
     # key is built from contact_session_id + agent_id, the pair Gladly documents
-    # as unique. agent_id is blank for a contact no agent has handled.
+    # as unique. agent_id is blank for a contact no agent has handled. It is also
+    # blank while a contact is open, so open contacts are skipped: their row key
+    # would never match the row the contact gets once it ends. An ended contact
+    # moves to the window of its end time, so a later sync picks it up.
     "work_session_events": GladlyEndpointConfig(
         name="work_session_events",
         report_metric_set="WorkSessionEventsReportV4",
         report_uses_time_range=True,
         report_row_id_columns=("contact_session_id", "agent_id"),
+        report_final_row_column="contact_session_ended_at",
         primary_key=REPORT_ROW_ID_COLUMN,
         should_sync_default=False,
         incremental_fields=list(_WORK_SESSION_INCREMENTAL_FIELDS),

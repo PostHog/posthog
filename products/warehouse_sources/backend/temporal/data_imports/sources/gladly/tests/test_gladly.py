@@ -570,9 +570,12 @@ class TestGetReportRows:
         )
         mock_session.return_value.post.side_effect = [
             _csv_response(
-                header + "UTC,,cs-1,2024-03-14T09:00:00.000Z,,,\n" + "UTC,,cs-1,2024-03-14T09:00:00.000Z,agent-1,,\n"
+                header
+                + "UTC,,cs-open,2024-03-14T08:00:00.000Z,,,\n"
+                + "UTC,ws-2,cs-2,2024-03-14T08:30:00.000Z,,2024-03-14T08:45:00.000Z,\n"
+                + "UTC,,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,100\n"
             ),
-            _csv_response(header + "UTC,ws-1,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-15T01:00:00.000Z,120\n"),
+            _csv_response(header + "UTC,ws-1,cs-1,2024-03-14T09:00:00.000Z,agent-1,2024-03-14T23:00:00.000Z,120\n"),
         ]
 
         manager = _make_manager()
@@ -604,12 +607,16 @@ class TestGetReportRows:
             },
         ]
 
-        unhandled, open_session, ended_session = [row for batch in batches for row in batch]
-        # The ended session restates the open one, so it must merge onto the same
-        # row even though its id, end time, and handle time changed.
-        assert open_session["_row_id"] == ended_session["_row_id"]
-        assert unhandled["_row_id"] != open_session["_row_id"]
-        assert ended_session["work_session_handle_time_sec"] == "120"
+        # The open contact has no agent yet, so its key would never match the row it
+        # gets once it ends. It is skipped, while the ended unhandled contact stays.
+        unhandled, first_read, restated = [row for batch in batches for row in batch]
+        assert unhandled["contact_session_id"] == "cs-2"
+        assert unhandled["agent_id"] is None
+        # A restated session must merge onto its earlier row even though its id
+        # and handle time changed.
+        assert first_read["_row_id"] == restated["_row_id"]
+        assert unhandled["_row_id"] != first_read["_row_id"]
+        assert restated["work_session_handle_time_sec"] == "120"
 
     @time_machine.travel("2024-03-15T10:00:00Z", tick=False)
     @mock.patch(f"{_MODULE}.make_tracked_session")

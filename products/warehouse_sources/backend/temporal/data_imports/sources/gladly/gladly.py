@@ -449,6 +449,8 @@ def _report_rows(
     # rather than read from the report, so it is never required of the header.
     required_columns = {incremental_field["field"] for incremental_field in config.incremental_fields}
     required_columns.update(config.report_row_id_columns)
+    if config.report_final_row_column is not None:
+        required_columns.add(config.report_final_row_column)
     if not inject_row_id:
         required_columns.add(config.primary_key)
 
@@ -527,10 +529,12 @@ def _report_rows(
                 value = csv_row.get(raw_name)
                 # Blank CSV cells become NULL (e.g. topic columns of non-topic events).
                 row[column] = None if value == "" else value
+            row_count += 1
+            if config.report_final_row_column is not None and row.get(config.report_final_row_column) is None:
+                continue
             if inject_row_id:
                 row[REPORT_ROW_ID_COLUMN] = _report_row_id(row, config.report_row_id_columns)
             chunk.append(row)
-            row_count += 1
             if len(chunk) >= CHUNK_SIZE:
                 yield chunk
                 chunk = []
