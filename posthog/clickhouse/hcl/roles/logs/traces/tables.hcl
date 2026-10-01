@@ -331,16 +331,6 @@ database "posthog" {
       type        = "bloom_filter(0.001)"
       granularity = 16
     }
-    index "idx_trace_bloom_part" {
-      expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
-    index "idx_span_id_bloom_part" {
-      expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
-      granularity = 99999
-    }
     index "idx_trace_bloom_part_v2" {
       expr        = "trace_id"
       type        = "bloom_filter(0.05)"
@@ -350,13 +340,6 @@ database "posthog" {
       expr        = "span_id"
       type        = "bloom_filter(0.05)"
       granularity = 99999
-    }
-    projection "projection_index_span_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY span_id
-SQL
-
     }
     projection "projection_index_team_span_id" {
       query = <<SQL

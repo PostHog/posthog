@@ -515,6 +515,13 @@ export const evaluationsCreateBodyNameMax = 400
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -563,7 +570,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -580,10 +587,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -595,7 +604,7 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
                 min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
                 max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -604,23 +613,61 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsCreateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -714,10 +761,11 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -842,6 +890,13 @@ export const evaluationsUpdateBodyNameMax = 400
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsUpdateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -890,7 +945,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -907,10 +962,12 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -922,7 +979,7 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
                 min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
                 max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -931,23 +988,61 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                     .gt(evaluationsUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsUpdateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1041,10 +1136,11 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1070,6 +1166,13 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
@@ -1120,7 +1223,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -1137,11 +1240,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
+            .describe(
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
             .optional()
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -1153,7 +1258,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
                 min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
                 max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -1162,23 +1267,61 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsPartialUpdateBodyOutputConfigOptionsMax)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1272,10 +1415,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -1303,6 +1447,13 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
 export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1318,11 +1469,11 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 
 
 export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
     output_type: zod
-        .enum(['boolean', 'numeric'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric')
+        .enum(['boolean', 'numeric', 'categorical'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical')
         .default(evaluationsTestHogCreateBodyOutputTypeDefault)
         .describe(
-            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
+            'Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical'
         ),
     output_config: zod
         .object({
@@ -1334,7 +1485,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .optional()
                 .describe(
-                    'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                 ),
             min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
             max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -1343,25 +1494,63 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
                 .nullish()
                 .describe('Optional positive input increment. Does not round evaluation results.'),
-            passing_rule: zod
-                .object({
-                    operator: zod
-                        .enum(['gte', 'lte'])
-                        .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                    threshold: zod.number().describe('Finite passing threshold within any configured score bounds.'),
-                })
-                .nullish()
+            options: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax)
+                            .regex(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp)
+                            .describe('Stable category key.'),
+                        label: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax)
+                            .describe('Category display label.'),
+                    })
+                )
+                .min(1)
+                .max(evaluationsTestHogCreateBodyOutputConfigOptionsMax)
+                .optional()
+                .describe('Categorical output options. Keys identify stored results; labels are displayed to users.'),
+            selection_mode: zod
+                .enum(['single', 'multiple'])
+                .optional()
                 .describe(
-                    'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                ),
+            passing_rule: zod
+                .union([
+                    zod.object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    }),
+                    zod.object({
+                        categories: zod
+                            .array(zod.string())
+                            .describe(
+                                'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                 ),
         })
         .optional()
-        .describe('Output settings used to validate the preview, including numeric bounds and allows_na.'),
+        .describe('Output settings used to validate the preview, including bounds, categories, and allows_na.'),
     source: zod
         .string()
         .min(1)
         .describe(
-            'Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+            'Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
         ),
     sample_count: zod
         .number()
@@ -1879,6 +2068,8 @@ export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.ob
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255
 
+export const llmAnalyticsProviderKeysCreateBodySystemOneModelMax = 100
+
 export const llmAnalyticsProviderKeysCreateBodyApiVersionMax = 20
 
 export const llmAnalyticsProviderKeysCreateBodySetAsActiveDefault = false
@@ -1895,29 +2086,37 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysCreateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysUpdateBodyApiVersionMax = 20
 
@@ -1935,29 +2134,37 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax = 20
 
@@ -1975,30 +2182,38 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .optional()
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysPartialUpdateBodySetAsActiveDefault),
 })
 
 export const llmAnalyticsProviderKeysValidateCreateBodyNameMax = 255
+
+export const llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax = 100
 
 export const llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax = 20
 
@@ -2016,25 +2231,31 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
             'together_ai',
             'minimax',
             'zeabur',
+            'system_one',
             'openai_compatible',
         ])
         .describe(
-            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
+            '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
+    base_url: zod
+        .url()
+        .optional()
+        .describe(
+            'Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before \/systemone.'
+        ),
+    system_one_model: zod
+        .string()
+        .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
+        .optional()
+        .describe('Model ID served by the System One endpoint.'),
     azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
         .optional()
         .describe('Azure OpenAI API version'),
-    base_url: zod
-        .url()
-        .optional()
-        .describe(
-            'Base URL of an OpenAI-compatible API (e.g. https:\/\/api.example.com\/v1). Required for the openai_compatible provider; must be a public https:\/\/ URL.'
-        ),
     set_as_active: zod.boolean().default(llmAnalyticsProviderKeysValidateCreateBodySetAsActiveDefault),
 })
 

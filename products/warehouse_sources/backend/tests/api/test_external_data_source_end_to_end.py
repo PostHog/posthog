@@ -92,7 +92,7 @@ def run_data_import_workflow(mock_stripe_client):
         )
 
         with (
-            mock.patch.object(DeltaMaintenance, "compact_table"),
+            mock.patch.object(DeltaMaintenance, "run_scheduled"),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
             ),

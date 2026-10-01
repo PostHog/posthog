@@ -103,7 +103,7 @@ async def alerts_platform_deliver_preview_activity(preview: AlertDeliveryPreview
         evaluation_key=preview.evaluation_key,
         destinations=list(preview.destination_names),
         transitions=[
-            {"grouping_key": transition.grouping_key, "notification": transition.notification}
+            {"grouping_key": transition.grouping_key, "kind": transition.kind.value, "value": transition.value}
             for transition in preview.transitions
         ],
     )

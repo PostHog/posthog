@@ -473,6 +473,16 @@ class TestHogQLQueryRecordBatchModel:
             "timeout_overflow_mode": "throw",
         }
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    async def test_request_settings_unescape_dotted_keys_on_the_native_table(self, ateam: "Team", auser: User) -> None:
+        # The printed query carries no SETTINGS clause, so the native read setting travels with the request.
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk, hogql_query="SELECT properties AS properties FROM events", user_id=auser.pk
+        )
+        await model.as_query_with_parameters(None, None)
+
+        assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
         [
@@ -536,6 +546,30 @@ class TestHogQLQueryRecordBatchModel:
         assert model_name == "hogql"
         assert record_batch_model.hogql_query == batch_export_model.hogql_query
         assert record_batch_model.wait_for_data_interval_end is True
+
+    @pytest.mark.parametrize(
+        "hogql_modifiers,converts_timezone",
+        [(None, True), ({"convertToProjectTimezone": False}, False)],
+        ids=["team-modifiers", "export-modifiers"],
+    )
+    async def test_resolved_model_prints_query_with_stored_modifiers(
+        self, ateam, auser, data_interval_start, data_interval_end, hogql_modifiers, converts_timezone
+    ):
+        batch_export_model = BatchExportModel(
+            name="hogql",
+            schema=None,
+            hogql_query="SELECT event AS event, timestamp AS timestamp FROM events",
+            user_id=auser.pk,
+            hogql_modifiers=hogql_modifiers,
+        )
+
+        _, record_batch_model, _, _, _, _ = resolve_batch_exports_model(
+            team_id=ateam.pk, batch_export_model=batch_export_model
+        )
+        assert record_batch_model is not None
+        printed_query, _ = await record_batch_model.as_query_with_parameters(data_interval_start, data_interval_end)
+
+        assert ("toTimeZone(events.timestamp" in printed_query) is converts_timezone
 
     async def test_resolve_batch_exports_model_raises_without_hogql_query(self):
         """Without this, a missing query would fall through to the events template path and export the wrong data."""

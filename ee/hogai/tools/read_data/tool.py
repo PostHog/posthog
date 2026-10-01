@@ -1033,6 +1033,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             heading = sanitize_for_system_reminder(r.heading_path or r.document_title or "Untitled")
             source_name = sanitize_for_system_reminder(r.source_name)
             content = sanitize_for_system_reminder(r.content)
-            chunks.append(f"## [{r.ordinal}] {source_name} — {heading}\n\n{content}")
+            url_line = f"\nURL: {sanitize_for_system_reminder(r.url)}" if r.url else ""
+            chunks.append(f"## [{r.ordinal}] {source_name} — {heading}{url_line}\n\n{content}")
 
         return "\n\n---\n\n".join(chunks)

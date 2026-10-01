@@ -48,6 +48,43 @@ def increment_checks(source: str, outcome: str) -> None:
     ).add(1)
 
 
+def increment_checks_skipped(source: str, reason: str) -> None:
+    """Checks that reached an outcome without a query answering them.
+
+    A rising reason means the platform is spending ticks on work it cannot do: a blocked window,
+    a configuration no data satisfies, or a query that keeps failing.
+    """
+    get_metric_meter({"source": source, "reason": reason}).create_counter(
+        "alerts_platform_checks_skipped_total",
+        "Checks decided without an evaluation, by reason",
+    ).add(1)
+
+
+def increment_notifications_muted(source: str, reason: str) -> None:
+    """Announcements a mute held back.
+
+    The alert still transitioned, so this is the only signal that a person was not told. A
+    rising count with no matching unmute announcement means mutes are swallowing alerts.
+    """
+    get_metric_meter({"source": source, "reason": reason}).create_counter(
+        "alerts_platform_notifications_muted_total",
+        "Announcements held by a mute, by reason",
+    ).add(1)
+
+
+def increment_history_rows_dropped(count: int) -> None:
+    """Check rows the platform decided but could not record.
+
+    The alert's state and schedule are already written when this rises, so the cost is a gap in
+    history rather than a lost evaluation. A comparison against a source's own stack reads as a
+    disagreement where the gap falls.
+    """
+    get_metric_meter().create_counter(
+        "alerts_platform_history_rows_dropped_total",
+        "Check history rows lost to a failed ClickHouse write",
+    ).add(count)
+
+
 def increment_state_transition(source: str, from_state: str, to_state: str) -> None:
     get_metric_meter({"source": source, "from": from_state, "to": to_state}).create_counter(
         "alerts_platform_state_transitions_total",

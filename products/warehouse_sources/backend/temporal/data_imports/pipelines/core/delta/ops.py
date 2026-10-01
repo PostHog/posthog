@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -8,7 +8,14 @@ import deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import is_invalid_version_race
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+    is_invalid_version_race,
+    is_transient_maintenance_error,
+    is_transient_object_store_error,
+)
 
 T = TypeVar("T")
 
@@ -39,6 +46,13 @@ OBJECT_STORE_PERMISSION_DENIED_MESSAGE = (
     "PostHog's side, not with your source. Contact support if it keeps happening."
 )
 
+# Same reasoning as OBJECT_STORE_PERMISSION_DENIED_MESSAGE: this is what a customer reads if every
+# retry is exhausted, so it names neither the bucket nor the object key either.
+OBJECT_STORE_TRANSIENT_MESSAGE = (
+    "PostHog hit a temporary problem reading or writing this table's files in its own storage. "
+    "The next scheduled run will try again."
+)
+
 
 class ObjectStorePermissionDeniedError(Exception):
     """The data warehouse bucket refused a read, a write or a delete.
@@ -56,7 +70,12 @@ def is_object_store_permission_denied(error: BaseException) -> bool:
     )
 
 
-def delta_merge_spill_kwargs() -> dict[str, int]:
+class DeltaMergeSpillKwargs(TypedDict, total=False):
+    max_spill_size: int
+    max_temp_directory_size: int
+
+
+def delta_merge_spill_kwargs() -> DeltaMergeSpillKwargs:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
 
     A merge decompresses the target partition into an Arrow working set that can exceed the pod's
@@ -66,7 +85,7 @@ def delta_merge_spill_kwargs() -> dict[str, int]:
     DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
     deltalake versions predating the parameters.
     """
-    kwargs: dict[str, int] = {}
+    kwargs: DeltaMergeSpillKwargs = {}
     if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
         kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
     if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:
@@ -112,6 +131,15 @@ async def execute_with_conflict_retry(
                 # tells which layer translated the refusal, without repeating the key.
                 await logger.awarning(f"{operation_name}: the object store denied the operation ({type(e).__name__})")
                 raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(e):
+                # Same blip get_delta_table already classifies (see table.py's
+                # _capture_unless_transient) - a bare re-raise here would still mint a fresh
+                # error-tracking issue at the activity boundary, and burn the conflict-retry budget
+                # on a call that isn't a commit conflict. The raw text (kept only on __cause__) can
+                # name the bucket and the object key, so the wrapper's own message stays generic in
+                # case every retry is exhausted and it reaches the customer as the sync's error text.
+                await logger.awarning(f"{operation_name}: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
             if not isinstance(e, deltalake.exceptions.DeltaError):
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
@@ -124,3 +152,51 @@ async def execute_with_conflict_retry(
                 f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
             )
             await asyncio.to_thread(table.update_incremental)
+
+
+# delta-rs replays every commit after the latest checkpoint when it opens a table, and it reads that
+# uncheckpointed tail twice. Its default checkpoints every 100 commits, so a table that takes many
+# small commits pays a long replay on every open. A checkpoint write itself is O(live file count),
+# not O(commits since last checkpoint) — it serializes the table's whole current add-action listing —
+# so dropping the interval too far raises checkpoint-write frequency on exactly the large/hot tables
+# (hundreds to tens of thousands of files, see maintenance.py's documented p90/p99/pathological file
+# counts) where that rewrite is most expensive. 25 shortens the uncheckpointed tail well below the
+# default without quadrupling checkpoint-write frequency the way 10 would. deltalite reads the same
+# property when it commits, so both writers checkpoint on the same cadence.
+DELTA_TABLE_PROPERTIES: dict[str, str] = {"delta.checkpointInterval": "25"}
+
+
+async def ensure_table_properties(table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> bool:
+    """Apply DELTA_TABLE_PROPERTIES to a table that was created without them.
+
+    A metadata-only commit, made once per table: the check reads the handle's own snapshot, and
+    `set_table_properties` refreshes that snapshot, so a table that already carries the values costs
+    nothing here. Never raises, because the data write has already committed and a property that
+    fails to land only waits for the next write. Returns True when it committed.
+    """
+    try:
+        # The metadata read is in the same best-effort boundary as the write below: it touches the
+        # same table handle (and, on a lazily-loaded snapshot, can hit the same object store), and
+        # the data commit has already landed either way, so a failure here must not propagate either.
+        current = table.metadata().configuration or {}
+        missing = {key: value for key, value in DELTA_TABLE_PROPERTIES.items() if current.get(key) != value}
+        if not missing:
+            return False
+        await execute_with_conflict_retry(
+            table, lambda: table.alter.set_table_properties(missing), "set_table_properties", logger
+        )
+    except ObjectStorePermissionDeniedError as e:
+        await logger.awarning(
+            f"set_table_properties: could not apply table properties, will retry on the next write: {e}"
+        )
+        return False
+    except Exception as e:  # noqa: BLE001 - best-effort; the data commit already landed
+        if not is_transient_maintenance_error(e):
+            # Not a known transient/permission case, so this commit can never succeed on its own —
+            # every write would otherwise retry it forever with nothing surfacing to error tracking.
+            capture_exception(e)
+        await logger.awarning(
+            f"set_table_properties: could not apply table properties, will retry on the next write: {e}"
+        )
+        return False
+    return True

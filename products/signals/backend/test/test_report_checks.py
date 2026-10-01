@@ -19,7 +19,7 @@ from posthog.models import PropertyDefinition, Team
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.artefact_schemas import CheckResult, Dismissal
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
@@ -54,6 +54,7 @@ from products.signals.backend.report_check_execution import (
     run_due_report_checks,
 )
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
@@ -535,6 +536,65 @@ class TestReportCheckExecution(APIBaseTest):
         assert check.last_run_at is None
         assert self._results() == []
 
+    def test_awaiting_data_backs_off_without_spending_the_error_budget_then_ends_inconclusive(self) -> None:
+        check = self._check(
+            consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1, expires_at=timezone.now() + MAX_CHECK_HORIZON
+        )
+        verdict = CheckVerdict(outcome="inconclusive", reason="awaiting_data", explanation="No deploy since the fix.")
+        now = timezone.now()
+        for expected_wait in (timedelta(hours=24), timedelta(hours=72), timedelta(days=7)):
+            record_check_verdict(check, verdict, now=now)
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.next_run_at == now + expected_wait
+            assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            assert check.runs_remaining == 1
+            now = check.next_run_at
+
+        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, verdict, now=now)
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.consecutive_inconclusive == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert check.last_outcome_reason == SignalReportCheck.InconclusiveReason.AWAITING_DATA
+        results = self._results()
+        assert len(results) == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert json.loads(results[-1].content)["reason"] == "awaiting_data"
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == "inconclusive"
+        assert properties["inconclusive_reason"] == "awaiting_data"
+        assert properties["check_status"] == SignalReportCheck.Status.INCONCLUSIVE
+
+    @parameterized.expand(
+        [
+            ("unmeasurable", "unmeasurable", timedelta(days=30)),
+            ("needs_manual_verification", "needs_manual_verification", timedelta(days=30)),
+            ("no_fix_to_measure", "no_fix_to_measure", timedelta(days=30)),
+            ("awaiting_data_past_the_horizon", "awaiting_data", timedelta(hours=12)),
+        ]
+    )
+    def test_an_inconclusive_verdict_that_waiting_cannot_settle_retires_the_check(
+        self, _name, reason, expires_in
+    ) -> None:
+        check = self._check(expires_at=timezone.now() + expires_in)
+        record_check_verdict(
+            check, CheckVerdict(outcome="inconclusive", reason=reason, explanation="No denominator event.")
+        )
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+
+    def test_a_verdict_and_its_result_refuse_a_reason_that_does_not_match_the_outcome(self) -> None:
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="inconclusive", explanation="Too few samples.")
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="errored", reason="awaiting_data", explanation="The query failed.")
+        with self.assertRaises(PydanticValidationError):
+            CheckResult(check_id="c", kind="agent", title="t", outcome="inconclusive", explanation="Too few samples.")
+
     def test_an_unrun_check_past_its_horizon_expires(self) -> None:
         check = self._check(
             next_run_at=timezone.now() + timedelta(days=1), expires_at=timezone.now() - timedelta(days=1)
@@ -924,6 +984,35 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert "Shipped the retry fix" in note
         assert "scout-check-record-result" in note
 
+    def test_a_dispatched_run_is_listed_on_its_check_and_records_its_verdict(self) -> None:
+        check = self._check()
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            run_due_report_checks()
+        assert dispatch.call_args.kwargs["check_id"] == str(check.id)
+
+        (queued,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (queued.run_state, queued.waiting_on_run, queued.dispatched_run_id) == ("queued", True, None)
+
+        task = Task.objects.create(team=self.team, title="t", description="d")
+        run = SignalScoutRun.objects.create(
+            task_run=TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS),
+            team=self.team,
+            scout_config=self.scout_config,
+            skill_name=FALLBACK_CHECK_SKILL_NAME,
+            skill_version=1,
+            metadata={"check_id": dispatch.call_args.kwargs["check_id"]},
+        )
+        (running,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (running.run_state, running.dispatched_run_id) == ("running", str(run.id))
+
+        result = record_check_result(
+            team=self.team, run=run, check_id=str(check.id), outcome="passed", explanation="No events since the fix."
+        )
+
+        assert result.check_status == SignalReportCheck.Status.PASSED
+        (closed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (closed.run_state, closed.waiting_on_run) == (SignalReportCheck.Status.PASSED, False)
+
     def test_a_check_naming_a_scout_runs_on_that_scout(self) -> None:
         LLMSkill.objects.create(team=self.team, name=_OTHER_SKILL, is_latest=True, deleted=False)
         SignalScoutConfig.objects.create(
@@ -1170,21 +1259,29 @@ class TestCheckResultTool(APIBaseTest):
         assert "fired 30 times yesterday" in artefact.content
         assert f'"run_id":"{self.scout_run.id}"' in artefact.content
 
-    def test_a_pass_rearms_a_recurring_check_for_its_next_look(self) -> None:
+    @parameterized.expand([("on_its_lane", False), ("bound_to_the_run", True)])
+    def test_a_pass_rearms_a_recurring_check_for_its_next_look(self, _name, bind_run) -> None:
         check = self._check(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=2)
+        if bind_run:
+            self.scout_run.metadata = {"check_id": str(check.id)}
+            self.scout_run.save(update_fields=["metadata"])
 
         result = self._record(check, outcome="passed", explanation="No events since the fix merged.")
 
         assert result.check_status == SignalReportCheck.Status.ACTIVE
         assert result.runs_remaining == 1
+        with self.assertRaises(InvalidCheckResultError):
+            self._record(check, outcome="passed", explanation="No events since the fix merged.")
         check.refresh_from_db()
         assert check.dispatched_at is None
+        assert check.runs_remaining == 1
         assert check.next_run_at > timezone.now() + timedelta(minutes=MIN_CHECK_INTERVAL_MINUTES - 5)
 
     @parameterized.expand(
         [
-            ("no_run_is_waiting", {"dispatched_at": None}),
+            ("not_due_and_no_run_is_waiting", {"dispatched_at": None}),
             ("already_finished", {"status": SignalReportCheck.Status.CANCELLED}),
+            ("waiting_for_its_report", {"status": SignalReportCheck.Status.PENDING, "dispatched_at": None}),
             ("another_scout_owns_it", {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}}),
             ("the_coordinator_measures_it", {"kind": SignalReportCheck.Kind.METRIC_THRESHOLD}),
         ]
@@ -1195,6 +1292,49 @@ class TestCheckResultTool(APIBaseTest):
         with self.assertRaises(InvalidCheckResultError):
             self._record(check)
 
+        assert not SignalReportArtefact.objects.filter(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        ).exists()
+
+    @parameterized.expand(
+        [
+            ("due_and_not_dispatched_yet", {"dispatched_at": None, "next_run_at": timezone.now()}, False),
+            (
+                "dispatched_to_this_run_on_a_lane_that_resolves_elsewhere_now",
+                {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}},
+                True,
+            ),
+        ]
+    )
+    def test_a_check_this_run_may_answer_is_recorded(self, _name, overrides, bind_run) -> None:
+        check = self._check(**overrides)
+        if bind_run:
+            self.scout_run.metadata = {"check_id": str(check.id)}
+            self.scout_run.save(update_fields=["metadata"])
+
+        result = self._record(check)
+
+        assert result.check_status == SignalReportCheck.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("its_report_is_ready", SignalReport.Status.READY, timedelta(days=30)),
+            ("its_report_is_suppressed", SignalReport.Status.SUPPRESSED, timedelta(days=30)),
+            ("its_horizon_passed", SignalReport.Status.RESOLVED, -timedelta(minutes=1)),
+        ]
+    )
+    def test_a_due_check_the_coordinator_would_not_dispatch_is_paused(self, _name, report_status, expires_in) -> None:
+        SignalReport.objects.filter(id=self.report.id).update(status=report_status)
+        now = timezone.now()
+        check = self._check(dispatched_at=None, next_run_at=now - timedelta(hours=1), expires_at=now + expires_in)
+
+        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert listed.run_state == "paused"
+        with self.assertRaises(InvalidCheckResultError):
+            self._record(check)
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
         assert not SignalReportArtefact.objects.filter(
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
         ).exists()
@@ -1216,7 +1356,36 @@ class TestCheckResultTool(APIBaseTest):
         with self.assertRaises(InvalidCheckResultError):
             self._record(other_check)
 
-    @parameterized.expand([("blank_explanation", {"explanation": "  "}), ("unknown_outcome", {"outcome": "maybe"})])
+    @parameterized.expand(
+        [
+            ("awaiting_data_looks_again", "awaiting_data", SignalReportCheck.Status.ACTIVE),
+            ("unmeasurable_ends_the_check", "unmeasurable", SignalReportCheck.Status.INCONCLUSIVE),
+        ]
+    )
+    def test_an_inconclusive_verdict_records_its_reason(self, _name: str, reason: str, expected_status: str) -> None:
+        check = self._check()
+
+        result = self._record(check, outcome="inconclusive", reason=reason, explanation="No traffic since the fix.")
+
+        assert result.check_status == expected_status
+        check.refresh_from_db()
+        assert check.last_outcome == SignalReportCheck.Outcome.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+        artefact = SignalReportArtefact.objects.get(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        )
+        assert f'"reason":"{reason}"' in artefact.content
+
+    @parameterized.expand(
+        [
+            ("blank_explanation", {"explanation": "  "}),
+            ("unknown_outcome", {"outcome": "maybe"}),
+            ("inconclusive_without_a_reason", {"outcome": "inconclusive"}),
+            ("inconclusive_with_an_unknown_reason", {"outcome": "inconclusive", "reason": "tired"}),
+            ("a_reason_on_another_outcome", {"outcome": "errored", "reason": "awaiting_data"}),
+        ]
+    )
     def test_a_malformed_verdict_is_refused(self, _name, overrides) -> None:
         check = self._check()
 
@@ -1534,11 +1703,22 @@ class TestScoutCheckTools(APIBaseTest):
         assert [summary.check_id for summary in listed] == [written.check_id]
 
     def test_cancelling_stops_the_check_and_refuses_a_second_cancel(self) -> None:
-        written = self._create()
+        written = self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read the issue."})
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=written.check_id).update(
+            status=SignalReportCheck.Status.ACTIVE, dispatched_at=timezone.now() - timedelta(days=30)
+        )
+        self.scout_run.metadata = {"check_id": written.check_id}
+        self.scout_run.save(update_fields=["metadata"])
 
         cancelled = cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
-        assert cancelled.status == SignalReportCheck.Status.CANCELLED
+        assert (cancelled.status, cancelled.waiting_on_run) == (SignalReportCheck.Status.CANCELLED, False)
+        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (listed.run_state, listed.waiting_on_run, listed.dispatched_run_id) == (
+            SignalReportCheck.Status.CANCELLED,
+            False,
+            None,
+        )
         with self.assertRaises(InvalidCheckWriteError):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
