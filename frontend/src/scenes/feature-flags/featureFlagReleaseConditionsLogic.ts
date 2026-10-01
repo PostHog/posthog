@@ -1132,9 +1132,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     properties: properties?.map((property: AnyPropertyFilter) => ({
                         value: getPropertyValueError(property),
                     })),
+                    // A missing rollout means 100%. The API accepts it, and PostHog AI and the MCP
+                    // tools write it, so it must not block the save.
                     rollout_percentage:
                         rollout_percentage === undefined || rollout_percentage === null
-                            ? 'You need to set a rollout % value'
+                            ? undefined
                             : isNaN(Number(rollout_percentage))
                               ? 'Rollout percentage must be a valid number'
                               : rollout_percentage < 0 || rollout_percentage > 100
