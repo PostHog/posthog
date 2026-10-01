@@ -66,7 +66,13 @@ function PinToPlaylistButton(): JSX.Element {
     )
 }
 
-export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
+export function PlayerMetaLinks({
+    size,
+    menuExtraItems,
+}: {
+    size: PlayerMetaBreakpoints
+    menuExtraItems?: LemonMenuItems
+}): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -78,7 +84,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                 <>
                     {sessionRecordingId && (
                         <div className="flex items-center gap-0.5">
-                            <MenuActions size={size} />
+                            <MenuActions size={size} extraItems={menuExtraItems} />
                         </div>
                     )}
 
@@ -132,7 +138,13 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
     )
 }
 
-const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
+const MenuActions = ({
+    size,
+    extraItems = [],
+}: {
+    size: PlayerMetaBreakpoints
+    extraItems?: LemonMenuItems
+}): JSX.Element => {
     const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
@@ -175,6 +187,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
             },
+            ...extraItems,
             {
                 label: 'Skip inactivity',
                 'data-attr': 'skip-inactivity-menu-item',
@@ -240,6 +253,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
     }, [
+        extraItems,
         logicProps.playerKey,
         onDelete,
         exportRecordingToFile,
