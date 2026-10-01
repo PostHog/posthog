@@ -1393,7 +1393,6 @@ class IntegrationViewSet(
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
         "email_update",
-        # Both call SES to refresh the domain's verification state, so they write despite reading as lookups.
         "email_verify",
         "domain_connect_apply_url",
     ]
