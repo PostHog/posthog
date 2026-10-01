@@ -49,7 +49,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 </LemonField>
             ),
             errors: { name: (name) => (!name ? 'A name is required' : undefined) },
-            onSubmit: ({ name }) => saveAsNewPrompt(prompt.id, name),
+            onSubmit: ({ name }) => saveAsNewPrompt(prompt.id, name, modelConfig),
         })
     }
 
@@ -75,13 +75,15 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
         LemonDialog.open({
             title: `Save to ${linkedLabel}?`,
             description: isPrompt
-                ? 'This will publish a new version of the prompt with the system prompt from the playground.'
+                ? 'This will publish a new version of the prompt with the current playground state: system prompt, messages, tools, and model settings.'
                 : 'This will update the evaluation prompt and model configuration with the current playground state.',
             primaryButton: {
                 children: isPrompt ? 'Publish version' : 'Save',
                 type: 'primary',
                 onClick: () =>
-                    isPrompt ? saveToLinkedPrompt(prompt.id) : saveToLinkedEvaluation(prompt.id, modelConfig),
+                    isPrompt
+                        ? saveToLinkedPrompt(prompt.id, modelConfig)
+                        : saveToLinkedEvaluation(prompt.id, modelConfig),
             },
             secondaryButton: { children: 'Cancel', type: 'secondary' },
         })
@@ -187,7 +189,7 @@ export function PlaygroundSaveMenu({ prompt }: { prompt: PromptConfig }): JSX.El
                 tooltip={
                     hasLinkedSource
                         ? 'Save changes back to the linked item or create a new one'
-                        : 'Save this system prompt as a prompt or evaluation'
+                        : 'Save this playground setup as a prompt or evaluation'
                 }
                 noPadding
                 loading={saving}
