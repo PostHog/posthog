@@ -122,6 +122,10 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, *, user_access_co
 # --- Writes ---
 
 
+def make_notebook_listed(team_id: int, short_id: str, *, user: "User") -> None:
+    logic.make_notebook_listed(team_id, short_id, user=user)
+
+
 async def aupdate_notebook_content(
     team_id: int,
     short_id: str,
