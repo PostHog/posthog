@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
 import {
-    Avatar,
-    AvatarFallback,
     Badge,
     Button,
     Combobox,
@@ -32,9 +30,10 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettingsSection } from './SpaceSettingsSection'
+import { TaskUserAvatar } from './TaskUserAvatar'
 
 export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
-    const { space, members, membersLoading, creatorId } = useValues(spaceSceneLogic({ id }))
+    const { space, members, membersLoading, membersUnavailable, creatorId } = useValues(spaceSceneLogic({ id }))
     const { setMemberIds } = useActions(spaceSceneLogic({ id }))
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
@@ -65,6 +64,10 @@ export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
         >
             {membersLoading && !members.length ? (
                 <Skeleton className="h-24 w-full" />
+            ) : membersUnavailable ? (
+                <Text size="xs" variant="destructive" role="alert">
+                    Couldn’t load members. Reload to try again.
+                </Text>
             ) : (
                 <div className="flex flex-col gap-2">
                     {/* A multiple picker, so picking a current member again removes them. */}
@@ -104,9 +107,7 @@ export function SpaceMembers({ id }: { id: string }): JSX.Element | null {
                                     data-attr="today-space-settings-member"
                                 >
                                     <ItemMedia>
-                                        <Avatar size="sm">
-                                            <AvatarFallback>{name.charAt(0).toUpperCase()}</AvatarFallback>
-                                        </Avatar>
+                                        <TaskUserAvatar user={member} />
                                     </ItemMedia>
                                     <ItemContent className="min-w-0">
                                         <ItemTitle className="max-w-full">
