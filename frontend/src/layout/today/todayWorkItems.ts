@@ -10,6 +10,9 @@ import {
     TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
+import { taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+
+import { TodayListItemDetail, TodayListItemField, listItemDetails } from './todayListAppearance'
 
 export type TodayWorkItemKind = 'session' | 'chat'
 
@@ -29,6 +32,8 @@ export interface TodayWorkItem {
     /** What filed it: a session's origin product, or PostHog AI for a chat. */
     source: string | null
     repository: string | null
+    /** The latest run's branch. */
+    branch: string | null
     pullRequests: TaskPullRequest[]
     /** The closing prose a cloud run saves when it finishes. */
     finalMessage: string | null
@@ -114,6 +119,7 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
+        branch: task.latest_run?.branch || null,
         pullRequests: taskPullRequests(task.latest_run?.output),
         finalMessage: finalMessage(task.latest_run?.output),
     }
@@ -135,9 +141,44 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
+        branch: null,
         pullRequests: [],
         finalMessage: null,
     }
+}
+
+/** "2h ago", with the exact time for the tooltip. The same scale as PostHog Desktop's row details. */
+export function activityDetail(
+    timestamp: string | null,
+    now: Dayjs = dayjs()
+): Omit<TodayListItemDetail, 'field'> | null {
+    if (!timestamp) {
+        return null
+    }
+    const age = shortTimeAgo(timestamp, now)
+    return { text: age === 'now' ? 'just now' : `${age} ago`, title: dayjs(timestamp).format('LLL') }
+}
+
+/** The second line under a session row's title, in the order the person chose. */
+export function sessionDetails(
+    item: TodayWorkItem,
+    fields: readonly TodayListItemField[],
+    spaceNames: Record<string, string>,
+    now: Dayjs = dayjs()
+): TodayListItemDetail[] {
+    if (!fields.length) {
+        return []
+    }
+    return listItemDetails(
+        {
+            space: item.channel ? spaceNames[item.channel] : null,
+            repository: item.repository,
+            branch: item.branch,
+            creator: item.author ? taskUserName(item.author) : null,
+            activity: activityDetail(item.timestamp, now),
+        },
+        fields
+    )
 }
 
 export function buildRecentItems(

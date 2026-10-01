@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
+import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
@@ -339,6 +340,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     </TodayPaneSection>
                 </div>
                 <TodaySessionBulkBar />
+                <TodayListAppearanceDialog />
             </div>
         </TooltipProvider>
     )

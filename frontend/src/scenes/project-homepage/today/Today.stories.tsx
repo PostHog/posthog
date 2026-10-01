@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
 import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
 import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
@@ -596,4 +597,24 @@ export const SpaceHoverCard: Story = {
             />
         </HoverCardFrame>
     ),
+}
+
+// The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
+export const SpacesPaneWithListItemDetails: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
+    },
+}
+
+export const ListItemAppearanceDialog: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['space', 'branch'])
+        todayListAppearanceLogic.actions.openAppearanceDialog()
+        // The dialog opens in a portal outside the story's canvas.
+        await within(document.body).findByText('Edit list item appearance')
+    },
 }
