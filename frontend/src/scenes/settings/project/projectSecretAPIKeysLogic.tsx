@@ -36,9 +36,7 @@ const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {
     llm_gateway: 'AI gateway',
 }
 
-// Mirrors WRITE_EXCLUDES_READ_SCOPE_OBJECTS in posthog/scopes.py: write does not include read, so
-// these rows offer both together as a separate choice.
-const READ_AND_WRITE_SCOPE_OBJECTS = new Set(['messaging_preference'])
+const WRITE_EXCLUDES_READ_SCOPE_OBJECTS = new Set(['messaging_preference'])
 const READ_AND_WRITE = 'read_write'
 
 const PROJECT_SECRET_SCOPE_INFO: Record<string, string> = {
@@ -360,7 +358,8 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 editingKey.scopes?.forEach((scope: string) => {
                     const [key, action] = scope.split(':')
                     const holdsBothActions = result[key] && result[key] !== action
-                    result[key] = holdsBothActions && READ_AND_WRITE_SCOPE_OBJECTS.has(key) ? READ_AND_WRITE : action
+                    result[key] =
+                        holdsBothActions && WRITE_EXCLUDES_READ_SCOPE_OBJECTS.has(key) ? READ_AND_WRITE : action
                 })
                 return result
             },
@@ -396,7 +395,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     label: PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ?? capitalizeFirstLetter(key.replace(/_/g, ' ')),
                     info: PROJECT_SECRET_SCOPE_INFO[key],
                     disabledActions: allActions.filter((a) => !allowed.has(a)),
-                    allowsReadAndWrite: READ_AND_WRITE_SCOPE_OBJECTS.has(key),
+                    allowsReadAndWrite: WRITE_EXCLUDES_READ_SCOPE_OBJECTS.has(key),
                 }))
                 return scopes.filter((scope) => scopeMatchesSearch(scope, searchTerm))
             },

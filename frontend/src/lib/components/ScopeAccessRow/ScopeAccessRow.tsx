@@ -22,7 +22,6 @@ interface ScopeAccessRowProps {
     muted?: boolean
     /** Optional warning content rendered as a sub-row below the main row. */
     warning?: string | JSX.Element | null
-    /** Adds a 'Read and write' option (value 'read_write') for scopes whose write doesn't include read. */
     offerReadAndWrite?: boolean
 }
 

@@ -97,7 +97,6 @@ APIScopeObject = Literal[
     "mcp_builtin_agent",
     "mcp_analytics",
     "mcp_registry",
-    # Reads and writes recipients' messaging preferences (opt-outs), and nothing else in workflows.
     "messaging_preference",
     "metrics",
     "notebook",
@@ -219,8 +218,6 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
-# Scope objects whose `:write` does not cover `:read`. A key that only writes messaging
-# preferences must not be able to list every recipient's email address and opt-out status.
 WRITE_EXCLUDES_READ_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"messaging_preference"})
 
 
@@ -280,8 +277,6 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
-    # Lets a customer's server set recipients' messaging preferences, and separately read the
-    # opt-out list. Write does not include read, see WRITE_EXCLUDES_READ_SCOPE_OBJECTS.
     ("messaging_preference", "read"),
     ("messaging_preference", "write"),
 ]
@@ -469,8 +464,6 @@ def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
 
 
 def read_covered_scope_objects(held_scopes: Iterable[str]) -> set[str]:
-    """The scope objects whose `:read` the held scopes cover, following the same rule as
-    `scopes_not_covered`."""
     return {scope.split(":", 1)[0] for scope in _with_read_halves(frozenset(held_scopes)) if scope.endswith(":read")}
 
 

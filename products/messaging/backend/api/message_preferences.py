@@ -252,12 +252,9 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # in neither.
     scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
     scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out"]
-    # A customer's server manages preferences with a project secret key, which outlives the
-    # person who created it. Every other action stays on user credentials.
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = list(MESSAGING_PREFERENCE_SCOPE_BY_ACTION)
-    # Same buckets as the default throttles, which let project secret keys through unthrottled,
-    # plus one per project so minting more keys does not multiply its budget.
+    # The default throttles let project secret keys through unthrottled.
     throttle_classes = [
         MessagingPreferencesBurstThrottle,
         MessagingPreferencesSustainedThrottle,
@@ -267,8 +264,6 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     serializer_class = _FallbackSerializer
 
     def _require_resource_access(self, required_level: Literal["viewer", "editor"], message: str) -> None:
-        # A project secret key has no user to evaluate access controls for. Its scope grants
-        # project-wide hog_flow access by design, and APIScopePermission has already checked it.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         # Resource-level check: `AccessControlPermission` only guarantees the caller has some
@@ -279,14 +274,13 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise PermissionDenied(message)
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSet) -> list[str] | None:
-        # A token may carry the narrow messaging_preference scope or the broader hog_flow one that
-        # existing keys and MCP clients hold. Project secret keys only get the narrow one.
         narrow_scope = MESSAGING_PREFERENCE_SCOPE_BY_ACTION.get(self.action)
         if narrow_scope is None:
             return None
         held_scopes = get_authenticator_scopes(request.successful_authenticator) or []
         if is_authenticated_via_project_secret_api_key(request) or not scopes_not_covered(held_scopes, [narrow_scope]):
             return [narrow_scope]
+        # Falls back to the hog_flow scope that existing personal keys and MCP clients hold.
         return None
 
     def _write_response(
