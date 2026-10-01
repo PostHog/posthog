@@ -337,10 +337,11 @@ class ScoreDefinitionViewSet(
             created_by=cast(User, self.request.user),
             base_version=validated_data.get("base_version"),
         )
+        # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
+        definition.refresh_from_db()
         self._update_definition_metadata(
             definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
         )
-        definition.refresh_from_db(fields=["current_version", "updated_at"])
         return definition
 
     @extend_schema(

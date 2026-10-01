@@ -13,7 +13,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.score_definitions import ScoreDefinitionVersionQuerySerializer
+from products.ai_observability.backend.api.score_definitions import (
+    ScoreDefinitionVersionQuerySerializer,
+    ScoreDefinitionViewSet,
+)
 from products.ai_observability.backend.models.score_definitions import (
     ScoreDefinition,
     ScoreDefinitionVersion,
@@ -432,6 +435,28 @@ class TestScoreDefinitionsApi(APIBaseTest):
         # Scorer still at v2 — the stale request did not bump it.
         self.assertEqual(self._current_version(definition).version, 2)
         self.assertEqual((definition.name, definition.description), (original_name, original_description))
+
+    def test_new_version_applies_metadata_written_concurrently_before_the_lock(self):
+        definition = self._create_definition()
+        original_name = definition.name
+        get_object = ScoreDefinitionViewSet.get_object
+
+        def get_object_then_rename_elsewhere(view: ScoreDefinitionViewSet) -> ScoreDefinition:
+            loaded = get_object(view)
+            ScoreDefinition.objects.filter(pk=loaded.pk).update(name="Renamed elsewhere")
+            return loaded
+
+        with patch.object(ScoreDefinitionViewSet, "get_object", get_object_then_rename_elsewhere):
+            response = self.client.post(
+                f"{self._endpoint()}{definition.id}/new_version/",
+                {"base_version": 1, "name": original_name, "config": self._current_version(definition).config},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        definition.refresh_from_db()
+        self.assertEqual(definition.name, original_name)
+        self.assertEqual(response.data["name"], original_name)
 
     @parameterized.expand(
         [
