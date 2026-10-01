@@ -1,3 +1,5 @@
+import { useEffect, useMemo } from 'react'
+
 import { IconPinFilled, IconPullRequest } from '@posthog/icons'
 import { Item, ItemContent, ItemSeparator, ItemTitle, Text, cn } from '@posthog/quill'
 
@@ -7,7 +9,9 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
+import { cardMenuParts } from './todayMenuParts'
 import { TodaySessionPreview } from './todayPreviewCards'
+import { TodaySessionActionItems } from './TodaySessionActionItems'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 
 function Fact({ label, children }: { label: string; children: JSX.Element | string }): JSX.Element {
@@ -21,9 +25,27 @@ function Fact({ label, children }: { label: string; children: JSX.Element | stri
     )
 }
 
-/** A session row's hover card: what the row's marks mean in words, where the work sits, and what the agent said last. */
-export function TodaySessionHoverCard({ preview }: { preview: TodaySessionPreview }): JSX.Element {
+interface TodaySessionHoverCardProps {
+    preview: TodaySessionPreview
+    /** Closes the card once an action is chosen. */
+    onAction: () => void
+    /** Keeps the card open while its "File to…" menu is. */
+    onSubmenuOpenChange: (open: boolean) => void
+}
+
+/**
+ * A session row's hover card: what the row's marks mean in words, where the work sits, what the agent said last,
+ * and the row's actions, like PostHog Desktop.
+ */
+export function TodaySessionHoverCard({
+    preview,
+    onAction,
+    onSubmenuOpenChange,
+}: TodaySessionHoverCardProps): JSX.Element {
     const { dot, pullRequest, author } = preview
+    const parts = useMemo(() => cardMenuParts(onAction, onSubmenuOpenChange), [onAction, onSubmenuOpenChange])
+    // Base UI reports no close when the submenu unmounts with the card, which would keep the card open for good.
+    useEffect(() => () => onSubmenuOpenChange(false), [onSubmenuOpenChange])
     const pullRequestState = pullRequestStateMeta(preview.pullRequestState)
     return (
         <div className="flex flex-col" data-attr="today-session-hover-card">
@@ -91,6 +113,15 @@ export function TodaySessionHoverCard({ preview }: { preview: TodaySessionPrevie
                     )}
                 </ItemContent>
             </Item>
+            <ItemSeparator className="my-0" />
+            <div className="flex flex-col p-1">
+                <TodaySessionActionItems
+                    parts={parts}
+                    target={preview.menu}
+                    surface="sidebar"
+                    dataAttrPrefix="today-session-card"
+                />
+            </div>
         </div>
     )
 }
