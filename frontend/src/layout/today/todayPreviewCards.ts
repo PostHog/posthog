@@ -1,3 +1,4 @@
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/primitives'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
@@ -24,6 +25,8 @@ export interface TodaySessionPreview {
     branch: string | null
     /** What filed the session, or null when a person made it by hand. */
     source: string | null
+    /** The source product's icon, for the origins that have one. */
+    sourceIcon: JSX.Element | null
     author: TaskUserBasicInfoApi | null
     timestamp: string | null
     message: string | null
@@ -96,6 +99,7 @@ export function sessionPreview(
         branch: item.branch,
         source:
             item.originProduct && item.originProduct !== 'user_created' ? recentSourceLabel(item.originProduct) : null,
+        sourceIcon: getOriginProductMeta(item.originProduct ?? undefined)?.icon ?? null,
         author: item.author,
         timestamp: item.timestamp,
         message: item.finalMessage,
