@@ -7286,6 +7286,14 @@ snapshots:
         hash: v1.k794b7964.e25d2ce438dde5ff089d92d1504c6fa7b4bef2753263469896a025c9a12ca8ef.Y5pJiZoVIFxN2U2W1U-Jhl_k6BiEer-NAFSZHG2nzNs
     products-web-analytics-content-autopilot-workspace--onboarding--light:
         hash: v1.k794b7964.3260bba8be9bb83600881de8669062332538e93deb3db5293d9a66b9aa761126.2LtqyaPy7LCKst40HPfbLagOFtLgCG5jLWxI9rD_ubM
+    products-web-analytics-content-autopilot-workspace--proposal-preview--dark:
+        hash: v1.k794b7964.2603b94d96ac1d8977930ba236120a36a6a42bc6f13d754fe27399dbd367df2d.nQScRCjEByxzq0m7TyFMOVNZN-_gXtFu2ORBwbsOK_8
+    products-web-analytics-content-autopilot-workspace--proposal-preview--light:
+        hash: v1.k794b7964.918dc05271cb6a516a4ddac349229f8153d5422d38bb09be8870fe6427fb7d66.468dJUMixIUncJ2NydVmzcONY_cAFjHBWtLBO4xHu00
+    products-web-analytics-content-autopilot-workspace--proposal-review--dark:
+        hash: v1.k794b7964.3dd695acd0f14fe26be179c56f03a3634928432881b5b55d593d111e3b464bab.ypcWxacARNVYXNxZK7XHLh7W72bJKyYiTVnptevisXg
+    products-web-analytics-content-autopilot-workspace--proposal-review--light:
+        hash: v1.k794b7964.60e92f685328afbda918ce8a1d46a9b8f40509d3cba15a9b0d7eb31dfdf1253a.qdJZahp8Yox9x8AB-DJ22blfoEDsoHiyjCBBjgkh6L4
     products-web-analytics-content-autopilot-workspace--ready-for-review--dark:
         hash: v1.k794b7964.e2a8bdaa2bb31d1d592af3e025420d607798e51389e2f09e947fdbc475f9416c.fB2i7pY1QaxzzAuxe8CmRPAK0rEFqg3Ybdrn3vPT5Aw
     products-web-analytics-content-autopilot-workspace--ready-for-review--light:
