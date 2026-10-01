@@ -324,6 +324,8 @@ def _feature_flag_post_delete(context: DeletionContext, feature_flag: Any) -> No
 
 
 def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> None:
+    # An approval policy can hold the flag off, so log the active change only when it happened.
+    reenabled = getattr(feature_flag, "_reenabled_on_restore", False)
     _log_restore_activity(
         context,
         scope="FeatureFlag",
@@ -331,7 +333,9 @@ def _feature_flag_post_restore(context: RestoreContext, feature_flag: Any) -> No
         name=_first_non_blank(getattr(feature_flag, "name", None), getattr(feature_flag, "key", None))
         or "Untitled feature flag",
         object_type="feature flag",
-        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)],
+        extra_changes=[Change(type="FeatureFlag", action="changed", field="active", before=False, after=True)]
+        if reenabled
+        else [],
     )
 
 
@@ -348,7 +352,9 @@ def _feature_flag_pre_delete(context: DeletionContext, feature_flag: Any) -> Non
 def _feature_flag_pre_restore(context: RestoreContext, feature_flag: Any) -> None:
     from products.feature_flags.backend.facade.api import reactivate_restored_flag  # noqa: PLC0415
 
-    reactivate_restored_flag(feature_flag.id, team_id=feature_flag.team_id, user_id=getattr(context.user, "id", None))
+    feature_flag._reenabled_on_restore = reactivate_restored_flag(
+        feature_flag.id, team_id=feature_flag.team_id, user_id=getattr(context.user, "id", None)
+    )
     feature_flag.refresh_from_db(fields=["active"])
 
 

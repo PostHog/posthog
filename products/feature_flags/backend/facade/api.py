@@ -40,15 +40,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.policies import PolicyEngine
-from products.approvals.backend.scheduled_changes import gate_flag_change
+from products.approvals.backend.scheduled_changes import flag_change_is_gated
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.ownership import flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -209,29 +207,37 @@ def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> Non
 
 
 def _flip_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None, active: bool) -> None:
-    """Flip ``active`` for trash or restore, through the gate when the flag is standalone.
+    """Flip ``active`` for trash or restore, declining the flip when a policy gates it.
 
-    Ownership picks the path, the way resource-scoped policies do everywhere else. A standalone
-    flag is what ``feature_flag.*`` governs, so trash and restore honour an enable or disable
-    policy on it and raise ``ApprovalRequired`` when one applies. A product-owned flag matches no
-    ``feature_flag.*`` policy, so it takes the raw write and trash stays one update.
+    A change request is no use here: the applier replays only the field change, so approving a
+    trash would disable the flag and leave it in the tree, and it loads the flag through a manager
+    that hides soft-deleted rows, so an approved restore could never apply. Detection answers the
+    question instead, and the caller never files a request.
+
+    Gating is read from the policies, not from ownership. An experiment-owned or tour-owned flag
+    is gated today, because both products flip ``active`` through the gate.
     """
-    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id).first()
+    flag = (
+        FeatureFlag.objects_including_soft_deleted.select_related("team__organization")
+        .filter(pk=flag_id, team_id=team_id)
+        .first()
+    )
     if flag is None:
         return
-    if flag_owner_kind(flag) is None:
-        # The gate alone, not a serializer write. Trash never ran the dependents check or filter
-        # validation, and routing it through the serializer would start rejecting a flag other
-        # flags depend on, and log a second activity entry beside the file system's own.
-        change_request = gate_flag_change(
-            flag, {"operation": "update_status", "value": active}, User.objects.filter(pk=user_id).first()
+    if flag.active == active:
+        return
+
+    user = User.objects.filter(pk=user_id).first() if user_id is not None else None
+    if flag_change_is_gated(flag, {"operation": "update_status", "value": active}, user):
+        if active:
+            # Restore leaves the flag off. Turning it on is a gated change of its own, which the
+            # flags API can file and an approver can apply.
+            return
+        raise ValidationError(
+            "This feature flag is disabled through an approval policy. "
+            "Disable it from the feature flag page, then move it to trash."
         )
-        if change_request is not None:
-            raise ApprovalRequired(
-                change_request=change_request,
-                message="Approval required",
-                required_approvers=(change_request.policy_snapshot or {}).get("approver_config") or {},
-            )
+
     _set_trashed_flag_active(flag_id, team_id=team_id, active=active)
 
 
@@ -240,13 +246,13 @@ def deactivate_trashed_flag(flag_id: int, *, team_id: int, user_id: int | None =
     _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=False)
 
 
-def reactivate_restored_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> None:
+def reactivate_restored_flag(flag_id: int, *, team_id: int, user_id: int | None = None) -> bool:
     """Enable a flag that the file system restores from trash. See ``_flip_trashed_flag``.
 
-    Restore turns the flag on even when it was off before trash, because trash records no prior
-    state. That is unchanged here; the gate only decides whether the flip needs approval.
+    Returns whether the flag came back on, so the caller logs the change it actually made.
     """
     _flip_trashed_flag(flag_id, team_id=team_id, user_id=user_id, active=True)
+    return FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team_id=team_id, active=True).exists()
 
 
 def archive_flag(

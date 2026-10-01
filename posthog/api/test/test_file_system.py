@@ -788,43 +788,67 @@ class TestFileSystemDeletion(APIBaseTest):
         assert flag.deleted is False  # type: ignore
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
-    def _create_disable_policy(self) -> None:
+    def _create_policy(self, action_key: str) -> None:
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
-            action_key="feature_flag.disable",
+            action_key=action_key,
             conditions={},
             approver_config={"quorum": 1, "users": [self.user.id]},
             created_by=self.user,
         )
 
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_trashing_a_standalone_flag_under_a_disable_policy_needs_approval(self, _mock_approvals_enabled) -> None:
+    def test_trashing_a_flag_under_a_disable_policy_is_refused(self, _mock_approvals_enabled) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="gated-standalone", created_by=self.user)
-        self._create_disable_policy()
+        self._create_policy("feature_flag.disable")
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
 
         response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "feature flag page" in str(response.json())
         flag.refresh_from_db()
         assert flag.active is True
         assert flag.deleted is False
-        assert ChangeRequest.objects.filter(team=self.team, action_key="feature_flag.disable").exists()
+        # A request nobody can apply is worse than none, so the file system files none.
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
-    def test_trashing_a_survey_owned_flag_skips_the_flag_policy(self, _mock_approvals_enabled) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, key="survey-owned", created_by=self.user)
-        Survey.objects.create(team=self.team, name="Owning survey", type="popover", targeting_flag=flag)
-        self._create_disable_policy()
+    def test_restoring_a_flag_under_an_enable_policy_leaves_it_disabled(self, _mock_approvals_enabled) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="gated-restore", created_by=self.user)
+        file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
+        assert (
+            self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/").status_code
+            == status.HTTP_200_OK
+        )
+        self._create_policy("feature_flag.enable")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": str(flag.id)}]},
+        )
+
+        # The flag comes back, off: it is out of trash, so the flags API can gate turning it on.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.deleted is False
+        assert flag.active is False
+        assert not ChangeRequest.objects.filter(team=self.team).exists()
+
+    @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+    def test_trashing_an_experiment_owned_flag_is_refused_too(self, _mock_approvals_enabled) -> None:
+        # Experiments flip active through the gate, so the file tree must not be a way around it.
+        flag = FeatureFlag.objects.create(team=self.team, key="experiment-owned", created_by=self.user)
+        Experiment.objects.create(team=self.team, name="Owning experiment", feature_flag=flag, created_by=self.user)
+        self._create_policy("feature_flag.disable")
         file_entry = FileSystem.objects.get(team=self.team, type="feature_flag", ref=str(flag.id))
 
         response = self.client.delete(f"/api/environments/{self.team.id}/file_system/{file_entry.id}/")
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         flag.refresh_from_db()
-        assert flag.active is False
-        assert not ChangeRequest.objects.filter(team=self.team).exists()
+        assert flag.active is True
 
     def test_undo_delete_restores_original_path(self) -> None:
         flag = FeatureFlag(team=self.team, key="undo-path-flag", created_by=self.user)

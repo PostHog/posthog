@@ -126,6 +126,22 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
     return None
 
 
+def flag_change_is_gated(flag: "FeatureFlag", payload: dict[str, Any], user) -> bool:
+    """Whether an enabled policy gates this flag change, without creating a ChangeRequest.
+
+    For a caller that cannot hand the change to an approver. The file system is the case: a
+    change request for a trash or a restore can never be applied, because the applier replays
+    only the field change, and it loads the flag through a manager that hides soft-deleted rows.
+    Such a caller asks whether the change would be gated and declines to make it, instead of
+    filing a request nobody can act on.
+
+    Detection runs against every ``feature_flag.*`` action, whatever owns the flag. An
+    experiment-owned or tour-owned flag is gated today, because both products flip ``active``
+    through the gate, so reading ownership here would reopen the bypass for them.
+    """
+    return _detect_gated_action(flag, payload, user) is not None
+
+
 def gate_flag_change(
     flag: "FeatureFlag",
     payload: dict[str, Any],
