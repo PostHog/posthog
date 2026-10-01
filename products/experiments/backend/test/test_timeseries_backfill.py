@@ -9,6 +9,7 @@ from posthog.schema import ExperimentQueryResponse, ExperimentStatsBaseValidated
 
 from posthog.models import Organization, Team, User
 
+from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -26,24 +27,28 @@ class TestBackfillExperimentTimeseries(BaseTest):
         user = User.objects.create(email="test@example.com")
 
         flag = FeatureFlag.objects.create(team=team, key="test-flag", created_by=user)
+        metric_data = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "uuid": "test-metric-uuid",
+            "source": {"kind": "EventsNode", "event": "test_event"},
+        }
         experiment = Experiment.objects.create(
             name="Test Experiment",
             team=team,
             feature_flag=flag,
             start_date=datetime.datetime(2024, 12, 25, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
             end_date=datetime.datetime(2024, 12, 27, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
+            metrics=[metric_data],
         )
+        spec = plan_metric(experiment, "test-metric-uuid")
+        assert spec is not None
 
-        metric_data = {
-            "metric_type": "mean",
-            "uuid": "test-metric-uuid",
-            "source": {"kind": "EventsNode", "event": "test_event"},
-        }
         recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
             team=team,
             experiment=experiment,
             metric=metric_data,
-            fingerprint="test-fingerprint",
+            fingerprint=spec.calculation_key(),
             status=ExperimentTimeseriesRecalculation.Status.PENDING,
         )
 
@@ -85,6 +90,7 @@ class TestBackfillExperimentTimeseries(BaseTest):
             assert metric_result.query_from == experiment.start_date
             assert metric_result.status == ExperimentMetricResult.Status.COMPLETED
             assert metric_result.result == mock_result.model_dump()
+            assert metric_result.display_key == spec.legacy_key()
 
         assert result["recalculation_id"] == str(recalculation_request.id)
         assert result["experiment_id"] == experiment.id

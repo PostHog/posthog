@@ -19,6 +19,7 @@ from posthog.clickhouse.client.connection import Workload
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.spec import spec_for_key
 from products.experiments.backend.metric_resolution import build_metric
 from products.experiments.backend.models.experiment import ExperimentTimeseriesRecalculation
 
@@ -72,6 +73,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
     metric_obj = build_metric(recalculation_request.metric)
     experiment_query = ExperimentQuery(experiment_id=experiment.id, metric=metric_obj)
     fingerprint = recalculation_request.fingerprint
+    spec = spec_for_key(experiment, recalculation_request.metric.get("uuid") or "", fingerprint)
     results = MetricResultStore(experiment_id=experiment.id)
 
     days_processed = 0
@@ -99,6 +101,7 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
             results.record_daily_point(
                 recalculation_request.metric["uuid"],
                 fingerprint,
+                spec=spec,
                 window=query_to_utc,
                 query_from=experiment.start_date,
                 result=sanitize_non_finite(result.model_dump()),

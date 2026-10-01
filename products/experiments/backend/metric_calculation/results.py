@@ -49,8 +49,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, ExperimentCalculationSettings, plan
-from products.experiments.backend.metric_resolution import resolve_experiment_metrics
+from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan, spec_for_key
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -345,14 +344,24 @@ class MetricResultStore:
         )
 
     def record_daily_point(
-        self, metric_uuid: str, calculation_key: str, *, window: datetime, query_from: datetime, result: dict[str, Any]
+        self,
+        metric_uuid: str,
+        calculation_key: str,
+        *,
+        spec: CalculationSpec | None,
+        window: datetime,
+        query_from: datetime,
+        result: dict[str, Any],
     ) -> None:
-        """Store a completed daily point under the bare calculation key. The backfill stores its past days here too."""
+        """Store a completed daily point under the bare calculation key. The backfill stores its past days here too.
+
+        `spec` is the spec that `calculation_key` was derived from, or None when the caller does not have it.
+        """
         self._upsert(
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=self._daily_display_key(metric_uuid, calculation_key),
+            display_key=spec.legacy_key() if spec is not None else None,
             query_from=query_from,
             status=_COMPLETED,
             result=result,
@@ -362,14 +371,21 @@ class MetricResultStore:
         )
 
     def record_daily_failure(
-        self, metric_uuid: str, calculation_key: str, *, window: datetime, query_from: datetime, error_message: str
+        self,
+        metric_uuid: str,
+        calculation_key: str,
+        *,
+        spec: CalculationSpec | None,
+        window: datetime,
+        query_from: datetime,
+        error_message: str,
     ) -> None:
-        """Store a failed daily point under the bare calculation key."""
+        """Store a failed daily point under the bare calculation key. `spec` is as for `record_daily_point`."""
         self._upsert(
             metric_uuid,
             window,
             fingerprint=calculation_key,
-            display_key=self._daily_display_key(metric_uuid, calculation_key),
+            display_key=spec.legacy_key() if spec is not None else None,
             query_from=query_from,
             status=_FAILED,
             result=None,
@@ -484,21 +500,6 @@ class MetricResultStore:
             },
         )
 
-    def _daily_display_key(self, metric_uuid: str, calculation_key: str) -> str | None:
-        """The legacy key of the experiment's metric whose current key is `calculation_key`. None when no metric has
-        that key, for example when a setting changed after the caller computed it. Inline and saved metrics can share
-        a uuid, so the uuid alone does not decide."""
-        experiment = Experiment.objects.select_related("team", "feature_flag").filter(id=self.experiment_id).first()
-        if experiment is None:
-            return None
-        settings = ExperimentCalculationSettings.of_experiment(experiment)
-        for metric in resolve_experiment_metrics(experiment):
-            if metric.uuid == metric_uuid:
-                spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
-                if spec.calculation_key() == calculation_key:
-                    return spec.legacy_key()
-        return None
-
     @staticmethod
     def sync_copy_window(newest_point: datetime) -> datetime:
         """The query_to of a timeseries sync run and of the copies it holds, for daily points up to `newest_point`."""
@@ -577,31 +578,55 @@ def previous_completed_metric_result(
     return row.result if row is not None else None
 
 
+def _daily_spec(experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str) -> CalculationSpec | None:
+    experiment = (
+        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
+    )
+    spec = spec_for_key(experiment, metric_uuid, calculation_key) if experiment is not None else None
+    if spec is None:
+        logger.info(
+            "Storing a daily metric result without a display key, because no metric of the experiment has its key",
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+        )
+    return spec
+
+
 def record_daily_metric_result(
     experiment_id: int,
     *,
+    team_id: int,
     metric_uuid: str,
     calculation_key: str,
     window: datetime,
     query_from: datetime,
     result: dict[str, Any],
 ) -> None:
-    """Store a completed daily point, for the scheduled workflows outside the product."""
+    """Store a completed daily point, for the scheduled workflows outside the product.
+
+    The row's display key is the legacy key of the metric's spec under the current configuration of the experiment,
+    when that spec gives `calculation_key`. The key comes from the daily discovery, so a configuration change since
+    then leaves the row without a display key. So does an `experiment_id` that is not in the team.
+    """
+    spec = _daily_spec(experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key)
     MetricResultStore(experiment_id=experiment_id).record_daily_point(
-        metric_uuid, calculation_key, window=window, query_from=query_from, result=result
+        metric_uuid, calculation_key, spec=spec, window=window, query_from=query_from, result=result
     )
 
 
 def record_daily_metric_failure(
     experiment_id: int,
     *,
+    team_id: int,
     metric_uuid: str,
     calculation_key: str,
     window: datetime,
     query_from: datetime,
     error_message: str,
 ) -> None:
-    """Store a failed daily point, for the scheduled workflows outside the product."""
+    """Store a failed daily point, for the scheduled workflows outside the product. The row gets its display key
+    as `record_daily_metric_result` describes."""
+    spec = _daily_spec(experiment_id, team_id=team_id, metric_uuid=metric_uuid, calculation_key=calculation_key)
     MetricResultStore(experiment_id=experiment_id).record_daily_failure(
-        metric_uuid, calculation_key, window=window, query_from=query_from, error_message=error_message
+        metric_uuid, calculation_key, spec=spec, window=window, query_from=query_from, error_message=error_message
     )
