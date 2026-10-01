@@ -12,7 +12,11 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
     COMPACT_OFFSET_OVERFLOW_RETRIES,
+    DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+    CompactionPlan,
     DeltaMaintenance,
+    _sample_compression_ratio,
+    plan_compaction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
@@ -190,6 +194,18 @@ class TestCompactIfFragmented:
         maintenance = _make_maintenance(mock_delta)
         with (
             override_settings(DATA_WAREHOUSE_TARGET_PARTITION_BYTES=500 * _MB),
+            patch.object(
+                maintenance,
+                "_plan_compaction",
+                AsyncMock(
+                    return_value=CompactionPlan(
+                        target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                        max_concurrent_tasks=1,
+                        compression_ratio=1.0,
+                        slot_budget_mb=1356.8,
+                    )
+                ),
+            ),
             patch.object(maintenance, "_compact", AsyncMock()) as mock_compact,
             patch.object(maintenance, "_vacuum", AsyncMock()),
         ):
@@ -251,7 +267,20 @@ class TestCompactConflictRetry:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        compacted = await _make_maintenance(mock_delta).compact_if_fragmented(partition_count=1, threshold=1)
+        maintenance = _make_maintenance(mock_delta)
+        with patch.object(
+            maintenance,
+            "_plan_compaction",
+            AsyncMock(
+                return_value=CompactionPlan(
+                    target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                    max_concurrent_tasks=1,
+                    compression_ratio=1.0,
+                    slot_budget_mb=1356.8,
+                )
+            ),
+        ):
+            compacted = await maintenance.compact_if_fragmented(partition_count=1, threshold=1)
 
         assert compacted is True
         assert mock_delta.optimize.compact.call_count == 2
@@ -276,7 +305,7 @@ class TestCompactOffsetOverflow:
         )
         mock_delta.vacuum = MagicMock(return_value=[])
 
-        await _make_maintenance(mock_delta)._compact(mock_delta)
+        await _make_maintenance(mock_delta)._compact(mock_delta, plan_compaction(1.0, None))
 
         assert mock_delta.optimize.compact.call_count == 2
         first_target_size = mock_delta.optimize.compact.call_args_list[0].kwargs["target_size"]
@@ -294,7 +323,7 @@ class TestCompactOffsetOverflow:
         mock_delta.optimize.compact = MagicMock(side_effect=overflow_error)
 
         with pytest.raises(deltalake.exceptions.DeltaError):
-            await _make_maintenance(mock_delta)._compact(mock_delta)
+            await _make_maintenance(mock_delta)._compact(mock_delta, plan_compaction(1.0, None))
 
         assert mock_delta.optimize.compact.call_count == COMPACT_OFFSET_OVERFLOW_RETRIES + 1
 
@@ -304,9 +333,122 @@ class TestCompactOffsetOverflow:
         mock_delta.optimize.compact = MagicMock(side_effect=deltalake.exceptions.DeltaError("no protocol found"))
 
         with pytest.raises(deltalake.exceptions.DeltaError):
-            await _make_maintenance(mock_delta)._compact(mock_delta)
+            await _make_maintenance(mock_delta)._compact(mock_delta, plan_compaction(1.0, None))
 
         mock_delta.optimize.compact.assert_called_once()
+
+
+class TestCompactionMemoryBounds:
+    @parameterized.expand(
+        [
+            # Incompressible data keeps delta-rs's own bin size; the slot fits a few bins at once.
+            ("incompressible", 1.0, 1356.8, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 6),
+            ("modest_ratio", 2.0, 1356.8, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 3),
+            # Wide JSON documents: 100 MB on disk decodes past the 2 GiB offset limit, so the bin shrinks
+            # until it decodes to half the slot and only one bin runs at a time.
+            ("wide_json", 25.0, 1356.8, int(1356.8 * _MB / 2 / 25), 1),
+            ("extreme_ratio_skips", 500.0, 1356.8, None, None),
+            ("zero_budget_skips", 1.0, 0.0, None, None),
+            # No readable limit (local dev): only the decoded bin is capped, delta-rs picks parallelism.
+            ("no_limit", 25.0, None, int(1024 * _MB / 25), None),
+            ("no_limit_no_ratio_skips", None, None, None, None),
+        ]
+    )
+    def test_plan_keeps_one_compaction_inside_its_slot(
+        self,
+        _name: str,
+        ratio: float | None,
+        slot_mb: float | None,
+        expected_target: int | None,
+        expected_tasks: int | None,
+    ) -> None:
+        with patch(f"{_MAINTENANCE_MODULE}.os.cpu_count", return_value=7):
+            plan = plan_compaction(ratio, slot_mb)
+
+        assert plan.target_size == expected_target
+        assert plan.max_concurrent_tasks == expected_tasks
+        if slot_mb is not None and plan.max_concurrent_tasks is not None:
+            assert plan.target_size is not None
+            decoded_per_task = plan.target_size * max(ratio or 1.0, 1.0) * 2
+            assert decoded_per_task * plan.max_concurrent_tasks <= slot_mb * _MB
+
+    @pytest.mark.asyncio
+    async def test_small_file_trigger_rechecks_removals_at_planned_target(self) -> None:
+        file_sizes = {f"f{i}.parquet": 30 * _MB for i in range(30)}
+        mock_delta = MagicMock()
+        mock_delta.file_uris.return_value = [f"s3://bucket/table/{path}" for path in file_sizes]
+        mock_delta._table.get_add_file_sizes.return_value = file_sizes
+        maintenance = _make_maintenance(mock_delta)
+        plan = CompactionPlan(
+            target_size=27 * _MB,
+            max_concurrent_tasks=1,
+            compression_ratio=25.0,
+            slot_budget_mb=1356.8,
+        )
+        with (
+            patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)),
+            patch.object(maintenance, "_compact", AsyncMock()) as compact,
+            patch.object(maintenance, "_vacuum", AsyncMock()) as vacuum,
+        ):
+            ran = await maintenance.compact_if_fragmented(partition_count=1, compact_small_files=True)
+
+        assert ran is False
+        compact.assert_not_awaited()
+        vacuum.assert_not_awaited()
+
+    @parameterized.expand([("compressible_json", True), ("random", False)])
+    def test_samples_the_compression_ratio_from_parquet_footers(self, _name: str, compressible: bool) -> None:
+        with tempfile.TemporaryDirectory() as path:
+            for row_id in range(3):
+                payload = ('{"field": "value", "n": 1}' * 4000) if compressible else os.urandom(50_000).hex()
+                deltalake.write_deltalake(path, pa.table({"id": [row_id], "data": [payload]}), mode="append")
+
+            ratio = _sample_compression_ratio(deltalake.DeltaTable(path))
+
+        assert ratio is not None
+        if compressible:
+            assert ratio > 10
+        else:
+            assert ratio < 3
+
+    @pytest.mark.asyncio
+    async def test_compact_runs_with_the_planned_bin_size_and_parallelism(self) -> None:
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(return_value={"numFilesAdded": 1, "numFilesRemoved": 4})
+        with (
+            patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", return_value=25.0),
+            patch(f"{_MAINTENANCE_MODULE}.get_governor") as governor,
+        ):
+            governor.return_value.slot_budget_mb.return_value = 1356.8
+            governor.return_value.pod.current_mb.return_value = 4096.0
+            await _make_maintenance(mock_delta)._compact(mock_delta)
+
+        kwargs = mock_delta.optimize.compact.call_args.kwargs
+        assert kwargs == {"target_size": int(1356.8 * _MB / 2 / 25), "max_concurrent_tasks": 1}
+
+    @pytest.mark.asyncio
+    async def test_offset_overflow_retry_runs_one_bin_at_a_time(self) -> None:
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(
+            side_effect=[
+                deltalake.exceptions.DeltaError(
+                    'Generic error: task 7 panicked with message "byte array offset overflow"'
+                ),
+                {"numFilesAdded": 1},
+            ]
+        )
+        with (
+            patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", return_value=1.0),
+            patch(f"{_MAINTENANCE_MODULE}.get_governor") as governor,
+            patch(f"{_MAINTENANCE_MODULE}.os.cpu_count", return_value=7),
+        ):
+            governor.return_value.slot_budget_mb.return_value = 1356.8
+            governor.return_value.pod.current_mb.return_value = 4096.0
+            await _make_maintenance(mock_delta)._compact(mock_delta)
+
+        first, second = (call.kwargs for call in mock_delta.optimize.compact.call_args_list)
+        assert first["max_concurrent_tasks"] == 6
+        assert second == {"target_size": first["target_size"] // 2, "max_concurrent_tasks": 1}
 
 
 class TestVacuum:
