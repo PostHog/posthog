@@ -106,6 +106,12 @@ export function Composer({
     return value;
   };
 
+  // The input shows the live transcript, so an edit already holds it. Ending dictation keeps it from being added twice.
+  const editText = (value: string): void => {
+    if (dictation.active) dictation.stop();
+    setText(value);
+  };
+
   const submit = async (): Promise<void> => {
     const value = (dictation.active ? stopDictation() : text).trim();
     if ((!value && !photos.length) || sending) return;
@@ -155,7 +161,7 @@ export function Composer({
       ) : null}
       <TextInput
         value={shown}
-        onChangeText={setText}
+        onChangeText={editText}
         placeholder={placeholder}
         placeholderTextColor={colors.inkMute}
         style={styles.input}
