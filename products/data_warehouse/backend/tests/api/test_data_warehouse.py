@@ -73,6 +73,41 @@ class TestDataWarehouseAPI(APIBaseTest):
         else:
             ensure_tables.assert_not_called()
 
+    @parameterized.expand([("trino", "trino"), ("duckdb", "duckdb")])
+    def test_warehouse_status_presents_the_connection_for_the_variant(self, _name: str, variant: str) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        trino_status = {
+            "state": "ready",
+            "ready_at": "2026-09-01T12:00:00Z",
+            "connection": {
+                "host": "my-warehouse.dw.example.com",
+                "port": 443,
+                "catalog": "org_my_warehouse",
+                "username": "root",
+            },
+        }
+        with (
+            patch(f"{views}.status_for", return_value=Response({"state": "ready", "connection": pgwire}, status=200)),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": True, "table_suffix": "prod"}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": True, "schema_name": "prod"}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value=variant),
+            patch(f"{views}.trino_status_for", return_value=trino_status) as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        if variant == "trino":
+            self.assertIsNone(body["connection"])
+            self.assertEqual(body["trino"], trino_status)
+            mock_trino_status.assert_called_once_with(self.organization.id)
+        else:
+            self.assertEqual(body["connection"], pgwire)
+            self.assertIsNone(body["trino"])
+            mock_trino_status.assert_not_called()
+
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.execute_hogql_query")
     def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
         table = DataWarehouseTable.objects.create(
