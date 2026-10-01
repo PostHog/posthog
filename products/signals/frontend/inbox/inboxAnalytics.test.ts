@@ -115,14 +115,31 @@ describe('inboxAnalytics', () => {
         captureInboxReportsImpressed({
             tab: 'reports',
             reports: [
-                makeReport({ id: 'a', priority: 'P0', signal_count: 3, is_suggested_reviewer: true }),
+                makeReport({
+                    id: 'a',
+                    priority: 'P0',
+                    signal_count: 3,
+                    is_suggested_reviewer: true,
+                    ranking: {
+                        served_key: 'report_embeddings@2026-09-30',
+                        model_name: 'report_embeddings',
+                        model_version: '2026-09-30',
+                        manifest_version: 'manifest',
+                        scored_at: '2026-09-30T12:00:00Z',
+                        scores: { pr_merged: 0.4 },
+                        readable_heads: ['pr_merged'],
+                    },
+                }),
                 makeReport({ id: 'b', priority: null, actionability: null, source_products: ['error_tracking'] }),
             ],
             ranks: [1, 2],
             listSize: 2,
             totalCount: 10,
-            hasActiveFilters: false,
+            hasActiveFilters: true,
             scope: 'for-you',
+            sortField: 'ranking_pr_merged',
+            sortDirection: 'desc',
+            createdWindow: '7d',
         })
         const props = lastCapture(INBOX_EVENTS.REPORTS_IMPRESSED)
         expect(props).toMatchObject({
@@ -130,6 +147,9 @@ describe('inboxAnalytics', () => {
             list_size: 2,
             total_count: 10,
             impression_count: 2,
+            sort_field: 'ranking_pr_merged',
+            sort_direction: 'desc',
+            created_window: '7d',
         })
         expect(props?.impressions).toEqual([
             expect.objectContaining({
@@ -138,10 +158,12 @@ describe('inboxAnalytics', () => {
                 priority: 'P0',
                 signal_count: 3,
                 is_suggested_reviewer: true,
+                ranking_served_key: 'report_embeddings@2026-09-30',
             }),
             expect.objectContaining({
                 report_id: 'b',
                 rank: 2,
+                ranking_served_key: null,
                 priority: null,
                 actionability: null,
                 source_products: ['error_tracking'],
@@ -213,6 +235,7 @@ describe('inboxAnalytics', () => {
             stateFilter: ['monitoring'],
             searchQuery: '  acme checkout crash  ',
             hasActiveFilters: true,
+            createdWindow: null,
         })
         const props = lastCapture(INBOX_EVENTS.QUERY_CHANGED)
         expect(props).toMatchObject({
