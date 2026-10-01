@@ -18,6 +18,7 @@ import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/componen
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
 import { dashboardLogic } from './dashboardLogic'
+import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { DeleteDashboardModal } from './DeleteDashboardModal'
 import { DuplicateDashboardModal } from './DuplicateDashboardModal'
@@ -86,7 +87,14 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
     return (
         <>
             {shouldRenderSubscriptions ? (
-                <Suspense fallback={null}>
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={showSubscriptions}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                        />
+                    }
+                >
                     <SubscriptionsModal
                         isOpen={showSubscriptions}
                         closeModal={() => push(urls.dashboard(dashboard.id))}
@@ -96,7 +104,14 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                 </Suspense>
             ) : null}
             {shouldRenderSharing ? (
-                <Suspense fallback={null}>
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={isSharingOpen}
+                            onClose={() => push(urls.dashboard(dashboard.id))}
+                        />
+                    }
+                >
                     <SharingModal
                         title="Dashboard permissions & sharing"
                         isOpen={isSharingOpen}
@@ -134,7 +149,14 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
                         buttonTileId={buttonTileId}
                     />
                     {shouldRenderAddWidget ? (
-                        <Suspense fallback={null}>
+                        <Suspense
+                            fallback={
+                                <DashboardModalLoading
+                                    isOpen={isAddWidgetOpen}
+                                    onClose={() => setAddWidgetModalOpen(false)}
+                                />
+                            }
+                        >
                             <AddWidgetModal
                                 isOpen={isAddWidgetOpen}
                                 onClose={() => setAddWidgetModalOpen(false)}
@@ -155,7 +177,14 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType }): JS
             )}
             {user?.is_staff && <DashboardTemplateEditor />}
             {shouldRenderTerraform ? (
-                <Suspense fallback={null}>
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={terraformModalOpen}
+                            onClose={() => setTerraformModalOpen(false)}
+                        />
+                    }
+                >
                     <TerraformExportModal
                         isOpen={terraformModalOpen}
                         onClose={() => setTerraformModalOpen(false)}
