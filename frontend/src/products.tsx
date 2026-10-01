@@ -689,7 +689,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'KnowledgeSource',
         iconType: 'business_knowledge',
     },
-    CanvasNew: { name: 'New canvas', projectBased: true },
+    CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
     CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-full-scene-height' },
     Transformations: {
         projectBased: true,

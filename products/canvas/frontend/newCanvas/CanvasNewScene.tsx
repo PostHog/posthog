@@ -1,15 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPalette } from '@posthog/icons'
+import { Text } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-
 import { CanvasComposer } from '../scene/CanvasComposer'
+import { CanvasStartHero } from '../scene/CanvasStartHero'
+import { CanvasToolbar } from '../scene/CanvasToolbar'
 import { canvasNewLogic } from './canvasNewLogic'
 import { CanvasSpaceSelect } from './CanvasSpaceSelect'
 
@@ -28,22 +27,24 @@ export function CanvasNewScene(): JSX.Element {
         return <NotFound object="page" />
     }
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="New canvas"
-                description="Describe what you want and an agent builds it. The canvas is saved when you send."
-                resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }}
-            />
-            <div data-quill className="w-full max-w-3xl">
-                <CanvasComposer
-                    instruction={instruction}
-                    onInstructionChange={setInstruction}
-                    onSubmit={send}
-                    submitting={sending}
-                    disabledReason={sendDisabledReason}
-                    footerStart={<CanvasSpaceSelect />}
-                />
-            </div>
-        </SceneContent>
+        <div data-quill className="flex h-full min-h-0 flex-col bg-background">
+            <CanvasToolbar dataAttr="canvas-new-toolbar">
+                <Text size="sm" weight="medium" className="truncate pl-2">
+                    New canvas
+                </Text>
+            </CanvasToolbar>
+            <main className="min-h-0 flex-1">
+                <CanvasStartHero description="Describe it and an agent builds it. The canvas is saved when you send.">
+                    <CanvasComposer
+                        instruction={instruction}
+                        onInstructionChange={setInstruction}
+                        onSubmit={send}
+                        submitting={sending}
+                        disabledReason={sendDisabledReason}
+                        footerStart={<CanvasSpaceSelect />}
+                    />
+                </CanvasStartHero>
+            </main>
+        </div>
     )
 }

@@ -7,6 +7,7 @@ export const manifest: ProductManifest = {
             name: 'New canvas',
             import: () => import('./frontend/newCanvas/CanvasNewScene'),
             projectBased: true,
+            layout: 'app-raw',
         },
         // `Canvas` and `urls.canvas` already belong to the notebooks canvas.
         CanvasDetail: {
