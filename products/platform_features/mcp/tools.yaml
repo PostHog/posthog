@@ -111,6 +111,9 @@ tools:
         description: >
             Get details of an approval policy including conditions, approver configuration, quorum requirements, and
             bypass rules.
+    cancel-deletion-create:
+        operation: cancel_deletion_create
+        enabled: false
     change-request-get:
         operation: change_requests_retrieve
         enabled: true
