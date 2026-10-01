@@ -272,11 +272,11 @@ export interface featureFlagTestingLogicActions {
     setTestError: (error: string | null) => {
         error: string | null
     }
-    submitTestEvaluation: () => {
-        value: true
-    }
     setTestFormData: (formData: Partial<TestFormData>) => {
         formData: Partial<TestFormData>
+    }
+    submitTestEvaluation: () => {
+        value: true
     }
     testAllDistinctIds: ({
         flagId,
