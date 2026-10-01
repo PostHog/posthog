@@ -1,4 +1,3 @@
-import avro from 'avsc'
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -9,14 +8,12 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createTestTeam } from '~/tests/helpers/team'
 
-import { decodeMetricsPacket, encodeMetricsPacket } from './metrics-avro'
 import {
     MetricsIngestionPipelineConfig,
     createMetricsIngestionPipeline,
     runMetricsIngestionPipeline,
 } from './metrics-ingestion-pipeline'
 import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT } from './outputs/outputs'
-import { MetricRecord } from './types'
 
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -25,15 +22,6 @@ jest.mock('~/common/utils/logger', () => ({
 const METRICS_TOPIC = 'clickhouse_metrics_test'
 const DLQ_TOPIC = 'metrics_ingestion_dlq_test'
 const APP_METRICS_TOPIC = 'clickhouse_app_metrics2_test'
-
-const TEST_RECORD_TYPE = avro.Type.forSchema({
-    type: 'record',
-    name: 'MetricRecord',
-    fields: [
-        { name: 'metric_name', type: 'string' },
-        { name: 'value', type: 'double' },
-    ],
-})
 
 type ProducedMessage = { topic: string; value: Buffer | null; key: unknown; headers?: Record<string, string> }
 
@@ -49,32 +37,25 @@ describe('MetricsIngestionPipeline', () => {
     let config: MetricsIngestionPipelineConfig
     let offset: number
 
-    const records = (prefix: string, count: number): MetricRecord[] =>
-        Array.from({ length: count }, (_, i) => ({ metric_name: `${prefix}_${i}`, value: i }))
-
-    const createMessage = async (
-        token: string | null,
-        rows: MetricRecord[],
-        overrides: Partial<Message> = {}
-    ): Promise<Message> => {
+    const createMessage = (token: string | null, recordCount: number): Message => {
         const headers: Record<string, string> = {
-            bytes_uncompressed: String(rows.length * 100),
-            record_count: String(rows.length),
+            bytes_uncompressed: String(recordCount * 100),
+            record_count: String(recordCount),
             created_at: new Date().toISOString(),
         }
         if (token) {
             headers.token = token
         }
+        const messageOffset = offset++
         return {
-            value: await encodeMetricsPacket(TEST_RECORD_TYPE, 'zstandard', rows),
+            value: Buffer.from(`opaque avro packet ${messageOffset}`),
             key: null,
             headers: Object.entries(headers).map(([k, v]) => ({ [k]: Buffer.from(v) })),
             topic: 'metrics_ingestion',
             partition: 0,
-            offset: offset++,
+            offset: messageOffset,
             size: 0,
-            ...overrides,
-        } as Message
+        }
     }
 
     const runPipeline = async (messages: Message[]): Promise<void> => {
@@ -134,37 +115,35 @@ describe('MetricsIngestionPipeline', () => {
                     .mockImplementation((token: string) => Promise.resolve(token === teamLimited.api_token)),
             },
             rateLimiter,
-            repack: { maxRecordsPerPacket: 1_000_000, maxBytesUncompressedPerPacket: 50 * 1024 * 1024 },
         }
     })
 
-    it('merges the surviving packets of a team into one ClickHouse message and drops the rest silently', async () => {
-        const rateLimited = await createMessage(teamA.api_token, records('limited', 1))
+    it('produces each surviving message unchanged and drops the rest silently', async () => {
+        const kept = [createMessage(teamA.api_token, 2), createMessage(teamA.api_token, 3)]
+        const rateLimited = createMessage(teamA.api_token, 1)
         rateLimiter.filterMessages.mockImplementation((messages: { message: Message }[]) => {
             const dropped = messages.filter((m) => m.message.offset === rateLimited.offset)
             return Promise.resolve({ allowed: messages.filter((m) => !dropped.includes(m)), dropped })
         })
 
         await runPipeline([
-            await createMessage(teamA.api_token, records('a', 2)),
-            await createMessage(null, records('no_token', 1)),
-            await createMessage('unknown-token', records('no_team', 1)),
-            await createMessage(teamLimited.api_token, records('quota', 1)),
+            kept[0],
+            createMessage(null, 1),
+            createMessage('unknown-token', 1),
+            createMessage(teamLimited.api_token, 1),
             rateLimited,
-            await createMessage(teamA.api_token, records('b', 3)),
+            kept[1],
         ])
 
         const produced = producedTo(METRICS_TOPIC)
-        expect(produced).toHaveLength(1)
-        expect(produced[0].headers).toMatchObject({
-            token: 'token-a',
-            team_id: '1',
-            'retention-days': String(DEFAULT_METRICS_RETENTION_DAYS),
-            record_count: '5',
-            repacked_from: '2',
-        })
-        const decoded = await decodeMetricsPacket(produced[0].value!)
-        expect(decoded.records).toEqual([...records('a', 2), ...records('b', 3)])
+        expect(produced.map((m) => m.value)).toEqual(kept.map((m) => m.value))
+        for (const message of produced) {
+            expect(message.headers).toMatchObject({
+                token: 'token-a',
+                team_id: '1',
+                'retention-days': String(DEFAULT_METRICS_RETENTION_DAYS),
+            })
+        }
         expect(producedTo(DLQ_TOPIC)).toHaveLength(0)
 
         // The rate limiter sees the whole batch once, minus what quota already dropped.
@@ -172,19 +151,15 @@ describe('MetricsIngestionPipeline', () => {
         expect(rateLimiter.filterMessages.mock.calls[0][0]).toHaveLength(3)
     })
 
-    it('produces one packet per team and one usage row per stat per team', async () => {
+    it('emits one usage row per stat per team', async () => {
         await runPipeline([
-            await createMessage(teamA.api_token, records('a', 2)),
-            await createMessage(teamB.api_token, records('b', 1)),
-            await createMessage(teamA.api_token, records('c', 1)),
-            await createMessage(teamLimited.api_token, records('quota', 4)),
+            createMessage(teamA.api_token, 2),
+            createMessage(teamB.api_token, 1),
+            createMessage(teamA.api_token, 1),
+            createMessage(teamLimited.api_token, 4),
         ])
 
-        const produced = producedTo(METRICS_TOPIC)
-        expect(produced.map((m) => [m.headers?.team_id, m.headers?.record_count]).sort()).toEqual([
-            ['1', '3'],
-            ['2', '1'],
-        ])
+        expect(producedTo(METRICS_TOPIC)).toHaveLength(3)
         expect(usageRows().sort()).toEqual(
             [
                 [1, 'bytes_received', 300],
@@ -203,35 +178,21 @@ describe('MetricsIngestionPipeline', () => {
         )
     })
 
-    it('sends every original message of a failed packet to the DLQ and still emits usage', async () => {
+    it('sends a message whose produce fails to the DLQ and still emits usage', async () => {
         mockKafkaProducer.produce.mockImplementation((message: { topic: string }) =>
             message.topic === METRICS_TOPIC ? Promise.reject(new Error('broker down')) : Promise.resolve()
         )
-        const first = await createMessage(teamA.api_token, records('a', 1))
-        const second = await createMessage(teamA.api_token, records('b', 1))
+        const message = createMessage(teamA.api_token, 2)
 
-        await runPipeline([first, second])
+        await runPipeline([message])
 
         const dlq = producedTo(DLQ_TOPIC)
-        expect(dlq.map((m) => m.value)).toEqual(expect.arrayContaining([first.value, second.value]))
-        expect(dlq).toHaveLength(2)
-        for (const message of dlq) {
-            expect(message.headers).toMatchObject({
-                token: 'token-a',
-                dlq_reason: 'broker down',
-                dlq_step: 'repackAndProduceMetricsStep',
-            })
-        }
+        expect(dlq.map((m) => m.value)).toEqual([message.value])
+        expect(dlq[0].headers).toMatchObject({
+            token: 'token-a',
+            dlq_reason: 'broker down',
+            dlq_step: 'produceMetricsStep',
+        })
         expect(usageRows()).toEqual(expect.arrayContaining([[1, 'bytes_ingested', 200]]))
-    })
-
-    it('sends an undecodable packet to the DLQ without blocking the rest of the team', async () => {
-        const broken = await createMessage(teamA.api_token, [], { value: Buffer.from('not avro') })
-        const good = await createMessage(teamA.api_token, records('a', 2))
-
-        await runPipeline([broken, good])
-
-        expect(producedTo(DLQ_TOPIC).map((m) => m.headers?.dlq_step)).toEqual(['decodeMetricsPacketStep'])
-        expect(producedTo(METRICS_TOPIC).map((m) => m.headers?.record_count)).toEqual(['2'])
     })
 })

@@ -10,7 +10,6 @@ import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 
-import { createDecodeMetricsPacketStep } from './decode-metrics-packet-step'
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { MetricsUsageBatchContext } from './metrics-usage'
 import {
@@ -20,8 +19,8 @@ import {
 } from './metrics-usage-steps'
 import { MetricsOutput } from './outputs/outputs'
 import { createParseMetricsHeadersStep } from './parse-metrics-headers-step'
+import { createProduceMetricsStep } from './produce-metrics-step'
 import { createRateLimitMetricsStep } from './rate-limit-metrics-step'
-import { RepackMetricsConfig, createRepackAndProduceMetricsStep, metricsRepackGroupKey } from './repack-metrics-step'
 import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsMessageContext, MetricsPipelineInput } from './types'
@@ -34,7 +33,6 @@ export interface MetricsIngestionPipelineConfig {
     teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>
     quotaLimiting: Pick<QuotaLimiting, 'isTeamTokenQuotaLimited'>
     rateLimiter: Pick<MetricsRateLimiterService, 'filterMessages'>
-    repack: RepackMetricsConfig
 }
 
 export type MetricsIngestionPipeline = BatchingPipeline<
@@ -52,13 +50,11 @@ export type MetricsIngestionPipeline = BatchingPipeline<
  * 1. Per message, concurrently: read headers, resolve the team, tally what was
  *    received, drop quota-limited teams.
  * 2. Whole batch: one Redis round trip for the token-bucket rate limit.
- * 3. Per message, concurrently: decode the Avro packet into its rows.
- * 4. Per team: merge the batch's rows into as few output packets as the caps
- *    allow, encode and produce them to ClickHouse.
- * 5. After the batch: emit Prometheus counters and billing rows from the tally.
+ * 3. Per message, concurrently: produce the Avro packet to ClickHouse as is.
+ * 4. After the batch: emit Prometheus counters and billing rows from the tally.
  */
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
-    const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter, repack } = config
+    const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter } = config
 
     const pipelineConfig: PipelineConfig = { outputs, promiseScheduler }
     const sideEffects = { await: false }
@@ -85,19 +81,7 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
                         )
                         .gather()
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
-                        .concurrently((b) =>
-                            b.pipe(
-                                createDecodeMetricsPacketStep({
-                                    maxRecords: repack.maxRecordsPerPacket,
-                                    maxDecompressedBytes: repack.maxBytesUncompressedPerPacket,
-                                })
-                            )
-                        )
-                        // The whole batch must be in one chunk for a team's packets to meet in one group.
-                        .gather()
-                        .concurrentlyPerGroup(metricsRepackGroupKey, (group) =>
-                            group.pipeChunk(createRepackAndProduceMetricsStep(outputs, repack))
-                        )
+                        .concurrently((b) => b.pipe(createProduceMetricsStep(outputs)))
                 )
                 .handleResults(pipelineConfig)
                 .handleSideEffects(promiseScheduler, sideEffects),

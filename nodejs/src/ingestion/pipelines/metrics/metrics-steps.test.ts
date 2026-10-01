@@ -1,4 +1,3 @@
-import avro from 'avsc'
 import { Message } from 'node-rdkafka'
 
 import { AppMetricsOutput } from '~/common/outputs'
@@ -9,19 +8,16 @@ import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '~/tests/helpers/team'
 
-import { createDecodeMetricsPacketStep } from './decode-metrics-packet-step'
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
-import { decodeMetricsPacket, encodeMetricsPacket } from './metrics-avro'
 import { MetricsUsageAccumulator } from './metrics-usage'
 import { createEmitMetricsUsageStep } from './metrics-usage-steps'
-import { METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
+import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 import { createParseMetricsHeadersStep } from './parse-metrics-headers-step'
+import { createProduceMetricsStep } from './produce-metrics-step'
 import { createRateLimitMetricsStep } from './rate-limit-metrics-step'
-import { createRepackAndProduceMetricsStep, metricsRepackGroupKey } from './repack-metrics-step'
 import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
-import { MetricRecord } from './types'
 
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -32,21 +28,8 @@ jest.mock('~/common/utils/env-utils', () => ({
 }))
 jest.mock('./ingestion-otel-metrics', () => ({ recordMetricsIngested: jest.fn() }))
 
-const TEST_RECORD_TYPE = avro.Type.forSchema({
-    type: 'record',
-    name: 'MetricRecord',
-    fields: [
-        { name: 'metric_name', type: 'string' },
-        { name: 'value', type: 'double' },
-    ],
-})
-
 function toHeaders(headers: Record<string, string>): Message['headers'] {
     return Object.entries(headers).map(([key, value]) => ({ [key]: Buffer.from(value) }))
-}
-
-function metricRecords(prefix: string, count: number): MetricRecord[] {
-    return Array.from({ length: count }, (_, i) => ({ metric_name: `${prefix}_${i}`, value: i }))
 }
 
 async function counterValue(
@@ -207,155 +190,58 @@ describe('metrics ingestion steps', () => {
         })
     })
 
-    describe('decodeMetricsPacketStep', () => {
-        const step = createDecodeMetricsPacketStep({ maxRecords: 1000, maxDecompressedBytes: 1024 * 1024 })
-
-        it('decodes the Avro container into rows with a schema fingerprint', async () => {
-            const records = metricRecords('cpu', 3)
-            const value = await encodeMetricsPacket(TEST_RECORD_TYPE, 'zstandard', records)
-            const result = await step({ message: createTestMessage({ value }), teamId: 7 })
-
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                expect(result.value.records).toEqual(records)
-                expect(result.value.codec).toBe('zstandard')
-                expect(result.value.schemaFingerprint).toBe(TEST_RECORD_TYPE.fingerprint('md5').toString('hex'))
-            }
-        })
-
-        it('drops a null value', async () => {
-            const result = await step({ message: createTestMessage({ value: null }), teamId: 7 })
-            expectDrop(result, 'null_value')
-        })
-
-        it('sends an undecodable value to the DLQ', async () => {
-            const result = await step({ message: createTestMessage({ value: Buffer.from('not avro') }), teamId: 7 })
-            expect(isDlqResult(result)).toBe(true)
-            if (isDlqResult(result)) {
-                expect(result.reason).toBe('metrics_decode_failed')
-                expect(result.error).toBeInstanceOf(Error)
-            }
-            expect(await counterValue(metricMessageDlqCounter, { reason: 'decode_failed', team_id: '7' })).toBe(1)
-        })
-
-        it.each([
-            ['record', { maxRecords: 2, maxDecompressedBytes: 1024 * 1024 }],
-            ['decompressed byte', { maxRecords: 1000, maxDecompressedBytes: 10 }],
-        ])('stops decoding at the %s cap and sends the packet to the DLQ', async (_cap, limits) => {
-            const value = await encodeMetricsPacket(TEST_RECORD_TYPE, 'zstandard', metricRecords('cpu', 3))
-            const result = await createDecodeMetricsPacketStep(limits)({
-                message: createTestMessage({ value }),
-                teamId: 7,
-            })
-            expect(isDlqResult(result) && result.reason).toBe('metrics_packet_too_large')
-            expect(await counterValue(metricMessageDlqCounter, { reason: 'packet_too_large', team_id: '7' })).toBe(1)
-        })
-    })
-
-    describe('repackAndProduceMetricsStep', () => {
+    describe('produceMetricsStep', () => {
         let outputs: jest.Mocked<ReturnType<typeof createMockIngestionOutputs<MetricsOutput>>>
-        const config = { maxRecordsPerPacket: 1_000_000, maxBytesUncompressedPerPacket: 50 * 1024 * 1024 }
-
-        const makeInput = (teamId: number, records: MetricRecord[], headers: Record<string, string> = {}) => ({
+        const value = Buffer.from('opaque avro packet')
+        const input = {
             message: createTestMessage({
-                headers: toHeaders({
-                    token: `tok-${teamId}`,
-                    bytes_uncompressed: String(records.length * 100),
-                    record_count: String(records.length),
-                    batch_uuid: `batch-${records[0]?.metric_name ?? 'empty'}`,
-                    ...headers,
-                }),
+                value,
+                headers: toHeaders({ token: 'tok', record_count: '3', 'retention-days': '7', batch_uuid: 'b1' }),
             }),
-            token: `tok-${teamId}`,
-            teamId,
-            bytesUncompressed: records.length * 100,
-            recordType: TEST_RECORD_TYPE,
-            schemaFingerprint: TEST_RECORD_TYPE.fingerprint('md5').toString('hex'),
-            codec: 'zstandard',
-            records,
-        })
-
-        const producedTo = (output: string) =>
-            outputs.produce.mock.calls.filter(([name]) => name === output).map(([, message]) => message)
+            token: 'tok',
+            teamId: 7,
+            bytesUncompressed: 300,
+            recordCount: 3,
+        }
 
         beforeEach(() => {
             outputs = createMockIngestionOutputs<MetricsOutput>()
         })
 
-        it('groups by team and schema', () => {
-            const a = makeInput(1, metricRecords('a', 1))
-            const b = makeInput(1, metricRecords('b', 1))
-            const d = makeInput(2, metricRecords('d', 1))
-            expect(metricsRepackGroupKey(a)).toBe(metricsRepackGroupKey(b))
-            expect(metricsRepackGroupKey(a)).not.toBe(metricsRepackGroupKey(d))
-            expect(metricsRepackGroupKey(a)).not.toBe(metricsRepackGroupKey({ ...b, schemaFingerprint: 'other' }))
-        })
+        it('produces the packet unchanged with the ClickHouse headers and credits it after the ack', async () => {
+            const result = await createProduceMetricsStep(outputs)(input)
 
-        it("merges a team's packets into one produce and credits every member after the ack", async () => {
-            const inputs = [
-                makeInput(1, metricRecords('a', 2), { 'retention-days': '7' }),
-                makeInput(1, metricRecords('b', 3)),
-                makeInput(1, []),
-            ]
-            const results = await createRepackAndProduceMetricsStep(outputs, config)(inputs)
-
-            expect(results).toHaveLength(inputs.length)
-            expect(results.every(isOkResult)).toBe(true)
-            const produced = producedTo(METRICS_OUTPUT)
-            expect(produced).toHaveLength(1)
-            expect(produced[0].key).toBeNull()
-            expect(produced[0].headers).toEqual({
-                token: 'tok-1',
-                team_id: '1',
-                'retention-days': '30',
-                bytes_uncompressed: '500',
-                bytes_compressed: String(produced[0].value!.length),
-                record_count: '5',
-                repacked_from: '2',
+            expect(isOkResult(result)).toBe(true)
+            expect(outputs.produce).toHaveBeenCalledWith(METRICS_OUTPUT, {
+                value,
+                key: null,
+                headers: {
+                    token: 'tok',
+                    team_id: '7',
+                    record_count: '3',
+                    'retention-days': String(DEFAULT_METRICS_RETENTION_DAYS),
+                    batch_uuid: 'b1',
+                },
             })
-            const decoded = await decodeMetricsPacket(produced[0].value!)
-            expect(decoded.records).toEqual([...inputs[0].records, ...inputs[1].records])
-            expect(decoded.codec).toBe('zstandard')
-            expect(jest.mocked(recordMetricsIngested).mock.calls).toEqual([
-                [1, 200, 2],
-                [1, 300, 3],
-            ])
+            expect(recordMetricsIngested).toHaveBeenCalledWith(7, 300, 3)
         })
 
-        it('starts a new packet when a cap would be exceeded and keeps capture-batch headers on single-member packets', async () => {
-            const inputs = [
-                makeInput(1, metricRecords('a', 2)),
-                makeInput(1, metricRecords('b', 1)),
-                makeInput(1, metricRecords('c', 2)),
-            ]
-            const results = await createRepackAndProduceMetricsStep(outputs, { ...config, maxRecordsPerPacket: 2 })(
-                inputs
-            )
-
-            expect(results).toHaveLength(inputs.length)
-            const produced = producedTo(METRICS_OUTPUT)
-            // Packets encode concurrently, so produce order is not part of the contract.
-            expect(produced.map((m) => [m.headers?.batch_uuid, m.headers?.record_count]).sort()).toEqual([
-                ['batch-a_0', '2'],
-                ['batch-b_0', '1'],
-                ['batch-c_0', '2'],
-            ])
-        })
-
-        it('sends every member of a packet to the DLQ when its produce fails', async () => {
+        it('sends the message to the DLQ and does not credit it when the produce fails', async () => {
             outputs.produce.mockRejectedValueOnce(new Error('broker down'))
-            const inputs = [makeInput(1, metricRecords('a', 1)), makeInput(1, metricRecords('b', 1))]
-            const results = await createRepackAndProduceMetricsStep(outputs, config)(inputs)
+            const result = await createProduceMetricsStep(outputs)(input)
 
-            expect(results).toHaveLength(2)
-            for (const result of results) {
-                expect(isDlqResult(result)).toBe(true)
-                if (isDlqResult(result)) {
-                    expect(result.reason).toBe('metrics_produce_failed')
-                }
-            }
+            expect(isDlqResult(result) && result.reason).toBe('metrics_produce_failed')
             expect(recordMetricsIngested).not.toHaveBeenCalled()
-            expect(await counterValue(metricMessageDlqCounter, { reason: 'Error', team_id: '1' })).toBe(2)
+            expect(await counterValue(metricMessageDlqCounter, { reason: 'Error', team_id: '7' })).toBe(1)
+        })
+
+        it('drops a message with no value', async () => {
+            const result = await createProduceMetricsStep(outputs)({
+                ...input,
+                message: createTestMessage({ value: null }),
+            })
+            expectDrop(result, 'null_value')
+            expect(outputs.produce).not.toHaveBeenCalled()
         })
     })
 
