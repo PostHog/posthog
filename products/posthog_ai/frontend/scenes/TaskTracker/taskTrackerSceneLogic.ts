@@ -17,6 +17,7 @@ import {
     type ClaudeTaskRunCreateSchemaApi,
     type CodexTaskRunCreateSchemaApi,
     type LegacyDesktopAccessResponseApi,
+    ModelAccessEnumApi,
     type ModelChoiceApi,
     TaskOriginProductEnumApi,
     ReasoningEffortEnumApi,
@@ -30,6 +31,12 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import {
+    CodexBillingUnresolvedError,
+    codexBillingLogic,
+    codexModelAccessForRun,
+    usesChatGptPlan,
+} from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
@@ -188,6 +195,7 @@ export interface taskTrackerSceneLogicValues {
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
+    defaultsResolved: boolean // taskRunDefaultsLogic
     warmLease: WarmLease | null // taskWarmLogic
     repositories: string[] // tasksLogic
     taskListParams: TaskListParams // tasksLogic
@@ -315,6 +323,9 @@ export interface taskTrackerSceneLogicActions {
     maybeAutoSelectIntegration: () => {
         value: true
     }
+    noteNewTaskDraft: () => {
+        value: true
+    }
     openExistingTask: (task: Task) => {
         task: Task
     }
@@ -427,7 +438,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
             ['stagedAttachments'],
             taskRunDefaultsLogic,
-            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
+            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter', 'defaultsResolved'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -468,6 +479,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         clearConsentBlock: true,
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
+        noteNewTaskDraft: true,
     }),
 
     reducers({
@@ -637,16 +649,26 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
             // sandbox and clones the selected repository, so it must not run before the organization
             // accepts AI data processing.
-            if (!values.activeCreation && values.dataProcessingAccepted) {
-                const request = buildWarmRequest(
-                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
-                    values.catalogue,
-                    values.displayModel,
-                    values.displayEffort
-                )
-                if (request) {
-                    actions.noteDraft(values.newTaskData.description.trim().length > 0, request)
-                }
+            actions.noteNewTaskDraft()
+        },
+        // A run on the ChatGPT plan can't use a warm sandbox, so switching the billing re-decides the warm.
+        [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: () => {
+            actions.noteNewTaskDraft()
+        },
+        noteNewTaskDraft: () => {
+            if (values.activeCreation || !values.dataProcessingAccepted) {
+                return
+            }
+            const request = buildWarmRequest(
+                { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
+                values.catalogue,
+                values.displayModel,
+                values.displayEffort
+            )
+            if (request) {
+                // An empty draft releases the warm, and so does the ChatGPT plan, which boots cold.
+                const hasText = values.newTaskData.description.trim().length > 0
+                actions.noteDraft(hasText && !usesChatGptPlan(values.composerAdapter), request)
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
@@ -701,6 +723,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const description = values.newTaskData.description.trim()
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
+            const composerAdapter = values.composerAdapter
 
             if (!description) {
                 lemonToast.error('Description is required')
@@ -740,6 +763,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 currentMode: permissionMode,
                 currentRuntimeAdapter:
                     values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
+                currentCodexModelAccess: usesChatGptPlan(composerAdapter) ? ModelAccessEnumApi.OwnSubscription : null,
                 contextItems: props.contextItems,
             })
             cache.disposables.add(
@@ -765,6 +789,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
 
             try {
+                const codexModelAccess = await codexModelAccessForRun(async () => {
+                    if (values.isDefaultSelection && !values.defaultsResolved) {
+                        await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+                        if (!values.defaultsResolved) {
+                            return null
+                        }
+                    }
+                    return values.composerAdapter
+                })
+                const onChatGptPlan = codexModelAccess === ModelAccessEnumApi.OwnSubscription
                 // Files can only be uploaded against something that already exists. A warm lease names a task
                 // and a run, so they go onto that run and ride its activation. Without one there is nothing
                 // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
@@ -789,6 +823,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     branch: repositoryConfig.branch ?? null,
                     mode: TaskExecutionModeEnumApi.Interactive,
                     pending_user_message: pendingUserMessage,
+                    ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
                 }
                 // An untouched selection pins nothing: the backend resolves the model triple from the
                 // stored team/user default (correct even while the defaults fetch is in flight or has
@@ -796,7 +831,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // was provisioned the same way, so provisioning and matching resolve alike. An explicit
                 // pick sends the full displayed selection, runtime derived from the model.
                 let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
-                if (!values.isDefaultSelection) {
+                // A run on the ChatGPT plan pins the displayed Codex model, so the server can't resolve a default
+                // on another harness that the plan can't pay for.
+                if (!values.isDefaultSelection || onChatGptPlan) {
                     const built = buildRunCreateRequest(
                         values.catalogue,
                         values.displayModel,
@@ -823,7 +860,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // (even `null`) or reuse is never attempted at all — which is how lease-less attachments
                     // opt out. The model triple is left off when the selection is untouched, so the backend
                     // resolves it for warm matching too.
-                    ...(suppressWarmReuse ? {} : { branch: runPayload.branch }),
+                    // A warm sandbox holds no ChatGPT token, so a run on the plan skips warm reuse and boots cold.
+                    ...(suppressWarmReuse || onChatGptPlan ? {} : { branch: runPayload.branch }),
                     ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
@@ -914,6 +952,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                                 ? createdRun.state.initial_permission_mode
                                 : interaction.props.currentMode,
                         currentRuntimeAdapter: createdRun?.runtime_adapter ?? interaction.props.currentRuntimeAdapter,
+                        currentCodexModelAccess:
+                            typeof createdRun?.state?.codex_model_access === 'string'
+                                ? createdRun.state.codex_model_access
+                                : (codexModelAccess ?? interaction.props.currentCodexModelAccess),
                     })
                     // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
                     // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
@@ -977,6 +1019,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
+                if (error instanceof CodexBillingUnresolvedError) {
+                    lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")
                 }
                 cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')

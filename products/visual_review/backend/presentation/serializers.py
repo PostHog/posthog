@@ -608,6 +608,32 @@ class FlakinessOverviewSerializer(DataclassSerializer):
         dataclass = FlakinessOverview
 
 
+class RunSnapshotsQuerySerializer(serializers.Serializer):
+    include_quarantined = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to include snapshots whose identifier is currently quarantined. "
+            "Defaults to false: quarantined snapshots are excluded from results and reported "
+            "in quarantined_count instead, since they are noise when reviewing real changes."
+        ),
+    )
+    exclude_unchanged = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to leave out snapshots whose result is `unchanged`. Defaults to false. "
+            "Pass true to list only the changed, new and removed snapshots, which is what a "
+            "review needs. A large run holds thousands of unchanged snapshots and few changes."
+        ),
+    )
+    snapshot_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Return only the snapshot with this id, read from the `id` field of a snapshot in "
+            "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
+
+
 class TolerationPileupsQuerySerializer(serializers.Serializer):
     min_tolerations = serializers.IntegerField(
         default=VARIANT_PILEUP_MIN,
