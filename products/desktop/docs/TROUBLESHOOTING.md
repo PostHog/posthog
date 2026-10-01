@@ -72,10 +72,6 @@ Cloud tasks and investigations use GitHub to read the selected repository and ke
 
 If your organization needs an owner to approve the PostHog app, copy the access request from the prompt and send it to the owner. When the same repository is registered as a local folder, you can run the investigation against that local checkout. The result is a point-in-time view and can become stale after the run.
 
-## Build cannot find `@posthog/agent-contracts`
-
-The agent packages live in the separate `packages/agent` workspace. A desktop install does not build their type declarations. From `products/desktop`, run `pnpm build:agent` before a scoped package build. `pnpm build`, `pnpm build:deps`, and `pnpm hosthog:build` run this step automatically.
-
 ## Black screen during development
 
 If the app launches but renders a blank/black screen, it's almost always a stale Vite cache.
