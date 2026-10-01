@@ -25,7 +25,6 @@ from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppress
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
-from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 from products.security.backend.facade.api import is_email_code_exempt
 
@@ -207,7 +206,6 @@ def is_domain_sso_enforced(request: HttpRequest):
 
 
 def is_sso_authentication_backend(request: HttpRequest):
-    SSO_AUTHENTICATION_BACKENDS = []
     NON_SSO_AUTHENTICATION_BACKENDS = [
         "axes.backends.AxesBackend",
         "django.contrib.auth.backends.ModelBackend",
@@ -217,16 +215,8 @@ def is_sso_authentication_backend(request: HttpRequest):
     if not hasattr(request, "session"):
         return False
 
-    # Check if we're in EE, if yes, use the EE settings, otherwise use the posthog settings
-    try:
-        from ee import settings
-
-        SSO_AUTHENTICATION_BACKENDS = settings.AUTHENTICATION_BACKENDS
-    except ImportError:
-        SSO_AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS
-
-    # Remove the non-SSO backends from the list
-    SSO_AUTHENTICATION_BACKENDS = list(set(SSO_AUTHENTICATION_BACKENDS) - set(NON_SSO_AUTHENTICATION_BACKENDS))
+    # Django settings already include the EE backends when EE is installed
+    SSO_AUTHENTICATION_BACKENDS = list(set(settings.AUTHENTICATION_BACKENDS) - set(NON_SSO_AUTHENTICATION_BACKENDS))
 
     return request.session.get("_auth_user_backend") in SSO_AUTHENTICATION_BACKENDS
 

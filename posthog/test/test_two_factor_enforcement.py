@@ -8,8 +8,9 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory, TestCase
+from django.test import RequestFactory, TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.test import APIClient, APIRequestFactory
 
@@ -23,6 +24,7 @@ from posthog.auth import (
 from posthog.helpers.two_factor_session import (
     TWO_FACTOR_ENFORCEMENT_FROM_DATE,
     clear_two_factor_session_flags,
+    is_sso_authentication_backend,
     is_two_factor_session_expired,
     is_two_factor_verified_in_session,
     set_two_factor_verified_in_session,
@@ -101,6 +103,27 @@ class TestTwoFactorSessionUtils(TestCase):
     def test_is_two_factor_session_expired_without_session_created_timestamp(self):
         request = self._create_request()
         self.assertTrue(is_two_factor_session_expired(request))
+
+    @parameterized.expand(
+        [
+            ("ee_saml_backend", "ee.api.authentication.MultitenantSAMLAuth", True),
+            ("custom_sso_backend", "custom.auth.SSOBackend", True),
+            ("password_backend", "django.contrib.auth.backends.ModelBackend", False),
+            ("no_backend", None, False),
+        ]
+    )
+    @override_settings(
+        AUTHENTICATION_BACKENDS=[
+            "django.contrib.auth.backends.ModelBackend",
+            "ee.api.authentication.MultitenantSAMLAuth",
+            "custom.auth.SSOBackend",
+        ]
+    )
+    def test_is_sso_authentication_backend(self, _name, backend, expected):
+        request = self._create_request()
+        if backend is not None:
+            request.session["_auth_user_backend"] = backend
+        self.assertEqual(is_sso_authentication_backend(request), expected)
 
 
 class TestSessionAuthenticationTwoFactor(TestCase):
