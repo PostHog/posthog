@@ -68,7 +68,9 @@ from posthog.tasks.tasks import (
     update_survey_adaptive_sampling,
     update_survey_iteration,
 )
+from posthog.tasks.team_event_volume import update_team_event_volumes
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
+from posthog.tasks.team_llm_gateway_quota import reconcile_llm_gateway_quota_projection
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
@@ -115,6 +117,7 @@ from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
+    refresh_signal_scout_background_bands,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -308,7 +311,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Team metadata cache sync - hourly
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="13"),
         refresh_expiring_team_metadata_cache_entries.s(),
         name="team metadata cache sync",
     )
@@ -318,6 +321,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="0"),
         cleanup_stale_expiry_tracking_task.s(),
         name="team metadata expiry tracking cleanup",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="0"),
+        update_team_event_volumes.s(),
+        name="team event volume update",
+        expires_seconds=12 * 3600,
     )
 
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the
@@ -338,7 +349,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="workflows email sending tier recomputation",
     )
 
-    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
+    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13
     sender.add_periodic_task(
         crontab(hour="*", minute="5"),
         refresh_expiring_llm_gateway_policy_cache_entries.s(),
@@ -352,6 +363,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="gateway credential cache sync",
     )
 
+    # Gateway quota projection reconcile - every 15 min, offset from the quota-limiting run and
+    # the :05/:10 gateway cache refreshes, so a missed signal or an expiring blob heals within a tick
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="7,22,37,52"),
+        reconcile_llm_gateway_quota_projection.s(),
+        name="llm-gateway quota projection reconcile",
+    )
+
     # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.
     sender.add_periodic_task(
         crontab(minute="*/5"),
@@ -362,7 +382,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="0"),
+        crontab(minute="19"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
     )
@@ -417,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sync_pending_signals_refund_credits.s(),
         name="sync pending signals refund credits",
+    )
+
+    # Recompute the activity bands the background scout lane samples from - daily at 5:50 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="5", minute="50"),
+        refresh_signal_scout_background_bands.s(),
+        name="refresh signals scout background bands",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -808,7 +836,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="PG table cache hit rate",
     )
     sender.add_periodic_task(
-        crontab(minute="0", hour="*"),
+        crontab(minute="23", hour="*"),
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
     )
@@ -900,7 +928,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12", minute="0"),
+        crontab(hour="*/12", minute="41"),
         refresh_activity_log_fields_cache.s(),
         name="refresh activity log fields cache for large orgs",
     )
@@ -966,7 +994,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         add_periodic_task_with_expiry(
             sender,
-            crontab(minute="0"),
+            crontab(minute="43"),
             cleanup_old_scim_request_logs.s(),
             name="clean up old SCIM request logs",
         )
@@ -1019,7 +1047,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
         name="validate pending change requests",
     )
