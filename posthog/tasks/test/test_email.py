@@ -2182,11 +2182,17 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # No email should be sent since recipient doesn't have access
         assert len(mocked_email_messages) == 0
 
-    @parameterized.expand([("assigned_by_someone_else", False), ("assigned_to_self", True)])
+    @parameterized.expand(
+        [
+            ("assigned_by_someone_else", False, False),
+            ("assigned_to_self", True, False),
+            ("reassigned_before_the_task_runs", False, True),
+        ]
+    )
     def test_send_ticket_assigned_notification(
-        self, MockEmailMessage: MagicMock, _name: str, assigns_to_self: bool
+        self, MockEmailMessage: MagicMock, _name: str, assigns_to_self: bool, reassigned: bool
     ) -> None:
-        from products.conversations.backend.models import Ticket
+        from products.conversations.backend.models import Ticket, TicketAssignment
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2204,6 +2210,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             status="new",
             anonymous_traits={"name": "Test Customer", "email": "customer@example.com"},
         )
+        TicketAssignment.objects.create(ticket=ticket, user=self.user if reassigned else assignee)
 
         send_ticket_assigned_notification(
             ticket_id=str(ticket.id),
@@ -2214,7 +2221,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assigner_id=assignee.id if assigns_to_self else self.user.id,
         )
 
-        if assigns_to_self:
+        if assigns_to_self or reassigned:
             assert len(mocked_email_messages) == 0
             return
 
@@ -2228,7 +2235,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Test Customer" in message.html_body
 
     def test_send_ticket_assigned_notification_opted_out(self, MockEmailMessage: MagicMock) -> None:
-        from products.conversations.backend.models import Ticket
+        from products.conversations.backend.models import Ticket, TicketAssignment
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -2248,6 +2255,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             channel_source="widget",
             status="new",
         )
+        TicketAssignment.objects.create(ticket=ticket, user=assignee)
 
         send_ticket_assigned_notification(
             ticket_id=str(ticket.id),

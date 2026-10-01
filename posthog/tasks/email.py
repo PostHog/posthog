@@ -59,7 +59,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import Ticket, TicketAssignment
 from products.data_modeling.backend.facade.api import (
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
@@ -2497,9 +2497,12 @@ def send_ticket_assigned_notification(
         logger.warning(f"Skipping ticket assigned notification: ticket or team not found (ticket_id={ticket_id})")
         return
 
-    if assignee_type == "user":
+    # The ticket can change hands while this task waits in the queue. Only the current assignee
+    # hears about it.
+    assignment = TicketAssignment.objects.filter(ticket_id=ticket.id).first()
+    if assignee_type == "user" and assignment and assignment.user_id == int(assignee_id):
         assigned_user_ids = {int(assignee_id)}
-    elif assignee_type == "role":
+    elif assignee_type == "role" and assignment and assignment.role_id == uuid.UUID(assignee_id):
         assigned_user_ids = set(valid_role_member_user_ids(role_id=assignee_id))
     else:
         return
