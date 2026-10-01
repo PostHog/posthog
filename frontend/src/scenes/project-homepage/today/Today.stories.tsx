@@ -138,7 +138,12 @@ const RECENT_SESSIONS = [
         title: 'Speed up the invoice export',
         archived: false,
         last_activity_at: '2026-09-28T15:30:00Z',
-        latest_run: { id: 'run-3', status: 'completed', environment: 'cloud', output: null },
+        latest_run: {
+            id: 'run-3',
+            status: 'completed',
+            environment: 'cloud',
+            output: { pr_url: 'https://github.com/example-org/billing/pull/88' },
+        },
         description_preview: 'The monthly invoice export takes minutes for large teams. Batch the queries.',
         repository: 'example-org/billing',
         created_by: { id: 42, first_name: 'Grace', last_name: 'Hopper', email: 'grace@example.com' },
@@ -220,15 +225,25 @@ const REPORTS = [
     }),
 ]
 
-// Today keeps sample mode, the open pane and the sidebar width in local storage, which outlives a story.
-// Clearing it makes each story start clean, so only the sample stories show sample reports.
+// Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
+// a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
     for (const key of Object.keys(window.localStorage)) {
-        if (/today/i.test(key)) {
+        if (/today|spaceFeedViewLogic/i.test(key)) {
             window.localStorage.removeItem(key)
         }
     }
     return <Story />
+}
+
+/** Starts a story with a saved space feed view, the way a returning person sees it. */
+function withSpaceFeedView(saved: Record<string, unknown>): (Story: () => JSX.Element) => JSX.Element {
+    return function SpaceFeedViewDecorator(Story) {
+        for (const [reducer, value] of Object.entries(saved)) {
+            window.localStorage.setItem(`products.tasks.spaces.spaceFeedViewLogic.${reducer}`, JSON.stringify(value))
+        }
+        return <Story />
+    }
 }
 
 const meta: Meta = {
@@ -298,7 +313,7 @@ const meta: Meta = {
             },
             post: {
                 '/api/projects/:team_id/tasks/summaries/': {
-                    count: 1,
+                    count: 2,
                     next: null,
                     previous: null,
                     results: [
@@ -308,6 +323,10 @@ const meta: Meta = {
                                 pr_url: 'https://github.com/example-org/webapp/pull/421',
                                 pr_state: 'merged',
                             },
+                        },
+                        {
+                            id: 'task-3',
+                            latest_run: { pr_url: 'https://github.com/example-org/billing/pull/88', pr_state: 'open' },
                         },
                     ],
                 },
@@ -401,6 +420,20 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
         todaySpacesLogic.actions.setRecentFilters({ ...DEFAULT_RECENT_FILTERS, status: 'unread', environment: 'cloud' })
         await userEvent.click(await within(canvasElement).findByLabelText('Filters on'))
     },
+}
+
+export const SpacePagePullRequests: Story = {
+    decorators: [withSpaceFeedView({ types: ['pr'] })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacePageFiltered: Story = {
+    decorators: [
+        withSpaceFeedView({
+            filters: { createdBy: 'anyone', sources: [], status: 'unread', pinned: 'any', environment: 'any' },
+        }),
+    ],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
 export const SpacesBrowse: Story = {
