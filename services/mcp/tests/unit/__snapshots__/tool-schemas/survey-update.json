@@ -476,6 +476,10 @@
                                         "minimum": 1,
                                         "type": "number"
                                     },
+                                    "skipSubmitButton": {
+                                        "description": "When true, the survey submits the rating when the respondent selects it, and hides the submit button.",
+                                        "type": "boolean"
+                                    },
                                     "type": {
                                         "description": "* `rating` - rating",
                                         "enum": ["rating"],
@@ -610,6 +614,10 @@
                                     },
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent.",
+                                        "type": "boolean"
+                                    },
+                                    "skipSubmitButton": {
+                                        "description": "When true, the survey submits the choice when the respondent selects it, and hides the submit button. Has no effect when hasOpenChoice is true.",
                                         "type": "boolean"
                                     },
                                     "type": {
