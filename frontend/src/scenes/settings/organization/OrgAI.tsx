@@ -28,8 +28,8 @@ export function OrganizationAI(): JSX.Element {
         <div className="max-w-160">
             {hasSignedBaa && (
                 <p className="mb-2 text-sm text-secondary">
-                    PostHog AI is turned off because you have a signed BAA with PostHog. The BAA does not cover the
-                    third-party AI services these features use.
+                    You have a signed BAA with PostHog. The BAA does not cover the third-party AI services these
+                    features use, so you cannot turn them on.
                 </p>
             )}
             <LemonSwitch
