@@ -46,7 +46,7 @@ const photo = {
 };
 
 describe("promptPhotos", () => {
-  it("reads photos from attachment links and skips other files", () => {
+  it("reads photos from visible attachment links and skips other files", () => {
     const result = promptPhotos([
       { type: "text", text: "look", _meta: { ui: { hidden: true } } },
       { type: "text", text: "at these" },
@@ -54,6 +54,12 @@ describe("promptPhotos", () => {
         type: "resource_link",
         uri: photoUri("run-1", "artifact-1", "IMG_0001.HEIC"),
         name: "IMG_0001.HEIC",
+      },
+      {
+        type: "resource_link",
+        uri: photoUri("run-1", "artifact-3", "IMG_0002.jpg"),
+        name: "IMG_0002.jpg",
+        _meta: { ui: { hidden: true } },
       },
       {
         type: "resource_link",

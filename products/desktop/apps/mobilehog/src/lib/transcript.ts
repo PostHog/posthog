@@ -123,15 +123,15 @@ export function promptPhotos(prompt: PromptBlock[]): {
   texts: string[];
   photos: PhotoRef[];
 } {
-  const { text, attachments } = extractPromptDisplayContent(prompt, {
-    filterHidden: true,
-  });
-  const texts = prompt.flatMap((block) =>
-    block.type === "text" &&
-    block.text &&
-    !(block._meta as { ui?: { hidden?: boolean } } | undefined)?.ui?.hidden
-      ? [block.text]
-      : [],
+  // An upstream retry resends every block of the prompt as hidden, photo links
+  // too, so hidden blocks must not add the photos again.
+  const visible = prompt.filter(
+    (block) =>
+      !(block._meta as { ui?: { hidden?: boolean } } | undefined)?.ui?.hidden,
+  );
+  const { text, attachments } = extractPromptDisplayContent(visible);
+  const texts = visible.flatMap((block) =>
+    block.type === "text" && block.text ? [block.text] : [],
   );
   const photos = attachments.flatMap((attachment) =>
     attachment.cloudArtifact && isPhotoName(attachment.label)
