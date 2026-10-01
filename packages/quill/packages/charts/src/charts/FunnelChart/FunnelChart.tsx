@@ -246,11 +246,6 @@ export function FunnelChart<Meta = unknown>({
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 
-    // The probe reports bands through a child callback, so `bands` lands a render after the props
-    // that produced it. When a shorter funnel replaces a longer one, that stale array would ask the
-    // consumer's `stepFooter` for steps the new data no longer has.
-    const footerBands = useMemo(() => bands?.slice(0, steps.length) ?? null, [bands, steps.length])
-
     const chart = (
         <BarChart<Meta>
             series={series}
@@ -283,8 +278,8 @@ export function FunnelChart<Meta = unknown>({
             >
                 {chart}
             </div>
-            {footerBands && footerBands.length > 0 && (
-                <StepFooterRow bands={footerBands} stepFooter={stepFooter} />
+            {bands && bands.length > 0 && (
+                <StepFooterRow bands={bands.slice(0, steps.length)} stepFooter={stepFooter} />
             )}
         </div>
     )
