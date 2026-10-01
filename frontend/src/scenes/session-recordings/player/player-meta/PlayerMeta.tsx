@@ -13,11 +13,17 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils/guards'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import {
+    InsertInNotebookPlaylistButton,
+    MenuActions,
+    PinToPlaylistButton,
+    PlayerMetaLinks,
+} from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -96,16 +102,25 @@ export type PlayerMetaBreakpoints = 'small' | 'normal'
 
 function PlayerMetaConsolidatedControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const {
-        logicProps: { withSidebar },
+        sessionRecordingId,
+        logicProps: { withSidebar, mode },
     } = useValues(sessionRecordingPlayerLogic)
     const chromeItems = usePlayerChromeMenuItems()
+    const isSharing = mode === SessionRecordingPlayerMode.Sharing
 
     return (
         <div className="flex items-center gap-0.5">
+            {!isSharing && sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
             <SetPlaybackSpeed />
             {withSidebar && <InspectDOM />}
+            {!isSharing && (
+                <>
+                    <InsertInNotebookPlaylistButton size={size} />
+                    <PinToPlaylistButton />
+                    <PlayerShareMenu />
+                </>
+            )}
             {withSidebar && <PlayerInspectorButton />}
-            <PlayerMetaLinks size={size} menuExtraItems={chromeItems} />
             {!withSidebar && <PlayerPersonMeta />}
         </div>
     )

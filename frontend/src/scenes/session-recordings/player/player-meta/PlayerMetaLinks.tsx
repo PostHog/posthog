@@ -33,7 +33,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
-function PinToPlaylistButton(): JSX.Element {
+export function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -66,17 +66,9 @@ function PinToPlaylistButton(): JSX.Element {
     )
 }
 
-export function PlayerMetaLinks({
-    size,
-    menuExtraItems,
-}: {
-    size: PlayerMetaBreakpoints
-    menuExtraItems?: LemonMenuItems
-}): JSX.Element {
+export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
-    const nodeLogic = useNotebookNode()
 
     return (
         <div className="flex">
@@ -84,31 +76,42 @@ export function PlayerMetaLinks({
                 <>
                     {sessionRecordingId && (
                         <div className="flex items-center gap-0.5">
-                            <MenuActions size={size} extraItems={menuExtraItems} />
+                            <MenuActions size={size} />
                         </div>
                     )}
 
                     <PlayerShareMenu />
 
-                    {size === 'normal' && nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconNotebook />}
-                            onClick={() => {
-                                nodeLogic.actions.insertAfter({
-                                    type: NotebookNodeType.Recording,
-                                    attrs: { id: sessionRecordingId },
-                                })
-                            }}
-                            tooltip="Comment in a notebook"
-                            data-attr="player-meta-add-replay-to-notebook"
-                        />
-                    ) : null}
+                    <InsertInNotebookPlaylistButton size={size} />
 
                     <PinToPlaylistButton />
                 </>
             ) : null}
         </div>
+    )
+}
+
+export function InsertInNotebookPlaylistButton({ size }: { size: PlayerMetaBreakpoints }): JSX.Element | null {
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const nodeLogic = useNotebookNode()
+
+    if (size !== 'normal' || nodeLogic?.props.nodeType !== NotebookNodeType.RecordingPlaylist) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            size="xsmall"
+            icon={<IconNotebook />}
+            onClick={() => {
+                nodeLogic.actions.insertAfter({
+                    type: NotebookNodeType.Recording,
+                    attrs: { id: sessionRecordingId },
+                })
+            }}
+            tooltip="Comment in a notebook"
+            data-attr="player-meta-add-replay-to-notebook"
+        />
     )
 }
 
@@ -138,7 +141,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
     )
 }
 
-const MenuActions = ({
+export const MenuActions = ({
     size,
     extraItems = [],
 }: {
