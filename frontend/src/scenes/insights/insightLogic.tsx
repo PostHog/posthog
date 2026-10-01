@@ -1130,7 +1130,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     query: values.query,
                     deleted,
                     saved: true,
-                    dashboards,
+                    // Only a create may set dashboards. On update, a stale list would restore tiles removed elsewhere.
+                    ...(insightNumericId ? {} : { dashboards }),
                     tags,
                 }
 
