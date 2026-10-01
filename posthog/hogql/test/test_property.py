@@ -1010,6 +1010,30 @@ class TestProperty(BaseTest):
             ),
         )
 
+    def test_selector_to_expr_keeps_legacy_matches_for_a_class_before_an_attribute(self):
+        tail = "[^;]*?($|;|:([^;^\\s]*(;|$|\\s)))"
+        within = '(?:[^;"]|"(?:\\\\.|[^"\\\\])*")*?'
+        self.assertEqual(
+            self._selector_to_expr(".icon-button[aria-label='Close']"),
+            clear_locations(
+                parse_expr(
+                    "({legacy} and arrayCount(x -> x IN ['button'], elements_chain_elements) > 0) or {regex}",
+                    {
+                        "legacy": elements_chain_match('(^|;)button.*?aria\\-label="Close".*?' + tail),
+                        "regex": elements_chain_match(
+                            "(^|;)"
+                            + within
+                            + "\\.icon\\-button"
+                            + within
+                            + 'attr__aria\\-label="Close"'
+                            + within
+                            + tail
+                        ),
+                    },
+                )
+            ),
+        )
+
     def test_selector_to_expr_tailwind_classes(self):
         """Test that selectors work with Tailwind classes that include brackets, parentheses, and commas"""
         # Test Tailwind class with brackets (responsive design)

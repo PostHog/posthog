@@ -283,6 +283,46 @@ class TestSelectorRegexMatching(SimpleTestCase):
                 True,
             ),
             (
+                "a class and an attribute on one element",
+                '.btn[ng-disabled="data.disabled"]',
+                [
+                    Element(
+                        tag_name="a", attr_class=["btn", "btn-lg"], attributes={"attr__ng-disabled": "data.disabled"}
+                    )
+                ],
+                True,
+            ),
+            (
+                "a tag, a class and an attribute on one element",
+                'button.btn[type="submit"]',
+                [Element(tag_name="button", attr_class=["btn"], attributes={"attr__type": "submit"})],
+                True,
+            ),
+            (
+                "two attributes after a tag and a position",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="button", nth_child=2, attributes={"attr__data-x": "a", "attr__type": "button"})],
+                True,
+            ),
+            (
+                "a tag and a class on different elements",
+                'button.btn[type="submit"]',
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attr_class=["btn"], attributes={"attr__type": "submit"}),
+                ],
+                False,
+            ),
+            (
+                "a class and an attribute on different elements",
+                '.btn[ng-disabled="data.disabled"]',
+                [
+                    Element(tag_name="a", attr_class=["btn"]),
+                    Element(tag_name="div", attributes={"attr__ng-disabled": "data.disabled"}),
+                ],
+                False,
+            ),
+            (
                 "attribute value mismatch",
                 'div[title="hi"]',
                 [Element(tag_name="div", attributes={"attr__title": "bye"})],

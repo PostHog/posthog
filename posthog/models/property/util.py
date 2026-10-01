@@ -138,19 +138,19 @@ def _chain_attribute_order(key: str) -> str:
 def build_selector_regex(selector: Selector) -> str:
     regex = r""
     for tag in selector.parts:
+        # A reparsed part must match its tag, classes and attributes on one element.
+        gap = _WITHIN_ELEMENT if tag.confine_to_element else r".*?"
         if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
             # The elements in the elements_chain are separated by the semicolon
             regex += re.escape(tag.data["tag_name"])
         if tag.data.get("attr_class__contains"):
-            regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
+            regex += gap + r"\." + (r"\." + gap).join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
         if tag.ch_attributes:
-            # Attributes parsed from [a="1"][b="2"] must all be on one element.
-            separator = _WITHIN_ELEMENT if tag.confine_to_element else r".*?"
-            regex += separator
+            regex += gap
             for key, value in sorted(tag.ch_attributes.items(), key=lambda kv: _chain_attribute_order(kv[0])):
                 # The full chain key stops [foo="1"] from matching inside attr__data-foo="1".
                 name = _chain_attribute_order(key) if tag.confine_to_element else key
-                regex += rf'{re.escape(name)}="{re.escape(_chain_escaped_value(str(value)))}"' + separator
+                regex += rf'{re.escape(name)}="{re.escape(_chain_escaped_value(str(value)))}"' + gap
         # The rest of the element can carry characters an allowlist cannot
         # anticipate (classes like w-1/2 or !mt-0), so skip anything up to the
         # `;` element separator.
