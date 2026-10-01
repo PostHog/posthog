@@ -61,8 +61,18 @@ export function serializePlaygroundConfig(
 
     if (modelConfig) {
         config.model = modelConfig.model
-        config.provider = modelConfig.provider
+        if (modelConfig.provider) {
+            config.provider = modelConfig.provider
+        }
         config.provider_key_id = modelConfig.provider_key_id
+    } else if (isObject(existingConfig)) {
+        // No panel model to write (nothing selected yet): carry the stored selection
+        // forward instead of dropping it from the new version.
+        for (const key of ['model', 'provider', 'provider_key_id']) {
+            if (key in existingConfig) {
+                config[key] = existingConfig[key]
+            }
+        }
     }
     if (prompt.temperature !== null) {
         config.temperature = prompt.temperature

@@ -64,6 +64,28 @@ describe('playgroundPromptConfig', () => {
         })
     })
 
+    it('carries the stored model selection forward when no model config is passed', () => {
+        const existing = { model: 'gpt-5', provider: 'openai', provider_key_id: 'key-1', owner: 'api-user' }
+        const serialized = serializePlaygroundConfig(createPromptConfig(), null, existing)
+        expect(serialized).toMatchObject({
+            model: 'gpt-5',
+            provider: 'openai',
+            provider_key_id: 'key-1',
+            owner: 'api-user',
+        })
+    })
+
+    it('omits an unknown provider but keeps the model id when options have not loaded', () => {
+        const parsed = parsePlaygroundConfig(
+            serializePlaygroundConfig(
+                fullPrompt,
+                { model: 'acme/custom', provider: '', provider_key_id: 'key-9' },
+                null
+            )
+        )
+        expect(parsed).toMatchObject({ model: 'acme/custom', provider: null, providerKeyId: 'key-9' })
+    })
+
     it.each([null, undefined, 'a plain string prompt config', 42, [], { unrelated_key: true }])(
         'leaves the panel untouched for configs without playground keys: %p',
         (config) => {
