@@ -19,8 +19,8 @@ function CodexAccountRow({ integration }: { integration: UserCodexIntegrationApi
             title: 'Disconnect Codex?',
             description: (
                 <p>
-                    PostHog removes your ChatGPT sign-in here and in PostHog Desktop. Codex cloud tasks that use your
-                    ChatGPT plan stop working until you connect again.
+                    PostHog removes your ChatGPT sign-in. Codex cloud tasks that use your ChatGPT plan stop working
+                    until you connect again.
                 </p>
             ),
             primaryButton: {

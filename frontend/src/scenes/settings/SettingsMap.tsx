@@ -2545,8 +2545,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'personal-integrations-codex',
                 title: 'Codex',
-                description:
-                    'Connect your ChatGPT account so your Codex cloud tasks use your own ChatGPT plan. PostHog Desktop uses the same connection.',
+                description: 'Connect your ChatGPT account so your Codex cloud tasks use your own ChatGPT plan.',
                 component: <PersonalCodexIntegration />,
                 keywords: ['codex', 'chatgpt', 'openai', 'subscription', 'plan', 'integration', 'cloud', 'personal'],
                 flag: 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD',
