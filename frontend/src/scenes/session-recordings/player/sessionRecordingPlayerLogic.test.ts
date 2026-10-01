@@ -963,6 +963,72 @@ describe('sessionRecordingPlayerLogic', () => {
             }
         })
 
+        // The grace is measured from the position being played, not from the recording start: a
+        // recording longer than the grace period is still ingesting its tail while its start is
+        // already well past it. Real clock, so the anchor itself is what decides the verdict.
+        it.each([
+            {
+                description: 'buffers on a still-ingesting tail of a recording that started long ago',
+                seekTo: START + 325000,
+                expectedError: null,
+                expectedWaitingForIngestion: true,
+            },
+            {
+                description: 'errors on a position that is itself past the ingestion grace period',
+                seekTo: START + 5000,
+                expectedError: 'noPlayableFullSnapshot',
+                expectedWaitingForIngestion: false,
+            },
+        ])('$description', ({ seekTo, expectedError, expectedWaitingForIngestion }) => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            // six one-minute sources, all loaded, none of them carrying a FullSnapshot
+            dataLogic.actions.loadSnapshotSourcesSuccess(makeBlobSources(['20', '21', '22', '23', '24', '25']) as any)
+            const store = dataLogic.cache.store
+            const processed: RecordingSnapshot[] = []
+            for (let sourceIndex = 0; sourceIndex < 6; sourceIndex++) {
+                const sourceSnapshots = [
+                    inc(START + sourceIndex * 60000 + 1000),
+                    inc(START + sourceIndex * 60000 + 30000),
+                ]
+                markLoaded(store, sourceIndex, sourceSnapshots)
+                processed.push(...sourceSnapshots)
+            }
+            dataLogic.actions.storeUpdated()
+            coordinator.actions.setProcessedSnapshots(processed)
+            logic.actions.setPause()
+
+            // Only Date is faked; the player's timers must keep running as they do in production.
+            jest.useFakeTimers({
+                doNotFake: [
+                    'cancelAnimationFrame',
+                    'cancelIdleCallback',
+                    'clearImmediate',
+                    'clearInterval',
+                    'clearTimeout',
+                    'hrtime',
+                    'nextTick',
+                    'performance',
+                    'queueMicrotask',
+                    'requestAnimationFrame',
+                    'requestIdleCallback',
+                    'setImmediate',
+                    'setInterval',
+                    'setTimeout',
+                ],
+            })
+            // one minute after the recording ended, so its start is seven minutes old
+            jest.setSystemTime(START + 420000)
+            try {
+                logic.actions.seekToTimestamp(seekTo)
+
+                expect(logic.values.playerError).toBe(expectedError)
+                expect(logic.values.isWaitingForIngestion).toBe(expectedWaitingForIngestion)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
             // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs syncPlayerState;
             // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion

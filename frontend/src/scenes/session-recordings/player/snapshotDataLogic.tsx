@@ -501,8 +501,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             // before restarting — otherwise the very next attempt is already over the cap.
             cache.loadFailureCount = 0
             // Re-fetch the source list, which on success re-triggers loadNextSnapshotSource. This
-            // recovers both a failed source listing and a failed per-source fetch.
-            actions.loadSnapshots()
+            // recovers both a failed source listing and a failed per-source fetch. Straight to the
+            // loader rather than through loadSnapshots, which stands down while a poll is in flight
+            // and would leave a person's retry waiting out the whole poll interval.
+            actions.loadSnapshotSources()
         },
 
         loadSnapshotSourcesSuccess: ({ snapshotSources }) => {
