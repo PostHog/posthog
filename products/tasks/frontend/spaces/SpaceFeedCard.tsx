@@ -57,7 +57,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     return (
         <Card
             size="sm"
-            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
+            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
         >
             <div className="flex min-w-0 items-center gap-3">
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
@@ -73,7 +73,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                         <SpaceFeedStatusIcon item={item} className="translate-y-0.5" />
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
-                            className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0 hover:underline"
+                            className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0"
                             data-attr="today-space-feed-card"
                         >
                             {item.title || 'Untitled session'}
