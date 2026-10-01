@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -22,6 +22,16 @@ const defaultQuery: DataVisualizationNode = {
         query: 'select 1',
     },
     display: ChartDisplayType.Auto,
+}
+
+const equalsRule: ConditionalFormattingRule = {
+    id: 'equals',
+    templateId: 'equals',
+    columnName: 'value',
+    input: '1',
+    color: '#FFADAD',
+    colorMode: 'light',
+    bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
 }
 
 describe('dataVisualizationLogic', () => {
@@ -657,6 +667,21 @@ describe('dataVisualizationLogic', () => {
         logic.actions.setTableSorted()
 
         await expectLogic(logic).toMatchValues({ hasSortedTable: true })
+    })
+
+    test.each([
+        { name: 'loads the Hog VM for a table with formatting rules', rules: [equalsRule], hogVm: expect.anything() },
+        { name: 'does not load the Hog VM for a table without formatting rules', rules: [], hogVm: null },
+    ])('$name', async ({ rules, hogVm }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-loading',
+            query: { ...defaultQuery, tableSettings: { conditionalFormatting: rules } },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+
+        await expectLogic(tableLogic).toFinishAllListeners().toMatchValues({ hogVm })
+        tableLogic.unmount()
     })
 
     it('does not mutate the original query when updating y-axis formatting', async () => {

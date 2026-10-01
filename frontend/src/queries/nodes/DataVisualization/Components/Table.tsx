@@ -2,14 +2,13 @@ import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor } from 'lib/utils/colors'
-import { retryImport } from 'lib/utils/retryImport'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -166,23 +165,14 @@ export const Table = (props: TableProps): JSX.Element => {
         isTransposed,
         hasSortedTable,
         hasMoreData,
+        hogVm,
+        hogVmLoadError,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
-    // The Hog VM and its crypto polyfills are large, so only a table with formatting rules loads them.
-    const [hog, setHog] = useState<typeof import('lib/hog') | null>(null)
-    const [hogLoadError, setHogLoadError] = useState<unknown>(null)
-    const needsHog = conditionalFormattingRules.length > 0
-    useEffect(() => {
-        if (needsHog && !hog) {
-            retryImport(() => import('lib/hog'))
-                .then(setHog)
-                .catch(setHogLoadError)
-        }
-    }, [needsHog, hog])
     // Throw in render so an error boundary shows the failure, and a stale chunk reloads the page.
-    if (hogLoadError) {
-        throw hogLoadError
+    if (hogVmLoadError) {
+        throw hogVmLoadError
     }
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
@@ -197,7 +187,7 @@ export const Table = (props: TableProps): JSX.Element => {
             const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
                 const cell = data[index]
 
-                if (cell.isTransposedHeader || !hog) {
+                if (cell.isTransposedHeader || !hogVm) {
                     return undefined
                 }
 
@@ -217,7 +207,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     })
                     .map((n) => ({
                         rule: n,
-                        result: hog.execHog(n.bytecode, {
+                        result: hogVm.execHog(n.bytecode, {
                             globals: {
                                 value: cell.value,
                                 input: convertTableValue(n.input, sourceColumnType),
