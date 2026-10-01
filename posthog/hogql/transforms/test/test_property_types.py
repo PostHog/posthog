@@ -2122,8 +2122,6 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_toTimeZone_stripped_from_where_but_kept_in_select(self, _name, where):
-        """toTimeZone should be stripped from WHERE range comparisons reached through boolean connectives
-        but preserved in SELECT expressions and inside other function calls."""
         sql, _ = self._compile_hogql(f"SELECT timestamp FROM events WHERE {where}", timezone="America/New_York")
         where_clause = sql.split("WHERE")[1]
         select_clause = sql.split("WHERE")[0]
@@ -2181,7 +2179,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone preserved in SELECT if(), got:\n{select_clause}"
 
-        # A subquery nested in a call still strips its own WHERE
+    def test_subquery_inside_a_call_strips_its_own_where(self):
         sql, _ = self._compile_hogql(
             "SELECT countIf(distinct_id IN (SELECT distinct_id FROM events WHERE timestamp >= '2024-03-01')) FROM events",
             timezone="America/New_York",

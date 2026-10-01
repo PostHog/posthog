@@ -20,6 +20,7 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -150,8 +151,6 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.LtEq,
     }
     _RANGE_FUNCTIONS: set[str] = {"greater", "greaterOrEquals", "less", "lessOrEquals"}
-
-    # A comparison under these calls still filters the rows of the enclosing WHERE, so pruning still applies to it.
     _BOOLEAN_CONNECTIVES: set[str] = {"and", "or", "not"}
 
     # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
@@ -184,7 +183,7 @@ class PropertySwapper(CloningVisitor):
         self.group_properties = group_properties
         self.context = context
         self.setTimeZones = setTimeZones
-        self._inside_call_depth = 0
+        self._non_boolean_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
 
@@ -196,10 +195,10 @@ class PropertySwapper(CloningVisitor):
         # The CloningVisitor.visit_select_query visits fields in a fixed order.
         # We replicate that here, wrapping only where/prewhere with our flag.
         saved_where_depth = self._inside_where_depth
-        saved_call_depth = self._inside_call_depth
-        self._inside_where_depth = 0  # each SelectQuery gets its own scope
-        # A call around the subquery, as in countIf(x IN (SELECT ...)), does not wrap the subquery's own WHERE.
-        self._inside_call_depth = 0
+        saved_call_depth = self._non_boolean_call_depth
+        # Each SelectQuery gets its own scope
+        self._inside_where_depth = 0
+        self._non_boolean_call_depth = 0
 
         # Visit everything except where/prewhere normally (depth=0, no stripping)
         ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
@@ -220,7 +219,7 @@ class PropertySwapper(CloningVisitor):
         interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
 
         self._inside_where_depth = saved_where_depth  # restore parent scope
-        self._inside_call_depth = saved_call_depth
+        self._non_boolean_call_depth = saved_call_depth
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -266,11 +265,11 @@ class PropertySwapper(CloningVisitor):
         self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
 
         call_depth_step = 0 if node.name in self._BOOLEAN_CONNECTIVES else 1
-        self._inside_call_depth += call_depth_step
+        self._non_boolean_call_depth += call_depth_step
         try:
             result = super().visit_call(node)
         finally:
-            self._inside_call_depth -= call_depth_step
+            self._non_boolean_call_depth -= call_depth_step
             self._suppress_numeric_conversion = saved_suppress
 
         if can_move_timezone and isinstance(result, ast.Call):
@@ -559,9 +558,7 @@ class PropertySwapper(CloningVisitor):
         return ast.CompareOperation(left=moved.left, right=moved.right, op=result.op)
 
     def _can_move_timezone(self) -> bool:
-        """Only WHERE and PREWHERE gain from pruning. A comparison inside a call other than and(), or() or not()
-        does not filter the rows of the scan, as in if(timestamp >= ..., 1, 0), so it keeps its toTimeZone()."""
-        return self.setTimeZones and self._inside_where_depth > 0 and self._inside_call_depth == 0
+        return self.setTimeZones and self._inside_where_depth > 0 and self._non_boolean_call_depth == 0
 
     def _move_timezone_to_other_side(self, left: ast.Expr, right: ast.Expr) -> ComparisonOperands | None:
         """Move toTimeZone() from the field side to the other side of a range comparison.
@@ -606,10 +603,7 @@ class PropertySwapper(CloningVisitor):
             tz_side = left if left_is_tz else right
             other_side = right if left_is_tz else left
 
-            inner = tz_side
-            # A subquery cloned and resolved again, as in the sessions id pushdown, nests one Alias per resolution.
-            while isinstance(inner, ast.Alias):
-                inner = inner.expr
+            inner = unwrap_alias(tz_side)
             if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
                 tz_arg = inner.args[1]
                 if isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str):
