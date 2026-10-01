@@ -96,7 +96,7 @@ class TestSlackAgentDesignSignalEmitter:
                 "posthog_query",
                 "mcp__posthog__exec",
                 {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
-                {"phase": "posthog:SQL", "tool_title": "Execute SQL query"},
+                {"phase": "posthog:Execute SQL query"},
             ),
         ]
     )

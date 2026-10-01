@@ -3,8 +3,10 @@
 The plan shows one line per kind of work, never tool names or tool arguments. A tool call
 maps to a phase here, and the relay counts calls per phase for the line's title.
 
-PostHog work gets one line per category of the MCP tool catalogue ("Error tracking",
-"Feature flags", "SQL"), so a new PostHog tool gets a line without a change here.
+PostHog work gets one line per tool, titled as the MCP tool catalogue names it ("Execute SQL
+query", "Read data schema"), so a new PostHog tool gets a line without a change here. The
+catalogue categories are not used, because some of them ("Core", "Query wrappers") are
+internal names.
 
 When the agent keeps a todo list, the relay shows that list instead (see ``agent_plan_steps``).
 
@@ -31,7 +33,7 @@ class ProgressPhase:
 _LOOKUPS = ("lookup", "lookups")
 
 _CALLS = ("call", "calls")
-# Keys of PostHog lines start with this. The rest of the key is the catalogue category.
+# Keys of PostHog lines start with this. The rest of the key is the catalogue title of the tool.
 POSTHOG_PHASE_PREFIX = "posthog:"
 GETTING_CODE = ProgressPhase(key="getting_code", title="Getting the code", counter=None)
 READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter=_LOOKUPS)
@@ -150,9 +152,9 @@ def _short_activity(description: Any) -> str | None:
     return text if len(text) <= _ACTIVITY_LIMIT else text[: _ACTIVITY_LIMIT - 1] + "…"
 
 
-def posthog_phase(category: str) -> ProgressPhase:
-    """The line for a category of the MCP tool catalogue."""
-    title = " ".join(category.split())[:_ACTIVITY_LIMIT]
+def posthog_phase(tool_title: str) -> ProgressPhase:
+    """The line for a PostHog tool, titled as the MCP tool catalogue names it."""
+    title = " ".join(tool_title.split())[:_ACTIVITY_LIMIT]
     return ProgressPhase(key=f"{POSTHOG_PHASE_PREFIX}{title}", title=title, counter=_CALLS)
 
 
@@ -183,7 +185,7 @@ def _phase_for_posthog_tool(tool_name: str) -> ProgressPhase:
     if definition is None:
         # A tool the catalogue does not know, such as a third-party tool behind the gateway.
         return OTHER_WORK
-    return posthog_phase(definition.category)
+    return posthog_phase(definition.title)
 
 
 def phase_for_key(key: str) -> ProgressPhase | None:
@@ -191,14 +193,6 @@ def phase_for_key(key: str) -> ProgressPhase | None:
     if key.startswith(POSTHOG_PHASE_PREFIX) and len(key) > len(POSTHOG_PHASE_PREFIX):
         return posthog_phase(key.removeprefix(POSTHOG_PHASE_PREFIX))
     return PHASES.get(key)
-
-
-def posthog_tool_title(call: ToolCall) -> str | None:
-    """The catalogue title of a PostHog tool call, such as "Get dashboard"."""
-    if call.posthog_tool is None:
-        return None
-    definition = get_mcp_tool_definitions().get(call.posthog_tool)
-    return _short_activity(definition.title) if definition is not None else None
 
 
 def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
@@ -230,7 +224,7 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
 
 
 def phase_line_title(phase: ProgressPhase, count: int, activity: str | None = None) -> str:
-    """The plan line for a phase, such as "Error tracking (3 calls)".
+    """The plan line for a phase, such as "Execute SQL query (3 calls)". A single call shows no count.
 
     ``activity`` replaces the counter while the line is open, so the reader sees what runs now.
     The line carries everything in its title because Slack replaces a step's title on each
@@ -238,7 +232,7 @@ def phase_line_title(phase: ProgressPhase, count: int, activity: str | None = No
     """
     if activity:
         return f"{phase.title}: {activity}"
-    if phase.counter is None or count <= 0:
+    if phase.counter is None or count <= 1:
         return phase.title
     singular, plural = phase.counter
     return f"{phase.title} ({count} {singular if count == 1 else plural})"

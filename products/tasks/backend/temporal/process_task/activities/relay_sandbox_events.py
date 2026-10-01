@@ -53,7 +53,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log
 from products.tasks.backend.temporal.process_task.slack_progress_phases import (
     agent_plan_steps,
     phase_for_tool_call,
-    posthog_tool_title,
     tool_call_from_acp_update,
 )
 from products.tasks.backend.temporal.process_task.utils import (
@@ -838,10 +837,10 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     """Build the Slack plan-block payload for an ACP tool call or an agent todo list.
 
     A tool call becomes ``{"phase": key}``. The plan names the kind of work only, so the payload
-    carries no tool name and no arguments. The exceptions are texts written for people: the
-    description Claude writes on a shell command (``activity``) and the catalogue title of a
-    PostHog tool (``tool_title``). A Claude shell or PostHog call arrives with an empty rawInput
-    first; the id is not marked seen until the command is known, so the next update retries.
+    carries no tool name and no arguments. The one exception is ``activity``: the description
+    Claude writes for people on a shell command. A Claude shell or PostHog call arrives with an
+    empty rawInput first; the id is not marked seen until the command is known, so the next
+    update retries.
 
     An agent todo list becomes ``{"plan": steps}``, and the relay shows it instead of the phases.
     """
@@ -869,9 +868,6 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
     payload: dict[str, Any] = {"phase": phase.key}
     if tool_call.description:
         payload["activity"] = tool_call.description
-    tool_title = posthog_tool_title(tool_call)
-    if tool_title:
-        payload["tool_title"] = tool_title
     return payload
 
 

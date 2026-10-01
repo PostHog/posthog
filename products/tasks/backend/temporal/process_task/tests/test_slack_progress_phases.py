@@ -38,19 +38,19 @@ class TestPhaseForToolCall:
             (
                 "posthog_sql",
                 _claude("mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'}),
-                "posthog:SQL",
+                "posthog:Execute SQL query",
             ),
             (
                 "posthog_call_flags",
                 _claude("mcp__posthog__exec", {"command": "call --json dashboard-get {}"}),
-                "posthog:Dashboards",
+                "posthog:Get dashboard",
             ),
             (
                 "codex_posthog_replays",
                 _codex_mcp("posthog", "exec", {"command": "call query-session-recordings-list {}"}),
-                "posthog:Session replays",
+                "posthog:List session recordings",
             ),
-            ("posthog_direct_tool", _claude("mcp__posthog__feature-flag-get-all", {}), "posthog:Feature flags"),
+            ("posthog_direct_tool", _claude("mcp__posthog__feature-flag-get-all", {}), "posthog:Get all feature flags"),
             # A tool the catalogue does not know must not put its name on a line.
             ("unknown_posthog_tool", _claude("mcp__posthog__exec", {"command": "call gateway__acme {}"}), "other_work"),
             # Looking up what the server offers is not work on the user's data.

@@ -107,20 +107,20 @@ class TestSlackAgentDesignRelay:
         calls = await _run_relay(
             [
                 ("agent_text_delta", "Let me look at the data."),
-                ("agent_status_update", {"phase": "posthog:SQL"}),
-                ("agent_status_update", {"phase": "posthog:SQL"}),
+                ("agent_status_update", {"phase": "posthog:Execute SQL query"}),
+                ("agent_status_update", {"phase": "posthog:Execute SQL query"}),
                 ("agent_status_update", {"phase": "reading_code", "activity": "Search for callers"}),
                 ("agent_text_delta", "Now I need to look into this."),
-                ("agent_status_update", {"phase": "posthog:SQL"}),
+                ("agent_status_update", {"phase": "posthog:Execute SQL query"}),
                 ("agent_status_update", {"phase": "making_changes"}),
                 ("agent_text_delta", "Signups grew."),
             ]
         )
 
         assert sorted(calls.final_lines().values()) == [
-            ("Making changes (1 edit)", None, "complete"),
-            ("Reading the code (1 lookup)", None, "complete"),
-            ("SQL (3 calls)", None, "complete"),
+            ("Execute SQL query (3 calls)", None, "complete"),
+            ("Making changes", None, "complete"),
+            ("Reading the code", None, "complete"),
         ]
         assert calls.answer() == "Signups grew."
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
@@ -129,7 +129,7 @@ class TestSlackAgentDesignRelay:
         open_titles = [c.title for c in sent if c.status == "in_progress"]
         assert "Reading the code: Search for callers" in open_titles
         # With no shell description, the agent's own last sentence says what the call is for.
-        assert "SQL: Look into this" in open_titles
+        assert "Execute SQL query: Look into this" in open_titles
         # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
         assert all(chunk.details is None for chunk in sent)
         assert all(stop.complete_task_details is None for stop in calls.stops)
@@ -146,7 +146,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.timeout(60, func_only=True)
     async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]]) -> None:
         calls = await _run_relay(
-            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:SQL"}), *tail]
+            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:Execute SQL query"}), *tail]
         )
 
         assert calls.answer() == "Answer."
@@ -154,7 +154,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.parametrize(
         "signals, expected_line",
         [
-            ([("agent_status_update", {"phase": "posthog:SQL"})], "SQL (1 call)"),
+            ([("agent_status_update", {"phase": "posthog:Execute SQL query"})], "Execute SQL query"),
             ([("agent_text_delta", "Hi! What should I look at?")], "Writing the answer"),
         ],
         ids=["first_work_line", "answer_without_tools"],

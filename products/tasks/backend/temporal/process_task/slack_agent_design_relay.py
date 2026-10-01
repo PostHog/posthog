@@ -6,7 +6,7 @@ Drives one chat.startStream message per turn:
   appears the first time its phase is used and completes the line before it. Later calls
   of an earlier phase only move that line's counter. Tool names and arguments never show.
   The open line says what runs now: the description of a shell command, else the last
-  sentence the agent wrote before the call, else the catalogue title of a PostHog tool.
+  sentence the agent wrote before the call.
   Phases past ``MAX_PLAN_LINES`` fold into one "Other work" line.
 - When the agent keeps a todo list, the plan shows that list instead. Lines already shown
   stay, because Slack cannot remove a line, and later tool calls add no line.
@@ -133,7 +133,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             phase = OTHER_WORK
         key = phase.key
         self._phases[key] = phase
-        activity = payload.get("activity") or intent or payload.get("tool_title")
+        activity = payload.get("activity") or intent
         self._activity[key] = activity if isinstance(activity, str) and activity else None
         self._counts[key] = self._counts.get(key, 0) + 1
         if key not in self._line_ids:
