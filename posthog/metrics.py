@@ -60,7 +60,7 @@ _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
 @contextmanager
-def pushed_metrics_registry(job_name: str):
+def pushed_metrics_registry(job_name: str, *, timeout_seconds: float = 30):
     """
     Return a temporary Prometheus registry that will be pushed to the
     PushGateway when the context closes.
@@ -76,7 +76,7 @@ def pushed_metrics_registry(job_name: str):
     yield registry
     try:
         if settings.PROM_PUSHGATEWAY_ADDRESS:
-            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry, timeout=timeout_seconds)
     except Exception as err:
         logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)

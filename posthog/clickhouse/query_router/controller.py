@@ -3,19 +3,20 @@ import math
 import time
 import socket
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from enum import StrEnum
 
 from django.conf import settings
 
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
 from posthog import redis
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_router import config
-from posthog.clickhouse.query_router.config import Pool, PoolBounds, QueryClass, RouterMode
+from posthog.clickhouse.query_router.config import Pool, PoolBounds, RouterMode
+from posthog.clickhouse.query_router.state import push_router_state, read_router_state
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
@@ -38,33 +39,16 @@ LEADER_LEASE_SECONDS = 5
 # longer follows the nodes.
 FAILED_READ_HOLD_SECONDS = 10
 
-# The controller runs in Celery prefork workers and leadership moves between processes. A process
-# that does not lead sets its gauges to 0, and livemax exports the highest value among live
-# processes, so the leader's value is the one exported.
-LIMIT_GAUGE = Gauge(
-    "posthog_query_router_limit",
-    "Admission limit the controller wrote for a pool. 0 means no controller limit is in force and admission uses the ceiling.",
-    ["pool"],
-    multiprocess_mode="livemax",
-)
-LOAD_GAUGE = Gauge(
-    "posthog_query_router_load",
-    "CPU wait over CPU busy time on the hottest node of a pool.",
-    ["pool"],
-    multiprocess_mode="livemax",
-)
-RUNNING_GAUGE = Gauge(
-    "posthog_query_router_running",
-    "Queries holding an admission slot.",
-    ["pool", "query_class"],
-    multiprocess_mode="livemax",
-)
-WAITING_GAUGE = Gauge(
-    "posthog_query_router_waiting",
-    "Queries waiting for an admission slot.",
-    ["pool"],
-    multiprocess_mode="livemax",
-)
+# A read that misses a node can miss the hottest node, so the limit may not rise on it. A node that
+# drops out because it is overloaded comes back within minutes. A node taken out for maintenance can
+# stay out for hours, and without a bound the limit could then only fall. So the limit may rise again
+# once no read has reached every node for this long. Redis keeps the time of the last complete read,
+# because leadership moves to another process whenever a run ends.
+PARTIAL_SAMPLE_HOLD_SECONDS = 300
+
+# Every run exports the same state from Redis, so a run exports whether it leads or not.
+STATE_EXPORT_INTERVAL_SECONDS = 15
+
 CONTROLLER_TICKS_COUNTER = Counter(
     "posthog_query_router_controller_ticks", "Query router controller ticks by result.", ["result"]
 )
@@ -73,7 +57,8 @@ LOAD_QUERY = """
 SELECT host, cluster_type,
        maxIf(value, name = 'OSCPUWaitMicroseconds') AS cpu_wait_us,
        maxIf(value, name = 'OSCPUVirtualTimeMicroseconds') AS cpu_busy_us,
-       maxIf(value, name = 'OSCPUOverload') AS overload
+       maxIf(value, name = 'OSCPUOverload') AS overload,
+       (SELECT count() FROM system.clusters WHERE cluster = %(cluster)s) AS cluster_nodes
 FROM (
     SELECT hostName() AS host, getMacro('hostClusterType') AS cluster_type, event AS name, toFloat64(value) AS value
     FROM clusterAllReplicas(%(cluster)s, system.events)
@@ -116,13 +101,21 @@ class NodeCounters:
     overload: float
 
 
-def fetch_node_counters() -> list[NodeCounters]:
+@frozen
+class NodeSample:
+    nodes: list[NodeCounters]
+    # Nodes the cluster has, including the nodes that did not answer.
+    cluster_nodes: int
+
+
+def fetch_node_counters() -> NodeSample:
     with tags_context(product=Product.INTERNAL, feature=Feature.QUERY_ROUTER):
         rows = sync_execute(
             LOAD_QUERY,
             {"cluster": settings.CLICKHOUSE_CLUSTER},
             # A node that does not answer is left out of the read instead of failing it, so one
-            # unreachable node does not stop the controller.
+            # unreachable node does not stop the controller. The read then has fewer hosts than
+            # cluster_nodes, which marks it partial.
             settings={"max_execution_time": 2, "skip_unavailable_shards": 1},
             workload=Workload.ONLINE,
             readonly=True,
@@ -130,7 +123,9 @@ def fetch_node_counters() -> list[NodeCounters]:
             # the poll working when they do.
             ch_user=ClickHouseUser.OPS,
         )
-    return [
+    if not rows:
+        raise RuntimeError("no ClickHouse node answered the load query")
+    nodes = [
         NodeCounters(
             host=host,
             cluster_type=cluster_type,
@@ -138,8 +133,11 @@ def fetch_node_counters() -> list[NodeCounters]:
             cpu_busy_us=cpu_busy_us,
             overload=overload,
         )
-        for host, cluster_type, cpu_wait_us, cpu_busy_us, overload in rows
+        for host, cluster_type, cpu_wait_us, cpu_busy_us, overload, _cluster_nodes in rows
     ]
+    # Every row carries the same cluster size.
+    cluster_nodes = rows[0][5]
+    return NodeSample(nodes=nodes, cluster_nodes=cluster_nodes)
 
 
 def _node_load(*, current: NodeCounters, previous: NodeCounters | None) -> float:
@@ -154,29 +152,38 @@ def _node_load(*, current: NodeCounters, previous: NodeCounters | None) -> float
     return wait_delta / busy_delta
 
 
+@frozen
+class PoolLoads:
+    loads: Mapping[Pool, float]
+    # False when any node of the cluster did not answer, so a missing node holds increases in every
+    # pool. A node that does not answer cannot report which pool it belongs to.
+    complete: bool
+
+
 class LoadReader:
-    def __init__(self, fetch: Callable[[], list[NodeCounters]] = fetch_node_counters) -> None:
+    def __init__(self, fetch: Callable[[], NodeSample] = fetch_node_counters) -> None:
         self._fetch = fetch
         self._previous_by_host: dict[str, NodeCounters] = {}
 
-    def read(self) -> dict[Pool, float]:
-        nodes = self._fetch()
+    def read(self) -> PoolLoads:
+        sample = self._fetch()
         loads: dict[Pool, float] = {}
-        for node in nodes:
+        for node in sample.nodes:
             pool = _POOL_BY_CLUSTER_TYPE.get(node.cluster_type)
             if pool is None:
                 continue
             load = _node_load(current=node, previous=self._previous_by_host.get(node.host))
             # A distributed query waits for every shard it reads, so the hottest node sets the pool's load.
             loads[pool] = max(load, loads.get(pool, load))
-        self._previous_by_host = {node.host: node for node in nodes}
-        return loads
+        self._previous_by_host = {node.host: node for node in sample.nodes}
+        hosts = {node.host for node in sample.nodes}
+        return PoolLoads(loads=loads, complete=len(hosts) >= sample.cluster_nodes)
 
 
-def next_limit(*, current: int, load: float, bounds: PoolBounds) -> int:
+def next_limit(*, current: int, load: float, bounds: PoolBounds, may_increase: bool) -> int:
     if load >= HIGH_LOAD_THRESHOLD:
         proposed = math.floor(current * LIMIT_DECREASE_FACTOR)
-    elif load <= LOW_LOAD_THRESHOLD:
+    elif load <= LOW_LOAD_THRESHOLD and may_increase:
         proposed = current + max(1, round(bounds.ceiling * LIMIT_INCREASE_FRACTION_OF_CEILING))
     else:
         proposed = current
@@ -188,6 +195,7 @@ class TickResult(StrEnum):
     OFF = "off"
     NOT_LEADER = "not_leader"
     LOAD_READ_FAILED = "load_read_failed"
+    PARTIAL_SAMPLE = "partial_sample"
 
 
 @frozen
@@ -203,7 +211,6 @@ class LimitController:
         self._redis = redis.get_client()
         self._owner_id = f"{socket.gethostname()}:{os.getpid()}:{secrets.token_hex(4)}"
         self._limits: dict[Pool, _PoolLimit] = {}
-        self._nonzero_gauges: set[Gauge] = set()
         self._holds_lease = False
 
     def _hold_lease(self) -> bool:
@@ -215,54 +222,35 @@ class LimitController:
         acquired = self._redis.set(config.CONTROLLER_LEADER_KEY, self._owner_id, nx=True, ex=LEADER_LEASE_SECONDS)
         return bool(acquired)
 
-    def _set_gauge(self, gauge: Gauge, value: float) -> None:
-        gauge.set(value)
-        self._nonzero_gauges.add(gauge)
-
-    def _zero_gauge(self, gauge: Gauge) -> None:
-        gauge.set(0)
-        self._nonzero_gauges.discard(gauge)
-
     def _reset(self) -> None:
-        # A process that does not lead exports 0 so the leader's values win, and its next term as
-        # leader resumes from the stored limit rather than from one computed before another
-        # controller took over.
-        for gauge in self._nonzero_gauges:
-            gauge.set(0)
-        self._nonzero_gauges.clear()
+        # The next term as leader resumes from the stored limit rather than from one computed before
+        # another controller took over.
         self._limits.clear()
 
     def _starting_limit(self, pool: Pool, bounds: PoolBounds) -> int:
         stored = self._redis.get(config.limit_key(pool))
         return int(stored) if stored is not None else bounds.ceiling
 
-    def _write_limit(self, pool: Pool, load: float | None, now: float) -> None:
+    def _partial_sample_may_increase(self, now: float) -> bool:
+        last_complete = self._redis.get(config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY)
+        return last_complete is None or now - float(last_complete) > PARTIAL_SAMPLE_HOLD_SECONDS
+
+    def _write_limit(self, pool: Pool, load: float | None, now: float, *, may_increase: bool) -> None:
         limit = self._limits.get(pool)
         if load is not None:
             bounds = config.get_pool_bounds(pool)
             current = limit.value if limit is not None else self._starting_limit(pool, bounds)
-            limit = _PoolLimit(value=next_limit(current=current, load=load, bounds=bounds), read_at=now)
+            limit = _PoolLimit(
+                value=next_limit(current=current, load=load, bounds=bounds, may_increase=may_increase), read_at=now
+            )
             self._limits[pool] = limit
-            self._set_gauge(LOAD_GAUGE.labels(pool=pool.value), load)
+            self._redis.set(config.load_key(pool), load, ex=config.LIMIT_TTL_SECONDS)
         elif limit is None:
             return
         elif now - limit.read_at > FAILED_READ_HOLD_SECONDS:
             del self._limits[pool]
-            self._zero_gauge(LIMIT_GAUGE.labels(pool=pool.value))
-            self._zero_gauge(LOAD_GAUGE.labels(pool=pool.value))
             return
         self._redis.set(config.limit_key(pool), limit.value, ex=config.LIMIT_TTL_SECONDS)
-        self._set_gauge(LIMIT_GAUGE.labels(pool=pool.value), limit.value)
-
-    def _record_slot_gauges(self, pool: Pool, now: float) -> None:
-        now_ms = int(now * 1000)
-        for query_class in QueryClass:
-            key = config.running_key(pool, query_class)
-            self._redis.zremrangebyscore(key, "-inf", now_ms)
-            running = self._redis.zcard(key)
-            self._set_gauge(RUNNING_GAUGE.labels(pool=pool.value, query_class=query_class.name.lower()), running)
-        waiting = self._redis.zcard(config.waiting_key(pool))
-        self._set_gauge(WAITING_GAUGE.labels(pool=pool.value), waiting)
 
     def stand_down(self) -> None:
         self._reset()
@@ -283,13 +271,12 @@ class LimitController:
             CONTROLLER_TICKS_COUNTER.labels(result=TickResult.NOT_LEADER).inc()
             return TickResult.NOT_LEADER
         now = self._get_time()
+        sample: PoolLoads | None
         try:
-            loads = self._load_reader.read()
-            result = TickResult.OK
+            sample = self._load_reader.read()
         except Exception:
             logger.warning("query_router_load_read_failed", exc_info=True)
-            loads = {}
-            result = TickResult.LOAD_READ_FAILED
+            sample = None
         # A slow load read can outlast the lease. A controller that lost it in the meantime must not
         # overwrite the limit of the controller that replaced it.
         self._holds_lease = self._hold_lease()
@@ -297,11 +284,29 @@ class LimitController:
             self._reset()
             CONTROLLER_TICKS_COUNTER.labels(result=TickResult.NOT_LEADER).inc()
             return TickResult.NOT_LEADER
+        loads: Mapping[Pool, float]
+        if sample is None:
+            loads = {}
+            may_increase = False
+            result = TickResult.LOAD_READ_FAILED
+        elif sample.complete:
+            self._redis.set(config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY, now)
+            loads = sample.loads
+            may_increase = True
+            result = TickResult.OK
+        else:
+            loads = sample.loads
+            may_increase = self._partial_sample_may_increase(now)
+            result = TickResult.PARTIAL_SAMPLE
         for pool in Pool:
-            self._write_limit(pool, loads.get(pool), now)
-            self._record_slot_gauges(pool, now)
+            self._write_limit(pool, loads.get(pool), now, may_increase=may_increase)
         CONTROLLER_TICKS_COUNTER.labels(result=result).inc()
         return result
+
+
+def _export_router_state() -> None:
+    state = read_router_state(redis.get_client(), now=time.time())
+    push_router_state(state)
 
 
 class ControllerLoop:
@@ -311,14 +316,25 @@ class ControllerLoop:
         *,
         get_time: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        export_state: Callable[[], None] = _export_router_state,
     ) -> None:
         self._controller = controller
         self._get_time = get_time
         self._sleep = sleep
+        self._export_state = export_state
         self._stop_requested = False
+
+    def _export(self) -> None:
+        try:
+            self._export_state()
+        except Exception:
+            # A failed export must not end the run, because the run keeps the limit current while the
+            # next scheduled run may still be most of a minute away.
+            logger.exception("query_router_state_export_failed")
 
     def run(self, *, max_seconds: float | None = None) -> None:
         deadline = None if max_seconds is None else self._get_time() + max_seconds
+        next_export = self._get_time() + STATE_EXPORT_INTERVAL_SECONDS
         try:
             while not self._stop_requested:
                 started = self._get_time()
@@ -335,10 +351,16 @@ class ControllerLoop:
                     # scheduled run starts the loop again after the router is turned on.
                     if result == TickResult.OFF:
                         return
+                if started >= next_export:
+                    self._export()
+                    next_export = started + STATE_EXPORT_INTERVAL_SECONDS
                 elapsed = self._get_time() - started
                 self._sleep(max(0.0, TICK_INTERVAL_SECONDS - elapsed))
         finally:
             self._controller.stand_down()
+            # With the router off the controller stops writing its keys, so once they expire this export
+            # clears the limit and load that an earlier run pushed.
+            self._export()
 
     def stop(self) -> None:
         self._stop_requested = True

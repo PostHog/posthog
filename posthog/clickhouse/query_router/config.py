@@ -58,6 +58,11 @@ class PoolBounds:
     floor: int
     ceiling: int
 
+    def __post_init__(self) -> None:
+        # With a ceiling of 0 no class may start a query, so every enforced query would wait and drop.
+        if not 0 < self.floor <= self.ceiling:
+            raise ValueError(f"need 0 < floor <= ceiling, got floor={self.floor} and ceiling={self.ceiling}")
+
 
 # The rank of a waiter is query_class * RANK_CLASS_MULTIPLIER + first-seen epoch milliseconds, so a
 # higher class always sorts first and equal classes sort by arrival. The multiplier must stay above
@@ -72,6 +77,9 @@ STALE_WAITER_MS = 3_000
 LIMIT_TTL_SECONDS = 15
 
 CONTROLLER_LEADER_KEY = "query_router:controller:leader"
+
+# Epoch seconds of the last load read that reached every node of the cluster.
+CONTROLLER_LAST_COMPLETE_SAMPLE_KEY = "query_router:controller:last_complete_sample"
 
 
 def _key(pool: Pool, suffix: str) -> str:
@@ -94,6 +102,10 @@ def waiting_seen_key(pool: Pool) -> str:
 
 def limit_key(pool: Pool) -> str:
     return _key(pool, "limit")
+
+
+def load_key(pool: Pool) -> str:
+    return _key(pool, "load")
 
 
 @frozen

@@ -130,13 +130,7 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
 
         self.enterContext(patch.object(get_query_router(), "sleep", free_the_pool_and_sleep))
         with tags_context(kind="celery", id="posthog.tasks.example"):
-            sync_execute(
-                "SELECT 1",
-                settings={"max_execution_time": "60"},
-                flush=False,
-                workload=Workload.OFFLINE,
-                team_id=1,
-            )
+            sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
 
         assert self.ch_client.log_comment()["query_router_wait_ms"] > 0
 

@@ -9,8 +9,15 @@ from django.test import SimpleTestCase
 
 import fakeredis
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
-from posthog.clickhouse.query_router.admission import Admission, AdmissionOutcome, QueryRouter
+from posthog.clickhouse.query_router.admission import (
+    _SLOT_RENEW_INTERVAL_SECONDS,
+    _SLOT_TTL_SECONDS,
+    Admission,
+    AdmissionOutcome,
+    QueryRouter,
+)
 from posthog.clickhouse.query_router.config import (
     CLASS_POLICIES,
     STALE_WAITER_MS,
@@ -29,6 +36,10 @@ from posthog.redis import get_client
 # With a limit of 2, INTERACTIVE may run 2 queries and every other class 1, so one held slot is a
 # full pool for API and BACKGROUND.
 SMALL_LIMIT = 2
+
+
+def _sample_value(name: str, labels: dict[str, str]) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
 class _FakeClock:
@@ -73,7 +84,7 @@ class _ParkedWaiter:
 
     def _run(self) -> None:
         try:
-            with self._router.admit(pool=Pool.OFFLINE, query_class=self._query_class, max_execution_seconds=None):
+            with self._router.admit(pool=Pool.OFFLINE, query_class=self._query_class):
                 self._events.put("admitted")
                 self._steps.get(timeout=5)
         except ClickHouseAtCapacity:
@@ -108,12 +119,8 @@ class TestQueryRouterAdmission(SimpleTestCase):
                 limit_key(pool),
             )
 
-    def _admit(
-        self, query_class: QueryClass, max_execution_seconds: float | None = None
-    ) -> AbstractContextManager[Admission]:
-        return self.router.admit(
-            pool=Pool.OFFLINE, query_class=query_class, max_execution_seconds=max_execution_seconds
-        )
+    def _admit(self, query_class: QueryClass) -> AbstractContextManager[Admission]:
+        return self.router.admit(pool=Pool.OFFLINE, query_class=query_class)
 
     def _hold(self, stack: ExitStack, count: int) -> None:
         for _ in range(count):
@@ -192,6 +199,23 @@ class TestQueryRouterAdmission(SimpleTestCase):
         assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
         assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
+    def test_waiter_that_wakes_after_its_max_wait_is_dropped_even_when_the_pool_has_freed(self) -> None:
+        max_wait_seconds = CLASS_POLICIES[QueryClass.API].max_wait_seconds
+        with ExitStack() as held:
+            self._hold(held, 1)
+
+            def oversleep_while_the_pool_frees(_seconds: float) -> None:
+                held.close()
+                self.clock.sleep(max_wait_seconds + 1)
+
+            self.router.sleep = oversleep_while_the_pool_frees
+            with self.assertRaises(ClickHouseAtCapacity):
+                with self._admit(QueryClass.API):
+                    pass
+
+        assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
+        assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
+
     def test_waiter_interrupted_in_its_sleep_leaves_the_queue(self) -> None:
         class Interrupted(BaseException):
             pass
@@ -228,22 +252,32 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_time_limit", None, 900),
-            ("zero_is_no_time_limit", 0, 900),
-            ("time_limit_plus_margin", 120, 150),
-            ("short_time_limit_raised_to_minimum", 10, 60),
-            ("long_time_limit_capped", 7200, 3600),
+            ("renewed_by_its_process", True, 2 * 3600, AdmissionOutcome.WOULD_WAIT),
+            (
+                "left_by_a_dead_process",
+                False,
+                _SLOT_TTL_SECONDS + _SLOT_RENEW_INTERVAL_SECONDS,
+                AdmissionOutcome.ADMITTED,
+            ),
         ]
     )
-    def test_unreleased_slot_stops_counting_after_its_ttl(
-        self, _name: str, max_execution_seconds: float | None, ttl_seconds: int
+    def test_held_slot_counts_only_while_its_process_renews_it(
+        self, _name: str, renewed: bool, held_seconds: int, next_outcome: AdmissionOutcome
     ) -> None:
-        with ExitStack() as held:
-            held.enter_context(self._admit(QueryClass.BACKGROUND, max_execution_seconds))
-            self.clock.now += ttl_seconds - 5
+        self.get_mode.return_value = RouterMode.OBSERVE
+        with self._admit(QueryClass.BACKGROUND):
+            for _ in range(held_seconds // _SLOT_RENEW_INTERVAL_SECONDS):
+                self.clock.now += _SLOT_RENEW_INTERVAL_SECONDS
+                if renewed:
+                    self.router.renew_slots()
             with self._admit(QueryClass.BACKGROUND) as admission:
-                assert admission.outcome == AdmissionOutcome.ADMITTED_AFTER_WAIT
-                assert 4_990 <= admission.waited_ms <= 5_510
+                assert admission.outcome == next_outcome
+
+    def test_renewal_never_adds_a_slot_that_is_not_in_redis(self) -> None:
+        with self._admit(QueryClass.API):
+            self.redis.delete(running_key(Pool.OFFLINE, QueryClass.API))
+            self.router.renew_slots()
+            assert self._running(QueryClass.API) == 0
 
     def test_waiter_that_stopped_polling_stops_blocking_after_stale_ms(self) -> None:
         stuck = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
@@ -275,17 +309,29 @@ class TestQueryRouterAdmission(SimpleTestCase):
         router = QueryRouter(
             redis_client=fakeredis.FakeRedis(server=server), get_time=self.clock.time, sleep=self.clock.sleep
         )
+        admission_errors = (
+            "posthog_query_router_admissions_total",
+            {"pool": "offline", "query_class": "api", "outcome": "error"},
+        )
+        release_errors = ("posthog_query_router_slot_errors_total", {"operation": "release"})
+        admission_errors_before = _sample_value(*admission_errors)
+        release_errors_before = _sample_value(*release_errors)
 
-        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ADMITTED
             server.connected = False
 
-        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+        assert _sample_value(*admission_errors) == admission_errors_before
+        assert _sample_value(*release_errors) == release_errors_before + 1
+
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ERROR
+
+        assert _sample_value(*admission_errors) == admission_errors_before + 1
 
         server.connected = True
         self.get_pool_bounds.side_effect = ValueError("invalid literal for int()")
-        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API, max_execution_seconds=None) as admission:
+        with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ERROR
 
     def test_slot_is_released_when_the_query_raises(self) -> None:

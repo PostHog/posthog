@@ -393,24 +393,13 @@ def _query_router_target(
 
 
 @contextmanager
-def _query_router_slot(
-    target: Optional[_RouterTarget], max_execution_time: str | float | None
-) -> Iterator[Optional[router_admission.Admission]]:
+def _query_router_slot(target: Optional[_RouterTarget]) -> Iterator[Optional[router_admission.Admission]]:
     if target is None:
         yield None
         return
 
-    # Per-team settings parsed from environment JSON can carry max_execution_time as a string.
-    max_execution_seconds: Optional[float]
-    try:
-        max_execution_seconds = None if max_execution_time is None else float(max_execution_time)
-    except (TypeError, ValueError):
-        max_execution_seconds = None
-
     router = router_admission.get_query_router()
-    with router.admit(
-        pool=target.pool, query_class=target.query_class, max_execution_seconds=max_execution_seconds
-    ) as admission:
+    with router.admit(pool=target.pool, query_class=target.query_class) as admission:
         yield admission
 
 
@@ -643,7 +632,7 @@ def sync_execute(
         with (
             _llm_analytics_concurrency_slot(ch_user, team_id),
             # Entered before the pool checkout so that a query waiting for admission holds no ClickHouse connection.
-            _query_router_slot(router_target, core_settings.get("max_execution_time")) as admission,
+            _query_router_slot(router_target) as admission,
             sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
         ):
             if admission is not None and admission.outcome == router_admission.AdmissionOutcome.ADMITTED_AFTER_WAIT:

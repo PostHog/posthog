@@ -46,6 +46,14 @@ def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:
             {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_MODE": "enforced"}}, RouterMode.OFF, id="mistyped mode"
         ),
         pytest.param(
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_OFFLINE_CEILING": 0}}, RouterMode.OFF, id="zero ceiling"
+        ),
+        pytest.param(
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ONLINE_FLOOR": 50}},
+            RouterMode.OFF,
+            id="floor above ceiling",
+        ),
+        pytest.param(
             {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ENFORCE": "offline"}},
             RouterMode.OBSERVE,
             id="enforce item without a class",

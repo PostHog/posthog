@@ -1,9 +1,13 @@
+import os
 import time
 import uuid
 import random
+import threading
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
+from typing import Literal
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -36,6 +40,13 @@ ADMISSIONS_COUNTER = Counter(
     labelnames=["pool", "query_class", "outcome"],
 )
 
+# Kept apart from ADMISSIONS_COUNTER, which counts each query once, at admission.
+SLOT_ERRORS_COUNTER = Counter(
+    "posthog_query_router_slot_errors_total",
+    "Redis failures while the query router released or renewed slots.",
+    labelnames=["operation"],
+)
+
 WAIT_SECONDS_HISTOGRAM = Histogram(
     "posthog_query_router_wait_seconds",
     "Time an enforced query spent in the query router queue before it was admitted or dropped.",
@@ -47,14 +58,11 @@ _BASE_POLL_DELAY_SECONDS = 0.05
 # Stays well under STALE_WAITER_MS, so a waiter deep in the queue is never taken for gone between polls.
 _MAX_POLL_DELAY_SECONDS = 1.0
 
-# A slot outlives the time limit of its query, so the slot of a process that died without a release
-# keeps counting for as long as ClickHouse can still run the query. A query that runs past its slot,
-# which takes a query with no time limit or one longer than the maximum, stops counting early. That
-# errs toward admitting, and the alternative is a dead process holding a slot with no bound.
-_SLOT_TTL_MARGIN_SECONDS = 30
-_MIN_SLOT_TTL_SECONDS = 60
-_MAX_SLOT_TTL_SECONDS = 3600
-_DEFAULT_SLOT_TTL_SECONDS = 900
+# A slot counts for as long as its query runs, because the process that holds the slot renews it.
+# The slot of a process that died stops counting within the time-to-live. Three renewals per
+# time-to-live let a slot outlast one failed renewal.
+_SLOT_TTL_SECONDS = 60
+_SLOT_RENEW_INTERVAL_SECONDS = 20
 
 _ERROR_LOG_INTERVAL_SECONDS = 60
 
@@ -170,6 +178,8 @@ class Admission:
 
 _ROUTER_OFF = Admission(outcome=AdmissionOutcome.OFF, waited_ms=0, total=None, limit=None)
 
+_SlotOperation = Literal["release", "renew"]
+
 
 class _Answer(StrEnum):
     ADMITTED = "admitted"
@@ -205,21 +215,11 @@ def _class_label(query_class: QueryClass) -> str:
     return query_class.name.lower()
 
 
-def _slot_ttl_ms(max_execution_seconds: float | None) -> int:
-    # ClickHouse reads a max_execution_time of 0 as no limit.
-    if not max_execution_seconds:
-        return _DEFAULT_SLOT_TTL_SECONDS * 1000
-    seconds = min(
-        max(max_execution_seconds + _SLOT_TTL_MARGIN_SECONDS, _MIN_SLOT_TTL_SECONDS),
-        _MAX_SLOT_TTL_SECONDS,
-    )
-    return int(seconds * 1000)
-
-
 class QueryRouter:
     """Admits ClickHouse queries per node pool against a shared limit kept in Redis.
 
-    Tests replace get_time and sleep with a fake clock.
+    Tests replace get_time and sleep with a fake clock. Only get_query_router starts the thread that
+    renews held slots, so a router built directly renews them only when renew_slots is called.
     """
 
     def __init__(
@@ -231,33 +231,36 @@ class QueryRouter:
     ) -> None:
         self.get_time = get_time
         self.sleep = sleep
+        self._redis = redis_client
         self._try_enter_script = redis_client.register_script(_TRY_ENTER_LUA)
         self._remove_script = redis_client.register_script(_REMOVE_LUA)
         self._last_error_logged_at: float | None = None
+        # Query threads add and remove slots while the renewal thread reads them.
+        self._held_slots: set[_Slot] = set()
+        self._held_slots_lock = threading.Lock()
 
     def _elapsed_ms(self, started_at: float) -> int:
         return int((self.get_time() - started_at) * 1000)
 
-    def _record_error(self, slot: _Slot) -> None:
+    def _log_error(self, event: str, **fields: str) -> None:
+        now = self.get_time()
+        if self._last_error_logged_at is not None and now - self._last_error_logged_at < _ERROR_LOG_INTERVAL_SECONDS:
+            return
+        self._last_error_logged_at = now
+        logger.warning(event, exc_info=True, **fields)
+
+    def _fail_open(self, slot: _Slot, started_at: float) -> Admission:
         ADMISSIONS_COUNTER.labels(
             pool=slot.pool.value,
             query_class=_class_label(slot.query_class),
             outcome=AdmissionOutcome.ERROR.value,
         ).inc()
-        now = self.get_time()
-        if self._last_error_logged_at is not None and now - self._last_error_logged_at < _ERROR_LOG_INTERVAL_SECONDS:
-            return
-        self._last_error_logged_at = now
-        logger.warning(
-            "query_router_failed_open",
-            pool=slot.pool.value,
-            query_class=_class_label(slot.query_class),
-            exc_info=True,
-        )
-
-    def _fail_open(self, slot: _Slot, started_at: float) -> Admission:
-        self._record_error(slot)
+        self._log_error("query_router_failed_open", pool=slot.pool.value, query_class=_class_label(slot.query_class))
         return Admission(outcome=AdmissionOutcome.ERROR, waited_ms=self._elapsed_ms(started_at), total=None, limit=None)
+
+    def _record_slot_error(self, operation: _SlotOperation) -> None:
+        SLOT_ERRORS_COUNTER.labels(operation=operation).inc()
+        self._log_error("query_router_slot_error", operation=operation)
 
     def _remove(self, slot: _Slot) -> None:
         self._remove_script(
@@ -269,11 +272,9 @@ class QueryRouter:
         try:
             self._remove(slot)
         except RedisError:
-            self._record_error(slot)
+            self._record_slot_error("release")
 
-    def _try_enter(
-        self, slot: _Slot, *, policy: ClassPolicy, rank: int, ceiling: int, ttl_ms: int, enforcing: bool
-    ) -> _Reply:
+    def _try_enter(self, slot: _Slot, *, policy: ClassPolicy, rank: int, ceiling: int, enforcing: bool) -> _Reply:
         class_rank_min = int(slot.query_class) * RANK_CLASS_MULTIPLIER
         answer, total, limit, ahead = self._try_enter_script(
             keys=[
@@ -291,7 +292,7 @@ class QueryRouter:
                 class_rank_min + RANK_CLASS_MULTIPLIER,
                 ceiling,
                 round(policy.share * 1000),
-                ttl_ms,
+                _SLOT_TTL_SECONDS * 1000,
                 STALE_WAITER_MS,
                 int(enforcing),
                 policy.max_queue_depth,
@@ -299,14 +300,14 @@ class QueryRouter:
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
 
-    def _poll(self, slot: _Slot, *, enforcing: bool, ttl_ms: int, ceiling: int, started_at: float) -> _Decision:
+    def _poll(self, slot: _Slot, *, enforcing: bool, ceiling: int, started_at: float) -> _Decision:
         policy = CLASS_POLICIES[slot.query_class]
         deadline = started_at + policy.max_wait_seconds
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
-            reply = self._try_enter(slot, policy=policy, rank=rank, ceiling=ceiling, ttl_ms=ttl_ms, enforcing=enforcing)
+            reply = self._try_enter(slot, policy=policy, rank=rank, ceiling=ceiling, enforcing=enforcing)
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
                 return _Decision(outcome=outcome, reply=reply, queued=queued)
@@ -317,15 +318,18 @@ class QueryRouter:
 
             queued = True
             remaining = deadline - self.get_time()
-            if remaining <= 0:
+            if remaining > 0:
+                # The waiter at the head polls often, so it takes a freed slot almost at once. A waiter deep in
+                # the queue polls rarely, which bounds the Redis load of a long queue.
+                delay = min(_BASE_POLL_DELAY_SECONDS * (1 + reply.ahead), _MAX_POLL_DELAY_SECONDS)
+                self.sleep(min(delay * random.uniform(0.5, 1.0), remaining))
+            # A sleep can end late on a busy host. The waiter is dropped even when a slot has freed, so no
+            # query waits longer than its class allows.
+            if self.get_time() >= deadline:
                 self._remove(slot)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
-            # The waiter at the head polls often, so it takes a freed slot almost at once. A waiter deep in
-            # the queue polls rarely, which bounds the Redis load of a long queue.
-            delay = min(_BASE_POLL_DELAY_SECONDS * (1 + reply.ahead), _MAX_POLL_DELAY_SECONDS)
-            self.sleep(min(delay * random.uniform(0.5, 1.0), remaining))
 
-    def _enter(self, slot: _Slot, *, enforcing: bool, ttl_ms: int) -> Admission:
+    def _enter(self, slot: _Slot, *, enforcing: bool) -> Admission:
         started_at = self.get_time()
         try:
             ceiling = config.get_pool_bounds(slot.pool).ceiling
@@ -334,7 +338,7 @@ class QueryRouter:
             return self._fail_open(slot, started_at)
 
         try:
-            decision = self._poll(slot, enforcing=enforcing, ttl_ms=ttl_ms, ceiling=ceiling, started_at=started_at)
+            decision = self._poll(slot, enforcing=enforcing, ceiling=ceiling, started_at=started_at)
         except RedisError:
             admission = self._fail_open(slot, started_at)
             # The script may have added the slot before its reply was lost. Without this removal the
@@ -369,7 +373,7 @@ class QueryRouter:
         )
 
     @contextmanager
-    def admit(self, *, pool: Pool, query_class: QueryClass, max_execution_seconds: float | None) -> Iterator[Admission]:
+    def admit(self, *, pool: Pool, query_class: QueryClass) -> Iterator[Admission]:
         """Hold a slot in the pool while the block runs.
 
         Raises ClickHouseAtCapacity when the query is dropped. Any other failure of the router lets
@@ -381,23 +385,69 @@ class QueryRouter:
             return
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
-        admission = self._enter(slot, enforcing=mode == RouterMode.ENFORCE, ttl_ms=_slot_ttl_ms(max_execution_seconds))
+        admission = self._enter(slot, enforcing=mode == RouterMode.ENFORCE)
+        holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
+        if holds_slot:
+            with self._held_slots_lock:
+                self._held_slots.add(slot)
         try:
             yield admission
         finally:
-            if admission.outcome in _SLOT_HOLDING_OUTCOMES:
+            if holds_slot:
+                with self._held_slots_lock:
+                    self._held_slots.remove(slot)
                 self._release(slot)
 
+    def renew_slots(self) -> None:
+        with self._held_slots_lock:
+            held_slots = list(self._held_slots)
+        expires_at_ms = int(self.get_time() * 1000) + _SLOT_TTL_SECONDS * 1000
+        expiries_by_key: defaultdict[str, dict[str | bytes, int]] = defaultdict(dict)
+        for slot in held_slots:
+            expiries_by_key[running_key(slot.pool, slot.query_class)][slot.slot_id] = expires_at_ms
+        for key, expiries in expiries_by_key.items():
+            try:
+                # XX updates only the slots still in Redis, so a slot released after the snapshot above
+                # stays released.
+                self._redis.zadd(key, expiries, xx=True)
+            except RedisError:
+                self._record_slot_error("renew")
 
-_query_router: QueryRouter | None = None
+
+def _renew_slots_forever(router: QueryRouter) -> None:
+    while True:
+        time.sleep(_SLOT_RENEW_INTERVAL_SECONDS)
+        try:
+            router.renew_slots()
+        except Exception:
+            logger.exception("query_router_renewal_failed")
+
+
+# The process id and the router built for that process.
+_query_router: tuple[int, QueryRouter] | None = None
+_query_router_lock = threading.Lock()
 
 
 def get_query_router() -> QueryRouter:
     global _query_router
-    if _query_router is None:
-        _query_router = QueryRouter(
+    pid = os.getpid()
+    current = _query_router
+    if current is not None and current[0] == pid:
+        return current[1]
+    with _query_router_lock:
+        current = _query_router
+        if current is not None and current[0] == pid:
+            return current[1]
+        # A forked child, such as a Celery prefork worker, inherits the router of its parent with the
+        # slots the parent held at the fork, but not the renewal thread. The child builds its own
+        # router so that it renews only its own slots.
+        router = QueryRouter(
             redis_client=get_client(
                 socket_timeout=_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=_REDIS_TIMEOUT_SECONDS
             )
         )
-    return _query_router
+        threading.Thread(
+            target=_renew_slots_forever, args=(router,), name="query-router-slot-renewal", daemon=True
+        ).start()
+        _query_router = (pid, router)
+        return router
