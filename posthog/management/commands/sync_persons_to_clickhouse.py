@@ -130,19 +130,54 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
     if deletes:
         logger.info("Processing person deletions")
         postgres_uuids = {person["uuid"] for person in persons}
+        tombstone_versions = _postgres_person_tombstone_versions(team_id)
         for uuid, version in ch_persons_to_version.items():
-            if uuid not in postgres_uuids:
-                logger.info(f"Deleting person with uuid={uuid}")
-                if live_run:
-                    create_person(
-                        uuid=str(uuid),
-                        team_id=team_id,
-                        properties={},
-                        # Keep this tombstone version in sync with deletePerson in
-                        # nodejs/src/common/persons/repositories/postgres-person-repository.ts.
-                        version=int(version or 0) + 100,
-                        is_deleted=True,
-                    )
+            if uuid in postgres_uuids:
+                continue
+            tombstone_version = tombstone_versions.get(uuid)
+            if tombstone_version is None:
+                # No Postgres row carries a version for this key, so the guess has to clear
+                # whatever ClickHouse holds, as in fix_orphaned_ch_persons.
+                tombstone_version = int(version or 0) + 100
+            elif tombstone_version <= int(version or 0):
+                # Publishing below the live row would be ignored, and publishing above the Postgres
+                # version would hide the next revival; the weekly deletion sweep clears this case.
+                logger.warning(
+                    f"Skipping person uuid={uuid}: ClickHouse is at version {version}, "
+                    f"the Postgres tombstone only at {tombstone_version}"
+                )
+                continue
+            logger.info(f"Deleting person with uuid={uuid} at version {tombstone_version}")
+            if live_run:
+                create_person(
+                    uuid=str(uuid),
+                    team_id=team_id,
+                    properties={},
+                    version=tombstone_version,
+                    is_deleted=True,
+                )
+
+
+def _postgres_person_tombstone_versions(team_id: int) -> dict[UUID, int]:
+    """The version each tombstoned person holds in Postgres, so its ClickHouse tombstone matches."""
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT uuid, version FROM posthog_person WHERE team_id = %s AND is_deleted = true",
+            [team_id],
+        )
+        return {uuid: int(version or 0) for uuid, version in cursor.fetchall()}
+
+
+def _postgres_distinct_id_tombstones(team_id: int) -> dict[str, tuple[UUID, int]]:
+    """The person and version each tombstoned mapping holds in Postgres."""
+    with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT pdi.distinct_id, p.uuid, pdi.version "
+            "FROM posthog_persondistinctid pdi JOIN posthog_person p ON p.id = pdi.person_id "
+            "WHERE pdi.team_id = %s AND pdi.is_deleted = true",
+            [team_id],
+        )
+        return {distinct_id: (uuid, int(version or 0)) for distinct_id, uuid, version in cursor.fetchall()}
 
 
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
@@ -199,11 +234,32 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     if deletes:
         logger.info("Processing distinct id deletions")
         postgres_distinct_ids = {pdi["distinct_id"] for pdi in person_distinct_ids}
+        tombstones = _postgres_distinct_id_tombstones(team_id)
         for distinct_id, version in ch_distinct_id_to_version.items():
-            if distinct_id not in postgres_distinct_ids:
-                logger.info(f"Deleting distinct ID {distinct_id}")
+            if distinct_id in postgres_distinct_ids:
+                continue
+            tombstone = tombstones.get(distinct_id)
+            if tombstone is None:
+                logger.info(f"Deleting distinct ID {distinct_id} with no Postgres row")
                 if live_run:
                     _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version)
+                continue
+            person_uuid, tombstone_version = tombstone
+            if tombstone_version <= int(version or 0):
+                logger.warning(
+                    f"Skipping distinct ID {distinct_id}: ClickHouse is at version {version}, "
+                    f"the Postgres tombstone only at {tombstone_version}"
+                )
+                continue
+            logger.info(f"Deleting distinct ID {distinct_id} at version {tombstone_version}")
+            if live_run:
+                create_person_distinct_id(
+                    team_id=team_id,
+                    distinct_id=distinct_id,
+                    person_id=str(person_uuid),
+                    version=tombstone_version,
+                    is_deleted=True,
+                )
 
 
 def run_group_sync(team_id: int, live_run: bool):

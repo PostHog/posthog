@@ -1,8 +1,10 @@
 """Dagster job to detach a distinct_id from its person.
 
 Three cleanup phases, all required:
-  1. Postgres — delete posthog_persondistinctid row (stops future ingestion lookups).
-  2. Kafka  — publish is_deleted to person_distinct_id2 (stops ClickHouse lookups).
+  1. Postgres — tombstone the posthog_persondistinctid row (stops future ingestion lookups).
+     The row keeps its version counter, so a later re-add of the distinct id revives it above
+     the ClickHouse tombstone instead of starting at version 0 underneath it.
+  2. Kafka  — publish is_deleted to person_distinct_id2 at that exact version (stops ClickHouse lookups).
   3. Override — insert into person_distinct_id_overrides so the HogQL query layer
      immediately re-attributes historical events whose person_id was baked in at
      ingestion time (Person-on-Events). squash_person_overrides later makes it
@@ -116,21 +118,24 @@ def _count_other_distinct_ids(
     return row["count"] if isinstance(row, dict) else row[0]
 
 
-def _delete_distinct_id_row(
+def _tombstone_distinct_id_row(
     cursor: psycopg2.extensions.cursor,
     pdi_id: int,
 ) -> int:
-    """Lock and delete the posthog_persondistinctid row. Returns version."""
+    """Tombstone the posthog_persondistinctid row and return the version it was stamped with."""
     cursor.execute(
-        "SELECT version FROM posthog_persondistinctid WHERE id = %s FOR UPDATE",
+        """
+        UPDATE posthog_persondistinctid
+        SET is_deleted = true, version = COALESCE(version, 0) + 1
+        WHERE id = %s AND is_deleted = false
+        RETURNING version
+        """,
         [pdi_id],
     )
     row = cursor.fetchone()
     if row is None:
-        raise RuntimeError(f"posthog_persondistinctid id={pdi_id} disappeared between lookup and delete")
-    version = row["version"] if isinstance(row, dict) else row[0]
-    cursor.execute("DELETE FROM posthog_persondistinctid WHERE id = %s", [pdi_id])
-    return version
+        raise RuntimeError(f"posthog_persondistinctid id={pdi_id} disappeared between lookup and tombstone")
+    return row["version"] if isinstance(row, dict) else row[0]
 
 
 def _publish_deletion_to_kafka(
@@ -142,7 +147,7 @@ def _publish_deletion_to_kafka(
 ) -> None:
     """Publish an is_deleted message so ClickHouse person_distinct_id2 drops the mapping.
 
-    Uses version + 100, matching _delete_ch_distinct_id in posthog/models/person/util.py.
+    ``version`` is the one the Postgres tombstone carries, so a revived mapping lands above it.
     """
     producer.produce(
         topic=KAFKA_PERSON_DISTINCT_ID,
@@ -150,7 +155,7 @@ def _publish_deletion_to_kafka(
             "distinct_id": distinct_id,
             "person_id": person_uuid,
             "team_id": team_id,
-            "version": version + 100,
+            "version": version,
             "is_deleted": 1,
         },
     )
@@ -223,17 +228,17 @@ def detach_distinct_id_op(
         override_target = config.override_person_id or str(uuid.uuid4())
         log.info(f"Override target person_id={override_target}")
 
-        # --- 3. Delete in Postgres ---
+        # --- 3. Tombstone in Postgres ---
         if config.dry_run:
-            log.info("[DRY RUN] Would delete posthog_persondistinctid row")
+            log.info("[DRY RUN] Would tombstone posthog_persondistinctid row")
             log.info("[DRY RUN] Would publish Kafka deletion to person_distinct_id2")
             log.info(f"[DRY RUN] Would insert person_distinct_id_overrides -> {override_target}")
             persons_database.rollback()
             return
 
-        version = _delete_distinct_id_row(cursor, info["pdi_id"])
+        version = _tombstone_distinct_id_row(cursor, info["pdi_id"])
         persons_database.commit()
-        log.info(f"Deleted posthog_persondistinctid id={info['pdi_id']} (version={version})")
+        log.info(f"Tombstoned posthog_persondistinctid id={info['pdi_id']} (version={version})")
 
     # --- 4. Sync deletion to ClickHouse via Kafka ---
     _publish_deletion_to_kafka(
@@ -243,14 +248,14 @@ def detach_distinct_id_op(
         person_uuid=info["person_uuid"],
         version=version,
     )
-    log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version + 100}, is_deleted=1)")
+    log.info(f"Published deletion to {KAFKA_PERSON_DISTINCT_ID} (version={version}, is_deleted=1)")
 
     # --- 5. Override: fix person_id baked into historical events (see module docstring) ---
     _insert_ch_override(
         team_id=config.team_id,
         distinct_id=config.distinct_id,
         override_person_uuid=override_target,
-        version=version + 100,
+        version=version,
     )
     log.info(f"Inserted person_distinct_id_overrides: {config.distinct_id!r} -> {override_target}")
 
