@@ -270,7 +270,35 @@ const repeatedTolerations = {
     })),
 }
 
+// A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
+export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
+    parameters: {
+        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
+        testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(
+                    {
+                        ...snapshots,
+                        results: snapshots.results.map((s) => (s.id === quarantinedButton.id ? quarantinedButton : s)),
+                    },
+                    [quarantinedButton, cleanQuarantinedTooltip]
+                ),
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
+                    ...emptyList,
+                    count: 2,
+                    results: [buttonQuarantine, tooltipQuarantine],
+                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [pendingLift],
+            },
+        }),
+    ],
+}
+
 // A snapshot tolerated three times this month keeps changing. Clicking Tolerate offers a quarantine first.
+// Keep this story last: its dialog opens on its own React root, outlives the story, and covers the next one.
 export const TolerateSuggestsQuarantine: StoryObj = {
     parameters: {
         // Not `fullscreen`: the runner rejects snapshotTargetSelector for fullscreen stories.
@@ -351,30 +379,3 @@ const cleanQuarantinedTooltip = snapshot({
     baseline_artifact: artifact('base_tooltip'),
     current_artifact: artifact('base_tooltip'),
 })
-
-// A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
-export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
-    parameters: {
-        pageUrl: `/visual_review/runs/${RUN_ID}#snapshot=snapshot-changed`,
-        testOptions: { waitForSelector: '[data-attr="visual-review-lift-on-merge-pending"]' },
-    },
-    decorators: [
-        mswDecorator({
-            get: {
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(
-                    {
-                        ...snapshots,
-                        results: snapshots.results.map((s) => (s.id === quarantinedButton.id ? quarantinedButton : s)),
-                    },
-                    [quarantinedButton, cleanQuarantinedTooltip]
-                ),
-                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
-                    ...emptyList,
-                    count: 2,
-                    results: [buttonQuarantine, tooltipQuarantine],
-                },
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [pendingLift],
-            },
-        }),
-    ],
-}
