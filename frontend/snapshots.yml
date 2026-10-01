@@ -248,6 +248,10 @@ snapshots:
         hash: v1.k794b7964.fdfc67abaeb31b9a0d3a230ee9510916ffb36d5aad1d2321edaa896bb343ff9b.3W6qDwBKmZQGvb56bckNdiwYQhuA5gIf0DfLmUFN0eU
     components-cards-insight-card--insight-card--light:
         hash: v1.k794b7964.623afbadbac0c53b481d42f50439e0fdc6353f01a3779b2d3d829b0247300d18.J36MTIFPey57K8AJiKNlIl8uivEtrCDx_29HJqocehA
+    components-cards-insight-card--warehouse-sync-warning--dark:
+        hash: v1.k794b7964.a2bf1677c0ca6c9d9ea5c52776a00006a9e84c4c35e0a0c7dfeb70ad7eac767c.8r2jeOLV3BYUDiOz2eary3Jf-XbUPY3v9q8bOP4khGQ
+    components-cards-insight-card--warehouse-sync-warning--light:
+        hash: v1.k794b7964.cb32569e632b20e2b6f64ae79595cb817a8a1073434b5d38a513123a5a3d5ba5.0jnIFtHrxk8FZwZPLRYEs4AO4vZwSHKCEX8FD2tEmEU
     components-cards-insight-details--dashboard-filter-overrides--dark:
         hash: v1.k794b7964.a329bf8c33e5ba0f777352aedd989c5c6cdc9a052c5ff20941331ee8ad004e93.sVMhyuYiG4BcFfCwwkJG9Vbr6QsQx5bOawB9bbVAQ44
     components-cards-insight-details--dashboard-filter-overrides--light:
