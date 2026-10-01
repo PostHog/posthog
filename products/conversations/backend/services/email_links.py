@@ -33,6 +33,7 @@ _URL_TRAILING_PUNCTUATION = ".,;:!?"
 # Cap the anchors we scan so a large marketing email can't turn one message into
 # an expensive parse.
 _MAX_ANCHORS = 100
+_MAX_ANGLE_LABEL_LENGTH = 200
 # A bare URL, scanned in one linear pass so a hostile body can't force quadratic
 # work. The class keeps parentheses so a URL like `.../Markdown_(language)` stays
 # whole; any unbalanced trailing parenthesis (from a `(url)` wrapper) is peeled back
@@ -149,15 +150,24 @@ def _recover_from_html(text: str, html: str) -> str:
         seen_labels.add(label)
         candidates.append((label, href))
 
-    if not candidates:
-        return _fold_angle_links(text, angle_links)
+    # Fold confirmed `label <href>` pairs first, then recover missing URLs only
+    # outside them, so a repeated label cannot steal a link that is already present.
+    used: set[str] = set()
+    segments: list[str] = []
+    for segment, is_link in _split_angle_links(text, angle_links):
+        segments.append(segment if is_link else _link_labels(segment, candidates, used))
+    return "".join(segments)
 
-    # Rewrite left to right on the not-yet-emitted suffix only, so a later label
-    # can never match inside a link or URL we already inserted. Each pass links
-    # the earliest remaining label occurrence; earliest position wins on ties.
+
+def _link_labels(text: str, candidates: list[tuple[str, str]], used: set[str]) -> str:
+    """Rewrite the earliest occurrence of each unused candidate label to `[label](href)`.
+
+    Rewrites go left to right on the not-yet-emitted suffix only, so a later label
+    can never match inside a link or URL we already inserted. Each pass links the
+    earliest remaining label occurrence. The earliest position wins on ties.
+    """
     parts: list[str] = []
     remaining = text
-    used: set[str] = set()
     while True:
         best: tuple[int, str, str] | None = None
         for label, href in candidates:
@@ -174,19 +184,66 @@ def _recover_from_html(text: str, html: str) -> str:
         remaining = remaining[index + len(label) :]
         used.add(label)
     parts.append(remaining)
+    return "".join(parts)
 
-    return _fold_angle_links("".join(parts), angle_links)
 
+def _split_angle_links(text: str, links: list[tuple[str, str]]) -> list[tuple[str, bool]]:
+    """Split `text` around plain-text `label <href>` links, rewriting each to `[label](href)`.
 
-def _fold_angle_links(text: str, links: list[tuple[str, str]]) -> str:
-    """Rewrite a plain-text `label <href>` link to `[label](href)`, once per link.
-
-    The label may be wrapped across lines in the text, so its words are matched
-    with any whitespace between them.
+    Returns `(segment, is_link)` pairs in order. Each link is folded once, at its
+    first occurrence that does not overlap a link folded already.
     """
+    spans: list[tuple[int, int, str]] = []
     for label, href in links:
-        pattern = re.compile(r"\s+".join(map(re.escape, label.split())) + r"\s*<" + re.escape(href) + ">")
-        match = pattern.search(text)
-        if match:
-            text = f"{text[: match.start()]}[{label}]({_md_safe_href(href)}){text[match.end() :]}"
-    return text
+        span = _find_angle_link(text, label, href, spans)
+        if span:
+            spans.append((span[0], span[1], f"[{label}]({_md_safe_href(href)})"))
+
+    segments: list[tuple[str, bool]] = []
+    last = 0
+    for start, end, replacement in sorted(spans):
+        segments.append((text[last:start], False))
+        segments.append((replacement, True))
+        last = end
+    segments.append((text[last:], False))
+    return segments
+
+
+def _find_angle_link(text: str, label: str, href: str, taken: list[tuple[int, int, str]]) -> tuple[int, int] | None:
+    """Find `label <href>` in `text`, allowing any whitespace between label words.
+
+    The search anchors on the literal `<href>` and matches the label backwards from
+    it, so the work stays linear in the text. A hostile email cannot force quadratic
+    regex backtracking with a long repetitive label.
+    """
+    words = label.split()
+    if len(label) > _MAX_ANGLE_LABEL_LENGTH or not words:
+        return None
+    target = f"<{href}>"
+    index = text.find(target)
+    while index != -1:
+        start = _match_label_before(text, words, index)
+        end = index + len(target)
+        if start is not None and not any(
+            start < taken_end and taken_start < end for taken_start, taken_end, _ in taken
+        ):
+            return start, end
+        index = text.find(target, index + 1)
+    return None
+
+
+def _match_label_before(text: str, words: list[str], end: int) -> int | None:
+    """Return where `words` start if they end at `end`, separated by whitespace."""
+    position = end
+    while position > 0 and text[position - 1].isspace():
+        position -= 1
+    for word_index, word in enumerate(reversed(words)):
+        if word_index > 0:
+            if position == 0 or not text[position - 1].isspace():
+                return None
+            while position > 0 and text[position - 1].isspace():
+                position -= 1
+        if position < len(word) or not text.startswith(word, position - len(word)):
+            return None
+        position -= len(word)
+    return position

@@ -55,6 +55,19 @@ class TestRecoverLinksFromHtml:
         html = '<a href="https://cal.example/onboarding">Onboarding team calendar</a>'
         assert recover_links_from_html(text, html) == text
 
+    def test_angle_link_keeps_its_href_when_label_repeats(self) -> None:
+        text = "Click here <https://example.com/a> then Click here"
+        html = '<a href="https://example.com/a">Click here</a> <a href="https://example.com/b">Click here</a>'
+        assert (
+            recover_links_from_html(text, html)
+            == "[Click here](https://example.com/a) then [Click here](https://example.com/b)"
+        )
+
+    def test_long_repetitive_angle_label_is_not_folded(self) -> None:
+        text = "a " * 24000 + "X <https://example.com/>"
+        html = '<a href="https://example.com/">' + "a " * 12000 + "</a>"
+        assert recover_links_from_html(text, html) == text
+
     @parameterized.expand(
         [
             ("trailing_tilde", "https://clicks.example/f/a/token~"),

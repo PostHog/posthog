@@ -138,6 +138,7 @@ class TestGmailSync(BaseTest):
             b"<html><head><style>p { margin: 0 }</style></head><body>"
             b"<p>Hey team,</p>\n<p>It goes quickly, so start early.</p>"
             b'<p>See <a href="https://app.example.com/billing">your billing page</a>.<br>Cheers</p>'
+            b"<pre>def run():\n    return 1</pre>"
             b"</body></html>"
         )
         message["payload"]["mimeType"] = "text/html"
@@ -157,7 +158,8 @@ class TestGmailSync(BaseTest):
         imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert imported.comment.content == (
             "Hey team,\n\nIt goes quickly, so start early.\n\n"
-            "See [your billing page](https://app.example.com/billing).\nCheers"
+            "See [your billing page](https://app.example.com/billing).\nCheers\n\n"
+            "def run():\n    return 1"
         )
 
     def test_message_with_too_many_attachment_backed_bodies_is_skipped(self) -> None:

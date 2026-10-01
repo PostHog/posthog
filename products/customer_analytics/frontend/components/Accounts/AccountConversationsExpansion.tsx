@@ -250,7 +250,14 @@ function LatestActivity({ conversation }: { conversation: AccountConversation })
 // Synced emails and support messages are stored as Markdown, with links folded in as `[label](url)` or `<url>`.
 function ConversationMessageContent({ content }: { content: string }): JSX.Element {
     return (
-        <LemonMarkdown className="break-words text-sm" lowKeyHeadings disableImages disableDocsRedirect wrapCode>
+        <LemonMarkdown
+            className="break-words text-sm"
+            lowKeyHeadings
+            disableImages
+            disableDocsRedirect
+            disableMentions
+            wrapCode
+        >
             {content}
         </LemonMarkdown>
     )
@@ -444,7 +451,7 @@ function conversationTitle(conversation: AccountConversation): string {
 }
 
 function markdownLinksToText(markdown: string): string {
-    return markdown.replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1').replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
+    return markdown.replace(/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)/g, '$1').replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
 }
 
 function conversationPreview(conversation: AccountConversation): string {

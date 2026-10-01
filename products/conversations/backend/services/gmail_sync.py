@@ -40,6 +40,7 @@ _HTML_PARAGRAPH_TAGS = ["blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "ol", 
 _HTML_LINE_TAGS = ["div", "li", "tr"]
 _HTML_WHITESPACE_RE = re.compile(r"\s+")
 _BLANK_LINES_RE = re.compile(r"\n{3,}")
+_PREFORMATTED_PLACEHOLDER_RE = re.compile(r"\x00(\d+)\x00")
 BACKFILL_PAGE_SIZE = 5
 HISTORY_PAGE_SIZE = 100
 HISTORY_MESSAGE_BATCH_SIZE = 100
@@ -471,6 +472,7 @@ def _html_to_text(html: str) -> str:
     `strip_tags` joins adjacent blocks with no separator, so `<p>a.</p><p>b</p>`
     becomes `a.b`. Links are folded back in later by `recover_links_from_html`.
     """
+    preformatted: list[str] = []
     try:
         soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["head", "script", "style", "title"]):
@@ -486,11 +488,23 @@ def _html_to_text(html: str) -> str:
             tag.insert_after("\n\n")
         for tag in soup.find_all(_HTML_LINE_TAGS):
             tag.insert_after("\n")
+        for pre in soup.find_all("pre"):
+            if pre.find_parent("pre") is None:
+                preformatted.append(pre.get_text().strip("\n"))
+                pre.replace_with(f"\0{len(preformatted) - 1}\0")
         text = soup.get_text()
     except Exception:  # noqa: BLE001 — a malformed HTML part must never fail the sync
+        preformatted = []
         text = unescape(strip_tags(html))
     lines = (line.strip() for line in text.split("\n"))
-    return _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
+    text = _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
+    # Preformatted blocks go back in after the cleanup, so their indentation survives.
+    return _PREFORMATTED_PLACEHOLDER_RE.sub(lambda match: _get_preformatted_block(preformatted, match), text)
+
+
+def _get_preformatted_block(preformatted: list[str], match: re.Match[str]) -> str:
+    index = int(match.group(1))
+    return preformatted[index] if index < len(preformatted) else ""
 
 
 def _message_headers(raw_headers: list[dict[str, Any]]) -> dict[str, str]:
