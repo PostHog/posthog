@@ -160,15 +160,21 @@ describe('llmPlaygroundRunLogic', () => {
             }),
             createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
         ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{topic}}, {{tone}}. The placeholders are sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 2 })
+        )
+
+        toastSpy.mockClear()
         llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
         llmPlaygroundRunLogic.actions.submitPrompt()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
-        expect(captureSpy).toHaveBeenCalledWith(
-            'llma playground prompt submitted',
-            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 1 })
-        )
 
         toastSpy.mockClear()
         llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
