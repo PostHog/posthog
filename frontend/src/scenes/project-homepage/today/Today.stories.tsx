@@ -936,7 +936,9 @@ export const SpaceHoverCard: Story = {
 export const BriefingItemHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
-            <TodayBriefingItemHoverCard preview={{ kind: 'briefing_item', item: PERSONAL_BRIEFING.items[0] }} />
+            <TodayBriefingItemHoverCard
+                preview={{ kind: 'briefing_item', item: PERSONAL_BRIEFING.items[0], surface: 'sidebar' }}
+            />
         </HoverCardFrame>
     ),
 }
@@ -945,7 +947,11 @@ export const BriefingItemHoverCardResolved: Story = {
     render: () => (
         <HoverCardFrame>
             <TodayBriefingItemHoverCard
-                preview={{ kind: 'briefing_item', item: { ...PERSONAL_BRIEFING.items[4], state: 'done' } }}
+                preview={{
+                    kind: 'briefing_item',
+                    item: { ...PERSONAL_BRIEFING.items[4], state: 'done' },
+                    surface: 'sidebar',
+                }}
             />
         </HoverCardFrame>
     ),

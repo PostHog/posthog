@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { TodayBriefingItemPreview } from '~/layout/today/todayPreviewCards'
 import { TeamType, UserType } from '~/types'
 
 import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
@@ -109,6 +110,7 @@ export interface todayLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     briefing: TodayBriefingSegment[][]
+    briefingItemPreviews: Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>>
     briefingItems: BriefingItemApi[]
     briefingPolls: number
     briefingProgress: TodayBriefingProgress | null
@@ -169,8 +171,12 @@ export interface todayLogicActions {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
     }
-    itemPreviewed: (item: BriefingItemApi) => {
+    itemPreviewed: (
+        item: BriefingItemApi,
+        surface: TodayBriefingItemPreview['surface']
+    ) => {
         item: BriefingItemApi
+        surface: TodayBriefingItemPreview['surface']
     }
     loadPersonalBriefing: () => any
     loadPersonalBriefingFailure: (
@@ -272,6 +278,9 @@ export interface todayLogicMeta {
         inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
         briefingProgress: (briefingItems: BriefingItemApi[]) => TodayBriefingProgress | null
+        briefingItemPreviews: (
+            briefingItems: BriefingItemApi[]
+        ) => Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>>
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
@@ -298,7 +307,7 @@ export const todayLogic = kea<todayLogicType>([
         setHoveredItemKey: (itemKey: string | null) => ({ itemKey }),
         openItem: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
         itemOpened: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
-        itemPreviewed: (item: BriefingItemApi) => ({ item }),
+        itemPreviewed: (item: BriefingItemApi, surface: TodayBriefingItemPreview['surface']) => ({ item, surface }),
         pollBriefing: true,
         stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
     }),
@@ -456,6 +465,21 @@ export const todayLogic = kea<todayLogicType>([
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
                 showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
         ],
+        // The hover card stores its trigger's payload, so each item keeps one object per surface across renders.
+        briefingItemPreviews: [
+            (s) => [s.briefingItems],
+            (
+                briefingItems: BriefingItemApi[]
+            ): Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>> => {
+                const previews = (
+                    surface: TodayBriefingItemPreview['surface']
+                ): Record<string, TodayBriefingItemPreview> =>
+                    Object.fromEntries(
+                        briefingItems.map((item) => [item.key, { kind: 'briefing_item', item, surface }])
+                    )
+                return { briefing: previews('briefing'), sidebar: previews('sidebar') }
+            },
+        ],
         // Shown once something is off the list: "0 of 5 done" reads as a nag, not progress.
         briefingProgress: [
             (s) => [s.briefingItems],
@@ -577,7 +601,7 @@ export const todayLogic = kea<todayLogicType>([
                     surface,
                 })
             },
-            itemPreviewed: ({ item }) => {
+            itemPreviewed: ({ item, surface }) => {
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today item previewed', {
                     group: item.group,
@@ -586,6 +610,7 @@ export const todayLogic = kea<todayLogicType>([
                     rank: item.rank,
                     state: item.state,
                     has_metric: !!item.report?.metrics.length,
+                    surface,
                 })
             },
             locationChanged: ({ searchParams }) => {

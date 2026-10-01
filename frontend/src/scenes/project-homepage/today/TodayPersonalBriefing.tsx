@@ -4,6 +4,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
+
 import type { BriefingSegmentApi } from 'products/today/frontend/generated/api.schemas'
 
 import { isExternalHref, itemHref, itemSource } from './todayBriefingItems'
@@ -12,7 +14,7 @@ import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 
 function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): JSX.Element {
-    const { briefingItems, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, briefingItemPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const item = segment.item_key ? briefingItems.find((candidate) => candidate.key === segment.item_key) : undefined
     if (!item) {
@@ -35,7 +37,12 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             {segment.text}
         </Link>
     )
-    return segment.highlight ? <span className="TodayHome__highlight">{link}</span> : link
+    const linkWithCard = (
+        <TodayPreviewTrigger payload={briefingItemPreviews.briefing[item.key]} inline>
+            {link}
+        </TodayPreviewTrigger>
+    )
+    return segment.highlight ? <span className="TodayHome__highlight">{linkWithCard}</span> : linkWithCard
 }
 
 function PersonalBriefingChips(): JSX.Element | null {

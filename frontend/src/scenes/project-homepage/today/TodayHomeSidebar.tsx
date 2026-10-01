@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
 
 import { IconHome, IconPlus } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
@@ -9,7 +8,6 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { TodayBriefingItemPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 
 import { isExternalHref, itemHref, itemSource, itemStateLabel } from './todayBriefingItems'
@@ -19,25 +17,17 @@ import { TodayNavItem } from './TodayNavItem'
 import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
 
 function PersonalBriefingNavItems(): JSX.Element {
-    const { briefingItems, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, briefingItemPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const { location } = useValues(router)
     const currentPath = removeProjectIdIfPresent(location.pathname)
-    // The shared hover card stores the trigger's payload, so each item keeps one object across renders.
-    const previews = useMemo(
-        () =>
-            new Map<string, TodayBriefingItemPreview>(
-                briefingItems.map((item) => [item.key, { kind: 'briefing_item', item }])
-            ),
-        [briefingItems]
-    )
 
     return (
         <>
             {briefingItems.map((item) => {
                 const href = itemHref(item)
                 const source = itemSource(item)
-                const preview = previews.get(item.key)
+                const preview = briefingItemPreviews.sidebar[item.key]
                 const row = (
                     <TodayNavItem
                         key={item.key}

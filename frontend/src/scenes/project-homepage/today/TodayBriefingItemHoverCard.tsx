@@ -38,8 +38,8 @@ export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefing
     const { itemPreviewed } = useActions(todayLogic)
     const theme = useChartTheme()
     useEffect(() => {
-        itemPreviewed(item)
-    }, [item, itemPreviewed])
+        itemPreviewed(item, preview.surface)
+    }, [item, preview.surface, itemPreviewed])
 
     const stateLabel = itemStateLabel(item)
     const report = item.report

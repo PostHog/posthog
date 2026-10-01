@@ -19,7 +19,14 @@ import { TodaySpaceHoverCard } from './TodaySpaceHoverCard'
  * and Base UI skips the open delay when the pointer moves to another trigger of an open card,
  * so sliding down the list swaps the card's contents instead of waiting again on every row.
  */
-export function TodayPreviewCardProvider({ children }: { children: ReactNode }): JSX.Element {
+export function TodayPreviewCardProvider({
+    side = 'right',
+    children,
+}: {
+    /** `right` beside a sidebar row; `bottom` under a link in running text, so the card does not cover the line. */
+    side?: 'right' | 'bottom'
+    children: ReactNode
+}): JSX.Element {
     const [handle] = useState(() => PreviewCard.createHandle<TodayPreviewPayload>())
     const [open, setOpen] = useState(false)
     // "File to…" opens outside the card, so the pointer moving there reads as leaving it.
@@ -58,13 +65,13 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
                 {({ payload }) =>
                     payload ? (
                         <PreviewCard.Portal>
-                            {/* Centered on the row, so the path to a tall card is short from any row. */}
+                            {/* Beside a row, centered on it, so the path to a tall card is short from any row. */}
                             <PreviewCard.Positioner
                                 data-quill
                                 data-quill-portal="popover"
-                                side="right"
-                                align="center"
-                                sideOffset={10}
+                                side={side}
+                                align={side === 'right' ? 'center' : 'start'}
+                                sideOffset={side === 'right' ? 10 : 6}
                             >
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}
                                 <PreviewCard.Popup className="outline-none">

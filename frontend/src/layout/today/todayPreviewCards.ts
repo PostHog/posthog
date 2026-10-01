@@ -63,6 +63,8 @@ export interface TodayChatPreview {
 export interface TodayBriefingItemPreview {
     kind: 'briefing_item'
     item: BriefingItemApi
+    /** Where the card opened: a link in the briefing text, or a left-bar row. */
+    surface: 'briefing' | 'sidebar'
 }
 
 export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayBriefingItemPreview
