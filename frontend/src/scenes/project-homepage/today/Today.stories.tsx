@@ -21,6 +21,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -262,6 +263,44 @@ const REPORTS = [
         actionability: 'immediately_actionable',
         source_products: ['llm_analytics'],
     }),
+    makeReport({
+        id: 'report-4',
+        title: 'Checkout conversion fell after the address form change',
+        summary:
+            'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        status: SignalReportStatus.READY,
+        signal_count: 4,
+        updated_at: '2026-09-28T08:00:00Z',
+        priority: 'P1',
+        actionability: 'immediately_actionable',
+        source_products: ['product_analytics'],
+        charts: [
+            {
+                chart_id: 'checkout-conversion',
+                title: 'Checkout conversion',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'checkout completed' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+            {
+                chart_id: 'mobile-dropoff',
+                title: 'Mobile drop-off at the address form',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'address form abandoned' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+        ],
+    }),
 ]
 
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
@@ -299,6 +338,7 @@ const meta: Meta = {
                     200,
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
                     200,
                     // Error tracking signals fetch their issue, which these stories do not mock.
@@ -422,6 +462,11 @@ export const ReportWithPullRequest: Story = {
 
 export const ReportWithSuggestedPrompts: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
+}
+
+// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
+export const ReportWithCharts: Story = {
+    parameters: { pageUrl: urls.todayReport('report-4') },
 }
 
 export const SpacesPane: Story = {
