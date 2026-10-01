@@ -67,6 +67,8 @@ describe('todayPreviewCards', () => {
             pinned: false,
             pullRequestStates: { 'https://github.com/example-org/web/pull/7': 'merged' },
             spaceNames,
+            menuId: 'menu-1',
+            userId: null,
         })
         expect([preview.spaceName, preview.pullRequestState]).toEqual([expected, 'merged'])
     })
