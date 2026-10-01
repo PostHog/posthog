@@ -105,11 +105,23 @@ const currentMetricUuids = (experiment: Experiment): string[] =>
         ...metricsInOrder(experiment, 'secondary').map((metric) => metric.uuid),
     ].filter((uuid): uuid is string => !!uuid)
 
-/** Metric uuids a run resolved: a computed result or a recorded failure. */
-const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => [
-    ...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid),
-    ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
-]
+/** One entry of `metric_errors`: a metric's terminal failure, as the backend records it. */
+type MetricErrorEntry = { step?: string; message?: string; error_type?: string; retriable?: boolean }
+
+const metricErrorEntries = (recalculation: RecalculationPayload): Record<string, MetricErrorEntry> =>
+    (recalculation.metric_errors as Record<string, MetricErrorEntry> | null) ?? {}
+
+/**
+ * Metric uuids a run resolved: a result, or a failure a new run cannot fix. A retriable failure reads as a
+ * gap and heals; an entry without the flag predates it and counts as covered, so an old run never heals in a loop.
+ */
+const coveredMetricUuids = (recalculation: RecalculationPayload): string[] => {
+    const errors = metricErrorEntries(recalculation)
+    const retriable = new Set(Object.keys(errors).filter((uuid) => errors[uuid]?.retriable === true))
+    return [...(recalculation.results ?? []).map(({ metric_uuid }) => metric_uuid), ...Object.keys(errors)].filter(
+        (uuid) => !retriable.has(uuid)
+    )
+}
 
 /**
  * The trigger that fills a gap, by where the latest payload came from. A real run is healed in place:
@@ -136,7 +148,6 @@ const recalculationHasGap = (experiment: Experiment, recalculation: Recalculatio
     return (
         recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics ||
         resultCount < recalculation.completed_metrics ||
-        resultCount < metricUuids.length ||
         metricUuids.some((uuid) => !coveredUuids.has(uuid))
     )
 }
@@ -145,11 +156,12 @@ type MetricErrorState = { detail: string } | null
 type ResolveByUuid<T> = (uuid: string) => T
 
 /**
- * Metric uuids that currently show something, a result OR an error, across primary and secondary. These
- * are the metrics a non-cold recalculation dims in place: they have a stale value (or a stale error) to
- * keep on screen while the fresh one loads. Errored metrics must be included so they dim on reload too.
+ * Metric uuids that currently show something, a result OR an error, across primary and secondary. A
+ * non-cold recalculation marks these as recalculating: the stale value (or stale error) stays on screen and
+ * the metric header shows a loading tag until the fresh one lands. Errored metrics are included so a
+ * retry shows the tag too.
  */
-const metricUuidsToDim = (
+const metricUuidsToMarkRecalculating = (
     experiment: Experiment,
     primaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[],
     secondaryResults: readonly (CachedNewExperimentQueryResponse | undefined)[],
@@ -189,7 +201,7 @@ const resolveResultByUuid = (
  * failed row's error_message.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
-    const metricErrors = (recalculation.metric_errors as Record<string, { message?: string }> | null) ?? {}
+    const metricErrors = metricErrorEntries(recalculation)
     const failedResultMessageByUuid = new Map(
         (recalculation.results ?? [])
             .filter((r) => r.status === 'failed' && r.error_message)
@@ -601,7 +613,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     // metrics that failed this poll
                     ...Object.keys((recalculation.metric_errors as Record<string, unknown> | null) ?? {}),
                 ])
-                // Un-dim each metric whose fresh result or failure just landed; the rest stay dimmed until they do.
+                // Clear the tag on each metric whose fresh result or failure just landed; the rest keep it until they do.
                 actions.setRecalculatingMetricUuids(values.recalculatingMetricUuids.filter((uuid) => !landed.has(uuid)))
             }
         }
@@ -664,7 +676,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      */
                     if (recalculation.active_run) {
                         actions.setRecalculatingMetricUuids(
-                            metricUuidsToDim(
+                            metricUuidsToMarkRecalculating(
                                 props.experiment,
                                 values.primaryMetricsResults,
                                 values.secondaryMetricsResults,
@@ -759,12 +771,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     return
                 }
                 /**
-                 * Dim the metrics that already show something (a value or an error) so they read as
-                 * "refreshing" until the new result streams in. Cold runs have nothing prior, so nothing to dim.
+                 * Mark the metrics that already show something (a value or an error) as recalculating, so
+                 * they keep their value and show a loading tag until the new result streams in. Cold runs
+                 * have nothing prior, so nothing to mark.
                  */
                 if (trigger !== 'cold_run') {
                     actions.setRecalculatingMetricUuids(
-                        metricUuidsToDim(
+                        metricUuidsToMarkRecalculating(
                             props.experiment,
                             values.primaryMetricsResults,
                             values.secondaryMetricsResults,
