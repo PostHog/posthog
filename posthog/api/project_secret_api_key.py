@@ -32,8 +32,6 @@ from posthog.scopes import (
 )
 from posthog.tasks.email import send_project_secret_api_key_exposed
 
-from ee.billing.grants import BillingEntitlement, effective_billing_grants
-
 MAX_PROJECT_SECRET_API_KEYS_PER_TEAM = 50
 
 
@@ -56,6 +54,13 @@ def _enforce_caller_may_grant_billing_read(request: Request, organization: Organ
     someone with full access to the organization's billing may grant it."""
     if "billing:read" not in scopes:
         return
+    try:
+        from ee.billing.grants import (  # noqa: PLC0415 — ee is absent from the open-source build
+            BillingEntitlement,
+            effective_billing_grants,
+        )
+    except ImportError:
+        raise PermissionDenied("The billing:read scope needs PostHog's enterprise billing, which this instance lacks.")
     user = request.user if isinstance(request.user, User) else None
     grants = effective_billing_grants(
         organization=organization, user=user, authenticator=getattr(request, "successful_authenticator", None)
