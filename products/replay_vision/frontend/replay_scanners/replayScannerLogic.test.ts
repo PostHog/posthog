@@ -667,6 +667,69 @@ describe('replayScannerLogic', () => {
             expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
         })
 
+        it('blocks the details step on a blank name instead of letting the API reject it', async () => {
+            router.actions.push('/replay-vision/new/details')
+            scannerEditorSceneLogic.actions.setStep('details')
+            logic.actions.setScannerValues({ name: '  ' })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/details')
+        })
+
+        it('leaves the details step when only later steps have errors', async () => {
+            // The prompt is empty here, but it belongs to configure, so it must not red-flag details.
+            router.actions.push('/replay-vision/new/details')
+            scannerEditorSceneLogic.actions.setStep('details')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/configure')
+        })
+
+        it('tells the API the wizard proposed the name, so a repeat creator is not blocked', async () => {
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            // Defaults leave the wizard's own suggestion in place.
+            logic.actions.setScannerValues({ scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(await createSpy.mock.calls[0][0].request.json()).toMatchObject({ name_is_suggested: true })
+        })
+
+        it('does not let the API rename a name the user typed', async () => {
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Checkout friction, mine', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(await createSpy.mock.calls[0][0].request.json()).toMatchObject({ name_is_suggested: false })
+        })
+
+        it.each([
+            ['scanner_config', 'configure'],
+            ['query', 'triggers'],
+            ['credit_limit', 'budget'],
+            ['name', 'details'],
+        ])('routes a %s rejection back to the %s step and reports the failure', async (attr, step) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            createSpy.mockReturnValue([400, { type: 'validation_error', code: 'invalid', attr, detail: 'Nope.' }])
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain(`/replay-vision/new/${step}`)
+            expect(logic.values.scannerManualErrors).toMatchObject({ [attr]: 'Nope.' })
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_create_failed', {
+                status: 400,
+                error_code: 'invalid',
+                attr,
+                step,
+                creation_method: 'scratch',
+                scanner_type: 'monitor',
+            })
+            // The message can quote what the user typed, so it must not ride the event.
+            expect(captureSpy).not.toHaveBeenCalledWith(
+                'replay_vision_scanner_create_failed',
+                expect.objectContaining({ detail: expect.anything() })
+            )
+        })
+
         it('submitting the final step creates the scanner, lands on it, and announces the first scan', async () => {
             const success = jest.spyOn(lemonToast, 'success')
             router.actions.push('/replay-vision/new/budget')

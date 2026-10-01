@@ -1,4 +1,4 @@
-import { defaultScannerTemplates, findScannerTemplate, newScanner } from './scannerTemplates'
+import { defaultScannerTemplates, findScannerTemplate, isSuggestedScannerName, newScanner } from './scannerTemplates'
 
 describe('findScannerTemplate', () => {
     it('returns the matching template by key', () => {
@@ -38,6 +38,20 @@ describe('newScanner', () => {
             description: '',
             tags: [],
         })
+    })
+
+    it.each([
+        // Every name the wizard fills in by itself is the same for everyone on the team, so it has
+        // to read as proposed or the second scanner of that shape can never save.
+        ['the scratch default', 'Hedgebox monitor', true],
+        ['a template name', defaultScannerTemplates[0].scanner_name, true],
+        ['an experiment-scoped default', 'Hedgebox monitor: Checkout test', true],
+        ['a blank name', '   ', true],
+        ['a name the user typed', 'Why people bounce', false],
+        // A near miss must read as chosen: the API renames a proposed name without asking.
+        ['a default the user edited', 'Hedgebox monitor v2', false],
+    ])('reads %s correctly', (_case, name, expected) => {
+        expect(isSuggestedScannerName(name, 'Hedgebox', 'monitor', 'Checkout test')).toBe(expected)
     })
 
     it.each(defaultScannerTemplates.map((t) => [t.key, t]))(

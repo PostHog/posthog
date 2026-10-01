@@ -1091,6 +1091,8 @@ export interface ReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /** Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update. */
+    name_is_suggested?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config: unknown
     /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */
@@ -1219,6 +1221,8 @@ export interface PatchedReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /** Whether `name` is a name the client proposed rather than one the user chose. On create, a proposed name that the team already uses gets the first free numeric suffix instead of being rejected, so a repeat creator is never blocked by a name nobody picked. A name the user chose still fails with a duplicate-name error. Not stored on the scanner. Ignored on update. */
+    name_is_suggested?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
     scanner_config?: unknown
     /** The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt. */

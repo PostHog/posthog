@@ -59,7 +59,6 @@ import {
     SCANNER_STEPPER_STEPS,
     STEP_LABELS,
     ScannerEditorStep,
-    UNVALIDATED_SCANNER_STEPS,
     scannerEditorSceneLogic,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
@@ -87,7 +86,7 @@ const STEP_HEADERS: Record<
     details: {
         hedgehog: <HedgehogReporter className="h-16 sm:h-24 w-auto shrink-0" />,
         title: 'Name your scanner',
-        subtitle: 'All optional. Tags help you find it later in the scanner list.',
+        subtitle: 'The name shows in your scanner list. A description and tags are optional.',
     },
     configure: {
         hedgehog: <HedgehogTrenchcoat className="h-16 sm:h-24 w-auto shrink-0" />,
@@ -141,16 +140,9 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 
     const title = isNew ? scanner?.name || 'New scanner' : scanner?.name || 'Scanner'
 
-    // Validate the current step and move on: submit routes to the next step on success. A step with
-    // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
+    // Validate the current step and move on: submit routes to the next step, and a failed submit
+    // moves on too when the errors all sit on fields the user hasn't reached yet.
     const advance = (): void => {
-        if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
-            const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
-            if (next) {
-                router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
-                return
-            }
-        }
         submitScanner()
     }
 
@@ -293,7 +285,7 @@ function DetailsStep(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <LemonField name="name" label="Name (optional)">
+            <LemonField name="name" label="Name">
                 <LemonInput placeholder="e.g. Checkout friction" />
             </LemonField>
 
