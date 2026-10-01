@@ -534,8 +534,18 @@ def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelect
     raise instead, because the runner then fails the turn the way it did before this salvage, and
     the caller keeps its own fallback. Never answer "no repository" from here — callers read that
     as a decision the agent made.
+
+    A reply that got as far as its `repository` field has stated its choice, so only that value
+    counts. Its `reason` must cite the repositories the agent checked, so a cut-off
+    `{"repository": null, "reason": "checked acme/b...` names a candidate the agent rejected.
     """
-    named = {repo for repo in candidate_repos if _names_repository(text, repo)}
+    stated = re.findall(r'"repository"\s*:\s*(?:null|"([^"]*)")', text)
+    if stated:
+        # The answer comes last, after any tool call or error object that also holds the key.
+        choice = stated[-1].strip().lower()
+        named = {choice} if choice in candidate_repos else set()
+    else:
+        named = {repo for repo in candidate_repos if _names_repository(text, repo)}
     if len(named) != 1:
         raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
     repository = named.pop()

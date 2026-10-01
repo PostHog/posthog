@@ -141,6 +141,12 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
             "acme/api-client",
         ),
         ("names_a_candidate_at_sentence_end", "The subject is acme/api.", ["acme/api", "acme/api-client"], "acme/api"),
+        (
+            "states_a_candidate_and_rejects_another",
+            '{"repository": "Acme/A", "reason": "acme/b does not own this',
+            ["acme/a", "acme/b"],
+            "acme/a",
+        ),
     ]
 )
 def test_salvage_reads_a_lone_named_candidate(_name, text, candidates, expected) -> None:
@@ -152,6 +158,16 @@ def test_salvage_reads_a_lone_named_candidate(_name, text, candidates, expected)
         ("names_two_candidates", "Both acme/a and acme/b match the request.", ["acme/a", "acme/b"]),
         ("names_no_candidate", "None of the connected repositories own this.", ["acme/a", "acme/b"]),
         ("names_a_non_candidate_that_extends_one", "The subject is acme/api-client.", ["acme/api", "acme/web"]),
+        (
+            "states_no_repository_and_cites_one",
+            '{"repository": null, "reason": "I checked acme/b and it does not own this',
+            ["acme/a", "acme/b"],
+        ),
+        (
+            "states_a_non_candidate_and_cites_one",
+            '{"repository": "acme/c", "reason": "acme/b is close, but',
+            ["acme/a", "acme/b"],
+        ),
     ]
 )
 def test_salvage_raises_when_the_reply_is_ambiguous(_name, text, candidates) -> None:
