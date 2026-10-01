@@ -4,6 +4,7 @@ from typing import Any
 import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_person, flush_persons_and_events
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -30,9 +31,12 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             sync_execute(statement)
 
     def _list(self, **params: Any) -> dict[str, Any]:
-        response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
+        response = self._get(**params)
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
+
+    def _get(self, **params: Any) -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
 
     def _emails(self, **params: Any) -> list[str]:
         return [row["email"] for row in self._list(**params)["results"]]
@@ -87,3 +91,61 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
                 "preferences_updated_at": "2026-09-15T10:00:00Z",
             }
         ]
+
+    def _seed_facet_audience(self) -> None:
+        newsletter = self._topic("newsletter")
+        self._prefer("ann@example.com", {newsletter: "OPTED_OUT"})
+        self._person("ann@example.com")
+        self._prefer("ben@example.com", {newsletter: "OPTED_IN", "$all": "OPTED_OUT"})
+        self._suppress("cat@example.com", source="BOUNCE")
+        self._person("cat@example.com")
+        self._suppress("dan@example.com", source="MANUAL")
+        self._prefer("dan@example.com", {newsletter: "OPTED_IN"})
+        self._person("eve@example.com")
+
+    @parameterized.expand(
+        [
+            ("subscribed", {"filter": ["subscribed:newsletter"]}, ["ben", "dan"]),
+            ("unsubscribed", {"filter": ["unsubscribed:newsletter"]}, ["ann"]),
+            ("no_preference", {"filter": ["no-preference:newsletter"]}, ["cat", "eve"]),
+            ("unsubscribed_from_all_marketing", {"filter": ["unsubscribed:all-marketing"]}, ["ben"]),
+            (
+                "no_preference_on_all_marketing",
+                {"filter": ["no-preference:all-marketing"]},
+                ["ann", "cat", "dan", "eve"],
+            ),
+            ("suppressed", {"filter": ["suppressed:BOUNCE"]}, ["cat"]),
+            ("values_on_one_facet_are_or", {"filter": ["suppressed:BOUNCE", "suppressed:MANUAL"]}, ["cat", "dan"]),
+            ("negated", {"filter": ["-suppressed:BOUNCE"]}, ["ann", "ben", "dan", "eve"]),
+            ("person_linked", {"filter": ["person:linked"]}, ["ann", "cat", "eve"]),
+            ("person_none", {"filter": ["person:none"]}, ["ben", "dan"]),
+            ("preference_recorded", {"filter": ["preference:recorded"]}, ["ann", "ben", "dan"]),
+            ("preference_none", {"filter": ["preference:none"]}, ["cat", "eve"]),
+            ("facets_are_and", {"filter": ["preference:recorded", "person:linked"]}, ["ann"]),
+            ("negation_and_across_facets", {"filter": ["subscribed:newsletter", "-suppressed:MANUAL"]}, ["ben"]),
+            ("search_is_a_case_insensitive_substring", {"search": "AN"}, ["ann", "dan"]),
+            ("search_and_filter", {"search": "an", "filter": ["person:linked"]}, ["ann"]),
+        ]
+    )
+    def test_filters_recipients(self, _name: str, params: dict[str, Any], expected: list[str]) -> None:
+        self._seed_facet_audience()
+
+        assert self._emails(**params) == [f"{name}@example.com" for name in expected]
+
+    @parameterized.expand(
+        [
+            ("unknown_facet", "colour:red"),
+            ("unknown_topic", "subscribed:nope"),
+            ("unknown_suppression_source", "suppressed:SPAM"),
+            ("unknown_person_value", "person:maybe"),
+            ("missing_value", "person:"),
+            ("not_a_facet_filter", "newsletter"),
+        ]
+    )
+    def test_rejects_an_unknown_filter(self, _name: str, raw_filter: str) -> None:
+        self._topic("newsletter")
+
+        response = self._get(filter=raw_filter)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filter"
