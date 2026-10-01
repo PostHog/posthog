@@ -295,7 +295,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     async def _start_stream(self, input: SlackAgentDesignRelayInput, **fields: Any) -> Optional[SlackAgentDesignStream]:
         return await workflow.execute_activity(
             start_slack_agent_design_stream,
-            StartSlackAgentDesignStreamInput(slack_thread_context=input.slack_thread_context, **fields),
+            StartSlackAgentDesignStreamInput(
+                slack_thread_context=input.slack_thread_context, run_id=input.run_id, **fields
+            ),
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
         )
