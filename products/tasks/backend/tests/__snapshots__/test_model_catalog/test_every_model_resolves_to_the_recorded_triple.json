@@ -3,11 +3,11 @@
     "claude": [
       {
         "effort": "medium",
-        "model": "claude-sonnet-5"
+        "model": "claude-sonnet-5-5"
       },
       {
         "effort": "high",
-        "model": "claude-sonnet-5"
+        "model": "claude-sonnet-5-5"
       },
       {
         "effort": "medium",
