@@ -465,19 +465,35 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert str(safe.id) in result
         assert "example-private-browser-value" not in result
 
-    def test_site_functions_ignore_secrets_in_disabled_mappings(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "disabled_mapping",
+                {
+                    "disabled": True,
+                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                    "inputs": {"token": {"value": "example-private-browser-value"}},
+                },
+            ),
+            (
+                "null_input_with_a_non_secret_last_schema",
+                {
+                    "inputs_schema": [
+                        {"key": "token", "type": "string", "secret": True, "default": "example-private-browser-value"},
+                        {"key": "label", "type": "string", "default": "shown"},
+                    ],
+                    "inputs": {"token": {"value": None}, "label": None},
+                },
+            ),
+        ]
+    )
+    def test_site_functions_publish_when_no_secret_reaches_the_browser(self, _name: str, mapping: dict) -> None:
         function = HogFunction.objects.create(
             team=self.team,
             type="site_destination",
             enabled=True,
             hog=SITE_HOG,
-            mappings=[
-                {
-                    "disabled": True,
-                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
-                    "inputs": {"token": {"value": "example-private-browser-value"}},
-                }
-            ],
+            mappings=[mapping],
         )
 
         with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
