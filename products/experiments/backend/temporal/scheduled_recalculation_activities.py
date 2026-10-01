@@ -23,7 +23,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_ACTIVE_RUN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
-    ScheduledRecalculationCandidate,
+    ScheduledRecalculationDiscovery,
     count_total_exposures,
     find_scheduled_recalculation_candidates,
     recent_recalculation_skip,
@@ -65,15 +65,19 @@ def capture_started(experiment: Experiment, hour: int, recalculation_id: str) ->
 
 
 @database_sync_to_async_pool
-def _discover_scheduled_recalculation_candidates_sync(hour: int) -> list[ScheduledRecalculationCandidate]:
+def _discover_scheduled_recalculation_candidates_sync() -> ScheduledRecalculationDiscovery:
     close_old_connections()
-    return find_scheduled_recalculation_candidates(hour)
+    return find_scheduled_recalculation_candidates()
 
 
 @temporalio.activity.defn
-async def discover_scheduled_recalculation_candidates(hour: int) -> list[ScheduledRecalculationCandidate]:
-    """Experiments eligible for a scheduled recalculation at this hour, before the exposure gate."""
-    return await _discover_scheduled_recalculation_candidates_sync(hour)
+async def discover_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery:
+    """Experiments eligible for a scheduled recalculation now, before the exposure gate.
+
+    Returns the hour it selected for alongside the candidates, so the workflow and the events
+    report the window without the workflow reading a clock of its own.
+    """
+    return await _discover_scheduled_recalculation_candidates_sync()
 
 
 @database_sync_to_async_pool
