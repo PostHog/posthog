@@ -11,6 +11,7 @@ implementation arrives through a provider registered during ``django.setup()``
 (``CustomerAnalyticsConfig.ready``) — the same hook inversion warehouse_sources uses.
 """
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from rest_framework import exceptions
@@ -23,6 +24,9 @@ from products.workflows.backend.facade.contracts import (
     AccountAudienceFilters,
     AccountAudienceProvider,
 )
+
+if TYPE_CHECKING:
+    from posthog.schema import AccountsQuery
 
 ACCOUNT_BATCH_SIZE = 500
 
@@ -155,6 +159,13 @@ def get_account_audience_page(team: Team, filters: dict, cursor: str | None) -> 
     parsed = parse_account_audience_filters(filters)
     try:
         return _require_provider().list_account_external_ids(team, parsed, cursor=cursor, limit=ACCOUNT_BATCH_SIZE)
+    except ValueError as e:
+        raise exceptions.ValidationError({"filters": str(e)})
+
+
+def get_account_audience_query(team: Team, filters: dict) -> "AccountsQuery":
+    try:
+        return _require_provider().create_account_audience_query(team, parse_account_audience_filters(filters))
     except ValueError as e:
         raise exceptions.ValidationError({"filters": str(e)})
 

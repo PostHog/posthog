@@ -12,6 +12,8 @@ from products.workflows.backend.facade.enums import (
 )
 
 if TYPE_CHECKING:
+    from posthog.schema import AccountsQuery
+
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
@@ -101,6 +103,8 @@ class AccountAudienceProvider(Protocol):
     def list_account_external_ids(
         self, team: "Team", filters: AccountAudienceFilters, *, cursor: str | None, limit: int
     ) -> list[str]: ...
+
+    def create_account_audience_query(self, team: "Team", filters: AccountAudienceFilters) -> "AccountsQuery": ...
 
     def get_account_group_type_name(self, team: "Team") -> str | None: ...
 

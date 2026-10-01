@@ -42,7 +42,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.schema import ProductKey
+from posthog.schema import AccountsQuery, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -176,6 +176,7 @@ from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
     get_account_audience_count,
     get_account_audience_page,
+    get_account_audience_query,
     get_account_group_type_name,
     is_account_audience,
     parse_account_audience_filters,
@@ -1077,6 +1078,15 @@ class BlastRadiusSerializer(serializers.Serializer):
             "Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after "
             "echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes."
         ),
+    )
+    audience_query = extend_schema_field(AccountsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            allow_null=True,
+            help_text=(
+                "`AccountsQuery` that lists exactly the accounts counted in 'affected', for account audiences. "
+                "Its `filterExpression` is the audience predicate the batch sends with. Null for person audiences."
+            ),
+        )
     )
 
 
@@ -6301,6 +6311,7 @@ class HogFlowViewSet(
                         "limit": get_hogflow_batch_trigger_limit(self.team_id, sends_email=params["sends_email"]),
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                        "audience_query": get_account_audience_query(self.team, filters).model_dump(exclude_none=True),
                     }
                 ).data
             )
@@ -6338,6 +6349,7 @@ class HogFlowViewSet(
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, applied_dedupe_key
                     ),
+                    "audience_query": None,
                 }
             ).data
         )
