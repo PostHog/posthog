@@ -55,9 +55,10 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
 from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.group.util import create_group
 from posthog.models.property.util import get_property_string_expr
 from posthog.property_columns import TableColumn
@@ -2085,12 +2086,15 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
             f"Partition Condition={partition.get('Condition')!r}"
         )
 
-    def test_hogql_compiled_query_has_partition_pruning(self):
+    @parameterized.expand(
+        [
+            ("infix_and", "timestamp >= '2024-03-01' AND timestamp < '2024-04-01'"),
+            ("date_bounds", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-04-01')"),
+        ]
+    )
+    def test_hogql_compiled_query_has_partition_pruning(self, _name, where):
         """The HogQL pipeline strips toTimeZone from WHERE comparisons to restore pruning."""
-        sql, values = self._compile_hogql(
-            "SELECT count() FROM events WHERE timestamp >= '2024-03-01' AND timestamp < '2024-04-01'",
-            timezone="America/New_York",
-        )
+        sql, values = self._compile_hogql(f"SELECT count() FROM events WHERE {where}", timezone="America/New_York")
         indexes = get_indexes_from_explain(sql, values)
 
         pruning_index = _get_index_by_type(indexes, "Min-Max")
@@ -2113,6 +2117,20 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         select_clause = sql.split("WHERE")[0]
         assert "toTimeZone" not in where_clause, f"Expected toTimeZone stripped from WHERE, got:\n{where_clause}"
         assert "toTimeZone" in select_clause, f"Expected toTimeZone in SELECT for display, got:\n{select_clause}"
+
+    @parameterized.expand(
+        [
+            ("assume_not_null_date_bound", "assumeNotNull(toStartOfWeek(toDateTime('2024-03-03 00:00:00')))"),
+            ("computed_non_null_bound", "plus(assumeNotNull(toDateTime('2024-03-03 00:00:00')), toIntervalSecond(0))"),
+        ]
+    )
+    def test_anchored_non_null_bound_keeps_comparison_unwrapped(self, _name, bound):
+        sql, _ = self._compile_hogql(
+            f"SELECT count() FROM posthog.hog_invocation_results WHERE scheduled_at >= {bound}",
+            timezone="America/New_York",
+        )
+        assert re.search(r"greaterOrEquals\([\w.]*scheduled_at, ", sql), sql
+        assert not re.search(r"ifNull\(greaterOrEquals\([\w.]*scheduled_at", sql), sql
 
     def test_toTimeZone_not_stripped_in_join_on(self):
         """toTimeZone should NOT be stripped from JOIN ON comparisons — only WHERE benefits from pruning."""
@@ -2201,6 +2219,44 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
 
         hogql = "SELECT count() FROM events WHERE event = 'dst_test' AND timestamp >= '2024-03-10' AND timestamp < '2024-03-11'"
         self._assert_correct_results(hogql, timezone="America/New_York", expected_count=2)
+
+    @parameterized.expand(
+        [
+            ("to_date", "timestamp >= toDate('2024-03-01') AND timestamp < toDate('2024-03-02')"),
+            (
+                "start_of_month",
+                "timestamp >= toStartOfMonth(toDateTime('2024-03-15 00:00:00')) AND timestamp < toDate('2024-03-02')",
+            ),
+        ]
+    )
+    def test_date_bounds_use_project_timezone(self, _name, where):
+        events_table = (
+            EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
+        )
+        # A row past 2262 overflows any later comparison against a 9-decimal bound, whatever the team.
+        self.addCleanup(
+            sync_execute,
+            f"ALTER TABLE {events_table} DELETE WHERE timestamp >= '2262-01-01' SETTINGS mutations_sync = 2",
+        )
+        for timestamp in (
+            datetime(2024, 2, 29, 14, 30, 0),
+            datetime(2024, 2, 29, 15, 30, 0),
+            datetime(2024, 3, 1, 14, 0, 0),
+            datetime(2299, 12, 31, 0, 0, 0),
+        ):
+            _create_event(team=self.team, distinct_id="tokyo_user", event="tokyo_date_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = f"SELECT count() FROM events WHERE event = 'tokyo_date_test' AND {where}"
+        self._assert_correct_results(hogql, timezone="Asia/Tokyo", expected_count=2)
+
+    def test_nanosecond_bound_keeps_its_precision(self):
+        for timestamp in (datetime(2024, 3, 1, 12, 0, 0), datetime(2024, 3, 1, 12, 0, 1)):
+            _create_event(team=self.team, distinct_id="nano_user", event="nano_test", timestamp=timestamp)
+        flush_persons_and_events()
+
+        hogql = "SELECT count() FROM events WHERE event = 'nano_test' AND timestamp >= toDateTime64('2024-03-01 12:00:00.000000500', 9)"
+        self._assert_correct_results(hogql, timezone="UTC", expected_count=1)
 
     def test_positive_utc_offset_does_not_drop_events(self):
         """Asia/Tokyo (UTC+9): midnight Tokyo = 15:00 UTC the previous day."""
@@ -2296,7 +2352,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
         aliased = ast_module.Alias(alias="date_from", expr=assume_call)
 
-        result = PropertySwapper._ensure_constant_has_timezone(aliased, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(aliased, "America/New_York")
 
         assert isinstance(result, ast_module.Alias), f"Expected Alias wrapper preserved, got {type(result).__name__}"
         assert result.alias == "date_from"
@@ -2311,7 +2367,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         inner_call = ast_module.Call(name="toDateTime", args=[ast_module.Constant(value="2024-03-01")])
         assume_call = ast_module.Call(name="assumeNotNull", args=[inner_call])
 
-        result = PropertySwapper._ensure_constant_has_timezone(assume_call, "America/New_York")
+        result = PropertySwapper._anchor_to_timezone(assume_call, "America/New_York")
 
         assert isinstance(result, ast_module.Call), f"Expected Call, got {type(result).__name__}"
         assert result.name == "assumeNotNull"
