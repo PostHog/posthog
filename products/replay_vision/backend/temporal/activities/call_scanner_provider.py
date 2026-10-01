@@ -38,7 +38,11 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
+from products.replay_vision.backend.gemini_client import (
+    GatewayGeminiClient,
+    replay_gateway_enabled,
+    replay_gemini_client,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
@@ -227,16 +231,27 @@ async def _call_scanner_provider(
     )
     if video_bytes is None:
         return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=None)
-    if not (activity.in_activity() and _INLINE_TOO_LARGE in activity.info().heartbeat_details):
+    hit_body_cap = activity.in_activity() and _INLINE_TOO_LARGE in activity.info().heartbeat_details
+    # Inline only pays off through the gateway. A team turned off since the upload gets the cached file path.
+    if not hit_body_cap and replay_gateway_enabled(inputs.team_id):
         try:
             return await scan(file_uri=inputs.file_uri, mime_type=inputs.mime_type, video_bytes=video_bytes)
         except APIError as e:
             if e.code != 413:
                 raise
-        if heartbeater is not None:
-            heartbeater.details = (_INLINE_TOO_LARGE,)
-    # The gateway caps the request body, and each tool round adds to the request that carries the video.
-    logger.warning("replay_vision.call_scanner_provider.inline_too_large_uploading", size_bytes=len(video_bytes))
+        # The gateway caps the request body, and each tool round adds to the request that carries the video.
+        hit_body_cap = True
+    if hit_body_cap and heartbeater is not None:
+        # Each heartbeat replaces the details the next attempt reads, so every attempt on this path re-sends it.
+        heartbeater.details = (_INLINE_TOO_LARGE,)
+    logger.warning(
+        "replay_vision.call_scanner_provider.inline_video_uploading",
+        size_bytes=len(video_bytes),
+        hit_body_cap=hit_body_cap,
+    )
+    # A new egress of the recording, possibly long after the entry check.
+    if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
+        raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
     # Imported here: at module level it runs before `conversation` and re-enters the `types`/`scanners` import cycle.
     from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_to_files_api
 
@@ -686,7 +701,9 @@ async def _run_mission(
     )
     verification: VerificationRecord | None = None
     try:
-        step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
+        step_outputs = await _run_mission_attempts(
+            run=run, cache=cache, model=snapshot.model, inline_video=inline_video
+        )
         core = step_outputs.get(STEP_CORE)
         if (
             isinstance(scanner, MonitorScanner)
@@ -741,7 +758,8 @@ async def _verify_positive_verdict(
     Every draw is a fresh conversation over the same video and preamble, so it never sees the first pass or its
     reasoning. An inline-video scan has no cache, so its draw re-sends the video; a file scan without a cache skips
     the draw. Verification only ever tightens a scan that already succeeded: without time left in the activity
-    budget, or when the draw fails for any reason, the first verdict stands and the record says why.
+    budget, or when the draw fails for any other reason, the first verdict stands and the record says why. An inline
+    draw over the gateway's body cap is the exception: it reruns the whole scan over an upload, so the draw still runs.
     """
     draws = [first]
     skipped_reason: str | None = None
@@ -819,11 +837,13 @@ def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | 
     return None
 
 
-async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+async def _run_mission_attempts(
+    *, run: Any, cache: Any | None, model: str, inline_video: bool = False
+) -> dict[str, BaseModel]:
     """Run the mission, re-asking once from a clean conversation when a required step failed validation."""
     for attempt in range(1, _MAX_MISSION_ATTEMPTS):
         try:
-            return await _run_pass(run=run, cache=cache, model=model)
+            return await _run_pass(run=run, cache=cache, model=model, inline_video=inline_video)
         except ScannerFailureError as exc:
             if exc.kind is not FailureKind.VALIDATION_FAILED:
                 raise
@@ -833,13 +853,14 @@ async def _run_mission_attempts(*, run: Any, cache: Any | None, model: str) -> d
                 attempt=attempt,
                 error=str(exc),
             )
-    return await _run_pass(run=run, cache=cache, model=model)
+    return await _run_pass(run=run, cache=cache, model=model, inline_video=inline_video)
 
 
-async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, BaseModel]:
+async def _run_pass(*, run: Any, cache: Any | None, model: str, inline_video: bool = False) -> dict[str, BaseModel]:
     """One mission pass over the cached prefix, falling back to an inline video when the cached request itself fails."""
     if cache is None:
-        record_mission_pass(model=model, path="inline")
+        # An inline video never has a cache, so it gets its own label rather than reading as a failed one.
+        record_mission_pass(model=model, path="inline_video" if inline_video else "inline")
         return await run(cache_name=None)
     record_mission_pass(model=model, path="cached")
     try:

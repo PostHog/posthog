@@ -35,8 +35,13 @@ def replay_gateway_enabled(team_id: int) -> bool:
     )
 
 
-# The gateway's own refusals (key, spend cap, product policy) are ours to fix, so they retry.
-_GATEWAY_REFUSAL_CODES = frozenset({401, 402, 403})
+# The gateway's key and policy refusals are ours to fix and clear once we do, so they retry.
+_GATEWAY_REFUSAL_CODES = frozenset({401, 403})
+_GATEWAY_SPEND_LIMIT_CODE = 402
+
+
+class GatewaySpendLimitError(Exception):
+    """The AI gateway refused the call because Replay Vision's spend limit is reached. Retrying won't clear it."""
 
 
 @contextmanager
@@ -44,6 +49,8 @@ def _retry_gateway_refusals() -> Iterator[None]:
     try:
         yield
     except errors.ClientError as e:
+        if e.code == _GATEWAY_SPEND_LIMIT_CODE:
+            raise GatewaySpendLimitError("AI gateway returned HTTP 402") from e
         if e.code not in _GATEWAY_REFUSAL_CODES:
             raise
         raise errors.ServerError(

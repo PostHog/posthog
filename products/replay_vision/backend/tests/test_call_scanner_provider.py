@@ -29,6 +29,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _run_pass,
     _run_steps,
     _step_config,
+    run_scan,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import events_tool
@@ -565,6 +566,71 @@ async def test_an_inline_413_on_a_non_required_step_reaches_the_upload_fallback(
 
 
 @pytest.mark.asyncio
+async def test_other_inline_errors_on_a_non_required_step_leave_the_scan_standing() -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
+    ]
+
+    class _UnavailableModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise APIError(503, {"error": {"code": 503}})
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([])
+    client.models = _UnavailableModels([_Resp(text='{"verdict":"yes"}')])
+
+    out = await _run(client, steps, inline_video=True)
+
+    assert "summary" in out
+    assert "signals" not in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("video_bytes", [b"mp4-bytes", None])
+async def test_run_scan_sends_bytes_inline_and_a_file_by_reference(video_bytes: bytes | None) -> None:
+    mission = AsyncMock(side_effect=RuntimeError("stop after routing"))
+    scanner = MagicMock()
+    scanner.preamble.return_value = "PRE"
+    with (
+        patch(f"{_MODULE}.build_network_index", return_value=MagicMock()),
+        patch(f"{_MODULE}._run_mission", new=mission),
+        pytest.raises(RuntimeError, match="stop after routing"),
+    ):
+        await run_scan(
+            snapshot=MagicMock(model="gemini-3-flash-preview"),
+            scanner=scanner,
+            llm_inputs=MagicMock(navigation=[]),
+            team_name="team",
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
+            team_id=1,
+            video_clock=_IDENTITY_CLOCK,
+            video_bytes=video_bytes,
+        )
+
+    kwargs = mission.call_args.kwargs
+    assert kwargs["inline_video"] is (video_bytes is not None)
+    part = kwargs["video_part"]
+    if video_bytes is not None:
+        assert part.inline_data.data == video_bytes
+        assert part.file_data is None
+    else:
+        assert part.file_data.file_uri == "gemini://files/x"
+        assert part.inline_data is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("inline_video", "path"), [(True, "inline_video"), (False, "inline")])
+async def test_an_uncached_pass_is_labelled_by_why_it_has_no_cache(inline_video: bool, path: str) -> None:
+    with patch(f"{_MODULE}.record_mission_pass") as record:
+        await _run_pass(run=AsyncMock(return_value={}), cache=None, model="m", inline_video=inline_video)
+
+    record.assert_called_once_with(model="m", path=path)
+
+
+@pytest.mark.asyncio
 async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
     steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
 
@@ -900,6 +966,14 @@ class TestVerifyPositives:
             mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="draw_failed"
         )
         assert len(run.calls) == 3
+        assert run.counted == {("enforce", "draw_failed"): 1.0}
+
+    @pytest.mark.asyncio
+    async def test_other_inline_draw_errors_keep_the_first_verdict(self) -> None:
+        run = await self._scan(
+            mode="enforce", answers=["yes", APIError(503, {"error": {"code": 503}})], cached=False, inline_video=True
+        )
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
         assert run.counted == {("enforce", "draw_failed"): 1.0}
 
     @pytest.mark.asyncio

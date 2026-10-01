@@ -106,6 +106,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
@@ -2730,6 +2731,42 @@ async def test_apply_scanner_workflow_inline_video_skips_cleanup_only_when_patch
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("patched", "expect_cleanup"), [(True, False), (False, True)])
+async def test_evaluation_workflow_inline_video_skips_cleanup_only_when_patched(
+    patched: bool, expect_cleanup: bool
+) -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="", mime_type="video/mp4", gemini_file_name="", inline_video=True
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=MonitorOutput(verdict="no", reasoning="nothing", confidence=0.9)
+            ),
+        },
+    )
+    workflow = EvaluatePromptSuggestionWorkflow()
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
+        patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
+        patch("temporalio.workflow.patched", return_value=patched),
+        patch.object(workflow, "_record", new=AsyncMock()) as record,
+    ):
+        await workflow._evaluate_session(
+            MagicMock(team_id=99, suggestion_id=uuid.uuid4()),
+            MagicMock(snapshot=None),
+            MagicMock(observation_id=uuid.uuid4(), session_id="sess-1"),
+        )
+
+    assert record.call_args.kwargs.get("error") is None
+    scan_input = next(arg for fn, arg in mocks.activity_calls if fn is call_scanner_provider_activity)
+    assert scan_input.inline_video is True
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert (cleanup_gemini_file_activity in called) is expect_cleanup
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
     fetch_error = ApplicationError("no events", non_retryable=True)
@@ -3620,6 +3657,7 @@ class TestUploadedFileNotActive:
             patch(f"{module}._inject_known_freeform_tags", new=AsyncMock()),
             patch(f"{module}._load_video_clock"),
             patch(f"{module}.run_scan", new=run_scan),
+            patch(f"{module}.replay_gateway_enabled", return_value=True),
         ):
             await _call_scanner_provider(
                 CallScannerProviderInputs(
@@ -3635,7 +3673,11 @@ class TestUploadedFileNotActive:
         assert run_scan.call_args.kwargs["video_bytes"] == b"mp4-bytes"
 
     async def _inline_scan_failing_with(
-        self, error: APIError | None, heartbeat_details: tuple[str, ...] = ()
+        self,
+        error: APIError | None,
+        heartbeat_details: tuple[str, ...] = (),
+        gateway_on: bool = True,
+        consent_at_upload: bool = True,
     ) -> tuple[AsyncMock, AsyncMock, AsyncMock, MagicMock]:
         team = await sync_to_async(self._team)()
         asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
@@ -3656,6 +3698,9 @@ class TestUploadedFileNotActive:
             patch(f"{module}._load_video_clock"),
             patch(f"{module}.run_scan", new=run_scan),
             patch(f"{module}.activity.in_activity", return_value=True),
+            patch(f"{module}.replay_gateway_enabled", return_value=gateway_on),
+            # The first check is the activity's entry check; the second guards the fallback upload.
+            patch(f"{module}.is_ai_data_processing_approved", side_effect=[True, consent_at_upload]),
             patch(
                 f"{module}.activity.info",
                 return_value=MagicMock(workflow_id="wf-inline", heartbeat_details=list(heartbeat_details)),
@@ -3666,7 +3711,7 @@ class TestUploadedFileNotActive:
                 "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.upload_to_files_api",
                 new=upload,
             ),
-            contextlib.suppress(APIError),
+            contextlib.suppress(APIError, ConsentWithdrawnError),
         ):
             await _call_scanner_provider(
                 CallScannerProviderInputs(
@@ -3695,7 +3740,7 @@ class TestUploadedFileNotActive:
 
     @pytest.mark.asyncio
     async def test_a_retry_after_an_inline_413_uploads_without_another_inline_pass(self) -> None:
-        run_scan, upload, delete, _ = await self._inline_scan_failing_with(
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
             None, heartbeat_details=("inline_too_large",)
         )
 
@@ -3703,6 +3748,27 @@ class TestUploadedFileNotActive:
         assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
         assert run_scan.call_args.kwargs["file_uri"] == "gemini://files/fb"
         assert delete.call_args.args[1] == "files/fb"
+        # Its own heartbeats replace the stored details, so the marker must ride on them for the next retry.
+        assert heartbeater.details == ("inline_too_large",)
+
+    @pytest.mark.asyncio
+    async def test_a_team_turned_off_after_the_upload_scans_an_uploaded_file(self) -> None:
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(None, gateway_on=False)
+
+        upload.assert_awaited_once()
+        assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
+        assert delete.call_args.args[1] == "files/fb"
+        assert heartbeater.details == ()
+
+    @pytest.mark.asyncio
+    async def test_the_fallback_upload_stops_when_consent_was_withdrawn(self) -> None:
+        run_scan, upload, delete, _ = await self._inline_scan_failing_with(
+            APIError(413, {"error": {"code": 413}}), consent_at_upload=False
+        )
+
+        assert run_scan.await_count == 1
+        upload.assert_not_called()
+        delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_other_inline_client_errors_do_not_upload(self) -> None:

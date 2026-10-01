@@ -26,12 +26,13 @@ from products.replay_vision.backend import (
 from products.replay_vision.backend.gemini_client import (
     GATEWAY_FLAG,
     GatewayGeminiClient,
+    GatewaySpendLimitError,
     assemble_stream,
     replay_gateway_enabled,
     replay_gemini_client,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error
 
 _GATEWAY = {"AI_GATEWAY_URL": "https://ai-gateway.example/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 _UNSET = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
@@ -163,7 +164,7 @@ class TestReplayGeminiClient:
 
         assert len(asyncio.run(call_after_collection())) == 2
 
-    @pytest.mark.parametrize("code", [401, 402, 403])
+    @pytest.mark.parametrize("code", [401, 403])
     def test_gateway_refusals_retry_as_transient(self, code: int) -> None:
         client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(code, json={"error": {"code": code}}))
 
@@ -175,6 +176,19 @@ class TestReplayGeminiClient:
         for error in (sync_error.value, async_error.value):
             assert classify_gemini_error(error) == FailureKind.PROVIDER_TRANSIENT
             assert f"HTTP {code}" in (error.message or "")
+
+    def test_a_gateway_spend_limit_fails_without_retrying(self) -> None:
+        client, _ = _wired_gateway_client({}, respond=lambda _: httpx.Response(402, json={"error": {"code": 402}}))
+
+        with pytest.raises(GatewaySpendLimitError) as sync_error:
+            client.models.generate_content(model="gemini-test", contents="hi")
+        with pytest.raises(GatewaySpendLimitError) as async_error:
+            asyncio.run(client.aio.models.generate_content(model="gemini-test", contents="hi"))
+
+        for error in (sync_error.value, async_error.value):
+            assert classify_gemini_error(error) == FailureKind.INTERNAL_ERROR
+            assert not FailureKind.INTERNAL_ERROR.is_retryable
+            assert describe_gemini_error(error) == "PostHog's AI spend limit for Replay Vision was reached"
 
     @pytest.mark.parametrize("code", [400, 413])
     def test_other_client_errors_pass_through(self, code: int) -> None:
