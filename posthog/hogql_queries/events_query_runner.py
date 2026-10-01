@@ -385,8 +385,8 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 join_table=context.database.get_table("persons"),
                 resolver=PERSONS,
             )
-            # flag_evaluations has no elements_chain or person_mode column. Empty strings let "*" and explicit
-            # selects of these columns resolve as they do on events.
+            # flag_evaluations has no elements_chain or person_mode column. Empty strings let `*`, a saved column,
+            # a filter, or an order by that names either one still resolve.
             for name in ("elements_chain", "person_mode"):
                 flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
             # Group property filters, including test account filters, read group_N.properties as they do on events.

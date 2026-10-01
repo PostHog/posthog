@@ -68,6 +68,18 @@ describe('eventsSceneLogic', () => {
             { event: '$feature_flag_called' },
             false,
         ],
+        [
+            'a list filtered to flag calls and an action',
+            FlagEvaluationsModeEnumApi.Number2,
+            { event: '$feature_flag_called', actionId: 1 },
+            true,
+        ],
+        [
+            'a list filtered to flag calls and action steps',
+            FlagEvaluationsModeEnumApi.Number2,
+            { event: '$feature_flag_called', actionSteps: [{ event: '$feature_flag_called' }] },
+            true,
+        ],
         ['an unfiltered list on the read flag evaluations mode', FlagEvaluationsModeEnumApi.Number1, {}, false],
     ])(
         'decides whether the flag calls note shows for %s',

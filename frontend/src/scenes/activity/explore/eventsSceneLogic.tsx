@@ -139,6 +139,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 ) {
                     return false
                 }
+                const { source, actionId, actionSteps } = query.source
+                if (source || actionId || actionSteps?.length) {
+                    return true
+                }
                 const eventNames = [query.source.event, ...(query.source.events ?? [])].filter(Boolean)
                 return eventNames.length === 0 || eventNames.some((name) => name !== FEATURE_FLAG_CALLED_EVENT)
             },
