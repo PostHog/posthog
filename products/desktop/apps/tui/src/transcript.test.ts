@@ -2,9 +2,11 @@ import type { StoredLogEntry } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   type ToolLine,
+  type TranscriptLine,
   toolSummary,
   transcriptFrom,
   withPending,
+  withPendingShells,
 } from "./transcript";
 
 const at = (second: number): string =>
@@ -140,6 +142,84 @@ describe("transcriptFrom", () => {
       "Rename the helper",
     ).lines.filter((line) => line.kind === "user");
     expect(echoed).toHaveLength(1);
+  });
+});
+
+describe("transcriptFrom shell commands", () => {
+  const PI_TRANSCRIPT = transcriptFrom("pi", PI_LOG).lines;
+  // The shape pi's saved conversation gives a command the user ran with !.
+  const userShell = (second: number, command: string, output: string) => [
+    piEvent(second, {
+      type: "tool_call_started",
+      toolCall: {
+        id: `pi-bash-${second * 1000}`,
+        title: command,
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command },
+        origin: "user_shell",
+      },
+    }),
+    piEvent(second, {
+      type: "tool_call_updated",
+      toolCall: {
+        id: `pi-bash-${second * 1000}`,
+        status: "completed",
+        rawOutput: output,
+        origin: "user_shell",
+        content: [{ type: "content", content: { type: "text", text: output } }],
+      },
+    }),
+  ];
+
+  it("shows a command the user ran apart from the agent's own tool calls", () => {
+    const { lines } = transcriptFrom("pi", [
+      ...PI_LOG,
+      ...userShell(7, "git status", "clean"),
+    ]);
+
+    expect(lines.map((line) => line.kind)).toEqual([
+      "user",
+      "assistant",
+      "tool",
+      "shell",
+    ]);
+    expect(lines.at(-1)).toEqual({
+      kind: "shell",
+      id: expect.any(String),
+      command: "git status",
+      status: "completed",
+      output: "clean",
+    });
+  });
+
+  it("keeps a command shown until the run's log has it, then shows it once", () => {
+    const line = {
+      kind: "shell" as const,
+      id: "pending-shell",
+      command: "git status",
+      status: "completed",
+      output: "clean",
+    };
+    const shells = (lines: TranscriptLine[]) =>
+      lines.filter((candidate) => candidate.kind === "shell");
+    const once = transcriptFrom("pi", [
+      ...PI_LOG,
+      ...userShell(7, "git status", "clean"),
+    ]).lines;
+    const twice = transcriptFrom("pi", [
+      ...PI_LOG,
+      ...userShell(7, "git status", "clean"),
+      ...userShell(8, "git status", "clean"),
+    ]).lines;
+    const first = { line, seen: 0 };
+    const second = { line: { ...line, id: "again" }, seen: 1 };
+
+    expect(withPendingShells(PI_TRANSCRIPT, [first]).at(-1)).toEqual(line);
+    expect(shells(withPendingShells(once, [first]))).toHaveLength(1);
+    // Running the same command again waits for its own log entry, not the first one's.
+    expect(shells(withPendingShells(once, [second]))).toHaveLength(2);
+    expect(shells(withPendingShells(twice, [second]))).toHaveLength(2);
   });
 });
 

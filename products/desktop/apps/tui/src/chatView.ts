@@ -13,7 +13,13 @@ import {
   Text,
   truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { type ToolLine, type TranscriptLine, toolSummary } from "./transcript";
+import { orange } from "./theme";
+import {
+  type ShellLine,
+  type ToolLine,
+  type TranscriptLine,
+  toolSummary,
+} from "./transcript";
 
 // Shell-integration prompt marks (OSC 133) that pi emits for its own screen.
 const PROMPT_MARKS = new RegExp(`${"\u001b"}\\]133;[A-Z]${"\u0007"}`, "g");
@@ -24,6 +30,8 @@ const TOOL_MARKS: Record<string, string> = {
   in_progress: "\u001b[33m●\u001b[39m",
 };
 const RED = (text: string): string => `\u001b[31m${text}\u001b[39m`;
+// Commands the user ran share the composer's shell-mode colour.
+const SHELL_COLOUR = orange;
 const OLDER_ROW = "older";
 // Output lines an expanded tool call shows before it cuts off.
 const OUTPUT_LINES = 5;
@@ -129,6 +137,30 @@ class ToolGroup implements Component {
   invalidate(): void {}
 }
 
+// A command the user ran: the command in the shell colour, then the start of its output.
+class ShellBlock implements Component {
+  constructor(private readonly line: ShellLine) {}
+
+  render(width: number): string[] {
+    const mark = this.line.status === "failed" ? RED("!") : SHELL_COLOUR("!");
+    const lines = [
+      truncateToWidth(` ${mark} ${SHELL_COLOUR(this.line.command)}`, width),
+    ];
+    if (this.line.status === "in_progress" || this.line.status === "pending")
+      lines.push(DIM("   ⎿ Running…"));
+    const output = this.line.output.split("\n").filter((line) => line.trim());
+    output.slice(0, OUTPUT_LINES).forEach((line, index) => {
+      const prefix = index === 0 ? "⎿" : " ";
+      lines.push(truncateToWidth(DIM(`   ${prefix} ${line}`), width));
+    });
+    if (output.length > OUTPUT_LINES)
+      lines.push(DIM(`     … +${output.length - OUTPUT_LINES} lines`));
+    return lines;
+  }
+
+  invalidate(): void {}
+}
+
 // Each change between user, tool and agent blocks gets one blank line.
 const needsGap = (previous: Block | undefined, line: Block): boolean =>
   previous !== undefined && previous.kind !== line.kind;
@@ -146,6 +178,8 @@ function componentFor(line: TranscriptLine): Component {
       );
     case "notice":
       return new Text(DIM(line.text), 1, 0);
+    case "shell":
+      return new ShellBlock(line);
     // Tool calls render as groups; offered actions show in the picker.
     case "tool":
     case "actions":

@@ -44,3 +44,7 @@ export function detectTheme(
     stdout.write(BACKGROUND_QUERY);
   });
 }
+
+// PostHog orange (#F54E00), for modes that should stand out, such as shell commands.
+export const orange = (text: string): string =>
+  `\u001b[38;2;245;78;0m${text}\u001b[39m`;

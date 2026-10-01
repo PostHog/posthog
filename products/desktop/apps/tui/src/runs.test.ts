@@ -352,6 +352,8 @@ describe("formatDuration", () => {
     [4_000, "4s"],
     [150_000, "2m 30s"],
     [3_720_000, "1h 2m"],
+    // A turn with no real end, such as one a ! command opened, holds its negated start time.
+    [-1_790_000_000_000, "0s"],
   ])("formats %d ms", (ms, text) => {
     expect(formatDuration(ms)).toBe(text);
   });

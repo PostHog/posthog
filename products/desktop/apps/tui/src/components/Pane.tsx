@@ -16,7 +16,13 @@ import {
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
 import type { StatusChip } from "../status";
-import { transcriptFrom, withPending } from "../transcript";
+import {
+  type PendingShell,
+  type TranscriptLine,
+  transcriptFrom,
+  withPending,
+  withPendingShells,
+} from "../transcript";
 import { Spinner } from "./Spinner";
 
 const CHIP_COLORS = {
@@ -61,6 +67,8 @@ export function Pane({
   chat,
   composer,
   pending,
+  pendingShells,
+  onLines,
   onOffer,
   picker,
   modal,
@@ -85,6 +93,10 @@ export function Pane({
   composer: Composer;
   // A message just sent from this pane that the run has not echoed yet.
   pending: string | null;
+  // ! commands run in this chat that its run has not logged yet.
+  pendingShells: PendingShell[];
+  // The transcript as drawn, so the app can tell a new run of a command from logged ones.
+  onLines: (lines: TranscriptLine[]) => void;
   onOffer: (offer: ActionsLine | null) => void;
   picker: { index: number; dismissed: Set<string> };
   // A sheet the app opened for this pane, such as the model picker.
@@ -127,9 +139,13 @@ export function Pane({
     [task, local, view.entries],
   );
   const lines = useMemo(
-    () => withPending(transcript.lines, pending),
-    [transcript, pending],
+    () =>
+      withPendingShells(withPending(transcript.lines, pending), pendingShells),
+    [transcript, pending, pendingShells],
   );
+  useEffect(() => {
+    onLines(lines);
+  });
   // A new chat shows its message and start-up state before the run even exists.
   const notice = task?.latest_run
     ? runNotice(

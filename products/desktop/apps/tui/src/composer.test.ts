@@ -54,7 +54,7 @@ describe("Composer", () => {
     const lines = composer.render(30, true).editor;
     expect(lines.join("\n")).not.toContain("\x1b_pi:c");
     expect(lines.map((line) => stripTerminalSequences(line).trim())).toContain(
-      "he!y",
+      "❯ he!y",
     );
     expect(repaints).toBeGreaterThan(0);
   });
@@ -75,6 +75,87 @@ describe("Composer", () => {
     ).not.toContain("hi");
   });
 
+  describe("prompt and shell mode", () => {
+    const ORANGE = "\u001b[38;2;245;78;0m";
+    const drawn = (composer: Composer, width = 30) => {
+      const [rule, ...input] = composer.render(width, true).editor;
+      return {
+        rule,
+        input,
+        text: input.map((line) => stripTerminalSequences(line).trimEnd()),
+      };
+    };
+    const typed = (keys: string[]) => {
+      const sent: string[] = [];
+      const composer = new Composer(
+        () => {},
+        (text) => sent.push(text),
+      );
+      for (const key of keys) composer.handleInput(key);
+      return { composer, sent };
+    };
+
+    it("shows ❯ before the text and lines wrapped lines up under it", () => {
+      const { composer } = typed([..."one two three four"]);
+      const { text, rule } = drawn(composer, 12);
+
+      expect(text[0].startsWith("❯ one")).toBe(true);
+      expect(text[1].startsWith("  ")).toBe(true);
+      expect(stripTerminalSequences(rule)).toBe("─".repeat(12));
+      expect(rule).not.toContain(ORANGE);
+    });
+
+    it("turns ! in an empty composer into shell mode: an orange ! prompt and rule", () => {
+      const { composer, sent } = typed(["!", "l", "s"]);
+      const { text, rule, input } = drawn(composer);
+
+      expect(composer.isShellCommand()).toBe(true);
+      expect(text[0].startsWith("! ls")).toBe(true);
+      expect(input[0].startsWith(`${ORANGE}!`)).toBe(true);
+      expect(rule).toContain(ORANGE);
+
+      composer.handleInput("\r");
+      expect(sent).toEqual(["!ls"]);
+      expect(composer.isShellCommand()).toBe(false);
+      expect(drawn(composer).text[0].startsWith("❯")).toBe(true);
+    });
+
+    it.each([
+      ["Backspace in an empty shell command", ["!", "\x7f"]],
+      ["Backspace after deleting the command", ["!", "l", "\x7f", "\x7f"]],
+    ])("leaves shell mode on %s", (_, keys) => {
+      const { composer } = typed(keys);
+      const { text, rule } = drawn(composer);
+
+      expect(composer.isShellCommand()).toBe(false);
+      expect(text[0].startsWith("❯")).toBe(true);
+      expect(rule).not.toContain(ORANGE);
+    });
+
+    it("keeps shell mode while the command still has text to delete", () => {
+      const { composer } = typed(["!", "l", "s", "\x7f"]);
+      expect(composer.isShellCommand()).toBe(true);
+      expect(drawn(composer).text[0].startsWith("! l")).toBe(true);
+    });
+
+    it("treats ! after other text as text", () => {
+      const { composer } = typed(["a", "!"]);
+      expect(composer.isShellCommand()).toBe(false);
+      expect(drawn(composer).text[0].startsWith("❯ a!")).toBe(true);
+    });
+
+    it("opens shell mode for text put back with a leading !, and leaves it on clear", () => {
+      const { composer } = typed([]);
+      composer.setText("!ls");
+      expect(composer.isShellCommand()).toBe(true);
+      expect(drawn(composer).text[0].startsWith("! ls")).toBe(true);
+
+      composer.clear();
+      expect(composer.isShellCommand()).toBe(false);
+      expect(drawn(composer).text[0].startsWith("❯")).toBe(true);
+    });
+  });
+
   it("draws a rule above the input and none below", () => {
     const composer = new Composer(
       () => {},
@@ -87,7 +168,7 @@ describe("Composer", () => {
 
     expect(lines[0]).toMatch(/^─+$/);
     expect(lines.slice(1).some((line) => /^─+$/.test(line))).toBe(false);
-    expect(lines).toContain("x");
+    expect(lines).toContain("❯ x");
   });
 
   it("hands back slash suggestions apart from the input, so they can float over the chat", async () => {

@@ -2,7 +2,10 @@ import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import { describe, expect, it, vi } from "vitest";
 import { LocalSession } from "./local";
 import { type AgentPrompt, promptReply } from "./prompts";
-import type { RunView } from "./runs";
+import { emptyRunView, type RunView } from "./runs";
+
+const emptyView = (): RunView => emptyRunView;
+
 import { transcriptFrom } from "./transcript";
 
 function fakeClient() {
@@ -78,6 +81,42 @@ describe("LocalSession", () => {
     expect(
       transcriptFrom("pi", (view as unknown as RunView).entries).lines,
     ).toMatchObject([{ kind: "user", text: "earlier" }]);
+  });
+
+  it("runs a shell command on this machine and shows it in the chat", async () => {
+    const { client, send } = fakeClient();
+    send.mockImplementation(async (command) => ({
+      id: command.id,
+      type: "response",
+      command: command.type,
+      success: true,
+      ...(command.type === "bash"
+        ? { data: { output: "clean", exitCode: 0, cancelled: false } }
+        : {}),
+    }));
+    const session = new LocalSession(client, policies());
+    let view = emptyView();
+    session.watch((next) => {
+      view = next;
+    });
+    await session.start();
+
+    const result = await session.control.bash("git status");
+
+    expect(result).toMatchObject({ output: "clean", exitCode: 0 });
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "bash", command: "git status" }),
+    );
+    const shells = transcriptFrom("pi", view.entries).lines.filter(
+      (line) => line.kind === "shell",
+    );
+    expect(shells).toEqual([
+      expect.objectContaining({
+        command: "git status",
+        status: "completed",
+        output: "clean",
+      }),
+    ]);
   });
 
   it("sends messages and exposes the run's commands", async () => {

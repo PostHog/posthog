@@ -122,6 +122,34 @@ describe("ChatView", () => {
     ]);
   });
 
+  it("shows a shell command the user ran with its output, apart from the agent's tools", () => {
+    const chat = new ChatView();
+    chat.setTranscript([
+      tool("t1", "bash"),
+      {
+        kind: "shell",
+        id: "s1",
+        command: "ls src",
+        status: "completed",
+        output: "1\n2\n3\n4\n5\n6\n7",
+      },
+    ]);
+    const lines = plain(chat.render(40, 10)).map((line) => line.trim());
+
+    expect(lines).toEqual([
+      "▸ Ran 1 shell command",
+      "",
+      "! ls src",
+      "⎿ 1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "… +2 lines",
+      "",
+    ]);
+  });
+
   it("shows the run's status right under the latest message", () => {
     const chat = new ChatView();
     chat.setTranscript([{ kind: "user", id: "u1", text: "yo" }], {
