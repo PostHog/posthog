@@ -128,6 +128,10 @@ from policy import OwnershipSource
             ["posthog/egress/slack/client.py"],
             id="egress-domain-not-guardrail",
         ),
+        pytest.param(
+            ["tools/release/feature-product.yaml"],
+            id="product-yaml-suffix-not-manifest",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str]) -> None:
