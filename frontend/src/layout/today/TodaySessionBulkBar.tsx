@@ -56,8 +56,16 @@ function BulkButton({ label, action, icon, dataAttr, onClick, wrap }: BulkButton
 }
 
 export function TodaySessionBulkBar(): JSX.Element {
-    const { selectedSessionIds, bulkPinDirection } = useValues(todaySessionSelectionLogic)
-    const { pinSelected, fileSelectedTo, requestBulkArchive, clearSelection } = useActions(todaySessionSelectionLogic)
+    const { selectedSessionIds, bulkPinDirection, bulkArchiveConfirm, bulkAction } =
+        useValues(todaySessionSelectionLogic)
+    const {
+        pinSelected,
+        fileSelectedTo,
+        requestBulkArchive,
+        clearSelection,
+        closeBulkArchiveConfirm,
+        archiveSelected,
+    } = useActions(todaySessionSelectionLogic)
     const { spaces } = useValues(todaySpacesLogic)
     const count = selectedSessionIds.length
     const sessions = sessionsLabel(count)
@@ -126,7 +134,13 @@ export function TodaySessionBulkBar(): JSX.Element {
                     </div>
                 </div>
             )}
-            <TodaySessionBulkArchiveDialog />
+            <TodaySessionBulkArchiveDialog
+                confirm={bulkArchiveConfirm}
+                archiving={bulkAction === 'archive'}
+                onCancel={closeBulkArchiveConfirm}
+                onConfirm={archiveSelected}
+                dataAttrPrefix="today-session-bulk"
+            />
         </>
     )
 }

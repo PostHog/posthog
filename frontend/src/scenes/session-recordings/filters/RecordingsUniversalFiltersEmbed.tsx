@@ -151,6 +151,7 @@ function HideRecordingsMenu(): JSX.Element {
 
     return (
         <SettingsMenu
+            data-attr="filters-hide-viewed-menu"
             highlightWhenActive={false}
             items={items}
             icon={hideViewedRecordings ? <IconHide /> : <IconEye />}
@@ -283,21 +284,25 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
+                    data-attr="filters-timestamp-format-menu"
                     highlightWhenActive={false}
                     items={[
                         {
                             label: 'UTC',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                            'data-attr': 'filters-timestamp-utc',
                             active: playlistTimestampFormat === TimestampFormat.UTC,
                         },
                         {
                             label: 'Device',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                            'data-attr': 'filters-timestamp-device',
                             active: playlistTimestampFormat === TimestampFormat.Device,
                         },
                         {
                             label: 'Relative',
                             onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                            'data-attr': 'filters-timestamp-relative',
                             active: playlistTimestampFormat === TimestampFormat.Relative,
                         },
                     ]}
@@ -330,7 +335,7 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
     useMountedLogic(actionsModel)
     useMountedLogic(groupsModel)
 
-    const { activeFilterTab, templatesInFiltersPanel } = useValues(playlistFiltersLogic)
+    const { activeFilterTab } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     const { savedFilters } = useValues(sessionRecordingSavedFiltersLogic)
@@ -357,26 +362,22 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
             content: <SavedFilters setFilters={props.setFilters} />,
             'data-attr': 'session-recordings-saved-tab',
         },
-        ...(templatesInFiltersPanel
-            ? [
-                  {
-                      key: 'templates',
-                      label: <div className="px-2">Templates</div>,
-                      content: (
-                          <div className="p-2">
-                              <FilterTemplates
-                                  source="filters_panel"
-                                  onApply={(filters) => {
-                                      props.setFilters(filters)
-                                      setActiveFilterTab('filters')
-                                  }}
-                              />
-                          </div>
-                      ),
-                      'data-attr': 'session-recordings-templates-tab',
-                  },
-              ]
-            : []),
+        {
+            key: 'templates',
+            label: <div className="px-2">Templates</div>,
+            content: (
+                <div className="p-2">
+                    <FilterTemplates
+                        source="filters_panel"
+                        onApply={(filters) => {
+                            props.setFilters(filters)
+                            setActiveFilterTab('filters')
+                        }}
+                    />
+                </div>
+            ),
+            'data-attr': 'session-recordings-templates-tab',
+        },
     ]
 
     return (
@@ -387,7 +388,14 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
                 size="small"
                 tabs={tabs}
                 barClassName="sticky top-0 z-10 bg-primary"
-                rightSlot={<LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />}
+                rightSlot={
+                    <LemonButton
+                        data-attr="filters-panel-collapse"
+                        icon={<IconX />}
+                        size="small"
+                        onClick={() => setIsFiltersExpanded(false)}
+                    />
+                }
             />
         </div>
     )
@@ -519,10 +527,16 @@ const SaveFiltersModal = ({
                     }}
                 />
                 <div className="flex justify-end gap-2 mt-4">
-                    <LemonButton type="secondary" onClick={closeSaveFiltersModal} tooltip="Close">
+                    <LemonButton
+                        data-attr="filters-save-modal-close"
+                        type="secondary"
+                        onClick={closeSaveFiltersModal}
+                        tooltip="Close"
+                    >
                         Close
                     </LemonButton>
                     <LemonButton
+                        data-attr="filters-save-modal-save"
                         type="primary"
                         size="small"
                         disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
@@ -579,8 +593,20 @@ function SavedFilterNameEditor({
                     fullWidth
                     onPressEnter={() => void doRename()}
                 />
-                <LemonButton size="xsmall" icon={<IconCheck />} onClick={() => void doRename()} tooltip="Save name" />
-                <LemonButton size="xsmall" icon={<IconX />} onClick={() => setIsRenaming(false)} tooltip="Cancel" />
+                <LemonButton
+                    data-attr="filters-saved-filter-rename-save"
+                    size="xsmall"
+                    icon={<IconCheck />}
+                    onClick={() => void doRename()}
+                    tooltip="Save name"
+                />
+                <LemonButton
+                    data-attr="filters-saved-filter-rename-cancel"
+                    size="xsmall"
+                    icon={<IconX />}
+                    onClick={() => setIsRenaming(false)}
+                    tooltip="Cancel"
+                />
             </div>
         )
     }
@@ -600,6 +626,7 @@ function SavedFilterNameEditor({
                 </span>
             </LemonTag>
             <LemonButton
+                data-attr="filters-saved-filter-rename"
                 size="xsmall"
                 icon={<IconPencil />}
                 onClick={() => {
@@ -829,6 +856,7 @@ export const ReplayFiltersTab = ({
 
     const resetButton = (
         <LemonButton
+            data-attr="filters-reset-all"
             type="tertiary"
             size="small"
             onClick={handleResetFilters}
@@ -1086,7 +1114,12 @@ export const ReplayFiltersTab = ({
                                 </>
                             )}
                             {resetButton}
-                            <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                            <LemonButton
+                                data-attr="filters-save-modal-open"
+                                type="primary"
+                                size="small"
+                                onClick={() => setIsSaveFiltersModalOpen(true)}
+                            >
                                 Save as new filter
                             </LemonButton>
                         </div>

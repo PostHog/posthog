@@ -292,8 +292,12 @@ const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPos
             query: {
                 author: params.author,
                 date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
                 repo: params.repo,
                 source_id: params.source_id,
+                state: params.state,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')

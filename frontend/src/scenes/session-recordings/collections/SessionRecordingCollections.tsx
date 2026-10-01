@@ -37,6 +37,7 @@ export function SessionRecordingCollections(): JSX.Element {
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
+                            data-attr="collections-toggle-pinned"
                             size="small"
                             onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
@@ -100,6 +101,7 @@ export function SessionRecordingCollections(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
+                                        data-attr="collections-delete"
                                         status="danger"
                                         onClick={() => deletePlaylist(playlist)}
                                         fullWidth

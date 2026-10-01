@@ -1105,6 +1105,8 @@ export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
 export const signalsScoutConfigUpdateBodyWriteScopesMax = 10
 
+export const signalsScoutConfigUpdateBodySuggestionIdMax = 64
+
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .object({
         display_name: zod
@@ -1256,6 +1258,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
+        suggestion_id: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodySuggestionIdMax)
+            .optional()
+            .describe(
+                "Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored."
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
