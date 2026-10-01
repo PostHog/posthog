@@ -255,4 +255,26 @@ describe("sending a draft", () => {
     mocks.auth.session = { ...mocks.session };
     expect(loadDraft("task-1")?.text).toBe("hello");
   });
+
+  it("keeps a pending message out of another account", () => {
+    beginSend(NEW_CHAT_DRAFT, { text: "private", photos: [] });
+    const other = { ...mocks.session, host: "https://eu.posthog.com" };
+    mocks.auth.session = other;
+    saveDraft(NEW_CHAT_DRAFT, { text: "", photos: [] });
+
+    expect(loadDraft(NEW_CHAT_DRAFT)).toBeNull();
+    expect(accountStore(other as never).getString("draft-1-new-chat")).toBe(
+      undefined,
+    );
+  });
+
+  it("drops pending messages with the account cache", () => {
+    beginSend(NEW_CHAT_DRAFT, { text: "private", photos: [] });
+    clearAccountCache(mocks.session as never);
+    saveDraft(NEW_CHAT_DRAFT, { text: "", photos: [] });
+
+    expect(
+      accountStore(mocks.session as never).getString("draft-1-new-chat"),
+    ).toBe(undefined);
+  });
 });

@@ -53,6 +53,7 @@ export function accountStore(session: Session): MMKV {
 export function clearAccountCache(session: Session): void {
   const id = storeId(session);
   stores.delete(id);
+  accountDrafts.delete(id);
   deleteMMKV(id);
 }
 
@@ -168,25 +169,43 @@ export function saveTranscript(taskId: string, blocks: Block[]): void {
   touchIndex(scope.store, scope.prefix, taskId, TRANSCRIPT_LIMIT);
 }
 
+interface AccountDrafts {
+  // A placeholder chat gets its task id after its screen saved under the
+  // temporary id, so writes to that id follow the move.
+  moved: Map<string, string>;
+  // Messages whose send has not settled, by storage id. A saved message with
+  // no entry here is from a send the app did not finish.
+  sending: Map<string, Draft>;
+}
+
 interface DraftScope {
   store: MMKV;
   prefix: string;
   key: string;
   id: string;
+  drafts: AccountDrafts;
 }
 
-// A placeholder chat gets its task id after its screen saved under the
-// temporary id, so writes to that id follow the move.
-const movedDrafts = new Map<string, string>();
-// Messages whose send has not settled, by storage id. A saved message with no
-// entry here is from a send the app did not finish.
-const sendingDrafts = new Map<string, Draft>();
+const accountDrafts = new Map<string, AccountDrafts>();
 
 function draftScope(key: string): DraftScope | null {
-  const scope = projectScope("draft");
-  if (!scope) return null;
-  const target = movedDrafts.get(`${scope.prefix}-${key}`) ?? key;
-  return { ...scope, key: target, id: `${scope.prefix}-${target}` };
+  const { session } = useAuth.getState();
+  if (!session) return null;
+  const account = storeId(session);
+  let drafts = accountDrafts.get(account);
+  if (!drafts) {
+    drafts = { moved: new Map(), sending: new Map() };
+    accountDrafts.set(account, drafts);
+  }
+  const prefix = `draft-${session.projectId}`;
+  const target = drafts.moved.get(`${prefix}-${key}`) ?? key;
+  return {
+    store: accountStore(session),
+    prefix,
+    key: target,
+    id: `${prefix}-${target}`,
+    drafts,
+  };
 }
 
 function hasContent(draft: Draft): boolean {
@@ -250,7 +269,7 @@ function removeDraft({ store, prefix, key, id }: DraftScope): void {
 }
 
 function writeDraft(scope: DraftScope, draft: Draft): void {
-  const unsent = sendingDrafts.get(scope.id);
+  const unsent = scope.drafts.sending.get(scope.id);
   if (!hasContent(draft) && !unsent) {
     removeDraft(scope);
     return;
@@ -277,7 +296,7 @@ export function loadDraft(key: string): Draft | null {
   const saved = readDraft(scope.store, scope.id);
   if (!saved) return null;
   let { draft } = saved;
-  if (saved.unsent && !sendingDrafts.has(scope.id)) {
+  if (saved.unsent && !scope.drafts.sending.has(scope.id)) {
     draft = keepUnsent(draft, saved.unsent);
     writeDraft(scope, draft);
   }
@@ -297,11 +316,11 @@ export function beginSend(
 ): (sent: boolean) => void {
   const scope = draftScope(key);
   if (!scope) return () => {};
-  sendingDrafts.set(scope.id, message);
+  scope.drafts.sending.set(scope.id, message);
   writeDraft(scope, { text: "", photos: [] });
   return (sent) => {
-    if (sendingDrafts.get(scope.id) === message) {
-      sendingDrafts.delete(scope.id);
+    if (scope.drafts.sending.get(scope.id) === message) {
+      scope.drafts.sending.delete(scope.id);
     }
     const current = projectScope("draft");
     if (current?.store !== scope.store || current.prefix !== scope.prefix) {
@@ -319,7 +338,7 @@ export function moveDraft(from: string, to: string): void {
   const source = draftScope(from);
   const target = draftScope(to);
   if (!source || !target) return;
-  movedDrafts.set(source.id, target.key);
+  source.drafts.moved.set(source.id, target.key);
   const saved = readDraft(source.store, source.id);
   removeDraft(source);
   if (saved) writeDraft(target, saved.draft);
