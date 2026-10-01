@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md.",
+    "properties": {
+        "agent_instructions": {
+            "description": "Markdown instructions the agent reads in every eligible cloud task run, the same way it reads a local AGENTS.md. Send an empty string to clear.",
+            "maxLength": 20000,
+            "type": "string"
+        }
+    },
+    "required": ["agent_instructions"],
+    "type": "object"
+}
