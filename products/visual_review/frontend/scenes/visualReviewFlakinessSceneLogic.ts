@@ -240,10 +240,12 @@ export interface visualReviewFlakinessSceneLogicActions {
         runType: string,
         reason: string,
         expiresAt: string | null,
-        sourceRunId: string | null
+        sourceRunId: string | null,
+        notifyOwners?: boolean
     ) => {
         expiresAt: string | null
         identifier: string
+        notifyOwners: boolean
         reason: string
         runType: string
         sourceRunId: string | null
@@ -326,13 +328,15 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             runType: string,
             reason: string,
             expiresAt: string | null,
-            sourceRunId: string | null
+            sourceRunId: string | null,
+            notifyOwners: boolean = false
         ) => ({
             identifier,
             runType,
             reason,
             expiresAt,
             sourceRunId,
+            notifyOwners,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
         quarantineSettled: (identifier: string, runType: string) => ({ identifier, runType }),
@@ -511,7 +515,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 actions.landOnPreset(populated)
             }
         },
-        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
+        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId, notifyOwners }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {
                     identifier,
@@ -521,6 +525,7 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                     // old row and creates a replacement, so dropping this loses the link
                     // to the run that prompted the quarantine.
                     source_run_id: sourceRunId,
+                    notify_owners: notifyOwners,
                 })
                 lemonToast.success('Quarantined. Runs stop gating on this snapshot.')
             } catch (e: any) {

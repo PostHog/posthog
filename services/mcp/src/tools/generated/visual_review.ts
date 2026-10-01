@@ -214,6 +214,9 @@ const visualReviewReposQuarantineCreate = (): ToolBase<
         if (params.source_run_id !== undefined) {
             body['source_run_id'] = params.source_run_id
         }
+        if (params.notify_owners !== undefined) {
+            body['notify_owners'] = params.notify_owners
+        }
         const result = await context.api.request<Schemas.QuarantinedIdentifierEntry>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/quarantine/${encodeURIComponent(String(params.run_type))}/`,
