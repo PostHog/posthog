@@ -47,7 +47,7 @@ from products.experiments.backend.metric_resolution import (
     saved_metric_links,
     saved_metric_role,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 if TYPE_CHECKING:
@@ -211,7 +211,8 @@ class ExperimentCalculationSettings:
     def of_experiment(
         cls, experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
     ) -> "ExperimentCalculationSettings":
-        """Settings from the current fields of the experiment, which does not need to be saved."""
+        """Settings from the current fields of the experiment, which does not need to be saved. A caller that
+        plans several experiments of one team passes the team's config to read it once."""
         return cls.resolve(
             team=experiment.team,
             feature_flag=experiment.feature_flag,
@@ -281,15 +282,24 @@ class CalculationSpec:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def plan(experiment: Experiment) -> list[CalculationSpec]:
+def plan(experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None) -> list[CalculationSpec]:
     """One spec per scheduled metric of the experiment, in the order of `resolve_scheduled_metrics`."""
     metrics = resolve_scheduled_metrics(experiment)
     if not metrics:
         return []
-    settings = ExperimentCalculationSettings.of_experiment(experiment)
+    settings = ExperimentCalculationSettings.of_experiment(experiment, team_config=team_config)
     return [
         settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition) for metric in metrics
     ]
+
+
+def plan_primary(experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None) -> list[CalculationSpec]:
+    """The specs of the scheduled primary metrics, inline and saved, in the order the results page lists them. The
+    first one is the metric the product calls the experiment's primary metric."""
+    rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
+    primary = [spec for spec in plan(experiment, team_config=team_config) if spec.role == "primary"]
+    # Stable, so metrics missing from the ordering keep their resolution order behind the ordered ones.
+    return sorted(primary, key=lambda spec: rank(spec.metric_id))
 
 
 def plan_metric(experiment: Experiment, metric_uuid: str) -> CalculationSpec | None:

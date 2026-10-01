@@ -100,7 +100,10 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 The trade-off: reads have to recompute the fingerprint set to find a run's results (`MetricResultStore.for_run` walks each metric, recomputes its `config_fp`, applies the recalc salt, then `WHERE fingerprint IN (...) AND query_to = recalc.query_to`). If the experiment's `start_date` / `exposure_criteria` / stats config changes between the write and the read, the recomputed fingerprints don't match the on-disk ones, and results "disappear." Documented inline as the fingerprint-divergence hazard.
 
-Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt, the sync's copy window and the relaunch rule on `query_from` stay in one module.
+Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
+The current result of a metric (`current_outcome`) is the completed row with the newest `query_to` under the metric's current calculation key, salted or bare.
+The experiment-completed event reads it for the first primary metric in display order, inline or saved, and the setup context reads it for its outcomes.
+A backfilled past window does not win over a newer window, and a row under an earlier configuration, for example from before a relaunch, does not count.
 When several rows share `(experiment, metric_uuid, query_to)`, each query returns the row with the newest `completed_at`, then the highest id.
 The unique constraint on that key allows only one row, so this order decides nothing until the constraint goes.
 Every writer (the calc activity, the daily activities, the backfill and the timeseries sync) looks the row up on `(experiment, metric_uuid, query_to)` and stores its fingerprint as an updated field.

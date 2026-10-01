@@ -104,13 +104,11 @@ class TestMetricResultStore(BaseTest):
                 return _samples(store.latest_daily_point(spec, since=_WINDOW - timedelta(days=1), until=_WINDOW))
             case "timeseries":
                 return _samples(store.timeseries("m1", key, timezone=ZoneInfo("UTC")).by_day.get(_WINDOW_DAY))
-            case "last_completed":
-                return _samples(store.last_completed("m1"))
             case "previous_completed":
                 return _samples(store.previous_completed("m1", key, before=_WINDOW + timedelta(days=1)))
-            case "current_outcomes":
-                summary = MetricResultStore.current_outcomes({experiment.id: "m1"})[experiment.id]
-                assert summary.baseline_samples is not None
+            case "current_outcome":
+                summary = store.current_outcome(spec)
+                assert summary is not None and summary.baseline_samples is not None
                 return [int(summary.baseline_samples)]
         raise AssertionError(f"unknown reader {reader}")
 
@@ -121,9 +119,8 @@ class TestMetricResultStore(BaseTest):
                 "for_run",
                 "latest_daily_point",
                 "timeseries",
-                "last_completed",
                 "previous_completed",
-                "current_outcomes",
+                "current_outcome",
             )
             for tie in ("newer_write_wins", "higher_id_wins_between_equal_writes")
         ]
