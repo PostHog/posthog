@@ -4174,6 +4174,15 @@ const api = {
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
+            async latestValid(): Promise<ErrorTrackingSymbolSet | null> {
+                const queryString = { status: 'valid', order_by: '-created_at', limit: 1, include_count: false }
+                const res: PaginatedResponse<ErrorTrackingSymbolSet> = await new ApiRequest()
+                    .errorTrackingSymbolSets()
+                    .withQueryString(toParams(queryString))
+                    .get()
+                return res.results[0] ?? null
+            },
+
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
             },

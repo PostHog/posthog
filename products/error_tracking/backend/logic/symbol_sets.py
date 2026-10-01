@@ -422,7 +422,8 @@ def list_symbol_sets(
     order_by: str | None,
     limit: int | None,
     offset: int,
-) -> tuple[list[ErrorTrackingSymbolSet], int]:
+    include_count: bool = True,
+) -> tuple[list[ErrorTrackingSymbolSet], int | None]:
     queryset = ErrorTrackingSymbolSet.objects.filter(team_id=team_id).select_related("release")
 
     if ref:
@@ -445,7 +446,8 @@ def list_symbol_sets(
 
     queryset = queryset.order_by(*SYMBOL_SET_ORDERINGS.get(order_by or "", DEFAULT_SYMBOL_SET_ORDERING))
 
-    total = queryset.count()
+    # No index covers the status or search filters, so the count reads every symbol set row of the team.
+    total = queryset.count() if include_count else None
     rows = queryset if limit is None else queryset[offset : offset + limit]
     return list(rows), total
 

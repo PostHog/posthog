@@ -1,3 +1,5 @@
+from typing import Any
+
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, status, viewsets
@@ -179,6 +181,11 @@ class ErrorTrackingSymbolSetListQuerySerializer(serializers.Serializer):
         choices=["created_at", "-created_at", "ref", "-ref", "last_used", "-last_used"],
         help_text="Sort order for symbol sets. Prefix with `-` for descending order.",
     )
+    include_count = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.",
+    )
 
 
 class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
@@ -189,6 +196,11 @@ class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
 
 class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
     max_limit = 100
+
+    def get_paginated_response_schema(self, schema: dict[str, Any]) -> dict[str, Any]:
+        response_schema = super().get_paginated_response_schema(schema)
+        response_schema["properties"]["count"]["nullable"] = True
+        return response_schema
 
 
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -227,7 +239,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 order_by=params.get("order_by"),
                 limit=limit,
                 offset=offset,
+                include_count=params["include_count"],
             ),
+            include_count=params["include_count"],
         )
 
     def retrieve(self, request: Request, *args, pk=None, **kwargs) -> Response:

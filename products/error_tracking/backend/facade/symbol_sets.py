@@ -46,7 +46,8 @@ def list_symbol_sets(
     order_by: str | None,
     limit: int | None,
     offset: int,
-) -> tuple[list[contracts.ErrorTrackingSymbolSet], int]:
+    include_count: bool = True,
+) -> tuple[list[contracts.ErrorTrackingSymbolSet], int | None]:
     rows, total = _logic.list_symbol_sets(
         team_id,
         ref=ref,
@@ -55,6 +56,7 @@ def list_symbol_sets(
         order_by=order_by,
         limit=limit,
         offset=offset,
+        include_count=include_count,
     )
     return [_to_symbol_set(row) for row in rows], total
 
