@@ -71,7 +71,7 @@ export function TodaySessionHoverCard({ preview }: { preview: TodaySessionPrevie
                                     target="_blank"
                                     data-attr="today-session-hover-card-pr"
                                     // Dotted at rest, so the one mark that opens something reads as a link.
-                                    className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+                                    className="flex min-w-0 items-center gap-1 text-xs font-normal text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
                                 >
                                     <IconPullRequest
                                         className={cn('size-3 shrink-0', pullRequestState?.iconClassName)}
