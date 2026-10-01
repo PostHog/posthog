@@ -22,7 +22,7 @@ export interface topicVocabularyLogicMeta {
 
 export type topicVocabularyLogicType = MakeLogicType<
     topicVocabularyLogicValues,
-    Record<string, never>,
+    {},
     Record<string, any>,
     topicVocabularyLogicMeta
 >

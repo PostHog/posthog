@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,6 +10,7 @@ import { messagingCategoriesCreate, messagingCategoriesPartialUpdate } from 'pro
 import type { MessageCategoryTypeEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
+import { captureTopicsUsage } from './topicsUsage'
 import type { TopicVocabulary } from './topicVocabulary'
 import { topicVocabularyLogic } from './topicVocabularyLogic'
 
@@ -151,27 +151,17 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             submit: async (formValues: CategoryForm) => {
                 const teamId = String(ApiConfig.getCurrentTeamId())
                 if (props.category) {
-                    // Update existing category
                     await messagingCategoriesPartialUpdate(teamId, props.category.id, formValues)
                     lemonToast.success(values.words.topicForm.updated)
-                    // pinned: analytics event name
-                    posthog.capture('messaging topic updated')
+                    captureTopicsUsage('messaging topic updated')
                 } else {
-                    // Create new category
                     await messagingCategoriesCreate(teamId, formValues)
                     lemonToast.success(values.words.topicForm.created)
-                    // pinned: analytics event name
-                    posthog.capture('messaging topic created')
+                    captureTopicsUsage('messaging topic created')
                 }
-                // Reload categories in the parent logic
                 optOutCategoriesLogic.actions.loadCategories()
-
                 actions.resetForm()
-
-                // Trigger success callback if available
-                if (props.onSuccess) {
-                    props.onSuccess()
-                }
+                props.onSuccess?.()
             },
         },
     })),

@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 
-import type { MessageCategory } from './optOutCategoriesLogic'
 import { newCategoryLogic } from './newCategoryLogic'
+import type { MessageCategory } from './optOutCategoriesLogic'
 
 const BILLING_RECEIPTS: MessageCategory = {
     id: '0199c1aa-0000-7000-8000-000000000003',
