@@ -16,12 +16,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-
 import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
 import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
-import { CanvasSidePanel } from '../sidePanel/CanvasSidePanel'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
 import { CanvasSelectionCommentAction } from '../sidePanel/comments/CanvasSelectionCommentAction'
 import { CanvasEmptyBody } from './CanvasEmptyBody'
@@ -47,14 +44,14 @@ function CanvasBody(): JSX.Element {
     switch (bodyState) {
         case 'loading':
             return (
-                <div className="flex h-full flex-col gap-3 py-2">
+                <div className="flex h-full flex-col gap-3 p-4">
                     <Skeleton className="h-4 w-1/3" />
                     <Skeleton className="h-full w-full" />
                 </div>
             )
         case 'error':
             return (
-                <Empty className="h-full">
+                <Empty className="h-full border-0">
                     <EmptyHeader>
                         <EmptyMedia variant="icon">
                             <IconWarning />
@@ -84,7 +81,7 @@ function CanvasBody(): JSX.Element {
             return <CanvasGeneratingState />
         case 'draft-unavailable':
             return (
-                <Empty className="h-full">
+                <Empty className="h-full border-0">
                     <EmptyHeader>
                         <EmptyMedia variant="icon">
                             <IconWarning />
@@ -107,7 +104,7 @@ function CanvasBody(): JSX.Element {
 
 export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
-    const { viewMissing, sidePanelOpen } = useValues(canvasSceneLogic({ id }))
+    const { viewMissing } = useValues(canvasSceneLogic({ id }))
 
     if (!enabled || viewMissing) {
         return <NotFound object="canvas" />
@@ -116,25 +113,14 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
         <BindLogic logic={canvasSceneLogic} props={{ id }}>
             <BindLogic logic={canvasHistoryLogic} props={{ id }}>
                 <BindLogic logic={canvasCommentsLogic} props={{ id }}>
-                    <SceneContent className="h-full min-h-0 gap-y-2">
+                    <div data-quill className="flex h-full min-h-0 flex-col bg-background">
                         <CanvasSceneHeader />
-                        <div data-quill className="@container/canvas-scene relative flex min-h-0 flex-1">
-                            <main className="min-w-0 flex-1">
-                                <CanvasBody />
-                            </main>
-                            {sidePanelOpen && (
-                                // A narrow scene overlays the panel on the canvas. A wide one gives it its own column.
-                                <aside
-                                    className="absolute inset-y-0 right-0 z-10 flex w-full max-w-96 flex-col border-l border-border bg-background shadow-lg @min-[48rem]/canvas-scene:static @min-[48rem]/canvas-scene:w-96 @min-[48rem]/canvas-scene:shrink-0 @min-[48rem]/canvas-scene:shadow-none"
-                                    data-attr="canvas-side-panel"
-                                >
-                                    <CanvasSidePanel canvasId={id} />
-                                </aside>
-                            )}
-                            <CanvasSelectionCommentAction />
-                            <CanvasHistoryConfirmDialog />
-                        </div>
-                    </SceneContent>
+                        <main className="relative min-h-0 flex-1">
+                            <CanvasBody />
+                        </main>
+                        <CanvasSelectionCommentAction />
+                        <CanvasHistoryConfirmDialog />
+                    </div>
                 </BindLogic>
             </BindLogic>
         </BindLogic>

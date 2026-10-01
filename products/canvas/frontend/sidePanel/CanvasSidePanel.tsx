@@ -1,70 +1,37 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
-import { IconSidebarOpen } from '@posthog/icons'
-import {
-    Button,
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { sidePanelContextLogic } from '~/layout/navigation-3000/sidepanel/sidePanelContextLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import { CANVAS_PANEL_TABS, CanvasPanelTab } from './canvasPanelTabs'
-import { canvasSidePanelLogic } from './canvasSidePanelLogic'
+import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
+import { canvasSceneLogic } from '../scene/canvasSceneLogic'
+import { canvasPanelTab } from './canvasPanelTabs'
 import { CanvasSidePanelTabBody } from './CanvasSidePanelTabBody'
 import { canvasCommentsLogic } from './comments/canvasCommentsLogic'
 
-/** The canvas's right-hand panel: the agent chat, comment threads, and version timeline. */
-export function CanvasSidePanel({ canvasId }: { canvasId: string }): JSX.Element {
-    const { tab } = useValues(canvasSidePanelLogic)
-    const { selectTab, setCollapsed } = useActions(canvasSidePanelLogic)
-    const { commentsEnabled } = useValues(canvasCommentsLogic)
-    const visibleTab: CanvasPanelTab = tab === 'comments' && !commentsEnabled ? 'chat' : tab
+/** The canvas's tabs in the app side panel: the agent chat, comment threads, and version timeline. */
+export function CanvasSidePanel(): JSX.Element | null {
+    const { selectedTab } = useValues(sidePanelStateLogic)
+    const { sceneSidePanelContext } = useValues(sidePanelContextLogic)
+    const canvasId = sceneSidePanelContext.canvas_id
+    const tab = canvasPanelTab(selectedTab)
 
+    if (!canvasId || !tab) {
+        return null
+    }
     return (
-        <Tabs
-            value={visibleTab}
-            onValueChange={(value: CanvasPanelTab) => selectTab(value, canvasId)}
-            className="flex h-full min-h-0 flex-col gap-0"
-        >
-            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-chrome pr-2 pl-3">
-                <TabsList variant="line" aria-label="Canvas panel" className="min-w-0">
-                    {CANVAS_PANEL_TABS.map(({ key, label }) => (
-                        <TabsTrigger
-                            key={key}
-                            value={key}
-                            disabled={key === 'comments' && !commentsEnabled}
-                            data-attr={`canvas-panel-tab-${key}`}
-                        >
-                            {label}
-                        </TabsTrigger>
-                    ))}
-                </TabsList>
-                <Tooltip>
-                    <TooltipTrigger
-                        delay={0}
-                        render={
-                            <Button
-                                size="icon-sm"
-                                variant="default"
-                                className="ml-auto"
-                                aria-label="Hide side panel"
-                                onClick={() => setCollapsed(true, canvasId)}
-                                data-attr="canvas-panel-hide"
-                            />
-                        }
+        <BindLogic logic={canvasSceneLogic} props={{ id: canvasId }}>
+            <BindLogic logic={canvasHistoryLogic} props={{ id: canvasId }}>
+                <BindLogic logic={canvasCommentsLogic} props={{ id: canvasId }}>
+                    <div
+                        data-quill
+                        className="flex h-full min-h-0 flex-col bg-background"
+                        data-attr={`canvas-side-panel-${tab}`}
                     >
-                        <IconSidebarOpen />
-                    </TooltipTrigger>
-                    <TooltipContent>Hide side panel</TooltipContent>
-                </Tooltip>
-            </div>
-            <TabsContent value={visibleTab} className="min-h-0 flex-1">
-                <CanvasSidePanelTabBody tab={visibleTab} canvasId={canvasId} />
-            </TabsContent>
-        </Tabs>
+                        <CanvasSidePanelTabBody tab={tab} canvasId={canvasId} />
+                    </div>
+                </BindLogic>
+            </BindLogic>
+        </BindLogic>
     )
 }

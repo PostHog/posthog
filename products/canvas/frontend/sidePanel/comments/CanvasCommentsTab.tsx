@@ -23,10 +23,30 @@ import { CanvasCommentThreadCard } from './CanvasCommentThreadCard'
 
 /** The Comments tab: the canvas's comment threads, newest first. */
 export function CanvasCommentsTab(): JSX.Element {
-    const { visibleThreads, threads, resolvedCount, showResolved, commentsLoadFailed, commentsLoading } =
-        useValues(canvasCommentsLogic)
+    const {
+        visibleThreads,
+        threads,
+        resolvedCount,
+        showResolved,
+        commentsLoadFailed,
+        commentsLoading,
+        commentsEnabled,
+    } = useValues(canvasCommentsLogic)
     const { setShowResolved, loadComments } = useActions(canvasCommentsLogic)
 
+    if (!commentsEnabled) {
+        return (
+            <Empty className="h-full border-0" data-attr="canvas-comments-unavailable">
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <IconComment />
+                    </EmptyMedia>
+                    <EmptyTitle>No comments yet</EmptyTitle>
+                    <EmptyDescription>Comments open once an agent has built this canvas.</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
+        )
+    }
     if (!threads) {
         if (commentsLoadFailed) {
             return (

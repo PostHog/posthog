@@ -38,7 +38,7 @@ export function CanvasBrowsedCanvas(): JSX.Element {
                             <Skeleton className="h-full w-full" />
                         </div>
                     ) : (
-                        <Empty className="h-full">
+                        <Empty className="h-full border-0">
                             <EmptyHeader>
                                 <EmptyTitle>This version didn't load</EmptyTitle>
                                 <EmptyDescription>Check your connection and try again.</EmptyDescription>
@@ -64,7 +64,7 @@ export function CanvasBrowsedCanvas(): JSX.Element {
                         }}
                     />
                 ) : (
-                    <Empty className="h-full">
+                    <Empty className="h-full border-0">
                         <EmptyHeader>
                             <EmptyMedia variant="icon">
                                 <IconClock />

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconEllipsis, IconPalette, IconTrash } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconTrash } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -8,85 +8,113 @@ import {
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
+    Skeleton,
+    Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
 } from '@posthog/quill'
 
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
+import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
 import { CanvasGenerationIndicator } from './CanvasGenerationIndicator'
+import { CanvasNameField } from './CanvasNameField'
 import { CanvasRuntimeErrorNotice } from './CanvasRuntimeErrorNotice'
 import { canvasSceneLogic } from './canvasSceneLogic'
 import { CanvasSidePanelToggle } from './CanvasSidePanelToggle'
 
-/** The canvas's name, its build status, and the actions on the canvas as a whole. Select the name to rename it. */
+/**
+ * The bar across the top of the canvas, laid out like PostHog Desktop's: the name and version history
+ * at the start, then the canvas's status, the side panel, and the canvas menu at the end.
+ */
 export function CanvasSceneHeader(): JSX.Element {
-    const { canvas } = useValues(canvasSceneLogic)
-    const { renameCanvas, copyLink, deleteCanvas } = useActions(canvasSceneLogic)
+    const { canvas, space } = useValues(canvasSceneLogic)
+    const { copyLink, deleteCanvas } = useActions(canvasSceneLogic)
 
     return (
-        <SceneTitleSection
-            name={canvas?.name ?? null}
-            isLoading={!canvas}
-            resourceType={{ type: 'canvas', forceIcon: <IconPalette /> }}
-            canEdit={!!canvas}
-            onNameChange={renameCanvas}
-            saveOnBlur
-            renameDebounceMs={0}
-            actions={
-                canvas ? (
-                    <div data-quill className="flex flex-wrap items-center justify-end gap-2">
-                        {/* Status first, then history, then the panel and canvas menus. Each group wraps as one. */}
-                        <div className="flex flex-wrap items-center gap-1 empty:hidden">
-                            <CanvasGenerationIndicator />
-                            <CanvasBuildStatus />
-                            <CanvasRuntimeErrorNotice />
-                        </div>
-                        <CanvasVersionControls />
-                        <div className="flex items-center gap-1">
-                            <CanvasSidePanelToggle />
-                            <DropdownMenu>
-                                <Tooltip>
-                                    {/* quill's triggers do not forward refs under React 18, so a span anchors the tooltip. */}
-                                    <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
-                                        <DropdownMenuTrigger
-                                            render={
-                                                <Button
-                                                    variant="outline"
-                                                    size="icon-sm"
-                                                    aria-label="Canvas actions"
-                                                    data-attr="canvas-actions-menu"
-                                                />
-                                            }
-                                        >
-                                            <IconEllipsis />
-                                        </DropdownMenuTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Canvas actions</TooltipContent>
-                                </Tooltip>
-                                <DropdownMenuContent align="end">
-                                    <DropdownMenuItem onClick={() => copyLink()} data-attr="canvas-action-copy-link">
-                                        <IconCopy />
-                                        Copy link
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        variant="destructive"
-                                        onClick={() => deleteCanvas()}
-                                        data-attr="canvas-action-delete"
-                                    >
-                                        <IconTrash />
-                                        Delete
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+        <div
+            className="@container/canvas-toolbar flex h-12.5 shrink-0 items-center gap-2 border-b border-border bg-chrome pr-2 pl-1"
+            data-attr="canvas-toolbar"
+        >
+            {canvas ? (
+                <>
+                    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+                        {space && (
+                            <>
+                                <Button
+                                    size="sm"
+                                    variant="link-muted"
+                                    className="hidden shrink-0 @min-[32rem]/canvas-toolbar:inline-flex"
+                                    render={<LinkPrimitive to={urls.taskSpace(space.id)} />}
+                                    data-attr="canvas-toolbar-space"
+                                >
+                                    {canvasSpaceLabel(space)}
+                                </Button>
+                                <Text
+                                    size="sm"
+                                    variant="muted"
+                                    aria-hidden
+                                    className="hidden @min-[32rem]/canvas-toolbar:inline"
+                                >
+                                    /
+                                </Text>
+                            </>
+                        )}
+                        <CanvasNameField />
+                        {/* A narrow canvas keeps its name; the timeline tab still reaches every version. */}
+                        <div className="hidden @min-[30rem]/canvas-toolbar:contents">
+                            <CanvasVersionControls />
                         </div>
                     </div>
-                ) : undefined
-            }
-        />
+                    <div className="flex shrink-0 items-center gap-1">
+                        <CanvasGenerationIndicator />
+                        <CanvasBuildStatus />
+                        <CanvasRuntimeErrorNotice />
+                        <CanvasSidePanelToggle />
+                        <DropdownMenu>
+                            <Tooltip>
+                                {/* quill's triggers do not forward refs under React 18, so a span anchors the tooltip. */}
+                                <TooltipTrigger delay={0} render={<span className="inline-flex" />}>
+                                    <DropdownMenuTrigger
+                                        render={
+                                            <Button
+                                                variant="default"
+                                                size="icon-sm"
+                                                aria-label="Canvas actions"
+                                                data-attr="canvas-actions-menu"
+                                            />
+                                        }
+                                    >
+                                        <IconEllipsis />
+                                    </DropdownMenuTrigger>
+                                </TooltipTrigger>
+                                <TooltipContent>Canvas actions</TooltipContent>
+                            </Tooltip>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => copyLink()} data-attr="canvas-action-copy-link">
+                                    <IconCopy />
+                                    Copy link
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    variant="destructive"
+                                    onClick={() => deleteCanvas()}
+                                    data-attr="canvas-action-delete"
+                                >
+                                    <IconTrash />
+                                    Delete
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </>
+            ) : (
+                <Skeleton className="ml-2 h-4 w-40" />
+            )}
+        </div>
     )
 }

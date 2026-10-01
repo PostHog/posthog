@@ -690,7 +690,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'business_knowledge',
     },
     CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
-    CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-full-scene-height' },
+    CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',

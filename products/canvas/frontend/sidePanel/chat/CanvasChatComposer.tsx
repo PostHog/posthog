@@ -11,7 +11,7 @@ export function CanvasChatComposer(): JSX.Element {
     const { draft, chatState, sendError, sending } = useValues(canvasChatLogic)
     const { setDraft, sendMessage } = useActions(canvasChatLogic)
     const { generationStarting } = useValues(canvasSceneLogic)
-    const live = chatState === 'running' || chatState === 'starting'
+    const live = chatState === 'running' || chatState === 'awaiting' || chatState === 'starting'
 
     return (
         <div className="flex flex-col gap-2 border-t border-border p-3">

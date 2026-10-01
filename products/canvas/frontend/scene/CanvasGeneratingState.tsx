@@ -14,7 +14,7 @@ export function CanvasGeneratingState(): JSX.Element {
     const starting = generationPhase !== 'running'
 
     return (
-        <Empty className="h-full">
+        <Empty className="h-full border-0">
             <EmptyHeader>
                 <Spinner />
                 <EmptyTitle className="quill-shimmer">

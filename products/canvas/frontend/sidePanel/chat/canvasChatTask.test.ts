@@ -75,6 +75,14 @@ describe('canvas chat task', () => {
             expected: 'running',
         },
         {
+            name: 'an open run whose agent finished its turn is awaiting',
+            chatTask: task('in_progress'),
+            starting: false,
+            startError: null,
+            agentTurnActive: false,
+            expected: 'awaiting',
+        },
+        {
             name: 'a completed run is finished',
             chatTask: task('completed'),
             starting: false,

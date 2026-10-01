@@ -38,15 +38,26 @@ export function canvasCommentTaskId(
 
 /**
  * What the Chat tab shows. "starting" is a run that exists or is being created but whose agent
- * has not begun, "running" is an agent at work, and "start-failed" is a run that never started.
+ * has not begun, "running" is an agent at work, "awaiting" is an open run whose agent finished
+ * its turn, and "start-failed" is a run that never started.
  */
-export type CanvasChatState = 'loading' | 'idle' | 'starting' | 'running' | 'finished' | 'failed' | 'start-failed'
+export type CanvasChatState =
+    | 'loading'
+    | 'idle'
+    | 'starting'
+    | 'running'
+    | 'awaiting'
+    | 'finished'
+    | 'failed'
+    | 'start-failed'
 
 export function canvasChatState(input: {
     chatTaskId: string | null
     chatTask: CanvasGenerationTask | null
     starting: boolean
     startError: string | null
+    /** Whether the agent is working a turn of the run, or null when its session stream cannot tell. */
+    agentTurnActive?: boolean | null
 }): CanvasChatState {
     if (input.starting) {
         return 'starting'
@@ -65,7 +76,8 @@ export function canvasChatState(input: {
         return 'starting'
     }
     if (!isTerminalRunStatus(run.status)) {
-        return 'running'
+        // A cloud run stays open after the agent's turn so a follow-up can reuse it.
+        return input.agentTurnActive === false ? 'awaiting' : 'running'
     }
     return run.status === 'completed' ? 'finished' : 'failed'
 }
