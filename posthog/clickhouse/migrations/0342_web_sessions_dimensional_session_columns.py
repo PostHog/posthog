@@ -8,8 +8,17 @@ from posthog.clickhouse.preaggregation.web_sessions_sql import (
 ADD_COLUMNS_SQL = """
 ALTER TABLE {table_name}
 ADD COLUMN IF NOT EXISTS entry_hostname String AFTER entry_pathname,
+ADD COLUMN IF NOT EXISTS end_pathname String AFTER entry_hostname,
+ADD COLUMN IF NOT EXISTS device_type String AFTER end_pathname,
+ADD COLUMN IF NOT EXISTS os String AFTER device_type,
+ADD COLUMN IF NOT EXISTS browser String AFTER os,
+ADD COLUMN IF NOT EXISTS country_code String AFTER browser,
+ADD COLUMN IF NOT EXISTS region_code String AFTER country_code,
+ADD COLUMN IF NOT EXISTS city_name String AFTER region_code,
 ADD COLUMN IF NOT EXISTS is_bounce Bool AFTER pageview_count,
-ADD COLUMN IF NOT EXISTS session_duration Int64 AFTER is_bounce
+ADD COLUMN IF NOT EXISTS session_duration Int64 AFTER is_bounce,
+ADD COLUMN IF NOT EXISTS is_bot Bool AFTER session_duration,
+ADD COLUMN IF NOT EXISTS paths Array(Tuple(host String, pathname String, pageviews UInt32)) AFTER is_bot
 """
 
 operations = [

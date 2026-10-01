@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS {table_name}
     referring_domain String,
     entry_pathname String,
     entry_hostname String,
+    end_pathname String,
+
+    -- Taken from the session's first event, so a read can break down or filter by device and geo
+    -- without scanning events.
+    device_type String,
+    os String,
+    browser String,
+    country_code String,
+    region_code String,
+    city_name String,
 
     -- Pageviews in the session, so a read can report views next to visitors and sessions.
     pageview_count UInt64,
@@ -62,6 +72,11 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- without joining back to sessions.
     is_bounce Bool,
     session_duration Int64,
+    is_bot Bool,
+
+    -- Pageviews per (host, pathname) in the session, capped by the insert to the most-viewed entries.
+    -- Serves the paths breakdown and event-level host and pathname filters at session grain.
+    paths Array(Tuple(host String, pathname String, pageviews UInt32)),
 
     computed_at DateTime64(6, 'UTC') DEFAULT now(),
     expires_at DateTime64(6, 'UTC') DEFAULT now() + INTERVAL 7 DAY
