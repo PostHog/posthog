@@ -325,6 +325,7 @@ class TestCalculationSpec(BaseTest):
         base_stats = {"method": "frequentist"} if _name in ("alpha", "team_default_sequential") else {}
         experiment = self._experiment(stats_config=base_stats)
         self._add_metric(experiment, "mean", "inline", role="primary")
+        get_or_create_team_extension(self.team, TeamExperimentsConfig)
         [before] = plan(experiment)
 
         if target == "experiment":
@@ -341,7 +342,6 @@ class TestCalculationSpec(BaseTest):
             for name, value in changes.items():
                 setattr(self.team, name, value)
             self.team.save()
-        get_or_create_team_extension(self.team, TeamExperimentsConfig)
         [after] = plan(Experiment.objects.get(pk=experiment.pk))
 
         assert (after.calculation_key() != before.calculation_key()) is key_changes
@@ -372,7 +372,7 @@ class TestCalculationSpec(BaseTest):
             ("non_object_cuped_settings", {"stats_config": {"cuped": ["enabled"]}}),
         ]
     )
-    def test_configuration_the_runner_rejects_still_gets_a_key(self, _name: str, overrides: dict[str, Any]) -> None:
+    def test_malformed_stored_configuration_still_gets_a_key(self, _name: str, overrides: dict[str, Any]) -> None:
         experiment = self._experiment(**overrides)
         self._add_metric(experiment, "mean", "inline")
 

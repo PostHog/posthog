@@ -43,7 +43,6 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import metric_calculation_keys
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
@@ -634,9 +633,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
-            calculation_keys = (
-                metric_calculation_keys(instance.id, team_id=instance.team_id).saved if saved_metrics else {}
-            )
+            calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
