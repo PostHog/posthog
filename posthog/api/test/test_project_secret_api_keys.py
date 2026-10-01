@@ -156,6 +156,26 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
             assert "LLM gateway scope is not available" in response.json()["detail"]
         mock_feature_enabled.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("granted_with_full_billing_access", False, 201),
+            ("refused_without_full_billing_access", True, 403),
+        ]
+    )
+    @patch("ee.billing.grants._owner_only_billing_enabled")
+    def test_create_billing_read_scope_needs_full_billing_access(
+        self, _name, owner_only_billing, expected_status, mock_owner_only
+    ):
+        # An admin has full billing access unless owner-only billing is on.
+        mock_owner_only.return_value = owner_only_billing
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "billing key", "scopes": ["billing:read"]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
     @patch("posthog.api.project_secret_api_key.posthoganalytics.feature_enabled")
     def test_update_keeps_existing_llm_gateway_scope_when_flag_disabled(self, mock_feature_enabled):
         mock_feature_enabled.return_value = False

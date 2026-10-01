@@ -808,7 +808,13 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         is_env_duplicate = env_suffix is not None and (env_suffix, method) in projects_suffixes
 
         org_suffix = _extract_root_suffix(_ORG_PREFIX_RE, path)
-        is_org_duplicate = org_suffix is not None and (org_suffix, method) in projects_suffixes
+        # A viewset whose organization routes are their own resource, not the project routes repeated,
+        # opts out with `org_routes_differ_from_project_routes = True`.
+        is_org_duplicate = (
+            org_suffix is not None
+            and (org_suffix, method) in projects_suffixes
+            and not getattr(callback.cls, "org_routes_differ_from_project_routes", False)
+        )
 
         if is_env_duplicate:
             path = _ENVIRONMENTS_PREFIX_RE.sub("/api/environments/{environment_id}/", path, count=1)
