@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { KeyboardEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import {
     IconBolt,
@@ -95,6 +95,7 @@ import {
     artifactPreviewKind,
     formatArtifactSize,
     isTextPreview,
+    listboxKeyTarget,
     parseCsv,
     LIVE_OBJECT_KINDS,
     LIVING_ADAPTER_LABEL,
@@ -506,20 +507,38 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
     // Cited PostHog objects sit under their own label, after the files.
     const objects = files.filter((file) => !!postHogObjectRef(file.latest))
     const livingDocuments = files.filter((file) => !!file.latest.living)
+    const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        const target = event.target as HTMLElement
+        if (event.altKey || event.ctrlKey || event.metaKey || target.getAttribute('role') !== 'option') {
+            return
+        }
+        // The rendered rows give the order, so the keys follow the list as it reads, across its groups.
+        const options = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]'))
+        const next = options[listboxKeyTarget(event.key, options.indexOf(target), options.length) ?? -1]
+        if (!next?.dataset.fileKey) {
+            return
+        }
+        event.preventDefault()
+        selectArtifact(next.dataset.fileKey, 'keyboard')
+        next.focus()
+    }
     const renderRow = (file: ArtifactFile): JSX.Element => {
         const selected = file.key === selectedFile?.key
         return (
             <Item
                 key={file.key}
                 size="xs"
-                role="option"
                 aria-selected={selected}
+                // Roving tabindex: Tab enters the list on the open file, and the arrow keys move from there.
+                tabIndex={selected ? 0 : -1}
+                data-file-key={file.key}
                 className={cn(
                     'w-full cursor-pointer rounded-md border-transparent text-left hover:bg-fill-hover',
                     selected && 'bg-fill-selected hover:bg-fill-selected'
                 )}
+                // Item drops a `role` prop, so the option role goes on the rendered element.
                 // eslint-disable-next-line react/forbid-elements
-                render={<button type="button" />}
+                render={<button type="button" role="option" />}
                 onClick={() => selectArtifact(file.key)}
                 data-attr="task-artifact-nav-item"
             >
@@ -546,6 +565,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
             <div
                 role="listbox"
                 aria-label="Files"
+                onKeyDown={onKeyDown}
                 className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
             >
                 {files.filter((file) => !postHogObjectRef(file.latest) && !file.latest.living).map(renderRow)}
@@ -833,7 +853,8 @@ function ArtifactToolbar({
                         <IconExternal className="size-4" />
                     </IconAction>
                 )}
-                {(kind !== 'reference' || (objectRef && LIVE_OBJECT_KINDS.has(objectRef.objectKind))) && (
+                {/* Full page always keeps its exit, because the stepper can land on an object with no embed. */}
+                {(expanded || kind !== 'reference' || (objectRef && LIVE_OBJECT_KINDS.has(objectRef.objectKind))) && (
                     <IconAction
                         label={expanded ? 'Exit full page' : 'Open full page'}
                         onClick={() => onExpandedChange(!expanded)}
