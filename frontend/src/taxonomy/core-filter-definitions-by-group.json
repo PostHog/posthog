@@ -1817,11 +1817,6 @@
             "examples": ["0", "5000"],
             "label": "MCP skill body offset"
         },
-        "$mcp_skill_lookup_miss_kind": {
-            "description": "Why a skill read returned not found, on a failed `$mcp_tool_call` from `skill-get` or `skill-file-get`: builtin (the name is a built-in PostHog skill, which the skills store never holds), unknown (no stored skill has that name), file (the skill has no file at that path), or version (no stored skill at the pinned version). Stamped by PostHog's own MCP server. Break down by it to tell agents looking in the wrong catalog apart from mistyped names.",
-            "examples": ["builtin", "unknown", "file", "version"],
-            "label": "MCP skill lookup miss kind"
-        },
         "$mcp_skill_name": {
             "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
             "examples": ["prove-the-change", "pr-shepherd"],
@@ -2889,21 +2884,6 @@
             "description": "Pinterest Click ID",
             "label": "epik"
         },
-        "exec_learn_kind": {
-            "description": "Which form of the exec `learn` verb the agent used: search (`learn -s`), load (one named skill), list (a bare `learn` or `learn skills`), describe (`learn -d`), or guide (anything else). Recorded before the server checks whether skills are available, so a rejected `learn` call still carries it. Only set on exec-mode `$mcp_tool_call` events whose `$mcp_exec_verb` is learn.",
-            "examples": ["load", "search", "list"],
-            "label": "MCP exec learn kind"
-        },
-        "exec_learn_target": {
-            "description": "The qualified skill name an exec `learn` call asked to load. Only set when `exec_learn_kind` is load.",
-            "examples": ["posthog:building-a-dashboard", "posthog:retention-analysis"],
-            "label": "MCP exec learn target"
-        },
-        "exec_search_query": {
-            "description": "The raw query an agent passed to the exec `search` verb, or to `learn -s` and a skill load with `-s`. Capped in length.",
-            "examples": ["feature flag rollout", "session recordings"],
-            "label": "MCP exec search query"
-        },
         "fbclid": {
             "description": "Facebook Click ID",
             "label": "fbclid"
@@ -2966,11 +2946,6 @@
             "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
             "label": "MCP conversation ID (unprefixed)"
         },
-        "mcp_discovery_hint": {
-            "description": "Which hint PostHog's MCP server added to the end of a tool result: empty_state (the result was empty and the hint suggests what to try next) or related_capability (the hint suggests a related skill). Absent when no hint was added.",
-            "examples": ["empty_state", "related_capability"],
-            "label": "MCP discovery hint"
-        },
         "mcp_mode": {
             "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
             "label": "MCP mode (unprefixed)"
@@ -2982,11 +2957,6 @@
         "mcp_protocol_version": {
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
             "label": "MCP protocol version (unprefixed)"
-        },
-        "mcp_result_empty": {
-            "description": "True when a successful MCP tool call returned zero rows. Absent otherwise, so filter on it being set rather than on false.",
-            "label": "MCP result empty",
-            "type": "Boolean"
         },
         "mcp_runtime": {
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
@@ -3862,11 +3832,6 @@
             "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset \u2014 absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
             "examples": ["0", "5000"],
             "label": "MCP skill body offset"
-        },
-        "$mcp_skill_lookup_miss_kind": {
-            "description": "Why a skill read returned not found, on a failed `$mcp_tool_call` from `skill-get` or `skill-file-get`: builtin (the name is a built-in PostHog skill, which the skills store never holds), unknown (no stored skill has that name), file (the skill has no file at that path), or version (no stored skill at the pinned version). Stamped by PostHog's own MCP server. Break down by it to tell agents looking in the wrong catalog apart from mistyped names.",
-            "examples": ["builtin", "unknown", "file", "version"],
-            "label": "MCP skill lookup miss kind"
         },
         "$mcp_skill_name": {
             "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
@@ -6027,11 +5992,6 @@
             "examples": ["0", "5000"],
             "label": "MCP skill body offset"
         },
-        "$mcp_skill_lookup_miss_kind": {
-            "description": "Why a skill read returned not found, on a failed `$mcp_tool_call` from `skill-get` or `skill-file-get`: builtin (the name is a built-in PostHog skill, which the skills store never holds), unknown (no stored skill has that name), file (the skill has no file at that path), or version (no stored skill at the pinned version). Stamped by PostHog's own MCP server. Break down by it to tell agents looking in the wrong catalog apart from mistyped names.",
-            "examples": ["builtin", "unknown", "file", "version"],
-            "label": "MCP skill lookup miss kind"
-        },
         "$mcp_skill_name": {
             "description": "The stored skill a skill-* read tool returned, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Present only when the read succeeded, so counting these events counts skills that were actually delivered. A failed read carries no skill name, which stops a deleted skill that agents keep requesting from reading as a popular one. Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here; those emit `llma skill *` from the skills API.",
             "examples": ["prove-the-change", "pr-shepherd"],
@@ -7106,21 +7066,6 @@
             "description": "Pinterest Click ID Data from the last time this user was seen.",
             "label": "Latest epik"
         },
-        "exec_learn_kind": {
-            "description": "Which form of the exec `learn` verb the agent used: search (`learn -s`), load (one named skill), list (a bare `learn` or `learn skills`), describe (`learn -d`), or guide (anything else). Recorded before the server checks whether skills are available, so a rejected `learn` call still carries it. Only set on exec-mode `$mcp_tool_call` events whose `$mcp_exec_verb` is learn.",
-            "examples": ["load", "search", "list"],
-            "label": "MCP exec learn kind"
-        },
-        "exec_learn_target": {
-            "description": "The qualified skill name an exec `learn` call asked to load. Only set when `exec_learn_kind` is load.",
-            "examples": ["posthog:building-a-dashboard", "posthog:retention-analysis"],
-            "label": "MCP exec learn target"
-        },
-        "exec_search_query": {
-            "description": "The raw query an agent passed to the exec `search` verb, or to `learn -s` and a skill load with `-s`. Capped in length.",
-            "examples": ["feature flag rollout", "session recordings"],
-            "label": "MCP exec search query"
-        },
         "fbclid": {
             "description": "Facebook Click ID Data from the last time this user was seen.",
             "label": "Latest fbclid"
@@ -7183,11 +7128,6 @@
             "description": "Older unprefixed variant of $mcp_conversation_id. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_conversation_id for new dashboards.",
             "label": "MCP conversation ID (unprefixed)"
         },
-        "mcp_discovery_hint": {
-            "description": "Which hint PostHog's MCP server added to the end of a tool result: empty_state (the result was empty and the hint suggests what to try next) or related_capability (the hint suggests a related skill). Absent when no hint was added.",
-            "examples": ["empty_state", "related_capability"],
-            "label": "MCP discovery hint"
-        },
         "mcp_mode": {
             "description": "Older unprefixed variant of $mcp_mode. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_mode for new dashboards.",
             "label": "MCP mode (unprefixed)"
@@ -7199,11 +7139,6 @@
         "mcp_protocol_version": {
             "description": "Older unprefixed variant of $mcp_protocol_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_protocol_version for new dashboards.",
             "label": "MCP protocol version (unprefixed)"
-        },
-        "mcp_result_empty": {
-            "description": "True when a successful MCP tool call returned zero rows. Absent otherwise, so filter on it being set rather than on false.",
-            "label": "MCP result empty",
-            "type": "Boolean"
         },
         "mcp_runtime": {
             "description": "Server runtime that handled the MCP request. 'hono' means it was served by the Hono-based MCP server.",
