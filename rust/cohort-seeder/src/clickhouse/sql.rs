@@ -7,10 +7,9 @@ use std::num::NonZeroU32;
 use cohort_core::filters::TeamId;
 use cohort_core::hogvm::analysis::PropertyAlternatives;
 
-use super::materialized::MaterializedColumns;
 use crate::domain::{
-    BandSpec, BlobSource, ChunkProjection, ColumnPlan, EventNameSet, ProjectedKeys, ScalarColumn,
-    ScanRowFilter, SeedDomain,
+    BandSpec, BlobSource, ChunkProjection, ColumnBackedKeys, ColumnName, ColumnPlan, EventNameSet,
+    MaterializedColumns, ProjectedKeys, PropertiesSource, ScalarColumn, ScanRowFilter, SeedDomain,
 };
 
 /// The crate sends a longer query by POST with `readonly=1`, which the `cohort_seeder` profile's
@@ -197,7 +196,7 @@ fn property_value_sql<'a>(
     // past 64 bits, which `serde_json` reads. A materialized column stores that '', so admitting ''
     // there keeps the test off the blob.
     let (value, unparsed) = match columns.column_for(key) {
-        Some(column) => (format!("e.{}", clickhouse_identifier(column)), "v = ''"),
+        Some(column) => (column_reference(column), "v = ''"),
         None => (
             format!(
                 "replaceRegexpAll(JSONExtractRaw(e.properties, {}), '^\"|\"$', '')",
@@ -229,6 +228,10 @@ fn join_terms(terms: impl Iterator<Item = String>, operator: &str) -> String {
     }
 }
 
+fn column_reference(column: &ColumnName) -> String {
+    format!("e.{}", clickhouse_identifier(column.as_str()))
+}
+
 /// Escaped for the server and for the client's template parser, which reads a bare `?` as a bind.
 fn clickhouse_identifier(name: &str) -> String {
     let mut escaped = String::with_capacity(name.len() + 2);
@@ -255,7 +258,7 @@ fn render_select_list(plan: &ColumnPlan) -> String {
             ScalarColumn::Keep => "toString(e.uuid) AS uuid".to_string(),
             ScalarColumn::Empty => "'' AS uuid".to_string(),
         },
-        render_blob("e.properties", "properties", &plan.properties),
+        render_properties(&plan.properties),
         render_blob(
             "e.person_properties",
             "person_properties",
@@ -266,6 +269,15 @@ fn render_select_list(plan: &ColumnPlan) -> String {
             ScalarColumn::Empty => "'' AS elements_chain".to_string(),
         },
     )
+}
+
+fn render_properties(source: &PropertiesSource) -> String {
+    match source {
+        PropertiesSource::Blob(blob) => render_blob("e.properties", "properties", blob),
+        PropertiesSource::Columns(columns) => {
+            format!("{} AS properties", columns_object_expr(columns))
+        }
+    }
 }
 
 /// A JSON blob column, selected whole, replaced by an empty literal, or rebuilt from the keys the
@@ -313,6 +325,23 @@ pub fn rebuild_expr(column: &str, keys: &ProjectedKeys) -> String {
     format!(
         "if(JSONType({column}) != 'Object', {column}, concat('{{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.1 IN ({key_list}), JSONExtractKeysAndValuesRaw({column}))), ','), '}}'))"
     )
+}
+
+/// A trim-quotes column drops a string's quotes, so text that is not valid JSON gets them back.
+pub fn columns_object_expr(columns: &ColumnBackedKeys) -> String {
+    let entries = columns
+        .iter()
+        .map(|(key, column)| {
+            let name = serde_json::to_string(key).expect("a string always serializes to JSON");
+            let value = column_reference(column);
+            format!(
+                "{}, if(isValidJSON({value}), {value}, concat('\"', {value}, '\"'))",
+                clickhouse_string_literal(&format!("{name}:")),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ',', ");
+    format!("concat('{{', {entries}, '}}')")
 }
 
 /// `keys` as a comma-separated list of string literals, for an `IN (...)` or an array literal.
@@ -364,7 +393,7 @@ mod tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::domain::{SChunkMs, SeedDomain};
+    use crate::domain::{ColumnExactKeys, SChunkMs, SeedDomain};
 
     /// The rendered scan for a spec, wide.
     fn full_sql(spec: &ScanSpec) -> String {
@@ -472,7 +501,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Empty,
+            properties: PropertiesSource::Blob(BlobSource::Empty),
             person_properties: BlobSource::Empty,
         });
         assert_eq!(
@@ -488,7 +517,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Keep,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Keys(keys(&["plan", "utm_source"])),
+            properties: PropertiesSource::Blob(BlobSource::Keys(keys(&["plan", "utm_source"]))),
             person_properties: BlobSource::Full,
         });
         assert_eq!(
@@ -505,7 +534,7 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Keep,
             elements_chain: ScalarColumn::Empty,
-            properties: BlobSource::Full,
+            properties: PropertiesSource::Blob(BlobSource::Full),
             person_properties: BlobSource::Keys(keys(&["email", "plan"])),
         });
         assert_eq!(
@@ -523,12 +552,12 @@ mod tests {
         let projection = ChunkProjection::Projected(ColumnPlan {
             uuid: ScalarColumn::Empty,
             elements_chain: ScalarColumn::Keep,
-            properties: BlobSource::Keys(keys(&[
+            properties: PropertiesSource::Blob(BlobSource::Keys(keys(&[
                 "quote' OR 1 = 1 --",
                 "slash\\key\nnext",
                 "converted?",
                 "$feature/flag",
-            ])),
+            ]))),
             person_properties: BlobSource::Empty,
         });
         let sql = scan_sql(&unbanded_spec(), &projection);
@@ -544,6 +573,41 @@ mod tests {
             "{sql}"
         );
         assert!(select_list_of(&sql).ends_with("e.elements_chain"), "{sql}");
+    }
+
+    fn backed(pairs: &[(&'static str, &'static str)]) -> ColumnBackedKeys {
+        let names = pairs.iter().map(|(key, _)| *key).collect::<Vec<_>>();
+        ColumnExactKeys::exact(names.iter().copied())
+            .back(&keys(&names), &pairs.iter().copied().collect())
+            .expect("every test key is exact and has a column")
+    }
+
+    #[test]
+    fn column_backed_properties_read_each_key_from_its_column() {
+        let projection = ChunkProjection::Projected(ColumnPlan {
+            uuid: ScalarColumn::Empty,
+            elements_chain: ScalarColumn::Empty,
+            properties: PropertiesSource::Columns(backed(&[
+                ("$current_url", "mat_$current_url"),
+                ("$pathname", "mat_$pathname"),
+            ])),
+            person_properties: BlobSource::Empty,
+        });
+        let sql = scan_sql(&unbanded_spec(), &projection);
+        assert_eq!(
+            select_list_of(&sql),
+            "'' AS uuid, e.event, concat('{', '\"$current_url\":', if(isValidJSON(e.`mat_$current_url`), e.`mat_$current_url`, concat('\"', e.`mat_$current_url`, '\"')), ',', '\"$pathname\":', if(isValidJSON(e.`mat_$pathname`), e.`mat_$pathname`, concat('\"', e.`mat_$pathname`, '\"')), '}') AS properties, toString(e.timestamp) AS timestamp,\n       e.distinct_id,\n       toString(if(notEmpty(ov.distinct_id), ov.person_id, e.person_id)) AS person_id,\n       '' AS person_properties, '' AS elements_chain"
+        );
+        assert!(!sql.contains("e.properties"), "{sql}");
+    }
+
+    #[test]
+    fn column_backed_keys_and_columns_are_escaped_for_json_and_for_sql() {
+        let rendered = columns_object_expr(&backed(&[("q'\"\\?", "mat_`q?")]));
+        assert_eq!(
+            rendered,
+            r#"concat('{', '"q\'\\"\\\\??":', if(isValidJSON(e.`mat_\`q??`), e.`mat_\`q??`, concat('"', e.`mat_\`q??`, '"')), '}')"#
+        );
     }
 
     #[test]
