@@ -31,6 +31,7 @@ from posthog.temporal.common.combined_metrics_server import CombinedMetricsServe
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.options import SlotOptions
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
@@ -240,6 +241,8 @@ async def create_worker(
     activity_ramp_throttle: dt.timedelta | None = None,
     enable_combined_metrics_server: bool = True,
     enable_open_telemetry_plugin: bool = False,
+    activity_slot_options: SlotOptions | None = None,
+    workflow_slot_options: SlotOptions | None = None,
 ) -> ManagedWorker:
     """Connect to Temporal server and return a ManagedWorker containing the Worker and metrics server.
 
@@ -273,7 +276,12 @@ async def create_worker(
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
         enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
+        activity_slot_options: Activity slot settings used when resource-based tuning is enabled.
+        workflow_slot_options: Workflow slot settings used when resource-based tuning is enabled.
     """
+
+    if graceful_shutdown_timeout is None:
+        graceful_shutdown_timeout = dt.timedelta(minutes=5)
 
     metrics_server: CombinedMetricsServer | None = None
 
@@ -436,24 +444,41 @@ async def create_worker(
     )
 
     if target_memory_usage is not None:
+        activity_slot_options = activity_slot_options or SlotOptions()
+        workflow_slot_options = workflow_slot_options or SlotOptions()
         worker = Worker(
             client,
             task_queue=task_queue,
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage or 1.0,
                 workflow_config=ResourceBasedSlotConfig(
-                    maximum_slots=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
+                    minimum_slots=workflow_slot_options.minimum_slots,
+                    maximum_slots=(
+                        workflow_slot_options.maximum_slots
+                        if workflow_slot_options.maximum_slots is not None
+                        else max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS
+                    ),
+                    ramp_throttle=workflow_slot_options.ramp_throttle,
                 ),
                 activity_config=ResourceBasedSlotConfig(
-                    maximum_slots=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
-                    ramp_throttle=activity_ramp_throttle,
+                    minimum_slots=activity_slot_options.minimum_slots,
+                    maximum_slots=(
+                        activity_slot_options.maximum_slots
+                        if activity_slot_options.maximum_slots is not None
+                        else max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS
+                    ),
+                    ramp_throttle=(
+                        activity_slot_options.ramp_throttle
+                        if activity_slot_options.ramp_throttle is not None
+                        else activity_ramp_throttle
+                    ),
                 ),
             ),
             # Worker will flush heartbeats every
@@ -467,7 +492,7 @@ async def create_worker(
             workflows=workflows,
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
-            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            graceful_shutdown_timeout=graceful_shutdown_timeout,
             interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
