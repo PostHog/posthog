@@ -23,7 +23,9 @@ export function CanvasBrowsedCanvas(): JSX.Element {
     const { setBrowseVersion, loadBrowsedRender } = useActions(canvasHistoryLogic)
     const { sandboxDocumentUrl } = useValues(canvasSceneLogic)
     const render = browsedRender?.versionId === browseVersionId ? browsedRender : null
-    const renderable = !!render && (!!render.build?.artifact_url || (!!render.code && !!sandboxDocumentUrl))
+    const renderable =
+        !!render &&
+        (!!render.build?.artifact_url || (!!render.project?.files['src/canvas.tsx'] && !!sandboxDocumentUrl))
 
     return (
         <div className="flex h-full min-h-0 flex-col">
@@ -58,7 +60,7 @@ export function CanvasBrowsedCanvas(): JSX.Element {
                         source={{
                             sourceVersionId: render.versionId,
                             build: render.build?.artifact_url ? render.build : null,
-                            draftCode: render.code,
+                            draftSource: render.project,
                         }}
                     />
                 ) : (

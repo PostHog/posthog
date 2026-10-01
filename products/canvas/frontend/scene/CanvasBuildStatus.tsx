@@ -127,8 +127,13 @@ export function CanvasBuildStatus(): JSX.Element | null {
         )
     }
 
-    const failedHead = currentHeadBuildFailure(builds)
-    const latest = failedHead ?? latestFinishedCanvasBuild(builds)
+    const failedHead = currentHeadBuildFailure({ ...builds, current_version_id: view?.current_version_id ?? null })
+    const latest =
+        failedHead ??
+        latestFinishedCanvasBuild({
+            ...builds,
+            builds: builds.builds.filter((build) => build.build_status === 'ready'),
+        })
     if (!latest) {
         return view?.current_version_id ? (
             <div className="flex items-center" data-attr="canvas-build-status">

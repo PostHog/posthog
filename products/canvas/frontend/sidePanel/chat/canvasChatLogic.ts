@@ -296,6 +296,9 @@ export const canvasChatLogic = kea<canvasChatLogicType>([
     listeners(({ actions, values, cache }) => ({
         syncOwnTask: () => {
             const taskId = values.chatTaskId
+            if (taskId !== values.ownTask?.id || taskId === values.generationTask?.id) {
+                cache.disposables.dispose('ownTaskPoll')
+            }
             if (
                 taskId &&
                 taskId !== values.generationTask?.id &&
@@ -310,7 +313,13 @@ export const canvasChatLogic = kea<canvasChatLogicType>([
         requestFixFinished: () => actions.syncOwnTask(),
         taskStarted: () => actions.syncOwnTask(),
         loadOwnTaskSuccess: ({ ownTask }) => {
-            if (ownTask && !isTerminalRunStatus(ownTask.latest_run?.status)) {
+            cache.disposables.dispose('ownTaskPoll')
+            if (
+                ownTask &&
+                ownTask.id === values.chatTaskId &&
+                ownTask.id !== values.generationTask?.id &&
+                !isTerminalRunStatus(ownTask.latest_run?.status)
+            ) {
                 cache.disposables.add(() => {
                     const id = setTimeout(() => actions.loadOwnTask(), CHAT_TASK_POLL_INTERVAL_MS)
                     return () => clearTimeout(id)

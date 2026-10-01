@@ -8,7 +8,7 @@ import { canvasChatLogic } from './canvasChatLogic'
 
 /** Sends a follow-up to the viewer's run, or starts one when they have none. */
 export function CanvasChatComposer(): JSX.Element {
-    const { draft, chatState, sendError } = useValues(canvasChatLogic)
+    const { draft, chatState, sendError, sending } = useValues(canvasChatLogic)
     const { setDraft, sendMessage } = useActions(canvasChatLogic)
     const { generationStarting } = useValues(canvasSceneLogic)
     const live = chatState === 'running' || chatState === 'starting'
@@ -24,7 +24,7 @@ export function CanvasChatComposer(): JSX.Element {
                 instruction={draft}
                 onInstructionChange={(value) => setDraft(value)}
                 onSubmit={sendMessage}
-                submitting={generationStarting || chatState === 'starting'}
+                submitting={generationStarting || sending}
                 disabledReason={draft.trim() ? null : 'Write a message first'}
                 placeholder={live ? 'Send the agent a message' : 'Ask for a change'}
                 ariaLabel="Message the agent"

@@ -121,7 +121,7 @@ export function canvasBuildStatus(
 export interface canvasSceneLogicValues {
     startHandoff: CanvasStartHandoff | null // canvasNewLogic
     collapsed: boolean // canvasSidePanelLogic
-    generatingPanelDismissed: boolean // canvasSidePanelLogic
+    generatingPanelDismissedFor: string | null // canvasSidePanelLogic
     currentProjectId: number | null // projectLogic
     bodyState: CanvasBodyState
     breadcrumbs: Breadcrumb[]
@@ -315,11 +315,7 @@ export interface canvasSceneLogicMeta {
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
-        liveRenderSource: (
-            liveBuild: CanvasBuildApi | null,
-            draftCode: string | null,
-            view: CanvasViewResponseApi | null
-        ) => CanvasRenderSource
+        liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
         buildStatus: (builds: CanvasBuildsResponseApi | null, view: CanvasViewResponseApi | null) => CanvasBuildStatus
         isGenerating: (
             view: CanvasViewResponseApi | null,
@@ -346,7 +342,8 @@ export interface canvasSceneLogicMeta {
             sidePanelAvailable: boolean,
             bodyState: CanvasBodyState,
             collapsed: boolean,
-            generatingPanelDismissed: boolean
+            generatingPanelDismissedFor: string | null,
+            arg: string
         ) => boolean
         shouldPoll: (
             view: CanvasViewResponseApi | null,
@@ -376,7 +373,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             canvasNewLogic,
             ['startHandoff'],
             canvasSidePanelLogic,
-            ['collapsed', 'generatingPanelDismissed'],
+            ['collapsed', 'generatingPanelDismissedFor'],
         ],
         // Connecting keeps the Views sidebar's logic mounted, so it knows this canvas's state when it opens.
         actions: [
@@ -561,15 +558,11 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (view: CanvasViewResponseApi | null): string | null => view?.source?.files[CANVAS_COMPONENT_PATH] ?? null,
         ],
         liveRenderSource: [
-            (s) => [s.liveBuild, s.draftCode, s.view],
-            (
-                liveBuild: CanvasBuildApi | null,
-                draftCode: string | null,
-                view: CanvasViewResponseApi | null
-            ): CanvasRenderSource => ({
+            (s) => [s.liveBuild, s.view],
+            (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null): CanvasRenderSource => ({
                 sourceVersionId: liveBuild ? liveBuild.source_version_id : (view?.current_version_id ?? null),
                 build: liveBuild,
-                draftCode,
+                draftSource: view?.source ?? null,
             }),
         ],
         buildStatus: [
@@ -655,15 +648,22 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (bodyState: CanvasBodyState): boolean => !['loading', 'error', 'missing', 'empty'].includes(bodyState),
         ],
         sidePanelOpen: [
-            (s) => [s.sidePanelAvailable, s.bodyState, s.collapsed, s.generatingPanelDismissed],
+            (s) => [
+                s.sidePanelAvailable,
+                s.bodyState,
+                s.collapsed,
+                s.generatingPanelDismissedFor,
+                (_, props: CanvasSceneLogicProps) => props.id,
+            ],
             (
                 available: boolean,
                 bodyState: CanvasBodyState,
                 collapsed: boolean,
-                generatingDismissed: boolean
+                dismissedCanvasId: string | null,
+                canvasId: string
             ): boolean =>
                 // While the agent writes a canvas with nothing to show yet, its chat is the only content.
-                available && (bodyState === 'generating' ? !generatingDismissed : !collapsed),
+                available && (bodyState === 'generating' ? dismissedCanvasId !== canvasId : !collapsed),
         ],
         shouldPoll: [
             (s) => [s.view, s.isGenerating, s.buildStatus],
@@ -886,7 +886,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                     success: false,
                 })
                 const message = error instanceof Error ? error.message : 'Try again in a moment.'
-                actions.generationFailed(message)
                 toast.error({ title: "Couldn't ask the agent to fix this", description: message })
                 actions.requestFixFinished(null)
             }

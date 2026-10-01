@@ -80,7 +80,14 @@ export function CanvasHostFrame({
         )
     }
     if (draftSource && sandboxDocumentUrl) {
-        return <DraftCanvas documentUrl={sandboxDocumentUrl} files={draftSource.files} entry="src/canvas.tsx" {...shared} />
+        return (
+            <DraftCanvas
+                documentUrl={sandboxDocumentUrl}
+                files={draftSource.files}
+                entry="src/canvas.tsx"
+                {...shared}
+            />
+        )
     }
     return null
 }

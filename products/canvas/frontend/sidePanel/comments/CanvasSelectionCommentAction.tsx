@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ChangeEvent, KeyboardEvent, useEffect, useState } from 'react'
+import { ChangeEvent, KeyboardEvent, useEffect } from 'react'
 
 import { IconComment } from '@posthog/icons'
 import { Button, Textarea } from '@posthog/quill'
@@ -16,14 +16,10 @@ const VIEWPORT_MARGIN_PX = 8
  * small form, and saving it starts a thread anchored to that text.
  */
 export function CanvasSelectionCommentAction(): JSX.Element | null {
-    const { textSelection, selectionDraft, writing, commentsEnabled } = useValues(canvasCommentsLogic)
-    const { createComment, dismissTextSelection, setSelectionDraft } = useActions(canvasCommentsLogic)
-    const [composing, setComposing] = useState(false)
+    const { textSelection, selectionDraft, writing, commentsEnabled, composing } = useValues(canvasCommentsLogic)
+    const { createComment, dismissTextSelection, setSelectionDraft, openSelectionComposer } =
+        useActions(canvasCommentsLogic)
     const saving = writing === 'selection'
-
-    useEffect(() => {
-        setComposing(false)
-    }, [textSelection])
 
     useEffect(() => {
         if (!textSelection) {
@@ -62,7 +58,7 @@ export function CanvasSelectionCommentAction(): JSX.Element | null {
                     size="sm"
                     variant="outline"
                     className="self-start bg-background shadow-md"
-                    onClick={() => setComposing(true)}
+                    onClick={openSelectionComposer}
                     data-attr="canvas-selection-comment-open"
                 >
                     <IconComment />

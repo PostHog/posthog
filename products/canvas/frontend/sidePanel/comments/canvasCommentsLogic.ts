@@ -38,7 +38,7 @@ async function loadAllCanvasComments(canvasId: string): Promise<CommentType[]> {
     let page = await api.comments.list({ scope: CANVAS_COMMENT_SCOPE, item_id: canvasId })
     for (let index = 0; index < MAX_COMMENT_PAGES; index++) {
         comments.push(...page.results)
-        if (!page.next) {
+        if (!page.next || index === MAX_COMMENT_PAGES - 1) {
             break
         }
         page = await api.get(page.next)
@@ -59,6 +59,7 @@ export interface canvasCommentsLogicValues {
     commentsEnabled: boolean
     commentsLoadFailed: boolean
     commentsLoading: boolean
+    composing: boolean
     highlights: CanvasCommentHighlight[]
     replyDrafts: Record<string, string>
     resolvedCount: number
@@ -102,6 +103,9 @@ export interface canvasCommentsLogicActions {
     ) => {
         comments: CommentType[] | null
         payload?: any
+    }
+    openSelectionComposer: () => {
+        value: true
     }
     replyToThread: (rootId: string) => {
         rootId: string
@@ -194,6 +198,7 @@ export const canvasCommentsLogic = kea<canvasCommentsLogicType>([
         actions: [canvasSidePanelLogic, ['openTab']],
     })),
     actions({
+        openSelectionComposer: true,
         setTextSelection: (selection: CanvasTextSelection | null) => ({ selection }),
         dismissTextSelection: true,
         setActiveThread: (id: string | null) => ({ id }),
@@ -218,6 +223,15 @@ export const canvasCommentsLogic = kea<canvasCommentsLogicType>([
         ],
     })),
     reducers({
+        composing: [
+            false,
+            {
+                openSelectionComposer: () => true,
+                setTextSelection: () => false,
+                dismissTextSelection: () => false,
+                writeFinished: (state, { target }) => (target === 'selection' ? false : state),
+            },
+        ],
         textSelection: [
             null as CanvasTextSelection | null,
             {

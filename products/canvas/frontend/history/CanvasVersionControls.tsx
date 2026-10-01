@@ -66,11 +66,11 @@ export function CanvasVersionControls(): JSX.Element | null {
     const {
         versions,
         drafts,
-        navigation,
+        displayedVersionId,
+        liveBuild,
         canUndo,
         canRedo,
         headVersionId,
-        browseVersionId,
         browsedDraft,
         isGenerating,
     } = useValues(canvasHistoryLogic)
@@ -105,8 +105,14 @@ export function CanvasVersionControls(): JSX.Element | null {
                         <DropdownMenuTrigger
                             render={
                                 <Button size="sm" variant="outline" data-attr="canvas-version-menu">
-                                    <span translate="no">{`v${versions.length - navigation.currentIndex}/${versions.length}`}</span>
-                                    {!browseVersionId && <span>· Live</span>}
+                                    <span translate="no">{`v${
+                                        versions.length -
+                                        Math.max(
+                                            0,
+                                            versions.findIndex((version) => version.id === displayedVersionId)
+                                        )
+                                    }/${versions.length}`}</span>
+                                    {displayedVersionId === liveBuild?.source_version_id && <span>· Live</span>}
                                     <IconChevronDown />
                                 </Button>
                             }
@@ -115,12 +121,16 @@ export function CanvasVersionControls(): JSX.Element | null {
                             {versions.map((version, index) => (
                                 <DropdownMenuItem
                                     key={version.id}
-                                    onClick={() => setBrowseVersion(version.id === headVersionId ? null : version.id)}
+                                    onClick={() =>
+                                        setBrowseVersion(
+                                            version.id === liveBuild?.source_version_id ? null : version.id
+                                        )
+                                    }
                                     data-attr="canvas-version-menu-item"
                                 >
                                     <ItemContent variant="menuItem">
                                         <ItemTitle className="truncate">
-                                            {`v${versions.length - index}${version.id === headVersionId ? ' · Live' : ''} · ${canvasVersionTitle(version)}`}
+                                            {`v${versions.length - index}${version.id === liveBuild?.source_version_id ? ' · Live' : version.id === headVersionId ? ' · Latest' : ''} · ${canvasVersionTitle(version)}`}
                                         </ItemTitle>
                                         <ItemDescription className="leading-none">
                                             {canvasVersionByline(version)}
