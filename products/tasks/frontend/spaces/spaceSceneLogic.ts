@@ -29,6 +29,7 @@ import {
     taskChannelsRetrieve,
     taskChannelsStarCreate,
     tasksList,
+    tasksPullRequestTitlesCreate,
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 import {
@@ -41,7 +42,7 @@ import {
     spaceFeedSections,
 } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { sessionIdsWithPullRequests } from './taskPullRequests'
+import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
 
@@ -130,6 +131,8 @@ export interface spaceSceneLogicValues {
     nameDraft: string | null
     nameError: string | null
     pendingName: string | null
+    pullRequestTitles: Record<string, string>
+    pullRequestTitlesLoading: boolean
     renameDisabledReason: string | null
     savingSpace: boolean
     sessions: TaskListItemApi[]
@@ -203,6 +206,21 @@ export interface spaceSceneLogicActions {
         payload?: any
     ) => {
         members: TaskUserBasicInfoApi[]
+        payload?: any
+    }
+    loadPullRequestTitles: () => any
+    loadPullRequestTitlesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPullRequestTitlesSuccess: (
+        pullRequestTitles: Record<string, string>,
+        payload?: any
+    ) => {
+        pullRequestTitles: Record<string, string>
         payload?: any
     }
     loadSessions: () => any
@@ -422,6 +440,31 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                         limit: SPACE_FEED_LIMIT,
                     })
                     return response.results
+                },
+            },
+        ],
+        pullRequestTitles: [
+            {} as Record<string, string>,
+            {
+                loadPullRequestTitles: async () => {
+                    const sessionIds = [
+                        ...new Set(
+                            spacePullRequests(values.feedItems)
+                                .filter(({ pullRequest }) => !(pullRequest.url in values.pullRequestTitles))
+                                .map(({ session }) => session.id)
+                        ),
+                    ]
+                    if (!values.types.includes('pr') || !sessionIds.length || !values.currentTeamId) {
+                        return values.pullRequestTitles
+                    }
+                    try {
+                        const { titles } = await tasksPullRequestTitlesCreate(String(values.currentTeamId), {
+                            ids: sessionIds,
+                        })
+                        return { ...values.pullRequestTitles, ...titles }
+                    } catch {
+                        return values.pullRequestTitles
+                    }
                 },
             },
         ],
@@ -691,12 +734,14 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         },
         loadSessionsSuccess: ({ sessions }) => {
             actions.loadPullRequestStates(sessionIdsWithPullRequests(sessions))
+            actions.loadPullRequestTitles()
         },
         sessionUpdated: () => {
             actions.loadSessions()
         },
         setTypes: () => {
             actions.ensureCanvases()
+            actions.loadPullRequestTitles()
         },
         // A failed load leaves `null`, so showing the type again retries it.
         ensureCanvases: () => {

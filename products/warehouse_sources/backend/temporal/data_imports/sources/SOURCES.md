@@ -348,6 +348,7 @@ the row lists both.
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
+| grafana_irm                      | HTTP                        | requests                                                        | ✅                          |
 | granola                          | HTTP                        | requests                                                        | ✅                          |
 | gorgias                          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
@@ -757,6 +758,7 @@ the row lists both.
 | twelve_labs                      | HTTP                        | requests                                                        | ✅                          |
 | twenty                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | twilio                           | HTTP                        | requests                                                        | ✅                          |
+| twitter_ads                      | HTTP                        | requests                                                        | ✅                          |
 | tyntec_sms                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ubidots                          | HTTP                        | requests                                                        | ✅                          |
@@ -1459,7 +1461,6 @@ doesn't conflict with concurrent PRs.
 - trustradius
 - twitch
 - twitter
-- twitter_ads
 - two_c2p
 - tyntec_sms
 - typesense

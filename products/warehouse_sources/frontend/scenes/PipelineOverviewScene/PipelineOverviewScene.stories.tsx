@@ -84,6 +84,7 @@ const FAILED_RUNS = {
             latest_error: 'Authentication error: expired API key',
             workflow_run_id: 'wf-1',
             origin: null,
+            source_id: '1',
         },
         {
             id: 'run-2',
@@ -96,6 +97,27 @@ const FAILED_RUNS = {
             latest_error: 'Schema drift: column "forecast_category" changed type text to numeric',
             workflow_run_id: 'wf-2',
             origin: null,
+            source_id: '2',
+        },
+    ],
+}
+
+const RUNNING_RUNS = {
+    next: null,
+    previous: null,
+    results: [
+        {
+            id: 'run-3',
+            type: 'Stripe',
+            name: 'customers',
+            status: 'Running',
+            rows: 0,
+            created_at: '2026-09-25T09:00:00Z',
+            finished_at: null,
+            latest_error: null,
+            workflow_run_id: 'wf-3',
+            origin: null,
+            source_id: '1',
         },
     ],
 }
@@ -154,6 +176,7 @@ function mocks(health: Record<string, unknown>, runs: Record<string, unknown>): 
             '/api/projects/:team_id/data_warehouse/total_rows_stats': ROWS_STATS,
             '/api/projects/:team_id/data_warehouse/data_health_issues': health,
             '/api/projects/:team_id/data_warehouse/completed_activity': runs,
+            '/api/projects/:team_id/data_warehouse/running_activity': RUNNING_RUNS,
             '/api/projects/:team_id/external_data_sources': SOURCES,
             '/api/projects/:team_id/external_data_sources/wizard': {},
             '/api/projects/:team_id/external_data_destinations': DESTINATIONS,
@@ -172,6 +195,10 @@ const meta: Meta<typeof PipelineOverviewScene> = {
         viewMode: 'story',
         // The scene refuses to render without this, so every story has to carry it.
         featureFlags: [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION],
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="etl-run-view-source"]',
+        },
     },
 }
 export default meta
