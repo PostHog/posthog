@@ -38,6 +38,7 @@ import {
 import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { SpaceAccess } from './SpaceAccess'
+import { SpaceMembers } from './SpaceMembers'
 import { SpaceRepositories } from './SpaceRepositories'
 import {
     AUTO_ARCHIVE_MAX_DAYS,
@@ -133,15 +134,9 @@ export function SpaceSettings({ id }: { id: string }): JSX.Element {
                 </ItemGroup>
             </SpaceSettingsSection>
 
-            <SpaceSettingsSection
-                label="Repositories"
-                description="Sessions in this space start with these repositories checked out."
-            >
-                <SpaceRepositories id={id} />
-            </SpaceSettingsSection>
-            <SpaceSettingsSection label="Access">
-                <SpaceAccess id={id} />
-            </SpaceSettingsSection>
+            <SpaceRepositories id={id} />
+            <SpaceAccess id={id} />
+            <SpaceMembers id={id} />
 
             <SpaceSettingsSection label="Sessions">
                 <ItemGroup combined>
