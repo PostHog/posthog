@@ -58,7 +58,7 @@ SELECT host, cluster_type,
        maxIf(value, name = 'OSCPUWaitMicroseconds') AS cpu_wait_us,
        maxIf(value, name = 'OSCPUVirtualTimeMicroseconds') AS cpu_busy_us,
        maxIf(value, name = 'OSCPUOverload') AS overload,
-       (SELECT count() FROM system.clusters WHERE cluster = %(cluster)s) AS cluster_nodes
+       (SELECT uniqExact(host_name) FROM system.clusters WHERE cluster = %(cluster)s) AS cluster_nodes
 FROM (
     SELECT hostName() AS host, getMacro('hostClusterType') AS cluster_type, event AS name, toFloat64(value) AS value
     FROM clusterAllReplicas(%(cluster)s, system.events)
