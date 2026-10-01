@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 20 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -91,6 +91,80 @@ export const VisualReviewReposQuarantineListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     run_type: zod.string().optional().describe('Filter by run type'),
+})
+
+/**
+ * Quarantine a snapshot identifier for a specific run type.
+ */
+export const visualReviewReposQuarantineCreatePathRunTypeRegExp = new RegExp('^[^\/]+$')
+
+export const VisualReviewReposQuarantineCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_type: zod.string().regex(visualReviewReposQuarantineCreatePathRunTypeRegExp),
+})
+
+export const visualReviewReposQuarantineCreateBodyIdentifierMax = 512
+
+export const visualReviewReposQuarantineCreateBodyReasonMax = 255
+
+export const visualReviewReposQuarantineCreateBodyNotifyOwnersDefault = false
+
+export const VisualReviewReposQuarantineCreateBody = () => zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to quarantine.'),
+    reason: zod
+        .string()
+        .max(visualReviewReposQuarantineCreateBodyReasonMax)
+        .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
+    source_run_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
+        ),
+    notify_owners: zod
+        .boolean()
+        .default(visualReviewReposQuarantineCreateBodyNotifyOwnersDefault)
+        .describe(
+            'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
+        ),
+})
+
+/**
+ * Expire all active quarantine entries for an identifier.
+ */
+export const visualReviewReposQuarantineExpireCreatePathRunTypeRegExp = new RegExp('^[^\/]+$')
+
+export const VisualReviewReposQuarantineExpireCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    run_type: zod.string().regex(visualReviewReposQuarantineExpireCreatePathRunTypeRegExp),
+})
+
+export const visualReviewReposQuarantineExpireCreateBodyIdentifierMax = 512
+
+export const VisualReviewReposQuarantineExpireCreateBody = () => zod.object({
+    identifier: zod
+        .string()
+        .max(visualReviewReposQuarantineExpireCreateBodyIdentifierMax)
+        .describe('Snapshot identifier to unquarantine'),
 })
 
 /**
@@ -301,6 +375,18 @@ export const VisualReviewRunsFinalizeCreateBody = () => zod.object({
         .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
         .describe(
             "Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is posted when the repo has PR comments enabled and `commit_to_github` is true: it updates the run's review prompt when the run has one, and posts a new comment when it does not. This flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots."
+        ),
+})
+
+/**
+ * Re-evaluate quarantine and counts, update commit status, and optionally rerun the CI job.
+ */
+export const VisualReviewRunsRecomputeCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
