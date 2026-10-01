@@ -122,8 +122,9 @@ const ROOTS = [
             },
         ],
     },
-    // The most visited logged-in scenes, whose bytes gate their LCP. A scene root counts every chunk
-    // the scene needs, so code it shares with the shell is in both numbers.
+    // The most visited logged-in scenes, whose JS gates their LCP. A scene root counts every chunk the
+    // scene needs, so code it shares with the shell is in both numbers. Like the other roots it adds the
+    // whole linked stylesheet, not the per-scene CSS the stable build serves, so a budget tracks JS.
     {
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
