@@ -1209,8 +1209,23 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-runs-list": {
+        "description": "List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status to understand scoring history. run_type is 'inference' for daily scoring runs.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List inference runs",
+        "title": "List inference runs",
+        "required_scopes": ["autoresearch:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-score-create": {
-        "description": "Score today's prediction date now with the pipeline's champion model, instead of waiting for the daily 02:00 UTC scoring run. Use it after autoresearch-train-create completes and promotes a champion. The call is synchronous and returns the inference run with status and rows_scored. It emits one 'autoresearch_prediction' event per scored user, with the score in '$autoresearch_p_y', and sets the pipeline's output_person_property on each scored person. A manual score counts as that day's scoring, so the daily run skips the pipeline until its next cadence date. Call it once per prediction date: a repeat call scores the population again and can duplicate predictions. Returns 400 if the pipeline has no champion (run autoresearch-train-create first), is paused, or its target cannot be resolved. A pipeline with an action target also needs the action:read scope. After scoring, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
+        "description": "Score today's prediction date with the champion model instead of waiting for the daily scoring run. Use autoresearch-train-create first if the pipeline has no champion. Scoring runs in the background and returns an inference run with status 'running'. If one is already running, returns that run without starting another. Poll autoresearch-runs-list for this run's ID until its status is 'completed' (rows_scored is then set) or 'failed' (error is then set). A manual score counts as today's scoring; the daily run skips the pipeline until its next cadence date. Do not start another run for the same prediction date: it can duplicate predictions. The pipeline must not be paused; an action target also needs the action:read scope. Each scored user gets an 'autoresearch_prediction' event with '$autoresearch_p_y' and a person property update. After the run completes, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Run inference (score users)",

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 22 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -184,6 +184,23 @@ export const AutoresearchModelsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * List and retrieve inference and validation runs for a pipeline.
+ */
+export const AutoresearchRunsListParams = () => zod.object({
+    pipeline_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AutoresearchRunsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -605,7 +622,7 @@ export const AutoresearchRetrieveParams = () => zod.object({
 })
 
 /**
- * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
+ * Start scoring the inference population using the champion model. Scoring runs in the background: it emits autoresearch_prediction events for each scored user and sets the pipeline's output_person_property on each scored person. The response returns at once with the running run. A second request while a run is running returns that run and starts nothing. The daily Temporal inference workflow also scores each pipeline on its cadence.
  * @summary Run inference (score users)
  */
 export const AutoresearchScoreCreateParams = () => zod.object({
