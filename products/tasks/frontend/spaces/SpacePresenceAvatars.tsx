@@ -12,7 +12,7 @@ function personLabel(name: string, creator: boolean, live: boolean): string {
 }
 
 /**
- * Who has been active in a space lately, like PostHog Desktop. A pulsing dot marks who is working right now,
+ * Who has been active in a space lately, like PostHog Desktop. A small corner dot marks who is working right now,
  * and a crown marks the creator when `creatorUuid` is given.
  * The newest person sits on top at the right, so their dot shows; the stack tucks the others behind them.
  */
@@ -45,10 +45,8 @@ export function SpacePresenceAvatars({
                                 </span>
                             )}
                             {live && (
-                                <span className="absolute right-0 bottom-0 flex size-2 items-center justify-center">
-                                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75" />
-                                    <span className="relative inline-flex size-1.5 rounded-full bg-primary ring-1 ring-background" />
-                                </span>
+                                // Desktop's corner dot. The background ring lifts it off the face, and it never grows over it.
+                                <span className="absolute right-0 bottom-0 size-1.5 rounded-full bg-primary ring-1 ring-background" />
                             )}
                         </TooltipTrigger>
                         <TooltipContent>{label}</TooltipContent>

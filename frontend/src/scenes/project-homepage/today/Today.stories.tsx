@@ -367,6 +367,19 @@ export const SpacesPane: Story = {
     },
 }
 
+// Hovering a space row shows only its "…" menu, so the faces and the unread dot keep their place.
+export const SpacesPaneHoveringSpaceRow: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByLabelText('Spaces'))
+        const labels = await canvas.findAllByText('checkout')
+        const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
+        if (row) {
+            await userEvent.hover(row)
+        }
+    },
+}
+
 export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
