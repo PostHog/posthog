@@ -196,10 +196,12 @@ def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_m
 def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """First start of a local-time period of `period_minutes` that is later than `after`.
 
-    A DST change can make a local period longer than `period_minutes`, so one step can land in the
-    same period again. The loop steps until it reaches a later period.
+    A DST change can make a local period longer or shorter than `period_minutes`. A 30-minute change
+    (Australia/Lord_Howe) leaves a local hour that lasts 30 minutes, so a probe that steps a full hour
+    can pass over it. The probe steps at most 15 minutes, which no local period is shorter than, and
+    the loop stops at the first later period.
     """
-    step = timedelta(minutes=period_minutes)
+    step = timedelta(minutes=min(period_minutes, 15))
     probe = after + step
     start = _local_period_start(probe, team_timezone, period_minutes)
     while start <= after:

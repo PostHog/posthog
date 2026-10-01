@@ -411,6 +411,15 @@ class TestNextCalendarCheckTime:
                 datetime(2026, 10, 3, 14, 33, tzinfo=UTC),
                 datetime(2026, 10, 3, 15, 30, tzinfo=UTC),
             ),
+            # A check that runs late, at 01:50 local, must still find the 30-minute 02:00 hour.
+            (
+                "hourly_half_hour_spring_forward_late",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 3, 15, 20, tzinfo=UTC),
+                datetime(2026, 10, 3, 13, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 15, 30, tzinfo=UTC),
+            ),
             # In April the 01:00 hour lasts 90 minutes, so the 02:00 hour starts at 15:30 UTC.
             (
                 "hourly_half_hour_fall_back",
