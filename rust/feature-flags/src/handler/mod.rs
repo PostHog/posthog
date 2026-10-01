@@ -175,7 +175,8 @@ async fn process_request_inner(
             .unwrap_or_else(|| "disabled".to_string());
 
         // Populate canonical log with distinct_id, device_id, and anon_distinct_id
-        // anon_distinct_id uses same precedence as hash_key_override: top-level > person_properties
+        // The raw value the request carried, top-level > person_properties. The hash key the
+        // evaluation used can differ, because it rejects the cookieless sentinel.
         let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
             request
                 .person_properties
