@@ -1,37 +1,49 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    Button,
     Item,
+    ItemActions,
     ItemContent,
     ItemDescription,
-    ItemGroup,
-    ItemMedia,
     ItemTitle,
-    RadioGroup,
-    RadioGroupItem,
     Text,
-    cn,
 } from '@posthog/quill'
 
 import { spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettingsSection } from './SpaceSettingsSection'
 
-const ACCESS_OPTIONS = [
-    {
-        value: 'public',
-        title: 'Everyone in the project',
-        description: 'Anyone in this project can see the space and its sessions.',
+type SharedAccess = 'public' | 'private'
+
+const ACCESS: Record<
+    SharedAccess,
+    { label: string; description: string; action: string; confirmTitle: string; confirmBody: string }
+> = {
+    public: {
+        label: 'Public',
+        description: 'Everyone in the project can see this space.',
+        action: 'Make private',
+        confirmTitle: 'Make this space private?',
+        confirmBody: 'Only you and the creator keep access. Other people lose access until you add them as members.',
     },
-    {
-        value: 'private',
-        title: 'Only members',
-        description: 'Only the people you add can see the space and its sessions.',
+    private: {
+        label: 'Private',
+        description: 'Only members can see this space.',
+        action: 'Make public',
+        confirmTitle: 'Make this space public?',
+        confirmBody: 'Everyone in the project gains access to this space and its sessions. The member list is removed.',
     },
-] as const
+}
 
 export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
-    const { space, savingSpace } = useValues(spaceSceneLogic({ id }))
-    const { updateSpace } = useActions(spaceSceneLogic({ id }))
+    const { space, savingSpace, accessConfirmOpen } = useValues(spaceSceneLogic({ id }))
+    const { updateSpace, setAccessConfirmOpen } = useActions(spaceSceneLogic({ id }))
 
     if (!space) {
         return null
@@ -46,43 +58,67 @@ export function SpaceAccess({ id }: { id: string }): JSX.Element | null {
         )
     }
     const generalSpace = space.system_role === 'general'
-    const value = space.channel_type === 'private' ? 'private' : 'public'
+    const access: SharedAccess = space.channel_type === 'private' ? 'private' : 'public'
+    const current = ACCESS[access]
 
     return (
         <SpaceSettingsSection
             label="Access"
             description={generalSpace ? 'The general space is open to everyone in the project.' : undefined}
         >
-            <RadioGroup
-                value={value}
-                onValueChange={(channelType: 'public' | 'private') => updateSpace({ channel_type: channelType })}
-                disabled={generalSpace || savingSpace}
-                className="gap-0"
-                data-attr="today-space-settings-access"
-            >
-                <ItemGroup combined role="none">
-                    {ACCESS_OPTIONS.map((option) => (
-                        <Item
-                            key={option.value}
+            <Item variant="outline" size="sm" data-attr="today-space-settings-access">
+                <ItemContent>
+                    <ItemTitle>{current.label}</ItemTitle>
+                    <ItemDescription>{current.description}</ItemDescription>
+                </ItemContent>
+                {!generalSpace && (
+                    <ItemActions>
+                        <Button
                             variant="outline"
                             size="sm"
-                            className={cn(
-                                !generalSpace && 'cursor-pointer',
-                                option.value === value && 'bg-fill-selected'
-                            )}
-                            render={<label htmlFor={`space-access-${option.value}`} />}
+                            disabled={savingSpace}
+                            onClick={() => setAccessConfirmOpen(true)}
+                            data-attr="today-space-settings-access-change"
                         >
-                            <ItemMedia>
-                                <RadioGroupItem value={option.value} id={`space-access-${option.value}`} />
-                            </ItemMedia>
-                            <ItemContent>
-                                <ItemTitle>{option.title}</ItemTitle>
-                                <ItemDescription>{option.description}</ItemDescription>
-                            </ItemContent>
-                        </Item>
-                    ))}
-                </ItemGroup>
-            </RadioGroup>
+                            {current.action}
+                        </Button>
+                    </ItemActions>
+                )}
+            </Item>
+            <AlertDialog
+                open={accessConfirmOpen}
+                onOpenChange={(open: boolean) => {
+                    if (!open && !savingSpace) {
+                        setAccessConfirmOpen(false)
+                    }
+                }}
+            >
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>{current.confirmTitle}</AlertDialogTitle>
+                        <AlertDialogDescription>{current.confirmBody}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setAccessConfirmOpen(false)}
+                            disabled={savingSpace}
+                            data-attr="today-space-settings-access-cancel"
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="primary"
+                            loading={savingSpace}
+                            disabled={savingSpace}
+                            onClick={() => updateSpace({ channel_type: access === 'public' ? 'private' : 'public' })}
+                            data-attr="today-space-settings-access-confirm"
+                        >
+                            {current.action}
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </SpaceSettingsSection>
     )
 }
