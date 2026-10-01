@@ -4,7 +4,7 @@ from typing import Any, Literal
 from django.db import transaction
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, PolymorphicProxySerializer, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -106,20 +106,21 @@ class MessagePreferencesSerializer(serializers.ModelSerializer):
         }
 
 
-class MessagePreferenceWriteReceiptSerializer(serializers.Serializer):
+class MessagePreferenceWriteResultSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        required=False,
+        help_text="Server-assigned UUID for this recipient's preference record. Omitted for callers without read access.",
+    )
     identifier = serializers.CharField(help_text="The recipient identifier from the request.")
+    updated_at = serializers.DateTimeField(
+        required=False,
+        help_text="When the preference was last updated. Omitted for callers without read access.",
+    )
     preferences = serializers.DictField(
         child=serializers.ChoiceField(choices=PreferenceStatus.choices),
-        help_text="Only the preference this request set. A caller without read access learns nothing else "
-        "about the recipient, including whether they existed before.",
+        help_text="The recipient's preferences. A caller without read access sees only the preference this "
+        "request set, and nothing that shows whether the recipient existed before.",
     )
-
-
-MESSAGE_PREFERENCE_WRITE_RESULT = PolymorphicProxySerializer(
-    component_name="MessagePreferenceWriteResult",
-    serializers=[MessagePreferencesSerializer, MessagePreferenceWriteReceiptSerializer],
-    resource_type_field_name=None,
-)
 
 
 class AddOptOutRequestSerializer(serializers.Serializer):
@@ -296,8 +297,8 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 MessagePreferencesSerializer(preference).data,
                 status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
             )
-        receipt = MessagePreferenceWriteReceiptSerializer({"identifier": preference.identifier, "preferences": written})
-        return Response(receipt.data, status=status.HTTP_200_OK)
+        result = MessagePreferenceWriteResultSerializer({"identifier": preference.identifier, "preferences": written})
+        return Response(result.data, status=status.HTTP_200_OK)
 
     def _caller_can_read_preferences(self) -> bool:
         held_scopes = get_authenticator_scopes(self.request.successful_authenticator)
@@ -359,7 +360,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=AddOptOutRequestSerializer,
-        responses={200: MESSAGE_PREFERENCE_WRITE_RESULT, 201: MessagePreferencesSerializer},
+        responses={200: MessagePreferenceWriteResultSerializer, 201: MessagePreferencesSerializer},
         summary="Manually add a recipient to the opt-out list",
     )
     @action(detail=False, methods=["post"])
@@ -396,7 +397,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(
         request=RemoveOptOutRequestSerializer,
-        responses={200: MESSAGE_PREFERENCE_WRITE_RESULT, 201: MessagePreferencesSerializer},
+        responses={200: MessagePreferenceWriteResultSerializer, 201: MessagePreferencesSerializer},
         summary="Remove a recipient from the opt-out list",
     )
     @action(detail=False, methods=["post"])
