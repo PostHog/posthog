@@ -111,13 +111,16 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
+def get_members_to_notify(
+    team: Team, notification_setting: NotificationSettingType, user_ids: set[int] | None = None
+) -> list[OrganizationMembership]:
     memberships_to_email = []
-    memberships = list(
-        OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id
-        )
+    memberships_query = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
     )
+    if user_ids is not None:
+        memberships_query = memberships_query.filter(user_id__in=user_ids)
+    memberships = list(memberships_query)
     # Resolved once, or this is a query per member on every fan-out.
     locks_by_user = notification_locks_for_users(
         [membership.user_id for membership in memberships], organization_id=team.organization_id
@@ -2512,11 +2515,9 @@ def send_ticket_assigned_notification(
     if not assigned_user_ids:
         return
 
-    memberships_to_email = [
-        membership
-        for membership in get_members_to_notify(team, NotificationSetting.CONVERSATIONS_TICKET_ASSIGNED.value)
-        if membership.user_id in assigned_user_ids
-    ]
+    memberships_to_email = get_members_to_notify(
+        team, NotificationSetting.CONVERSATIONS_TICKET_ASSIGNED.value, user_ids=assigned_user_ids
+    )
     if not memberships_to_email:
         return
 
