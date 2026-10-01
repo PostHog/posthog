@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconTrash } from '@posthog/icons'
+import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -12,6 +12,10 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 export function SecretApiKeySection(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { rotateSecretToken, deleteSecretTokenBackup } = useActions(teamLogic)
+
+    const rotateDisabledReason = !isTeamTokenResetAvailable
+        ? 'Only project admins can generate or rotate this key. Ask a project admin for help.'
+        : undefined
 
     const openRotateDialog = (): void => {
         const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
@@ -42,26 +46,33 @@ export function SecretApiKeySection(): JSX.Element {
                         Primary key{' '}
                         {currentTeam?.secret_api_token && <span className="text-green-700 text-xs ml-2">(Active)</span>}
                     </h3>
-                    <CodeSnippet
-                        actions={
-                            <LemonButton
-                                icon={<IconRefresh />}
-                                size="xsmall"
-                                onClick={openRotateDialog}
-                                disabledReason={
-                                    !isTeamTokenResetAvailable
-                                        ? 'You do not have permission to rotate this key'
-                                        : undefined
-                                }
-                                tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
-                            />
-                        }
-                        className={currentTeam?.secret_api_token ? '' : 'text-muted'}
-                        thing="Secret API key"
-                    >
-                        {currentTeam?.secret_api_token ||
-                            'No key yet — generate one with the button on the right to start using ticket workflow actions.'}
-                    </CodeSnippet>
+                    {currentTeam?.secret_api_token ? (
+                        <CodeSnippet
+                            actions={
+                                <LemonButton
+                                    icon={<IconRefresh />}
+                                    size="xsmall"
+                                    onClick={openRotateDialog}
+                                    disabledReason={rotateDisabledReason}
+                                    tooltip="Rotate key"
+                                    data-attr="support-secret-api-key-rotate"
+                                />
+                            }
+                            thing="Secret API key"
+                        >
+                            {currentTeam.secret_api_token}
+                        </CodeSnippet>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={openRotateDialog}
+                            disabledReason={rotateDisabledReason}
+                            data-attr="support-secret-api-key-generate"
+                        >
+                            Generate secret API key
+                        </LemonButton>
+                    )}
                 </div>
 
                 {currentTeam?.secret_api_token ? (
