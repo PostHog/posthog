@@ -13,14 +13,18 @@ import {
 import { RING, SAMPLE_MS } from "@/components/Waveform";
 
 export interface Dictation {
+  // Stays true while a stop waits for the final result.
   active: boolean;
+  stopping: boolean;
   transcript: string;
   // Read on the UI thread by the waveform; updating them never re-renders React.
   levels: SharedValue<number[]>;
   head: SharedValue<number>;
   start: () => void;
-  // Ends dictation and keeps what was heard.
-  stop: () => string;
+  // Ends dictation and resolves with what was heard once the recognizer delivers its final result.
+  // A second call during the wait resolves with "", so each caller gets the words only once.
+  stop: () => Promise<string>;
+  // Ends dictation and drops what was heard. A pending stop resolves with "".
   cancel: () => void;
 }
 
@@ -32,6 +36,8 @@ export interface Heard {
 // The recognizer reports volume from -2 to 10; below QUIET is room noise.
 const QUIET = 1;
 const LOUD = 8;
+// Safety net for a recognizer that never reports end after stop.
+const STOP_TIMEOUT_MS = 1500;
 
 export function volumeToLevel(value: number): number {
   return Math.min(1, Math.max(0, (value - QUIET) / (LOUD - QUIET)));
@@ -68,6 +74,7 @@ const nothingHeard = (): Heard => ({ finals: [], interim: "" });
 // onEnd receives what was heard when the recognizer ends on its own.
 export function useDictation(onEnd?: (heard: string) => void): Dictation {
   const [active, setActive] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [transcript, setTranscript] = useState("");
   const levels = useSharedValue<number[]>(emptyRing());
   const head = useSharedValue(-1);
@@ -79,8 +86,15 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   const listening = useRef(false);
   // True from this hook's native start call until the recognizer reports start or a startup error.
   const starting = useRef(false);
+  const pendingStop = useRef<((heard: string) => void) | null>(null);
+  const stopTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
   const endRef = useRef(onEnd);
-  endRef.current = onEnd;
+
+  useEffect(() => {
+    endRef.current = onEnd;
+  }, [onEnd]);
 
   const push = useCallback(
     (level: number) => {
@@ -98,20 +112,30 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     [levels, head],
   );
 
-  const finish = useCallback((): boolean => {
+  const finish = useCallback((kept = ""): boolean => {
     const wasListening = listening.current;
+    const resolve = pendingStop.current;
     session.current++;
     live.current = false;
     listening.current = false;
+    pendingStop.current = null;
+    clearTimeout(stopTimer.current);
+    setStopping(false);
     setActive(false);
+    resolve?.(kept);
     return wasListening;
   }, []);
 
   // Before native start, an end or error can only come from the previous session.
   const endQuietly = useCallback(() => {
     if (!live.current || !listening.current) return;
+    const text = joinHeard(heard.current);
+    if (pendingStop.current) {
+      finish(text);
+      return;
+    }
     finish();
-    endRef.current?.(joinHeard(heard.current));
+    endRef.current?.(text);
   }, [finish]);
 
   useSpeechRecognitionEvent("volumechange", (event) => {
@@ -129,7 +153,9 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
   useSpeechRecognitionEvent("start", () => {
     if (!starting.current) return;
     starting.current = false;
-    if (!live.current) ExpoSpeechRecognitionModule.abort();
+    if (!live.current || pendingStop.current) {
+      ExpoSpeechRecognitionModule.abort();
+    }
   });
 
   useSpeechRecognitionEvent("error", (event) => {
@@ -144,6 +170,7 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     () => () => {
       session.current++;
       live.current = false;
+      clearTimeout(stopTimer.current);
       if (listening.current || starting.current) {
         ExpoSpeechRecognitionModule.abort();
       }
@@ -186,10 +213,24 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
       });
   }, [levels, head, finish]);
 
-  const stop = useCallback((): string => {
-    const text = joinHeard(heard.current);
-    if (finish()) ExpoSpeechRecognitionModule.stop();
-    return text;
+  // Results keep arriving after native stop, so the session stays live until the recognizer reports end.
+  const stop = useCallback((): Promise<string> => {
+    if (!live.current || pendingStop.current) return Promise.resolve("");
+    if (!listening.current) {
+      finish();
+      return Promise.resolve(joinHeard(heard.current));
+    }
+    const done = new Promise<string>((resolve) => {
+      pendingStop.current = resolve;
+    });
+    stopTimer.current = setTimeout(() => {
+      if (finish(joinHeard(heard.current))) {
+        ExpoSpeechRecognitionModule.abort();
+      }
+    }, STOP_TIMEOUT_MS);
+    setStopping(true);
+    ExpoSpeechRecognitionModule.stop();
+    return done;
   }, [finish]);
 
   const cancel = useCallback(() => {
@@ -198,5 +239,5 @@ export function useDictation(onEnd?: (heard: string) => void): Dictation {
     setTranscript("");
   }, [finish]);
 
-  return { active, transcript, levels, head, start, stop, cancel };
+  return { active, stopping, transcript, levels, head, start, stop, cancel };
 }

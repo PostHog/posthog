@@ -84,7 +84,10 @@ export function Composer({
   const shown = dictation.active
     ? withSpeech(text, dictation.transcript)
     : text;
-  const canSend = (shown.trim().length > 0 || photos.length > 0) && !sending;
+  const canSend =
+    (shown.trim().length > 0 || photos.length > 0) &&
+    !sending &&
+    !dictation.stopping;
 
   const attach = async (): Promise<void> => {
     try {
@@ -100,20 +103,22 @@ export function Composer({
     dictation.start();
   };
 
-  const stopDictation = (): string => {
-    const value = withSpeech(text, dictation.stop());
-    setText(value);
-    return value;
+  const stopDictation = async (): Promise<void> => {
+    const heard = await dictation.stop();
+    setText((current) => withSpeech(current, heard));
   };
 
-  // The input shows the live transcript, so an edit already holds it. Ending dictation keeps it from being added twice.
+  // The input shows the live transcript, so an edit already holds it. Dropping the transcript keeps it from being added twice.
   const editText = (value: string): void => {
-    if (dictation.active) dictation.stop();
+    if (dictation.active) dictation.cancel();
     setText(value);
   };
 
   const submit = async (): Promise<void> => {
-    const value = (dictation.active ? stopDictation() : text).trim();
+    if (dictation.stopping || sending) return;
+    const value = (
+      dictation.active ? withSpeech(text, await dictation.stop()) : text
+    ).trim();
     if ((!value && !photos.length) || sending) return;
     const attached = photos;
     setText("");

@@ -1,5 +1,5 @@
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listeners = vi.hoisted(
   () => new Map<string, (event?: unknown) => void>(),
@@ -145,5 +145,97 @@ describe("useDictation", () => {
     useDictation();
     listeners.get("start")?.();
     expect(native.abort).not.toHaveBeenCalled();
+  });
+});
+
+describe("useDictation stop", () => {
+  const native = vi.mocked(ExpoSpeechRecognitionModule);
+  const emit = (name: string, event?: unknown) => listeners.get(name)?.(event);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listeners.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const listen = async (
+    onEnd?: (heard: string) => void,
+  ): Promise<Dictation> => {
+    const dictation = useDictation(onEnd);
+    dictation.start();
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+    emit("start");
+    return dictation;
+  };
+
+  it("keeps the final result that arrives after stop", async () => {
+    const onEnd = vi.fn();
+    const dictation = await listen(onEnd);
+    emit("result", result("Fix the", false));
+    const stopped = dictation.stop();
+    expect(native.stop).toHaveBeenCalledTimes(1);
+    emit("result", result("Fix the bug.", true));
+    emit("end");
+    await expect(stopped).resolves.toBe("Fix the bug.");
+    expect(onEnd).not.toHaveBeenCalled();
+  });
+
+  it("resolves a second stop with nothing so the words are kept once", async () => {
+    const dictation = await listen();
+    emit("result", result("Ship it.", true));
+    const first = dictation.stop();
+    const second = dictation.stop();
+    emit("end");
+    await expect(first).resolves.toBe("Ship it.");
+    await expect(second).resolves.toBe("");
+    expect(native.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the words when cancel comes during a stop", async () => {
+    const dictation = await listen();
+    emit("result", result("Ship it.", true));
+    const stopped = dictation.stop();
+    dictation.cancel();
+    await expect(stopped).resolves.toBe("");
+    expect(native.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("ends with what was heard when the recognizer never reports end", async () => {
+    const dictation = await listen();
+    emit("result", result("Ship it", false));
+    vi.useFakeTimers();
+    const stopped = dictation.stop();
+    vi.advanceTimersByTime(1500);
+    await expect(stopped).resolves.toBe("Ship it");
+    expect(native.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts a native start that lands while a stop waits", async () => {
+    const dictation = useDictation();
+    dictation.start();
+    await vi.waitFor(() => expect(native.start).toHaveBeenCalledTimes(1));
+    const stopped = dictation.stop();
+    emit("start");
+    expect(native.abort).toHaveBeenCalledTimes(1);
+    emit("end");
+    await expect(stopped).resolves.toBe("");
+  });
+
+  it("stops at once when the recognizer has not started", async () => {
+    const dictation = useDictation();
+    dictation.start();
+    await expect(dictation.stop()).resolves.toBe("");
+    expect(native.stop).not.toHaveBeenCalled();
+  });
+
+  it("passes the words to onEnd when the recognizer ends on its own", async () => {
+    const onEnd = vi.fn();
+    await listen(onEnd);
+    emit("result", result("Ship it.", true));
+    emit("end");
+    expect(onEnd).toHaveBeenCalledWith("Ship it.");
   });
 });
