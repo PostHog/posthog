@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { toast } from '@posthog/quill'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -17,7 +18,7 @@ import { SPACE_COMPOSE_PARAM, spaceLabel, todaySpacesLogic } from '~/layout/toda
 import { TodayWorkItem, sessionItem } from '~/layout/today/todayWorkItems'
 import { Breadcrumb, TeamPublicType, TeamType, UserType } from '~/types'
 
-import { canvasesList } from 'products/canvas/frontend/generated/api'
+import { canvasesDestroy, canvasesList, canvasesPartialUpdate } from 'products/canvas/frontend/generated/api'
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { EmbeddedTaskComposerProps } from 'products/posthog_ai/frontend/api/runner'
@@ -34,6 +35,7 @@ import {
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvases'
+import { spaceCanvasUrl } from './spaceCanvasUrls'
 import {
     SpaceFeedFilters,
     SpaceFeedGrouping,
@@ -47,6 +49,8 @@ import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequests'
 
 const SPACE_FEED_LIMIT = 50
+
+export const SPACE_CANVASES_MAX = 200
 
 export type SpaceTab = 'feed' | 'canvases' | 'settings'
 
@@ -116,6 +120,8 @@ export interface spaceSceneLogicValues {
     autoArchiveDisabledReason: string | null
     autoArchiveSelection: AutoArchiveSelection
     breadcrumbs: Breadcrumb[]
+    canvasDeleteTarget: CanvasApi | null
+    canvasDeleting: boolean
     canvasSections: SpaceCanvasSections
     canvases: CanvasApi[] | null
     canvasesLoading: boolean
@@ -137,6 +143,7 @@ export interface spaceSceneLogicValues {
     membersUnavailable: boolean
     nameDraft: string | null
     nameError: string | null
+    pendingCanvasIds: string[]
     pendingName: string | null
     pullRequestTitles: Record<string, string>
     pullRequestTitlesLoading: boolean
@@ -179,8 +186,40 @@ export interface spaceSceneLogicActions {
     applySuggestion: (prompt: string) => {
         prompt: string
     }
+    canvasDeleteFailed: () => {
+        value: true
+    }
+    canvasDeleteStarted: () => {
+        value: true
+    }
+    canvasDeleted: (canvasId: string) => {
+        canvasId: string
+    }
+    canvasPinFailed: (
+        canvasId: string,
+        pinnedAt: string | null
+    ) => {
+        canvasId: string
+        pinnedAt: string | null
+    }
+    canvasPinRequested: (
+        canvasId: string,
+        pinned: boolean
+    ) => {
+        canvasId: string
+        pinned: boolean
+    }
+    canvasSaved: (canvas: CanvasApi) => {
+        canvas: CanvasApi
+    }
     commitName: () => {
         value: true
+    }
+    confirmCanvasDelete: () => {
+        value: true
+    }
+    copyCanvasLink: (canvasId: string) => {
+        canvasId: string
     }
     deleteSpace: () => {
         value: true
@@ -284,6 +323,9 @@ export interface spaceSceneLogicActions {
     setAutoArchiveSelection: (selection: AutoArchiveSelection) => {
         selection: AutoArchiveSelection
     }
+    setCanvasDeleteTarget: (canvas: CanvasApi | null) => {
+        canvas: CanvasApi | null
+    }
     setMemberIds: (userIds: number[]) => number[]
     setMemberIdsFailure: (
         error: string,
@@ -307,6 +349,9 @@ export interface spaceSceneLogicActions {
     }
     spaceSaved: (space: ChannelDTOApi) => {
         space: ChannelDTOApi
+    }
+    toggleCanvasPinned: (canvasId: string) => {
+        canvasId: string
     }
     updateSpace: (patch: PatchedChannelUpdateApi) => {
         patch: PatchedChannelUpdateApi
@@ -423,6 +468,16 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         commitName: true,
         ensureCanvases: true,
         setAccessConfirmOpen: (open: boolean) => ({ open }),
+        copyCanvasLink: (canvasId: string) => ({ canvasId }),
+        toggleCanvasPinned: (canvasId: string) => ({ canvasId }),
+        canvasPinRequested: (canvasId: string, pinned: boolean) => ({ canvasId, pinned }),
+        canvasPinFailed: (canvasId: string, pinnedAt: string | null) => ({ canvasId, pinnedAt }),
+        canvasSaved: (canvas: CanvasApi) => ({ canvas }),
+        setCanvasDeleteTarget: (canvas: CanvasApi | null) => ({ canvas }),
+        confirmCanvasDelete: true,
+        canvasDeleteStarted: true,
+        canvasDeleted: (canvasId: string) => ({ canvasId }),
+        canvasDeleteFailed: true,
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -493,11 +548,19 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                     if (!values.currentTeamId) {
                         return []
                     }
-                    const response = await canvasesList(String(values.currentTeamId), {
-                        channel: props.id,
-                        limit: SPACE_FEED_LIMIT,
-                    })
-                    return response.results
+                    const canvases: CanvasApi[] = []
+                    while (canvases.length < SPACE_CANVASES_MAX) {
+                        const response = await canvasesList(String(values.currentTeamId), {
+                            channel: props.id,
+                            limit: Math.min(SPACE_FEED_LIMIT, SPACE_CANVASES_MAX - canvases.length),
+                            offset: canvases.length,
+                        })
+                        canvases.push(...response.results)
+                        if (!response.next || !response.results.length) {
+                            break
+                        }
+                    }
+                    return canvases
                 },
             },
         ],
@@ -525,6 +588,33 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 return state && listed ? { ...state, starred: listed.starred } : state
             },
         },
+        canvases: {
+            canvasPinRequested: (state, { canvasId, pinned }) =>
+                state?.map((canvas) =>
+                    canvas.id === canvasId ? { ...canvas, pinned_at: pinned ? new Date().toISOString() : null } : canvas
+                ) ?? state,
+            canvasPinFailed: (state, { canvasId, pinnedAt }) =>
+                state?.map((canvas) => (canvas.id === canvasId ? { ...canvas, pinned_at: pinnedAt } : canvas)) ?? state,
+            canvasSaved: (state, { canvas: saved }) =>
+                state?.map((canvas) => (canvas.id === saved.id ? saved : canvas)) ?? state,
+            canvasDeleted: (state, { canvasId }) => state?.filter((canvas) => canvas.id !== canvasId) ?? state,
+        },
+        pendingCanvasIds: [
+            [] as string[],
+            {
+                canvasPinRequested: (state, { canvasId }) => [...state, canvasId],
+                canvasPinFailed: (state, { canvasId }) => state.filter((id) => id !== canvasId),
+                canvasSaved: (state, { canvas }) => state.filter((id) => id !== canvas.id),
+            },
+        ],
+        canvasDeleteTarget: [
+            null as CanvasApi | null,
+            { setCanvasDeleteTarget: (_, { canvas }) => canvas, canvasDeleted: () => null },
+        ],
+        canvasDeleting: [
+            false,
+            { canvasDeleteStarted: () => true, canvasDeleted: () => false, canvasDeleteFailed: () => false },
+        ],
         // Each request bumps the counter, so the composer focuses again even when it is already mounted.
         composerFocusRequest: [0, { focusComposer: (state) => state + 1 }],
         savingSpace: [
@@ -777,6 +867,45 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
             const shown = values.types.includes('canvas') || values.activeTab === 'canvases'
             if (shown && values.canvases === null && !values.canvasesLoading) {
                 actions.loadCanvases()
+            }
+        },
+        copyCanvasLink: async ({ canvasId }) => {
+            const outcome = await writeToClipboard(urls.absolute(urls.currentProject(spaceCanvasUrl(canvasId))))
+            if (outcome === 'copied') {
+                toast.success({ title: 'Link copied' })
+            } else {
+                toast.error({ title: 'Couldn’t copy the link. Open the canvas and copy it from the address bar.' })
+            }
+        },
+        toggleCanvasPinned: async ({ canvasId }) => {
+            const canvas = values.canvases?.find(({ id }) => id === canvasId)
+            if (!canvas || values.pendingCanvasIds.includes(canvasId)) {
+                return
+            }
+            const pinned = !canvas.pinned_at
+            actions.canvasPinRequested(canvasId, pinned)
+            try {
+                actions.canvasSaved(await canvasesPartialUpdate(String(values.currentTeamId), canvasId, { pinned }))
+            } catch {
+                toast.error({ title: `Couldn’t ${pinned ? 'pin' : 'unpin'} this canvas. Try again.` })
+                actions.canvasPinFailed(canvasId, canvas.pinned_at ?? null)
+            }
+        },
+        confirmCanvasDelete: async () => {
+            const target = values.canvasDeleteTarget
+            if (!target || values.canvasDeleting) {
+                return
+            }
+            actions.canvasDeleteStarted()
+            try {
+                await canvasesDestroy(String(values.currentTeamId), target.id)
+                actions.canvasDeleted(target.id)
+                toast.success({ title: 'Canvas deleted' })
+            } catch (error) {
+                toast.error({
+                    title: (error as { detail?: string }).detail ?? 'Couldn’t delete this canvas. Try again.',
+                })
+                actions.canvasDeleteFailed()
             }
         },
         setAutoArchiveSelection: ({ selection }) => {

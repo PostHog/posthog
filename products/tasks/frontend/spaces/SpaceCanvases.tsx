@@ -18,16 +18,17 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 import { SpaceCanvasCard } from './SpaceCanvasCard'
+import { SpaceCanvasDeleteDialog } from './SpaceCanvasDeleteDialog'
 import { spaceNewCanvasUrl } from './spaceCanvasUrls'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
 const GRID_CLASS = 'grid grid-cols-1 gap-3 @lg/main-content:grid-cols-2 @3xl/main-content:grid-cols-3'
 
-function canvasGrid(canvases: CanvasApi[]): JSX.Element {
+function canvasGrid(spaceId: string, canvases: CanvasApi[]): JSX.Element {
     return (
         <div className={GRID_CLASS}>
             {canvases.map((canvas) => (
-                <SpaceCanvasCard key={canvas.id} canvas={canvas} />
+                <SpaceCanvasCard key={canvas.id} spaceId={spaceId} canvas={canvas} />
             ))}
         </div>
     )
@@ -119,11 +120,12 @@ export function SpaceCanvases({ id }: { id: string }): JSX.Element {
             {pinned.length > 0 && (
                 <>
                     {sectionLabel('Pinned')}
-                    {canvasGrid(pinned)}
+                    {canvasGrid(id, pinned)}
                     {rest.length > 0 && <div className="mt-5">{sectionLabel('All')}</div>}
                 </>
             )}
-            {rest.length > 0 && canvasGrid(rest)}
+            {rest.length > 0 && canvasGrid(id, rest)}
+            <SpaceCanvasDeleteDialog spaceId={id} />
         </div>
     )
 }

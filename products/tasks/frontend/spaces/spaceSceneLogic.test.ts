@@ -18,6 +18,7 @@ import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './s
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import {
     AutoArchiveSelection,
+    SPACE_CANVASES_MAX,
     SpaceFeedStatus,
     SpaceTab,
     spaceComposerPanelId,
@@ -32,6 +33,9 @@ describe('spaceSceneLogic', () => {
     let memberUpdates: number[][] = []
     let spaceCanvases: CanvasApi[] = []
     let canvasRequests: (string | null)[] = []
+    let canvasStatus = 200
+    let canvasPatches: { id: string; body: unknown }[] = []
+    let canvasDeletes: string[] = []
 
     beforeEach(() => {
         sessionSpace = 'space-a'
@@ -41,13 +45,20 @@ describe('spaceSceneLogic', () => {
         memberUpdates = []
         spaceCanvases = []
         canvasRequests = []
+        canvasStatus = 200
+        canvasPatches = []
+        canvasDeletes = []
         useMocks({
             get: {
                 '/api/projects/:team_id/canvases/': ({ request }) => {
-                    const channel = new URL(request.url).searchParams.get('channel')
+                    const params = new URL(request.url).searchParams
+                    const channel = params.get('channel')
                     canvasRequests.push(channel)
-                    const results = channel === 'space-a' ? spaceCanvases : []
-                    return [200, { results, count: results.length }]
+                    const all = channel === 'space-a' ? spaceCanvases : []
+                    const offset = Number(params.get('offset') ?? 0)
+                    const results = all.slice(offset, offset + Number(params.get('limit') ?? all.length))
+                    const next = offset + results.length < all.length ? 'https://example.com/next' : null
+                    return [200, { results, count: all.length, next }]
                 },
                 '/api/projects/:team_id/task_channels/': () => [
                     200,
@@ -96,6 +107,15 @@ describe('spaceSceneLogic', () => {
                 },
             },
             patch: {
+                '/api/projects/:team_id/canvases/:id/': async ({ params, request }) => {
+                    const body = (await request.json()) as { pinned: boolean }
+                    canvasPatches.push({ id: String(params.id), body })
+                    const canvas = spaceCanvases.find(({ id }) => id === params.id)
+                    return [
+                        canvasStatus,
+                        { ...canvas, pinned_at: body.pinned ? '2026-09-30T09:00:00Z' : null } as CanvasApi,
+                    ]
+                },
                 '/api/projects/:team_id/task_channels/:id/': async ({ params, request }) => {
                     const body = (await request.json()) as Record<string, unknown>
                     spacePatches.push(body)
@@ -107,9 +127,39 @@ describe('spaceSceneLogic', () => {
                     return [200, { id: 'task-1', channel: sessionSpace }]
                 },
             },
+            delete: {
+                '/api/projects/:team_id/canvases/:id/': ({ params }) => {
+                    canvasDeletes.push(String(params.id))
+                    return [canvasStatus === 200 ? 204 : canvasStatus, null]
+                },
+            },
         })
         initKeaTests()
     })
+
+    const canvasesNamed = (count: number): CanvasApi[] =>
+        Array.from(
+            { length: count },
+            (_, index) =>
+                ({
+                    id: `c-${index}`,
+                    name: `Canvas ${index}`,
+                    pinned_at: null,
+                    updated_at: '2026-09-28T11:00:00Z',
+                    created_by: { id: 999 },
+                }) as unknown as CanvasApi
+        )
+
+    const mountWithCanvases = async (canvases: CanvasApi[]): Promise<ReturnType<typeof spaceSceneLogic.build>> => {
+        spaceCanvases = canvases
+        spaceFeedViewLogic.mount()
+        spaceFeedViewLogic.actions.setFilters(DEFAULT_SPACE_FEED_FILTERS)
+        spaceFeedViewLogic.actions.setTypes(['canvas'])
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        return logic
+    }
 
     it('drops a session from the feed when the row menu moves it to another space', async () => {
         const logic = spaceSceneLogic({ id: 'space-a' })
@@ -302,6 +352,56 @@ describe('spaceSceneLogic', () => {
         expect(canvasRequests).toEqual(['space-a'])
     })
 
+    it.each([
+        ['one page', 30, 1, 30],
+        ['every page', 120, 3, 120],
+        ['no more than the cap', 450, 4, SPACE_CANVASES_MAX],
+    ])('loads %s of a space’s canvases', async (_, total, expectedRequests, expectedCount) => {
+        const logic = await mountWithCanvases(canvasesNamed(total))
+
+        expect(canvasRequests).toHaveLength(expectedRequests)
+        expect(logic.values.canvases?.map(({ id }) => id)).toEqual(canvasesNamed(expectedCount).map(({ id }) => id))
+    })
+
+    it.each<[string, string | null, number, string | null, string[]]>([
+        ['pins a canvas', null, 200, '2026-09-30T09:00:00Z', ['c-0']],
+        ['unpins a canvas', '2026-09-29T09:00:00Z', 200, null, []],
+        ['restores the pin when saving fails', null, 500, null, []],
+    ])('%s once from its menu', async (_, pinnedAt, status, expectedPinnedAt, expectedPinned) => {
+        canvasStatus = status
+        const logic = await mountWithCanvases([{ ...canvasesNamed(1)[0], pinned_at: pinnedAt }])
+
+        logic.actions.toggleCanvasPinned('c-0')
+        logic.actions.toggleCanvasPinned('c-0')
+        expect(logic.values.canvasSections.pinned.length).toBe(pinnedAt ? 0 : 1)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(canvasPatches).toEqual([{ id: 'c-0', body: { pinned: !pinnedAt } }])
+        expect(logic.values.canvases?.[0].pinned_at).toBe(expectedPinnedAt)
+        expect(logic.values.canvasSections.pinned.map(({ id }) => id)).toEqual(expectedPinned)
+        expect(logic.values.pendingCanvasIds).toEqual([])
+    })
+
+    it.each<[string, number, string[], boolean]>([
+        ['removes the canvas', 200, ['c-1'], false],
+        ['keeps the canvas and the dialog when deleting fails', 500, ['c-0', 'c-1'], true],
+    ])('%s after the delete is confirmed', async (_, status, expectedIds, dialogOpen) => {
+        canvasStatus = status
+        const logic = await mountWithCanvases(canvasesNamed(2))
+
+        logic.actions.setCanvasDeleteTarget(logic.values.canvases![0])
+        logic.actions.confirmCanvasDelete()
+        logic.actions.confirmCanvasDelete()
+        expect(logic.values.canvasDeleting).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(canvasDeletes).toEqual(['c-0'])
+        expect(logic.values.canvases?.map(({ id }) => id)).toEqual(expectedIds)
+        expect(logic.values.feedSections.flatMap((section) => section.entries)).toHaveLength(expectedIds.length)
+        expect(logic.values.canvasDeleteTarget !== null).toBe(dialogOpen)
+        expect(logic.values.canvasDeleting).toBe(false)
+    })
+
     it.each<[string, SpaceTab, string[]]>([
         [urls.taskSpace('space-a'), 'feed', []],
         [urls.taskSpaceCanvases('space-a'), 'canvases', ['space-a']],
@@ -474,16 +574,21 @@ describe('spaceSceneLogic', () => {
         expect(logic.values.space?.starred).toBe(true)
     })
 
-    it('copies the project-scoped link to the space', async () => {
+    it.each<[string, string, (logic: ReturnType<typeof spaceSceneLogic.build>) => void]>([
+        ['the space', '/spaces/space-a', () => todaySpacesLogic.actions.copySpaceLink('space-a')],
+        ['a canvas', '/canvases/c-0', (logic) => logic.actions.copyCanvasLink('c-0')],
+    ])('copies the project-scoped link to %s', async (_, path, copy) => {
         const writeText = jest.fn().mockResolvedValue(undefined)
         Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-        todaySpacesLogic.mount()
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
 
-        todaySpacesLogic.actions.copySpaceLink('space-a')
+        copy(logic)
+        await expectLogic(logic).toFinishAllListeners()
         await expectLogic(todaySpacesLogic).toFinishAllListeners()
 
         expect(writeText).toHaveBeenCalledWith(
-            expect.stringMatching(new RegExp(`^${window.location.origin}/project/\\d+/spaces/space-a$`))
+            expect.stringMatching(new RegExp(`^${window.location.origin}/project/\\d+${path}$`))
         )
     })
 
