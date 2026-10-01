@@ -11,6 +11,10 @@ Your job is to get from "I want to send email" to a verified sender with as litt
 
 ## Tools
 
+These tools exist only when the project has the email domain agent setup feature enabled.
+If `integrations-email-create` or `integrations-email-verify-create` is missing, stop and tell the person the tools are not available to them yet.
+Do not fall back to `integrations-create` or other integration tools.
+
 | Step                     | Tool                                           |
 | ------------------------ | ---------------------------------------------- |
 | Find existing senders    | `integrations-list` with `kind=email`          |
