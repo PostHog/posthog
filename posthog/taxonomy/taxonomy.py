@@ -2917,6 +2917,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset, and a first read usually omits the offset — absent and 0 both mean a first page. Scope the query to `$mcp_tool_name IN ('skill-get', 'llma-skill-get')` before counting: the property is never set on `skill-file-get` or on a failed read, so an absent value outside that scope means 'never paginated' rather than 'first page', and counting it inflates loads. Within the scope, count calls where the offset is absent or 0 for loads, and every call for pages read. Set only on reads that succeeded, like `$mcp_skill_name`.",
             "examples": ["0", "5000"],
         },
+        "$mcp_skill_lookup_miss_kind": {
+            "label": "MCP skill lookup miss kind",
+            "description": "Why a skill read returned not found, on a failed `$mcp_tool_call` from `skill-get` or `skill-file-get`: builtin (the name is a built-in PostHog skill, which the skills store never holds), unknown (no stored skill has that name), file (the skill has no file at that path), or version (no stored skill at the pinned version). Stamped by PostHog's own MCP server. Break down by it to tell agents looking in the wrong catalog apart from mistyped names.",
+            "examples": ["builtin", "unknown", "file", "version"],
+        },
         "$mcp_resource_name": {
             "label": "MCP resource name",
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",
@@ -3261,6 +3266,31 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session vendor client",
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        "exec_learn_kind": {
+            "label": "MCP exec learn kind",
+            "description": "Which form of the exec `learn` verb the agent used: search (`learn -s`), load (one named skill), list (a bare `learn` or `learn skills`), describe (`learn -d`), or guide (anything else). Recorded before the server checks whether skills are available, so a rejected `learn` call still carries it. Only set on exec-mode `$mcp_tool_call` events whose `$mcp_exec_verb` is learn.",
+            "examples": ["load", "search", "list"],
+        },
+        "exec_search_query": {
+            "label": "MCP exec search query",
+            "description": "The raw query an agent passed to the exec `search` verb, or to `learn -s` and a skill load with `-s`. Capped in length. A search that matched nothing has no other record, so this shows which capabilities agents look for and do not find.",
+            "examples": ["feature flag rollout", "session recordings"],
+        },
+        "exec_learn_target": {
+            "label": "MCP exec learn target",
+            "description": "The qualified skill name an exec `learn` call loaded. Only set when `exec_learn_kind` is load.",
+            "examples": ["posthog:building-a-dashboard", "posthog:retention-analysis"],
+        },
+        "mcp_result_empty": {
+            "label": "MCP result empty",
+            "description": "True when a successful MCP tool call returned zero rows. Absent otherwise, so filter on it being set rather than on false.",
+            "type": "Boolean",
+        },
+        "mcp_discovery_hint": {
+            "label": "MCP discovery hint",
+            "description": "Which hint PostHog's MCP server added to the end of a tool result: empty_state (the result was empty and the hint suggests what to try next) or related_capability (the hint points at a related tool). Absent when no hint was added.",
+            "examples": ["empty_state", "related_capability"],
         },
         # Replay Vision properties, all on `$recording_observed`. This group labels a property name
         # everywhere it appears, so only names Replay Vision owns belong here. `session_id`,
