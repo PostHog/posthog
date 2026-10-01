@@ -166,7 +166,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         raise ApplicationError(
             f"ReplayScannerBackfill {inputs.backfill_id} has malformed frozen query: {exc}", non_retryable=True
         ) from exc
-    query = apply_experiment_targeting(query, snapshot.experiment_targeting)
+    query = apply_experiment_targeting(query, snapshot.experiment_scope())
 
     candidate_query = WindowedCandidateQuery(
         team=backfill.team,
