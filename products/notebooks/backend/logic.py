@@ -85,6 +85,23 @@ async def acan_user_edit_notebook(team_id: int, short_id: str, user_access_contr
     return await sync_to_async(check)()
 
 
+def make_notebook_listed(team_id: int, short_id: str, *, user: "User") -> None:
+    notebook = (
+        Notebook.objects.filter(
+            team_id=team_id, short_id=short_id, deleted=False, visibility=Notebook.Visibility.INTERNAL
+        )
+        .select_related("team")
+        .defer("content", "text_content")
+        .first()
+    )
+    if notebook is None or not UserAccessControl(user, team=notebook.team).check_access_level_for_object(
+        notebook, "viewer"
+    ):
+        return
+    notebook.visibility = Notebook.Visibility.DEFAULT
+    notebook.save(update_fields=["visibility"])
+
+
 async def aupdate_notebook_content(
     team_id: int,
     short_id: str,
