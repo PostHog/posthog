@@ -76,6 +76,18 @@
             ],
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
+        "goal": {
+            "anyOf": [
+                {
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
+        },
         "model": {
             "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
             "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"],

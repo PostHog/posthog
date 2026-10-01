@@ -602,6 +602,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        self.posthog_code_integration.config = {**self.posthog_code_integration.config, "app_id": "A123"}
+        self.posthog_code_integration.save()
         mock_post_feedback.return_value = True
 
         from products.slack_app.backend.api import (
@@ -622,6 +624,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_post_feedback.assert_called_once()
         feedback_text = mock_post_feedback.call_args.args[4]
         assert "stranger@example.com" in feedback_text
+        # The install holds the identity scopes, so the reply points to linking an existing
+        # account. An invite to the Slack email can't be accepted from a different email.
+        assert "Settings > Personal integrations" in feedback_text
+        assert "<slack://app?team=T12345&id=A123&tab=home|my Home tab>" in feedback_text
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
@@ -1761,12 +1767,19 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
 
 
 class TestPostSlackUserEphemeral(SimpleTestCase):
-    def test_request_timeout_applies_to_the_client_that_makes_the_call(self):
+    @parameterized.expand(
+        [
+            ("ephemeral", lambda slack, api: api._post_slack_user_ephemeral(slack, "C001", "U123", None, "nope")),
+            ("feedback", lambda slack, api: api._post_slack_user_feedback(slack, "C001", "U123", "1.0", "nope")),
+        ]
+    )
+    def test_request_timeout_applies_to_the_client_that_makes_the_call(self, _name, post):
         # ``SlackIntegration.client`` builds a fresh WebClient on every access, so setting
         # the timeout on one access and calling on another leaves the request on the SDK
         # default. Nothing about the app's behavior changes when that happens, so only an
         # assertion on the client instance catches it.
-        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS, _post_slack_user_ephemeral
+        from products.slack_app.backend import api
+        from products.slack_app.backend.api import SLACK_WEBHOOK_TIMEOUT_SECONDS
 
         built_clients: list[MagicMock] = []
 
@@ -1776,7 +1789,7 @@ class TestPostSlackUserEphemeral(SimpleTestCase):
                 built_clients.append(MagicMock())
                 return built_clients[-1]
 
-        posted = _post_slack_user_ephemeral(cast(SlackIntegration, _NewClientPerAccess()), "C001", "U123", None, "nope")
+        posted = post(cast(SlackIntegration, _NewClientPerAccess()), api)
 
         assert posted is True
         assert len(built_clients) == 1

@@ -1,13 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
 import { TodayAskBox } from './TodayAskBox'
+import { TodayChipStack } from './TodayChipStack'
 import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
+import { TodayPersonalBriefing } from './TodayPersonalBriefing'
 import { TodaySampleBanner } from './TodaySampleBanner'
 import { TodayBriefingSegment, reportIcon, reportSource } from './todaySignalReports'
 
@@ -59,31 +63,18 @@ function TodayBriefingReports(): JSX.Element {
         <>
             <p className="TodayHome__count">
                 <span>{reportSummary}</span>
-                <span className="TodayChipStack">
-                    {reports.map((report, index) => (
-                        <button
-                            key={report.id}
-                            type="button"
-                            className="TodayChipStack__chip"
-                            aria-label={`Open ${report.title ?? 'report'}`}
-                            data-active={hoveredReportId === report.id}
-                            data-attr="today-briefing-chip"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={
-                                {
-                                    '--index': index,
-                                    '--tilt': index % 2 === 0 ? '-3deg' : '3deg',
-                                    '--report-color': reportSource(report).color,
-                                } as React.CSSProperties
-                            }
-                            onClick={() => openReport(report, 'chip')}
-                            onMouseEnter={() => setHoveredReportId(report.id)}
-                            onMouseLeave={() => setHoveredReportId(null)}
-                        >
-                            <TodayIcon icon={reportIcon(report)} />
-                        </button>
-                    ))}
-                </span>
+                <TodayChipStack
+                    dataAttr="today-briefing-chip"
+                    chips={reports.map((report) => ({
+                        key: report.id,
+                        label: report.title ?? 'report',
+                        color: reportSource(report).color,
+                        icon: <TodayIcon icon={reportIcon(report)} />,
+                        active: hoveredReportId === report.id,
+                        onClick: () => openReport(report, 'chip'),
+                        onHoverChange: (hovered) => setHoveredReportId(hovered ? report.id : null),
+                    }))}
+                />
             </p>
             {briefing.map((paragraph, index) => (
                 <p key={index}>
@@ -96,7 +87,7 @@ function TodayBriefingReports(): JSX.Element {
                 {moreReportCount > 0 && (
                     <>
                         <Link to={urls.inbox()} data-attr="today-briefing-inbox">
-                            {`${moreReportCount} more ${moreReportCount === 1 ? 'report is' : 'reports are'} in the Inbox`}
+                            {`${moreReportCount} more for you in the Inbox`}
                         </Link>
                         <span>. </span>
                     </>
@@ -116,16 +107,43 @@ function TodayBriefingReports(): JSX.Element {
 }
 
 export function TodayBriefing(): JSX.Element {
-    const { greeting, topReports, topReportsLoading, reportsFailed, reports } = useValues(todayLogic)
-    const { loadTopReports } = useActions(todayLogic)
+    const {
+        greeting,
+        topReports,
+        topReportsLoading,
+        reportsFailed,
+        reports,
+        showPersonalBriefing,
+        personalBriefing,
+        briefingWaiting,
+    } = useValues(todayLogic)
+    const { loadTopReports, refreshBriefing } = useActions(todayLogic)
 
     return (
         <div className="TodayHome Today__page">
             <TodaySampleBanner />
             <TodayMetaLine />
             <section className="TodayHome__intro" aria-label="Daily brief">
-                <div className="TodayHome__greeting">{greeting}</div>
-                {topReports === null && reportsFailed ? (
+                <div className="TodayHome__greeting">
+                    <span>{greeting}</span>
+                    {briefingWaiting ? (
+                        <span className="TodayHome__badge" data-attr="today-briefing-writing">
+                            <Spinner textColored />
+                            <span>Writing your briefing…</span>
+                        </span>
+                    ) : showPersonalBriefing || personalBriefing?.status === 'failed' ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconRefresh />}
+                            tooltip="Write a fresh briefing"
+                            onClick={() => refreshBriefing()}
+                            data-attr="today-briefing-refresh"
+                        />
+                    ) : null}
+                </div>
+                {showPersonalBriefing ? (
+                    <TodayPersonalBriefing />
+                ) : topReports === null && reportsFailed ? (
                     <LemonBanner
                         type="error"
                         action={{

@@ -26,17 +26,21 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
+    ci_engine_field,
 )
 
 
 class WorkflowRunDetailSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
     class Meta:
         dataclass = WorkflowRunDetail
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions run id."},
-            "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer run id; unique only together with ci_engine."},
+            "workflow_name": {"help_text": "CI workflow name."},
             "head_sha": {"help_text": "Commit SHA the run was triggered on."},
             "head_branch": {"help_text": "Git branch the run was triggered on."},
             "status": {"help_text": "Raw run status: 'queued', 'in_progress', 'completed', etc."},
@@ -77,10 +81,12 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
 
 
 class WorkflowRunActivityPointSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = WorkflowRunActivityPoint
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id."},
+            "run_id": {"help_text": "Integer run id; unique only together with ci_engine."},
             "conclusion": {
                 "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
                 "or null while still in progress.",
@@ -117,10 +123,16 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
 
 
 class WorkflowJobSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {
-            "id": {"help_text": "GitHub Actions job id."},
+            "native_attempt_id": {"help_text": "Source-native attempt id; use with ci_engine for identity."},
+            "native_job_id": {"help_text": "Source-native job id; use with ci_engine for identity."},
+            "native_workflow_run_id": {"help_text": "Source-native workflow run id; use with ci_engine for identity."},
+            "native_run_id": {"help_text": "Source-native run id; use with ci_engine for identity."},
+            "id": {"help_text": "Integer job id; unique only together with ci_engine."},
             "run_id": {"help_text": "The workflow run id this job belongs to."},
             "name": {"help_text": "Job name."},
             "status": {"help_text": "Raw job status: 'queued', 'in_progress', 'completed', etc."},
@@ -182,6 +194,7 @@ class WorkflowHealthBucketSerializer(DataclassSerializer):
 
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
+    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
     buckets = WorkflowHealthBucketSerializer(
         many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
@@ -655,6 +668,7 @@ class CurrentBranchHealthSerializer(DataclassSerializer):
 
 
 class MasterFailureGroupSerializer(DataclassSerializer):
+    latest_ci_engine = ci_engine_field()
     repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
 
     class Meta:
@@ -674,6 +688,7 @@ class MasterFailureGroupSerializer(DataclassSerializer):
 
 
 class RunFailureLogsSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
     jobs = CIJobFailureLogSerializer(
         many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
     )

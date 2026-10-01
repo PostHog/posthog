@@ -113,6 +113,18 @@ A repository that owes nothing posts nothing.
 `--mode preview`, the default, prints and logs the plain text behind every message without posting.
 `--mode live` posts.
 
+### Quarantine notice
+
+The quarantine dialog has a "Notify the owning team in Slack" switch, on by default.
+When it is on, the first identifier of the request carries `notify_owners: true`, so the theme variants of one story send one notice.
+The API field `notify_owners` defaults to false, so scripts and agents that quarantine in bulk post nothing unless they ask.
+A Celery task, `notify quarantine owners`, runs after the row commits.
+It finds the owner with the same lookup as the flakiness page, and posts to the channel the digest uses, so a team that opted out of the digest gets no notice either.
+The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.
+It works for Storybook runs only, and it is best effort: a story no team owns, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
+The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
+The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)
@@ -231,6 +243,12 @@ Future runs skip diffing entirely for cached pairs.
 Developers can also manually tolerate a snapshot from the UI.
 When a snapshot already has 3 manual or agent tolerations, or 10 automatic ones, in the last 30 days, the Tolerate button offers a quarantine first, because another toleration covers only that one rendering.
 
+**Recompute** — re-reads the gate of a completed run after a quarantine or toleration, and re-runs the CI job that completed the run, so the required check reads the new verdict.
+`run complete` records that job's ID from `JOB_CHECK_RUN_ID`; set it on the step in the workflow.
+GitHub re-runs a job with every job that depends on it, so the completing job re-runs only the verdict and the gate after it, and captures nothing.
+Without it, the target stays the `run create` job, and a re-run captures every snapshot again.
+Finalize re-runs the same job when it has no baseline to commit, because no new CI run starts then.
+
 **Row alignment** — a panel that grows by a pixel moves everything below it down, which a top-aligned pixel diff reads as a page-wide change.
 Before thresholding, the diff pairs the rows that exist in both images, so the classifier sees only what actually changed.
 A shift of one or two rows with nothing else changed is absorbed as noise, and the snapshot keeps the shift in `diff_metadata.row_shift` plus a diff image that shows the moved row, so the run leaves a trace instead of disappearing.
@@ -239,6 +257,7 @@ The cap is measured against the committed baseline on every run, so absorbed shi
 
 **Quarantine** — known-flaky identifiers can be quarantined per repo and run type.
 Quarantined snapshots are still captured and diffed but excluded from gating.
+A quarantine opened through MCP expires within `AGENT_QUARANTINE_MAX_DAYS`: an omitted or later expiry becomes that cap, because no agent comes back to lift it.
 A quarantined snapshot reaches the baseline only when a person approves it by identifier, because "Approve all" skips quarantined snapshots.
 This is how a quarantined story's entry keeps up with the story.
 The story still renders on every run, so a code change to it makes the entry stale while the quarantine hides the drift, and every run fails on the day the quarantine is lifted or expires.

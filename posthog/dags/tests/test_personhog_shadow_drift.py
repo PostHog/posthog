@@ -6,7 +6,13 @@ import psycopg2
 import psycopg2.extras
 from prometheus_client import CollectorRegistry
 
-from posthog.dags.personhog_shadow_drift import DriftCategoryReport, compute_shadow_drift, record_drift_gauges
+from posthog.dags.personhog_shadow_drift import (
+    DriftCategoryReport,
+    PropertyKeyDrift,
+    compute_shadow_drift,
+    record_drift_gauges,
+    sample_property_drift,
+)
 from posthog.persons_db import persons_db_url
 
 TEAM_ID = 990000123
@@ -39,11 +45,13 @@ def test_compute_shadow_drift_counts_each_category() -> None:
         with connection.cursor() as cursor:
             legacy_matched = _insert_person(cursor, "posthog_person", matched, {"a": 1})
             _insert_person(cursor, "posthog_person", legacy_only, {})
-            _insert_person(cursor, "posthog_person", props_differ, {"b": 1})
+            _insert_person(cursor, "posthog_person", props_differ, {"b": 1, "legacy_key": "xyz", "same": True})
 
             ph_matched = _insert_person(cursor, "personhog_person_tmp", matched, {"a": 1}, version=2)
             _insert_person(cursor, "personhog_person_tmp", personhog_only, {})
-            ph_props = _insert_person(cursor, "personhog_person_tmp", props_differ, {"b": 2})
+            ph_props = _insert_person(
+                cursor, "personhog_person_tmp", props_differ, {"b": 2, "personhog_key": [1, 2], "same": True}
+            )
             ph_tombstoned = _insert_person(cursor, "personhog_person_tmp", tombstoned, {}, is_deleted=True)
 
             cursor.execute(
@@ -71,6 +79,7 @@ def test_compute_shadow_drift_counts_each_category() -> None:
             )
 
         reports = {report.category: report for report in compute_shadow_drift(connection, sample_size=10)}
+        property_drift = sample_property_drift(connection, persons_limit=500, detail_limit=10)
     finally:
         connection.close()
 
@@ -83,6 +92,19 @@ def test_compute_shadow_drift_counts_each_category() -> None:
         "field_mismatch",
         "missing_in_legacy",
         "missing_in_personhog",
+    ]
+
+    assert property_drift.sampled_persons == 1
+    assert property_drift.key_drifts == [
+        PropertyKeyDrift(key="b", kind="value_differs", persons=1),
+        PropertyKeyDrift(key="legacy_key", kind="only_in_legacy", persons=1),
+        PropertyKeyDrift(key="personhog_key", kind="only_in_personhog", persons=1),
+    ]
+    assert property_drift.person_details == [
+        f"team={TEAM_ID} uuid={props_differ} differing_keys=3: "
+        "'b' value_differs legacy=number(1) personhog=number(1); "
+        "'legacy_key' only_in_legacy legacy=string(5) personhog=absent; "
+        "'personhog_key' only_in_personhog legacy=absent personhog=array(6)"
     ]
 
     distinct_ids = reports["distinct_ids"]

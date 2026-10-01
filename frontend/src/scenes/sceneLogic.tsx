@@ -578,7 +578,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (
                     sceneAccessControlResource &&
                     effectiveResourceAccessControl &&
-                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                    (Array.isArray(sceneAccessControlResource)
+                        ? sceneAccessControlResource
+                        : [sceneAccessControlResource]
+                    ).every((resource) => effectiveResourceAccessControl[resource] === AccessControlLevel.None)
                 ) {
                     return Scene.ErrorAccessDenied
                 }
