@@ -270,6 +270,8 @@ export interface inboxFiltersLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     user: UserType | null // userLogic
     activeCreatedWindow: InboxCreatedWindow | null
+    activeSortDirection: InboxSortDirection
+    activeSortField: InboxSortField
     availableReviewers: InboxReviewerOption[]
     availableReviewersLoading: boolean
     createdWindow: InboxCreatedWindow | null
@@ -392,13 +394,19 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
-        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
+        activeSortField: (sortField: InboxSortField, modelSortAvailable: boolean) => InboxSortField
+        activeSortDirection: (
+            sortField: InboxSortField,
+            sortDirection: InboxSortDirection,
+            modelSortAvailable: boolean
+        ) => InboxSortDirection
         timeWindowAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeCreatedWindow: (
             createdWindow: InboxCreatedWindow | null,
             timeWindowAvailable: boolean
         ) => InboxCreatedWindow | null
+        isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
             stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
             user: UserType | null
@@ -490,8 +498,8 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 change,
                 tab: currentInboxTab(values.isRedesign),
                 scope: values.scope,
-                sortField: values.sortField,
-                sortDirection: values.sortDirection,
+                sortField: values.activeSortField,
+                sortDirection: values.activeSortDirection,
                 sourceProductFilter: values.sourceProductFilter,
                 scoutFilter: values.scoutFilter,
                 priorityFilter: values.priorityFilter,
@@ -681,6 +689,22 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             (s) => [s.featureFlags, s.user],
             (featureFlags: FeatureFlagsSet, user: UserType | null): boolean =>
                 !!featureFlags[FEATURE_FLAGS.INBOX_MODEL_SORT] && !!user?.is_staff,
+        ],
+        // The sort the list requests and renders with. A model sort persisted while it was available
+        // falls back to the default once it is not, because the backend rejects it for non-staff.
+        activeSortField: [
+            (s) => [s.sortField, s.modelSortAvailable],
+            (sortField: InboxSortField, modelSortAvailable: boolean): InboxSortField =>
+                isRankingSortField(sortField) && !modelSortAvailable ? DEFAULT_SORT_FIELD : sortField,
+        ],
+        activeSortDirection: [
+            (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
+            (
+                sortField: InboxSortField,
+                sortDirection: InboxSortDirection,
+                modelSortAvailable: boolean
+            ): InboxSortDirection =>
+                isRankingSortField(sortField) && !modelSortAvailable ? DEFAULT_SORT_DIRECTION : sortDirection,
         ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],

@@ -1730,6 +1730,8 @@ class SignalReportViewSet(
         # the latest ranking_score artefact as `results -> <served_key> -> scores -> <head>`. Only
         # the heads the ordering names are annotated, because each one is a correlated subquery.
         # A value that is not a JSON number reads as NULL, so one bad row cannot fail the list.
+        # The guard is in the CASE, not the filter: the latest artefact decides, as it does for the
+        # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
@@ -1743,17 +1745,23 @@ class SignalReportViewSet(
                 SignalReportArtefact.objects.filter(
                     report_id=OuterRef("id"),
                     type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
-                    content__startswith="{",
                 )
                 .order_by("-created_at")
                 .annotate(
-                    _score=Func(
-                        content,
-                        Value("results"),
-                        served_key,
-                        Value("scores"),
-                        Value(head),
-                        function="jsonb_extract_path",
+                    _score=Case(
+                        When(
+                            content__startswith="{",
+                            then=Func(
+                                content,
+                                Value("results"),
+                                served_key,
+                                Value("scores"),
+                                Value(head),
+                                function="jsonb_extract_path",
+                                output_field=JSONField(),
+                            ),
+                        ),
+                        default=Value(None),
                         output_field=JSONField(),
                     ),
                 )

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -199,7 +202,7 @@ describe('inboxFiltersLogic', () => {
         })
     })
 
-    describe('scout filters', () => {
+    describe('filter state', () => {
         let logic: ReturnType<typeof inboxFiltersLogic.build>
 
         beforeEach(() => {
@@ -228,6 +231,29 @@ describe('inboxFiltersLogic', () => {
                 scoutFilter: [],
                 priorityFilter: ['P1'],
                 searchQuery: 'checkout',
+            })
+        })
+
+        it.each([
+            ['keeps a stored model sort for staff with the flag', true, true, 'ranking_pr_merged', 'desc'],
+            ['falls back to the default once the flag is off', false, true, 'priority', 'asc'],
+            ['falls back to the default for a non-staff user', true, false, 'priority', 'asc'],
+        ] as const)('%s', (_name, flagOn, isStaff, activeSortField, activeSortDirection) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: true })
+            logic.actions.setSort('ranking_pr_merged', 'desc')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_MODEL_SORT], {
+                [FEATURE_FLAGS.INBOX_MODEL_SORT]: flagOn,
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
+
+            expect(logic.values).toMatchObject({
+                sortField: 'ranking_pr_merged',
+                activeSortField,
+                activeSortDirection,
             })
         })
     })

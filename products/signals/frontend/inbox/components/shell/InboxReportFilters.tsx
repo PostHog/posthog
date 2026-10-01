@@ -61,8 +61,14 @@ const CREATED_WINDOW_SELECT_OPTIONS: { value: InboxCreatedWindow | null; label: 
  * because it picks whose inbox this is rather than narrowing the one you are looking at.
  */
 export function InboxReportFilters(): JSX.Element {
-    const { sortField, sortDirection, priorityFilter, modelSortAvailable, timeWindowAvailable, createdWindow } =
-        useValues(inboxFiltersLogic)
+    const {
+        activeSortField,
+        activeSortDirection,
+        priorityFilter,
+        modelSortAvailable,
+        timeWindowAvailable,
+        createdWindow,
+    } = useValues(inboxFiltersLogic)
     const { setSort, setPriorityFilter, setCreatedWindow } = useActions(inboxFiltersLogic)
     const sortOptions = modelSortAvailable ? ALL_SORT_OPTIONS : INBOX_SORT_OPTIONS
 
@@ -81,7 +87,7 @@ export function InboxReportFilters(): JSX.Element {
             <InboxStateFilter />
             <LemonSelect
                 size="small"
-                value={inboxSortOptionKey(sortField, sortDirection)}
+                value={inboxSortOptionKey(activeSortField, activeSortDirection)}
                 onChange={(key) => {
                     const option = sortOptions.find((o) => inboxSortOptionKey(o.field, o.direction) === key)
                     if (option) {

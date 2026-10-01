@@ -230,9 +230,9 @@ export function ReportsTab(): JSX.Element {
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
     useMountedLogic(inboxTaskKickoffLogic)
-    const { hasActiveFilters, visibleStateFilter, scope, sortField, sortDirection, modelSortAvailable } =
+    const { hasActiveFilters, visibleStateFilter, scope, activeSortField, activeSortDirection } =
         useValues(inboxFiltersLogic)
-    const rankingSortField = modelSortAvailable && isRankingSortField(sortField) ? sortField : null
+    const rankingSortField = isRankingSortField(activeSortField) ? activeSortField : null
     const sections = useSectionStates()
     useInboxViewedEvent(sections)
 
@@ -261,7 +261,7 @@ export function ReportsTab(): JSX.Element {
         InboxReportSectionKey,
         SignalReport[]
     >
-    const rows = mergeReportRows(reportsBySection, selectedSections, sortField, sortDirection)
+    const rows = mergeReportRows(reportsBySection, selectedSections, activeSortField, activeSortDirection)
     // Under a model sort the unscored rows trail the scored ones. A divider marks where they start.
     const firstUnscoredIndex = rankingSortField
         ? rows.findIndex(({ report }) => rankingSortScore(report, rankingSortField) === null)

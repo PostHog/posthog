@@ -1071,13 +1071,17 @@ class TestSignalReportListAPI(APIBaseTest):
         self._ranking_score_artefact(no_head, scores={"open": 0.5})
         stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        bad_latest = self._create_report(title="Bad latest")
+        older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
+        SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self._ranking_score_artefact(bad_latest, content="not json")
 
         response = self.client.get(self._list_url(status="ready", ordering=f"{ordering},status,-updated_at"))
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
         scored = [str(high.id), str(low.id)] if ordering.startswith("-") else [str(low.id), str(high.id)]
         assert ids[:2] == scored
-        assert set(ids[2:]) == {str(unscored.id), str(no_head.id)}
+        assert set(ids[2:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
 
     @parameterized.expand(
         [
