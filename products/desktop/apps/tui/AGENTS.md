@@ -52,6 +52,8 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `shell.ts` | `!` commands: reading them from the composer, and the log entries that show a run before pi's saved conversation has it |
 | `selection.ts`, `clipboard.ts` | Click or drag: a press and release on one cell clicks, and a drag selects chat text and copies it on release |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
+| `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
+| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, keys, pointer, terminal input |
 
 ## Things that bit us
 
