@@ -100,7 +100,6 @@ describe('Tool schema snapshots', () => {
             loops: true,
             'dashboard-widgets': true,
             'agent-platform': true,
-            'billing-alerts': true,
             'experiment-setup-context': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>

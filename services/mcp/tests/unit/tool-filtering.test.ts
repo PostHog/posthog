@@ -1033,7 +1033,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
-                'billing-alerts',
                 'organization-billing-api',
                 'streamlit-apps',
                 'posthog-connect',
@@ -1047,7 +1046,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {
