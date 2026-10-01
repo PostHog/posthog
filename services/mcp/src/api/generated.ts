@@ -386,6 +386,7 @@ export namespace Schemas {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -505,6 +506,7 @@ export namespace Schemas {
       Tagger: 'tagger',
       Ticket: 'ticket',
       Task: 'task',
+      Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
       FieldNote: 'field_note',
@@ -624,6 +626,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -847,6 +850,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -1249,6 +1253,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -17793,6 +17798,170 @@ export namespace Schemas {
       confidence: number;
     }
 
+    export interface BriefingSegment {
+      /** A run of text in a paragraph. Includes its own spaces. */
+      text: string;
+      /**
+         * Key of the item this run links to, or null for plain text.
+         * @nullable
+         */
+      item_key: string | null;
+      /** True only for the run that names the top item. */
+      highlight: boolean;
+    }
+
+    /**
+     * * `report` - REPORT
+     * * `dashboard` - DASHBOARD
+     * * `other` - OTHER
+     */
+    export type TodayItemGroupEnum = typeof TodayItemGroupEnum[keyof typeof TodayItemGroupEnum];
+
+
+    export const TodayItemGroupEnum = {
+      Report: 'report',
+      Dashboard: 'dashboard',
+      Other: 'other',
+    } as const;
+
+    /**
+     * * `self_driving` - SELF_DRIVING
+     * * `product_analytics` - PRODUCT_ANALYTICS
+     * * `alerts` - ALERTS
+     * * `support` - SUPPORT
+     * * `error_tracking` - ERROR_TRACKING
+     * * `github` - GITHUB
+     */
+    export type TodayItemSourceEnum = typeof TodayItemSourceEnum[keyof typeof TodayItemSourceEnum];
+
+
+    export const TodayItemSourceEnum = {
+      SelfDriving: 'self_driving',
+      ProductAnalytics: 'product_analytics',
+      Alerts: 'alerts',
+      Support: 'support',
+      ErrorTracking: 'error_tracking',
+      Github: 'github',
+    } as const;
+
+    /**
+     * * `claimed_by_you` - CLAIMED_BY_YOU
+     * * `waiting_for_you` - WAITING_FOR_YOU
+     * * `suggested_reviewer` - SUGGESTED_REVIEWER
+     * * `urgent_for_project` - URGENT_FOR_PROJECT
+     * * `dashboard_you_viewed` - DASHBOARD_YOU_VIEWED
+     * * `dashboard_you_starred` - DASHBOARD_YOU_STARRED
+     * * `insight_you_viewed` - INSIGHT_YOU_VIEWED
+     * * `insight_you_starred` - INSIGHT_YOU_STARRED
+     * * `alert_firing` - ALERT_FIRING
+     * * `assigned_ticket` - ASSIGNED_TICKET
+     * * `assigned_error_issue` - ASSIGNED_ERROR_ISSUE
+     * * `review_requested` - REVIEW_REQUESTED
+     * * `your_pull_request` - YOUR_PULL_REQUEST
+     */
+    export type TodayItemReasonEnum = typeof TodayItemReasonEnum[keyof typeof TodayItemReasonEnum];
+
+
+    export const TodayItemReasonEnum = {
+      ClaimedByYou: 'claimed_by_you',
+      WaitingForYou: 'waiting_for_you',
+      SuggestedReviewer: 'suggested_reviewer',
+      UrgentForProject: 'urgent_for_project',
+      DashboardYouViewed: 'dashboard_you_viewed',
+      DashboardYouStarred: 'dashboard_you_starred',
+      InsightYouViewed: 'insight_you_viewed',
+      InsightYouStarred: 'insight_you_starred',
+      AlertFiring: 'alert_firing',
+      AssignedTicket: 'assigned_ticket',
+      AssignedErrorIssue: 'assigned_error_issue',
+      ReviewRequested: 'review_requested',
+      YourPullRequest: 'your_pull_request',
+    } as const;
+
+    /**
+     * * `open` - OPEN
+     * * `done` - DONE
+     */
+    export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
+
+
+    export const BriefingItemStateEnum = {
+      Open: 'open',
+      Done: 'done',
+    } as const;
+
+    export interface BriefingItem {
+      /** Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>. */
+      key: string;
+      /** The item's own title, as the source names it. */
+      title: string;
+      /** Short left-bar label of at most 6 words. */
+      label: string;
+      /** Short fact under the label, at most 40 characters, for example 'Spend down 37%'. */
+      signal: string;
+      /** Where the item opens: an app path, or a GitHub URL for pull requests. */
+      url: string;
+      /** Position in the briefing, 1 is the top item. */
+      rank: number;
+      /**
+         * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
+         * @nullable
+         */
+      source_product: string | null;
+      group: TodayItemGroupEnum;
+      source: TodayItemSourceEnum;
+      reason: TodayItemReasonEnum;
+      state: BriefingItemStateEnum;
+    }
+
+    /**
+     * * `collecting` - COLLECTING
+     * * `writing` - WRITING
+     * * `ready` - READY
+     * * `failed` - FAILED
+     */
+    export type BriefingStatusEnum = typeof BriefingStatusEnum[keyof typeof BriefingStatusEnum];
+
+
+    export const BriefingStatusEnum = {
+      Collecting: 'collecting',
+      Writing: 'writing',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `agent` - AGENT
+     */
+    export type WriterEnum = typeof WriterEnum[keyof typeof WriterEnum];
+
+
+    export const WriterEnum = {
+      Agent: 'agent',
+    } as const;
+
+    export interface Briefing {
+      /** Briefing id. */
+      id: string;
+      /** The day this briefing is for, in the person's timezone. */
+      local_day: string;
+      /** One sentence that counts what needs the person. */
+      headline: string;
+      /** Up to 3 paragraphs, each a list of text runs; runs with an item_key are links. */
+      paragraphs: BriefingSegment[][];
+      /** The items the text names, in rank order: what the page and the left bar show. */
+      items: BriefingItem[];
+      /** Other open reports for the person, beyond the ones the briefing shows. */
+      more_reports_count: number;
+      /** Open reports in the whole project beyond the ones the briefing shows, whoever they are for. */
+      open_reports_count: number;
+      status: BriefingStatusEnum;
+      writer: WriterEnum | null;
+      created_at: string;
+      /** @nullable */
+      ready_at: string | null;
+    }
+
     /**
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
@@ -18878,6 +19047,29 @@ export namespace Schemas {
       check_id: string;
     }
 
+    export interface CandidateFact {
+      /** Fact name, for example pct_change or unread_messages. */
+      name: string;
+      /** Fact value as text. */
+      value: string;
+    }
+
+    export interface Candidate {
+      /** Stable item key, for example report:<uuid> or dashboard:<id>. */
+      key: string;
+      /** The item's own title. */
+      title: string;
+      /** Where the item opens. */
+      url: string;
+      /** Position in the briefing, 1 is the top item. */
+      rank: number;
+      /** The numbers and short facts the briefing text rests on. */
+      facts: CandidateFact[];
+      group: TodayItemGroupEnum;
+      source: TodayItemSourceEnum;
+      reason: TodayItemReasonEnum;
+    }
+
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -18901,6 +19093,15 @@ export namespace Schemas {
       suggestion_score: number;
       /** Human-readable rationale for the suggestion */
       suggestion_reason: string;
+    }
+
+    export interface CandidateList {
+      /** The day the list is for, in the person's timezone. */
+      local_day: string;
+      /** The briefing's items in rank order, up to 5. */
+      candidates: Candidate[];
+      /** Other open reports for the person not in the list. */
+      more_reports_count: number;
     }
 
     export interface CannyFeedbackSignalExtra {
@@ -22950,6 +23151,15 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    export interface CompleteRunInput {
+      /**
+         * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+         * @maxLength 32
+         * @pattern ^\d+$
+         */
+      check_run_id?: string;
     }
 
     /**
@@ -62382,6 +62592,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -69899,7 +70110,7 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
-      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
     }
 
@@ -119186,7 +119397,7 @@ export namespace Schemas {
 
     export type MetricsAttributeValuesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null;
@@ -119216,7 +119427,7 @@ export namespace Schemas {
 
     export type MetricsAttributesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null;
@@ -121647,6 +121858,30 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type TodayBriefingRetrieveParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
+    export type TodayBriefingRefreshCreateParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
+    export type TodayCandidatesRetrieveParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
     export type TracingRetentionRulesListParams = {
     /**
      * Number of results to return per page.
@@ -122583,6 +122818,10 @@ export namespace Schemas {
 
     export type VisualReviewRunsSnapshotsListParams = {
     /**
+     * Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.
+     */
+    exclude_unchanged?: boolean;
+    /**
      * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
      */
     include_quarantined?: boolean;
@@ -122594,6 +122833,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
+     */
+    snapshot_id?: string;
     };
 
     export type VisualReviewRunsToleratedHashesListParams = {
