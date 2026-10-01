@@ -10438,6 +10438,10 @@ snapshots:
         hash: v1.k794b7964.501849958aba23ee74fc31fc55ef64487a04d21edde1a016a4874996ca113d9d.8ysgIdI7MznI26_BvWfQDUxa0y8wlZW4IZ98CFa0k04
     scenes-app-inbox-scoutconfigform--slack-channel-destination--light:
         hash: v1.k794b7964.209e7a64caf9c1d92dfffbe6d5a40b341773ed7d11497016ca0f150a460c2cab.aYOtIcBt3WkoVzuHpV2Mp4dkNRA3dHxhq7t9W8Pv2p4
+    scenes-app-inbox-scoutconfigform--structured-output--dark:
+        hash: v1.k794b7964.a93a2720478eb53493d559c56823b6f8aff4ad664193718d082798a126d1dc41.GKQxYjrYDo5NHBUELfUd4bYl2MMmS798-S-lk2ytJIk
+    scenes-app-inbox-scoutconfigform--structured-output--light:
+        hash: v1.k794b7964.5425d38bc69b3bee0ce0ecd3699d9f8d572636f7bccee404d65281b681b72118.8SrWlOoByk1CUeYw9GEEdLJs-eebXKwtuZVnPTyueIA
     scenes-app-inbox-scoutconfigform--weekly-schedule--dark:
         hash: v1.k794b7964.fa1801a0181ef8935e9982d7c19e73f637c4fc4258f32fc3592374ade35bc055.gBTGuqpe7zj7lvtMhMSDzF1lHgrmDTuc1FiF6tuX42A
     scenes-app-inbox-scoutconfigform--weekly-schedule--light:
@@ -12782,6 +12786,18 @@ snapshots:
         hash: v1.k794b7964.9a8c427062ed7bc3ded83b2ccb343c593cb6f3f1a45b7e110d1d3a316f62dc16.9csuq0SryVkPRVZot6IgvtXxR1j7452hPCWAUhsUBo0
     scenes-app-support-threadreportentry--several-reports-across-states--light:
         hash: v1.k794b7964.ec55e023b31b2a327072c0e9fe3b164f74d81a226aa3efae9d6fe79d98db5da6.R5v-7fBBPhhayu8hBAHgU6eyTieyIbMYD3ewFUeP_Vo
+    scenes-app-support-trustedrelaysendersettings--edited--dark:
+        hash: v1.k794b7964.2c9db845ce25898d0c859e183a669a0030b0ce6d561ec8bc9f5f4bef42aca8c3.zzliZmUtPNTJ3XLSFytZ8hyt7SUI8snt1Mn4jkgu5hc
+    scenes-app-support-trustedrelaysendersettings--edited--light:
+        hash: v1.k794b7964.a02e0c7de0326ae32c37541a94d9f71d9d86ecf0972d89ec2e085b69447773bd.xOOWII1261xos5rcQL9h8LPMPgz8BtSL4CnPbxGPqBw
+    scenes-app-support-trustedrelaysendersettings--empty--dark:
+        hash: v1.k794b7964.9e443acda9aa1f2894564a469fe178bf3913852b06fc21c533697f38b56bd6e4.VqKYpWzlI-Sj1yqqLizuEnFTaCIDHEOx86oTdZA4A4s
+    scenes-app-support-trustedrelaysendersettings--empty--light:
+        hash: v1.k794b7964.01c399a233fa587ee3efa02189d0b5d46fc66af1d038ca26406a854dfecd734b.oFzu6DJ7zaJZr_vcxhK8MYmUTpuWOeeId_Gh9-nogK0
+    scenes-app-support-trustedrelaysendersettings--saving--dark:
+        hash: v1.k794b7964.eb7facac4de9d1b332f45a2af89ec38e102f71dc4a6cc18bd52860cdad754060.JPfxkGYKZKPHpYEK-jjgokEuDJoziLN4wUGEwcgDPj8
+    scenes-app-support-trustedrelaysendersettings--saving--light:
+        hash: v1.k794b7964.8f618e43a2843cc31998d7976e9fed6bbc63acc4c97618dca114976fe5bc7860.W5OrlxAdm_nlfc4Z4DYWZ9Awfsz_LRo9GRAGgE58bQc
     scenes-app-surveys--new-multi-question-survey-section--dark:
         hash: v1.k794b7964.f1587352973fbb7df0437cfdbfbaa542471fc17044e083be0e4efad7647bbbfe.RMYkIsFv05--LXj0yuYuDLg5-_bX6Ucy9iUMuY6kaYw
     scenes-app-surveys--new-multi-question-survey-section--light:
