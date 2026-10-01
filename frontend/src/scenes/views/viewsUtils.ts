@@ -21,19 +21,19 @@ export const VIEW_TYPES: ViewTypeInfo[] = [
         type: 'canvas',
         label: 'Canvas',
         pluralLabel: 'Canvases',
-        description: 'A board or a grid of widgets, kept in a space',
+        description: 'A freeform page that AI builds from your prompt',
     },
     {
         type: 'notebook',
         label: 'Notebook',
         pluralLabel: 'Notebooks',
-        description: 'A document that mixes text, queries and charts',
+        description: 'A doc that mixes your notes with live insights and replays',
     },
     {
         type: 'dashboard',
         label: 'Dashboard',
         pluralLabel: 'Dashboards',
-        description: 'A grid of insights to track your metrics',
+        description: 'A grid of saved insights for your key metrics',
     },
 ]
 

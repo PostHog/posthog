@@ -27,11 +27,11 @@ export function NewViewMenu({ trigger, children }: NewViewMenuProps): JSX.Elemen
     return (
         <DropdownMenu>
             <DropdownMenuTrigger render={trigger}>{children}</DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuContent align="start" className="min-w-72">
                 {VIEW_TYPES.map((info) => (
                     <DropdownMenuItem
                         key={info.type}
-                        className="h-auto items-start py-1.5 whitespace-normal [&>svg]:mt-0.5"
+                        className="h-auto items-start py-1.5 whitespace-normal [&>svg]:mt-1.5"
                         onClick={() => pickNewViewType(info.type)}
                         data-attr={`views-new-${info.type}`}
                     >
