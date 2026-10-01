@@ -1547,7 +1547,6 @@ function allKnownTargets(context) {
     const targets = new Set([
         'py:core',
         'fe:core',
-        ...NODE_LANES,
         'agents',
         'deploy',
         'hobby',
@@ -1556,6 +1555,9 @@ function allKnownTargets(context) {
         'ownership',
         'ci-tooling',
     ])
+    for (const lane of NODE_LANES) {
+        targets.add(lane)
+    }
     for (const product of products) {
         targets.add(pyProduct(product))
         targets.add(feProduct(product))
@@ -2368,12 +2370,14 @@ function parseRustAffectedCrates(raw, rustInventory) {
 
 const NODE_SOURCE_ROOT = 'nodejs/src'
 const NODE_IMPORTER = 'nodejs'
+const ROOT_IMPORTER = '.'
+const NODE_SPECIFIER = String.raw`([^'"\s\x60$]+)`
 const NODE_IMPORT_PATTERNS = [
-    /\bfrom\s*['"]([^'"]+)['"]/g,
-    /\bimport\s*['"]([^'"]+)['"]/g,
-    /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
-    /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g,
-    /\bjest\.(?:mock|requireActual)\(\s*['"]([^'"]+)['"]/g,
+    new RegExp(String.raw`\bfrom\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
+    new RegExp(String.raw`\bimport\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\brequire\(\s*['"]${NODE_SPECIFIER}['"]\s*\)`, 'g'),
+    new RegExp(String.raw`\bjest\.(?:mock|requireActual)\(\s*['"]${NODE_SPECIFIER}['"]`, 'g'),
 ]
 const NODE_RESOLVE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.json', '.d.ts', '/index.ts', '/index.tsx', '/index.js']
 const NODE_SOURCE_EXTENSIONS = /\.(ts|tsx|js|mjs|cjs)$/
@@ -2721,11 +2725,25 @@ function nodeDependencyFingerprints(lockfile, isWorkspaceMember) {
     if (!entry) {
         throw new LockfileWalkError(`the lockfile has no importer ${NODE_IMPORTER}`)
     }
-    const fingerprints = new Map()
+    const fingerprints = { node: new Map(), root: new Map() }
     for (const dependency of importerDependencies(entry)) {
-        fingerprints.set(dependency.name, dependencyFingerprint(lockfile, dependency, NODE_IMPORTER, isWorkspaceMember))
+        fingerprints.node.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, NODE_IMPORTER, isWorkspaceMember)
+        )
+    }
+    const root = importers.entries.get(ROOT_IMPORTER)
+    for (const dependency of root ? importerDependencies(root) : []) {
+        fingerprints.root.set(
+            dependency.name,
+            dependencyFingerprint(lockfile, dependency, ROOT_IMPORTER, isWorkspaceMember)
+        )
     }
     return fingerprints
+}
+
+function changedDependencies(base, head) {
+    return [...new Set([...base.keys(), ...head.keys()])].filter((name) => base.get(name) !== head.get(name))
 }
 
 function nonResolutionSections(lockfile) {
@@ -2788,11 +2806,18 @@ function jsLockfileNodeLanes({ baseLockfile, headLockfile, baseWorkspace, headWo
         throw error
     }
     const reached = new Set()
-    for (const name of new Set([...baseFingerprints.keys(), ...headFingerprints.keys()])) {
-        if (baseFingerprints.get(name) !== headFingerprints.get(name)) {
-            for (const lane of nodeLanesForPackage(name, { nodeLaneMap })) {
-                reached.add(lane)
-            }
+    for (const name of changedDependencies(baseFingerprints.node, headFingerprints.node)) {
+        for (const lane of nodeLanesForPackage(name, { nodeLaneMap })) {
+            reached.add(lane)
+        }
+    }
+    for (const name of changedDependencies(baseFingerprints.root, headFingerprints.root)) {
+        if (baseFingerprints.node.has(name) || headFingerprints.node.has(name)) {
+            continue
+        }
+        const lanes = nodeLaneMap ? nodeLaneMap.packageLanes.get(name) || [] : NODE_LANES
+        for (const lane of lanes) {
+            reached.add(lane)
         }
     }
     return reached

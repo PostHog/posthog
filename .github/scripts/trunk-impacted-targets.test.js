@@ -914,6 +914,11 @@ test('the node lane map follows imports in both directions and fails closed', ()
         [`${RASTERIZER_DIR}/__tests__/guard.test.ts`]: "const script = `require('./missing-in-child-process')`\n",
         'nodejs/src/servers/cdp-server.ts':
             "import { run } from '../cdp/executor'\nimport express from 'ultimate-express'\n",
+        'nodejs/src/ingestion/errors.ts': [
+            "throw new Error(`could not load from '${lib}'`)",
+            "logger.warn('Imported from \\'Cymbal is down.\\'')",
+            "const query = `SELECT * from '${trigger.table_name}'`",
+        ].join('\n'),
     }
     const map = loadNodeLaneMap(writeTree(tree))
     const lanesOf = (file) => [...(map.fileLanes.get(file) || [])].sort()
@@ -928,7 +933,12 @@ test('the node lane map follows imports in both directions and fails closed', ()
     assert.deepEqual([...map.packageLanes.get('@posthog/hogvm')], [CDP_LANE])
     assert.deepEqual([...map.packageLanes.get('kafka-client')].sort(), [CDP_LANE, 'node:ingestion'].sort())
     assert.deepEqual([...map.packageLanes.get('ultimate-express')].sort(), ALL_NODE_LANES)
-    assert.equal(map.packageLanes.has('node:fs'), false)
+    assert.deepEqual([...map.packageLanes.keys()].sort(), [
+        '@posthog/hogvm',
+        '@posthog/replay-headless',
+        'kafka-client',
+        'ultimate-express',
+    ])
 
     assert.equal(
         loadNodeLaneMap(writeTree({ ...tree, 'nodejs/src/ingestion/broken.ts': "import { x } from './nowhere'\n" })),
@@ -936,7 +946,7 @@ test('the node lane map follows imports in both directions and fails closed', ()
     )
 })
 
-function lockfile({ nodeDeps, headlessDeps, snapshots, packages, overrides = '' }) {
+function lockfile({ rootDeps, nodeDeps, headlessDeps, snapshots, packages, overrides = '' }) {
     return [
         "lockfileVersion: '9.0'",
         '',
@@ -945,6 +955,10 @@ function lockfile({ nodeDeps, headlessDeps, snapshots, packages, overrides = '' 
         '',
         overrides,
         'importers:',
+        '',
+        '  .:',
+        '    devDependencies:',
+        rootDeps,
         '',
         '  nodejs:',
         '    dependencies:',
@@ -971,9 +985,33 @@ function lockfile({ nodeDeps, headlessDeps, snapshots, packages, overrides = '' 
     ].join('\n')
 }
 
-function lockfileWith({ sdk = '1.0.0', shim = '1.0.0', runner = '1.0.0', overrides } = {}) {
+function lockfileWith({
+    sdk = '1.0.0',
+    shim = '1.0.0',
+    runner = '1.0.0',
+    pad = '1.0.0',
+    tool = '1.0.0',
+    rootKafka = '3.0.0',
+    overrides,
+} = {}) {
+    const entry = (name, version) => [
+        `  ${name}@${version}:`,
+        `    resolution: {integrity: sha512-${name}${version}}`,
+        '',
+    ]
     return lockfile({
         overrides,
+        rootDeps: [
+            ['left-pad', pad],
+            ['build-tool', tool],
+            ['kafka-client', rootKafka],
+        ]
+            .flatMap(([name, version]) => [
+                `      ${name}:`,
+                `        specifier: ^${version}`,
+                `        version: ${version}`,
+            ])
+            .join('\n'),
         nodeDeps: [
             '      kafka-client:',
             '        specifier: ^2.0.0',
@@ -985,17 +1023,13 @@ function lockfileWith({ sdk = '1.0.0', shim = '1.0.0', runner = '1.0.0', overrid
         ].join('\n'),
         headlessDeps: ['      browser-sdk:', '        specifier: catalog:', `        version: ${sdk}`].join('\n'),
         packages: [
-            `  browser-sdk@${sdk}:`,
-            `    resolution: {integrity: sha512-sdk${sdk}}`,
-            '',
-            '  kafka-client@2.0.0:',
-            '    resolution: {integrity: sha512-kafka}',
-            '',
-            `  shim@${shim}:`,
-            `    resolution: {integrity: sha512-shim${shim}}`,
-            '',
-            `  test-runner@${runner}:`,
-            `    resolution: {integrity: sha512-runner${runner}}`,
+            ...entry('browser-sdk', sdk),
+            ...entry('kafka-client', '2.0.0'),
+            ...entry('kafka-client', rootKafka),
+            ...entry('shim', shim),
+            ...entry('test-runner', runner),
+            ...entry('left-pad', pad),
+            ...entry('build-tool', tool),
         ].join('\n'),
         snapshots: [
             `  browser-sdk@${sdk}: {}`,
@@ -1004,9 +1038,15 @@ function lockfileWith({ sdk = '1.0.0', shim = '1.0.0', runner = '1.0.0', overrid
             '    dependencies:',
             `      shim: ${shim}`,
             '',
+            `  kafka-client@${rootKafka}: {}`,
+            '',
             `  shim@${shim}: {}`,
             '',
             `  test-runner@${runner}: {}`,
+            '',
+            `  left-pad@${pad}: {}`,
+            '',
+            `  build-tool@${tool}: {}`,
         ].join('\n'),
     })
 }
@@ -1027,9 +1067,20 @@ test('a JS lockfile change claims the node lanes whose dependencies it moved', (
         packageLanes: new Map([
             ['@posthog/replay-headless', new Set([RASTERIZER_LANE])],
             ['kafka-client', new Set([CDP_LANE, 'node:ingestion'])],
+            ['left-pad', new Set([CDP_LANE])],
         ]),
     }
     const cases = [
+        [
+            'a root dependency a lane imports without declaring it',
+            lockfileWith({ pad: '1.0.1' }),
+            WORKSPACE,
+            nodeLaneMap,
+            [CDP_LANE],
+        ],
+        ['a root dependency no lane imports', lockfileWith({ tool: '1.0.1' }), WORKSPACE, nodeLaneMap, []],
+        ['a root copy of a package nodejs declares', lockfileWith({ rootKafka: '3.0.1' }), WORKSPACE, nodeLaneMap, []],
+        ['a root dependency with no node lane map', lockfileWith({ pad: '1.0.1' }), WORKSPACE, null, ALL_NODE_LANES],
         ['an unchanged lockfile', base, WORKSPACE, nodeLaneMap, []],
         [
             'a bump only replay-headless resolves',
