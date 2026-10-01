@@ -939,7 +939,7 @@ def capture_batch_internal(
             - ``timestamp`` (str | datetime): defaults to now UTC if absent
             - ``options`` (dict): event options per table above, sent unchanged
             - ``session_id``, ``window_id`` (str): top-level fields per table above
-            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh UUIDv7
+            - ``event_uuid`` (str): deterministic UUID; defaults to a fresh random UUID (v4)
         token: API token to submit events on behalf of (required; overrides individual
             event tokens)
         event_source: observability tag indicating the internal module/codepath submitting
@@ -1097,8 +1097,8 @@ def capture_internal(
             properties.
         session_id: session ID (optional). Preferred over ``$session_id`` in properties.
         window_id: window ID (optional). Preferred over ``$window_id`` in properties.
-        event_uuid: optional deterministic UUID to assign to the event (default: capture-rs
-            assigns a fresh UUIDv7).  Use when the caller needs a stable, queryable event
+        event_uuid: optional deterministic UUID to assign to the event (default: a fresh
+            random UUID (v4)).  Use when the caller needs a stable, queryable event
             UUID — e.g. to link back to the event from an admin UI.  Must be a parseable
             UUID string.
         process_person_profile: batch-level safety rail (default: False).  When False,
