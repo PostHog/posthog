@@ -78324,12 +78324,14 @@ export namespace Schemas {
       /**
          * Most marketing messages one person can get in the window, across all workflows. Null disables the cap.
          * @minimum 1
+         * @maximum 1000
          * @nullable
          */
       marketing_frequency_cap_max_messages?: number | null;
       /**
          * Length of the rolling frequency cap window in days. Null disables the cap.
          * @minimum 1
+         * @maximum 365
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
