@@ -60,9 +60,17 @@ function isPipelineTab(value: string | undefined): value is AutoresearchPipeline
 /** How often the Score now button checks a running scoring run. */
 export const SCORE_RUN_POLL_INTERVAL_MS = 5000
 
+/** Matches the backend cutoff: a run still running after the workflow timeout lost its worker. */
+export const SCORE_RUN_STALE_AFTER_MS = 5 * 60 * 60 * 1000
+
+function isLiveScoreRun(run: AutoresearchRunApi): boolean {
+    const startedAt = new Date(run.started_at ?? run.created_at).getTime()
+    return (run.status === 'running' || run.status === 'pending') && startedAt >= Date.now() - SCORE_RUN_STALE_AFTER_MS
+}
+
 /** The inference run that is scoring now, if any. Scoring runs in the background, so a reload resumes from it. */
 function findRunningScoreRun(runs: AutoresearchRunApi[]): AutoresearchRunApi | null {
-    return runs.find((r) => r.run_type === 'inference' && r.status === 'running') ?? null
+    return runs.find((r) => r.run_type === 'inference' && isLiveScoreRun(r)) ?? null
 }
 
 /** One decile of the latest scoring run's predicted probabilities: `lower` ≤ p < `lower` + 0.1. */
@@ -1095,7 +1103,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 // A failed check is retried on the next interval.
                 return
             }
-            if (run.status === 'running' || run.status === 'pending') {
+            if (isLiveScoreRun(run)) {
                 return
             }
             actions.scoreRunFinished(run)

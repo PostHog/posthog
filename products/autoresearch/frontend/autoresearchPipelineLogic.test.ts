@@ -32,6 +32,7 @@ const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
+    const now = new Date().toISOString()
     return {
         id: 'score-run-1',
         pipeline: 'pipeline-1',
@@ -41,9 +42,9 @@ function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunAp
         rows_scored: null,
         metrics: {},
         error: '',
-        started_at: '2026-10-01T14:05:00Z',
+        started_at: now,
         completed_at: null,
-        created_at: '2026-10-01T14:05:00Z',
+        created_at: now,
         ...overrides,
     } as AutoresearchRunApi
 }
@@ -147,19 +148,26 @@ describe('autoresearchPipelineLogic', () => {
         }
     })
 
-    it('resumes following a scoring run that was already running when the page loaded', async () => {
+    it.each([
+        ['resumes a run started a minute ago', 60 * 1000, 'score-run-1'],
+        ['ignores a run that has been running past the stale cutoff', 6 * 60 * 60 * 1000, null],
+    ])('%s when the page loads', async (_name, ageMs, expectedRunId) => {
         jest.clearAllMocks()
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
         mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
         mockModelsList.mockResolvedValue({ results: [], next: null })
-        mockRunsList.mockResolvedValue({ results: [makeScoreRun({})], next: null })
+        const startedAt = new Date(Date.now() - ageMs).toISOString()
+        mockRunsList.mockResolvedValue({
+            results: [makeScoreRun({ started_at: startedAt, created_at: startedAt })],
+            next: null,
+        })
         const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadRunsSuccess'])
-        expect(logic.values.activeScoreRun?.id).toEqual('score-run-1')
-        expect(logic.cache.disposables.registry.has('scorePoll')).toBe(true)
+        expect(logic.values.activeScoreRun?.id ?? null).toEqual(expectedRunId)
+        expect(logic.cache.disposables.registry.has('scorePoll')).toBe(expectedRunId !== null)
         logic.unmount()
     })
 
