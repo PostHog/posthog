@@ -18,10 +18,8 @@
         font-family: inherit;
         font-size: 0.875rem;
         line-height: 1.5;
-
-        // Reserve the scrollbar's width on both layers whether or not one is showing. Without
-        // this the textarea narrows by the scrollbar once its content overflows, wraps earlier
-        // than the backdrop, and clicks below the first wrapped line land on the wrong character.
+        overflow-wrap: break-word;
+        white-space: pre-wrap;
         scrollbar-gutter: stable;
     }
 
@@ -34,8 +32,6 @@
         z-index: 0;
         overflow: hidden;
         color: var(--color-text-primary);
-        overflow-wrap: break-word;
-        white-space: pre-wrap;
         pointer-events: none;
         background-color: var(--color-bg-fill-input);
 

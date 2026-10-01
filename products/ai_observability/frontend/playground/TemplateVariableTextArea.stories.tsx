@@ -24,7 +24,9 @@ export const FilledAndUnfilledVariables: Story = {
             'You are a helpful assistant for {{company}}.\n' +
                 'Answer every question about {{topic}} in a {{tone}} tone. ' +
                 'A long line should wrap identically in both layers, so the caret stays on the glyphs even after wrapping. ' +
-                'Literal braces like {{ spaced }} and {{}} stay plain.'
+                'Literal braces like {{ spaced }} and {{}} stay plain.\n' +
+                // An unbroken token must break at the same point in both layers
+                'data:application/x-unbroken-token;aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
         )
         return (
             <div className="max-w-200">
