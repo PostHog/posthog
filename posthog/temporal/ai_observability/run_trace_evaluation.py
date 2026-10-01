@@ -59,6 +59,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     RunEvaluationInputs,
     backfill_verdict_timestamp,
     build_evaluation_event_properties,
+    capture_evaluation_run_usage,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
@@ -818,6 +819,13 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             timestamp=timestamp,
             properties=properties,
         )
+        # Completed runs emit telemetry in the workflow's separate activity.
+        if inputs.result.get("skipped"):
+            try:
+                capture_evaluation_run_usage(inputs.evaluation, inputs.result, team_id=inputs.team_id)
+            except Exception:
+                # Telemetry failures must not retry an already emitted evaluation.
+                logger.warning("evaluation_usage_capture_failed", team_id=inputs.team_id, exc_info=True)
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

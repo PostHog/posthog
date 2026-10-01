@@ -102,7 +102,6 @@ export function trialVersionResults(report: TrialComparisonReportApi, rows: Scou
 }
 
 export interface TrialCheckCell {
-    versionId: string
     label: string
     description: string
     state: 'pass' | 'fail' | 'unknown' | 'not_applicable'
@@ -131,7 +130,6 @@ export function trialCheckRows(
             const undecided = unknown + missing > 0
             const state = failed > 0 ? 'fail' : undecided ? 'unknown' : judged > 0 ? 'pass' : 'not_applicable'
             return {
-                versionId: variant.variant_id,
                 label: judged > 0 ? `${passed}/${judged}${undecided ? ' ?' : ''}` : undecided ? '?' : '–',
                 description: `${passed} passed, ${failed} failed, ${unknown} unknown, ${notApplicable} not applicable${missing ? `, ${missing} missing` : ''}`,
                 state,

@@ -1,13 +1,12 @@
 # Online scout evaluation in a synthetic devbox
 
-Use this document as the task handoff to an agent **inside an existing PostHog devbox**. Here, “online” means scouts use the real running application, tools, data queries, sandbox and model providers against the devbox's synthetic project. Scoring uses the scout's reviewed, saved rubric and its saved reference instructions. Scout execution, rubric generation and judging should be real.
+Use this guide to validate private scout trials **inside an existing PostHog devbox**. Here, “online” means scouts use the real running application, tools, data queries, sandbox and model providers against the devbox's synthetic project. Scoring uses the scout's reviewed, saved rubric and its saved reference instructions. Scout execution, rubric generation and judging should be real.
 
 Start by reading this document and the repository's `AGENTS.md`. Follow the stages in order, fix local setup problems, and continue through a saved scored comparison and a first quality iteration. Preserve the existing synthetic dataset. Record any required local adaptations and the exact code revision used.
 
 ## Starting point and boundaries
 
 - Implementation branch: `signals/scout-live-experiments`, [PR #105078](https://github.com/PostHog/posthog/pull/105078).
-- Known implementation commit: `b56358a961ee70992b30840a7fddb38b4b7841ab`. Fetch the branch for this guide and later fixes; record the resulting SHA.
 - Implemented: private repeated scout launches, shared starting history, prompt/model/effort versions, automatic paid judging, saved reports, criterion evidence and JSON export.
 - Verify the full flow on this devbox: generate a rubric, review and save it with its reference, run parallel scouts through the current shared Python gateway's private route, then use the real comparison judge and reload its saved report. Passing unit tests and mocked browser stories do not establish this.
 - Rubric editing, generation and storage come from [PR #106580](https://github.com/PostHog/posthog/pull/106580). Use that generator and editor. New comparisons require a reviewed, saved rubric with the reference instructions captured by the generator; they do not fall back to a mock or generate a rubric automatically.
@@ -38,7 +37,6 @@ With a clean checkout, create a local iteration branch:
 
 ```sh
 git switch -c scout-devbox-evals --no-track origin/signals/scout-live-experiments
-git merge-base --is-ancestor b56358a961ee70992b30840a7fddb38b4b7841ab HEAD
 git rev-parse HEAD
 .codex/with-flox --prepare true
 ```
@@ -233,7 +231,7 @@ The CLI reads an operator personal API key from `POSTHOG_API_KEY`. It needs the 
   export POSTHOG_API_KEY
   exec python "$@"
 ' scout-trials \
-  products/signals/eval/experiments/2026-09-long-running-agent-evals/scripts/run_live_trials.py \
+  products/signals/eval/run_live_trials.py \
   --host http://localhost:8000 \
   --project-id '<project_id>' --config-id '<config_uuid>' \
   --variants "$HOME/.local/state/posthog/scout-evals/variants.json" \
@@ -360,7 +358,7 @@ Use an isolated test database/Redis configuration, not destructive test setup ag
 
 Run affected frontend tests and render UI changes. For type-risky Python changes, run repository-wide mypy. Regenerate OpenAPI after serializer changes. Follow `running-ci-preflight` before committing/pushing; never bypass hooks. Keep devbox-only configuration, tokens and runtime artifacts out of source commits. Report a broken local workflow through the repository's devex feedback command when applicable.
 
-## Completion and next handoff
+## Validation record
 
 Leave the devbox usable, with synthetic data intact and temporary generator pauses restored. Record:
 
@@ -373,4 +371,4 @@ Leave the devbox usable, with synthetic data intact and temporary generator paus
 
 If the model request cannot authenticate, or scoring only produces errors, mark the end-to-end milestone incomplete. Preserve the saved IDs and diagnose the setup before running more comparisons.
 
-References: [live comparison and scoring semantics](ai-offline-evaluation-reporting.md#live-scout-comparisons), [implementation plan and operator script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md), [run-posthog skill](../../.agents/skills/run-posthog/SKILL.md), [devbox skill](../../.agents/skills/setting-up-devbox/SKILL.md).
+References: [live comparison and scoring semantics](ai-offline-evaluation-reporting.md#live-scout-comparisons), [operator script](../../products/signals/eval/run_live_trials.py), [run-posthog skill](../../.agents/skills/run-posthog/SKILL.md), [devbox skill](../../.agents/skills/setting-up-devbox/SKILL.md).

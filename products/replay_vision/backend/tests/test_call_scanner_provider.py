@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _key_moment_session_ms,
     _maybe_create_video_cache,
     _MissionOutcome,
     _remaining_verify_budget_seconds,
@@ -39,7 +40,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
-from products.replay_vision.backend.temporal.video_clock import VideoClock
+from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
@@ -405,7 +406,9 @@ async def test_signal_timestamps_use_recording_duration(
         description="A blank dialog covers the editor and prevents input.",
         confidence=0.9,
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9, thumbnail_t=7)
+    core = MonitorLlmResponse(
+        verdict="yes", reasoning="The dialog blocked input.", confidence=0.9, thumbnail_t=7, key_moment_t=5
+    )
     client = _FakeClient(
         [_Resp(text=core.model_dump_json())]
         + [
@@ -438,7 +441,34 @@ async def test_signal_timestamps_use_recording_duration(
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
     # The pick rides the core answer, so no turn of its own is spent on it.
     assert outcome.thumbnail_video_s == 7
+    assert outcome.key_moment_video_s == 5
     assert len(client.models.calls) == 1 + len(end_times)
+
+
+# The render cut 10s-40s of the session, so video second 15 shows session second 45.
+_CUT_CLOCK = VideoClock(
+    spans=(
+        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
+        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "video_s, duration_ms, clock, expected",
+    [
+        pytest.param(None, 20_000, _IDENTITY_CLOCK, None, id="skipped pick stays unset"),
+        pytest.param(12, 20_000, _IDENTITY_CLOCK, 12_000, id="uncut render keeps the same second"),
+        pytest.param(20, 20_000, _IDENTITY_CLOCK, 20_000, id="the final second is still a moment"),
+        pytest.param(21, 20_000, _IDENTITY_CLOCK, None, id="a time past the recording is dropped"),
+        pytest.param(15, 60_000, _CUT_CLOCK, 45_000, id="a cut render maps onto the session clock"),
+        pytest.param(31, 60_000, _CUT_CLOCK, None, id="a time past the video is dropped, not clamped"),
+    ],
+)
+def test_key_moment_moves_onto_the_session_clock(
+    video_s: int | None, duration_ms: int, clock: VideoClock, expected: int | None
+) -> None:
+    assert _key_moment_session_ms(video_s, duration_ms, clock) == expected
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import importlib
 import sysconfig
 import multiprocessing
 from io import BytesIO, StringIO
@@ -16,19 +15,18 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.signals.eval import run_live_trials as cli
+
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
     from urllib.request import Request
 
-cli = importlib.import_module(
-    "products.signals.eval.experiments.2026-09-long-running-agent-evals.scripts.run_live_trials"
-)
-
-type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
+    from products.signals.eval.run_live_trials import Json
 
 
-class FakeTrialClient:
+class FakeTrialClient(cli.TrialClient):
     def __init__(self, stranded_status: str | None = None, interrupt_first_poll: bool = False) -> None:
+        super().__init__("http://localhost:8000", "synthetic-test-key")
         self.stranded_status = stranded_status
         self.interrupt_first_poll = interrupt_first_poll
         self.launches: list[dict[str, Json]] = []
@@ -61,7 +59,7 @@ class FakeTrialClient:
         self.active.remove(launch_id)
         return {"status": "completed", "task_status": "completed"}
 
-    def read_json(self, path: str) -> list[Json]:
+    def read_json(self, path: str, body: dict[str, Json] | None = None) -> list[Json]:
         return []
 
 
@@ -214,7 +212,11 @@ class TestScoutLiveTrialsCLI(TestCase):
     def test_connection_resets_retry_the_same_launch_request_with_a_bounded_attempt_count(
         self, reset_count: int, succeeds: bool
     ) -> None:
-        body = {"launch_id": "synthetic-launch", "variant": "baseline", "skill_body": "Review synthetic events."}
+        body: dict[str, Json] = {
+            "launch_id": "synthetic-launch",
+            "variant": "baseline",
+            "skill_body": "Review synthetic events.",
+        }
         started = {"launch_id": body["launch_id"], "context_id": "shared-context"}
         submitted: list[bytes] = []
 

@@ -23,7 +23,7 @@ The legacy SQL evaluation path in `ee/hogai/eval/offline/` has a separate report
 
 ## Live scout comparisons
 
-For a synthetic local environment, follow the [devbox setup and quality iteration handoff](scout-online-evals-devbox.md).
+For a synthetic local environment, follow the [devbox setup and quality iteration guide](scout-online-evals-devbox.md).
 
 Live scout trials use the production scout harness and live project reads, with private memory changes and captured reports.
 They do not use the offline evaluation reporter or its `no_send_logs` switch.
@@ -59,7 +59,7 @@ Individual skill reads and markdown downloads serve the run's pinned candidate.
 Trial sandboxes can use stub skill bundles, which fetch each skill through those reads.
 Full-content bundles are rejected because they cannot apply the run's private candidate; ZIP exports remain unavailable to scoped trial credentials.
 
-The [live comparison plan and script](../../products/signals/eval/experiments/2026-09-long-running-agent-evals/PLAN.md#live-trial-operator-script) describe launch inputs, stored results, and supported scout capabilities.
+The [devbox guide](scout-online-evals-devbox.md#5-repeatable-apicli-alternative) describes launch inputs, stored results and supported scout capabilities. Its [operator CLI](../../products/signals/eval/run_live_trials.py) can launch, resume and download runs through the REST API.
 Keep downloaded prompts, memory, reports, and transcripts outside version control.
 
 ### Reviewed scout rubrics
@@ -68,7 +68,7 @@ New comparisons use `rubric_source: saved` and read the scout's reviewed rubric 
 Generate suggestions in the rubric editor, review the proposed checks and their reference instructions, and explicitly save the selection before scoring.
 Revision zero contains unsaved defaults and cannot be scored, even when suggestion generation has completed.
 Only enabled saved `criteria` are judged; `generation.suggestions` remain drafts until selected and saved.
-Scoring never generates a rubric or falls back to the mock fixture.
+Scoring never generates a rubric or substitutes example criteria.
 
 The saved rubric binds its criteria to the reference instructions, description, report rules and reference files captured during generation.
 Editing the scout, its references or a comparison candidate does not change that checklist.
@@ -78,7 +78,6 @@ Rubrics without saved references, or with omitted or truncated reference content
 Starting a comparison freezes the full rubric document, enabled criteria, saved revision and governing references before launching scouts, so every variant uses the same requirements.
 Editing the saved rubric while a comparison runs does not change its grading checklist.
 The report and JSON export retain the frozen references and their generation identity for inspection.
-The [mock fixture reader](../../products/signals/backend/scout_harness/trial_rubrics.py) remains available for offline development.
 Existing mock snapshots and reports remain readable, and exact-ID retries reuse their saved request; a new evaluation ID requires the saved rubric.
 
 ### Saved scoring and reports
@@ -104,24 +103,16 @@ Reference instructions define the requirements but cannot serve as evidence that
 The complete encoded judge input must fit the existing 120,000-character limit before dispatch. New snapshots shorten oversized evidence with explicit truncation markers, accounting for JSON escaping and citation metadata. Governing requirements stay intact; scoring rejects a reference that leaves too little room for evidence before starting a paid call. Existing frozen snapshots remain unchanged. Unexpected judge failures retain only the failed step and exception class in the existing private error result, without exception details or new telemetry.
 It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
-In versions 1 through 11, unverifiable model quotations become unknown. Versions 12 through 15 reject invalid source/excerpt references as a judge error. Citing an instruction alone cannot prove it was followed.
-When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
-Versions 6 through 15 distinguish missing source IDs, blank or mismatched quotations, instruction-only evidence and missing citations in the normalized reason. These reasons contain no rejected quotations or raw model output.
-New evaluations record judge version 15 with `gpt-6-astra`. Saved evaluations keep their recorded model and version. Version 10 retains the grading rules from version 9. A pass needs evidence for every applicable mandatory requirement and material claim. Explicit scope violations fail even when the returned counts look plausible; missing proof produces unknown. Lower confidence or a causal disclaimer cannot substitute for that proof. Supported composite record descriptions can identify sources, and incidental details do not defeat a criterion about material claims. Version 9 also checks factual premises inside recommendations. A useful recommendation does not prove those premises, while clearly framed hypotheses and investigation requests do not need to establish their answers. Unverified claims remain unknown unless a positive observation contradicts them or establishes an independent violation.
-Versions 12 through 15 give the judge numbered, consecutive evidence excerpts. The judge selects source and excerpt IDs; the application attaches the original text without asking the model to transcribe it. Unknown IDs, blank excerpts, extra citation fields or an oversized resolved document fail the judgment. The saved report still uses the same source-ID and exact-quotation schema, and valid references still need to support the verdict.
-Version 13 clarifies the query tool's dialect: a datetime string with one to six fractional digits passed to HogQL's one-argument `toDateTime` preserves those digits. Omitted fractions, observed truncation and incorrect bounds can still fail an exact-window requirement. The judge must establish the relevant timezone from evidence and must not apply HogQL behavior to raw external queries or other conversions.
-Version 14 applies measurement fidelity to the saved observation scope, including material time bounds and timezone. Matching counts and a successful readback cannot verify an unsupported scope claim. Missing support remains unknown; an observed contradiction fails. Explicitly assigned windows and persistence-only criteria do not gain extra accuracy requirements.
-Version 15 keeps each criterion within its stated scope. Considering relevant history does not automatically require every deduplication step. Explicit lookup and all-instruction criteria still require those steps; missing proof remains unknown and observed violations fail. Grounding and saved-measurement checks remain unchanged.
-Version 11 keeps request and response evidence source IDs separate when citing tool results. When a criterion requires saving what was measured, saved material claims must match the observed operations and results. A successful write and readback do not establish factual accuracy. An observed contradiction fails that requirement; missing support remains unknown. An earlier error does not fail an accurate record of what happened, and presence-, format-, or readback-only checks do not gain extra accuracy requirements.
-Count claims must follow the query and observed identifiers: an aggregate alias or a distinct count of placeholder identifiers does not establish real users or entities. Citations must use the envelope's source IDs. Versions 1 through 11 copy exact text, decoding only the outer input envelope; versions 12 through 15 select supplied excerpt IDs instead.
-Versions 8 and 9 use high reasoning effort, at most 24,000 completion tokens per run, and a 240-second request timeout. They disable retries both in the caller and in the gateway's native OpenAI provider transport. Version 7 retains its 16,000-token limit and versions 1 through 6 retain their 8,000-token limit. Limit failures retain usage but no partial verdicts; versions 7 through 9 explain that the rubric size may need review. The 64,000-character verdict-document limit is unchanged.
+New evaluations use judge version 15 with `gpt-6-astra`. The judge selects numbered evidence excerpts; the application attaches the original text. Invalid references, blank excerpts or oversized verdict documents fail the judgment. Valid citations must still support the verdict, and instructions alone cannot establish execution. Citation validation can downgrade unsupported verdicts to unknown and replaces the summary when it does.
+A pass requires evidence for every applicable mandatory requirement and material claim. Missing proof remains unknown; an observed contradiction or explicit scope violation fails. Each criterion keeps its stated scope: a history check does not gain unrelated deduplication steps, and a persistence-only check does not gain accuracy requirements.
+Grounding checks include material factual premises in recommendations. Saved-measurement checks compare claims with observed operations, results, time bounds and timezone; a successful write and readback alone do not prove accuracy. Clearly framed hypotheses need not establish their own answers.
+For HogQL's one-argument `toDateTime`, the judge accounts for preserved fractional seconds. It does not apply that behavior to other query dialects. Count claims must follow the observed query and identifiers, rather than an aggregate alias or placeholder IDs.
 
-Versions 10 through 15 judge groups of at most three criteria in saved order. Each group receives the same complete saved evidence and reference. Groups run one at a time within a shared 540-second run budget; each request is capped at the remaining budget or 240 seconds, whichever is smaller. Version 10 uses high reasoning effort. Versions 11 through 15 omit the effort setting and use the provider default. All six allow at most 24,000 completion tokens per request and disable caller and provider retries. Versions 11 through 15 also pass the remaining request timeout to the provider transport and reject unsupported parameters instead of silently dropping them. The assembled result must still fit the 64,000-character document limit. Each evaluation still judges at most three runs concurrently. Grouping repeats input and can cost more than the one-request versions.
+Judging groups at most three criteria per request in saved order, with the same complete evidence and reference for every group. Groups run serially within a 540-second run budget; each request uses at most the remaining budget or 240 seconds. The provider's default reasoning effort applies, with at most 24,000 completion tokens per request and no automatic caller or provider retries. The combined verdict document must fit 64,000 characters. Repeated input across groups can increase cost.
+Each evaluation judges three runs concurrently, with a ten-minute activity timeout per run. Its workflow deadline scales with the configured maximum run count and judge concurrency. A trial allows 35 minutes for scout execution before waiting for judging. Queue delays can still exhaust a deadline; incomplete work cannot produce a winner.
+Every group must return the expected criterion IDs before a run receives a score. Incomplete groups or invalid excerpt references produce a judge error for the whole run. Usage is summed only when every response reports it; a grouped error reports usage as unavailable rather than presenting partial totals.
 
-Versions 10 through 15 have a ten-minute activity timeout inside an 80-minute evaluation workflow. Comparison workflows wait up to 85 minutes for judging and have a 150-minute overall timeout; the 35-minute scout wait is unchanged. Replay patch markers preserve the five-minute activity and 45-minute judging wait in old workflow histories. Queue delays can still exhaust a workflow deadline and leave the report incomplete. Credential cleanup waits for an in-flight mint even if the caller is canceled.
-
-A run receives a score only after every group returns a complete verdict document with the expected criterion IDs. Invalid references in versions 12 through 15 or any unfinished group make the whole run a judge error, so partial work cannot select a winner. Successful runs sum judge token usage only when every response supplies it; grouped judge errors report usage as unavailable instead of showing partial totals. Versions 1 through 9 retain their original one-request behavior.
-Pending versions 1 through 14 retain their original prompts, evidence envelopes, citation normalization and request limits. Versions 5 through 15 use their separate, fixed reference context; previously saved snapshots and reports remain unchanged.
+Saved evaluations keep their original model, prompt version, evidence, request limits and citation rules. Existing pending evaluations and Temporal histories retain their compatible execution paths; reading a completed report does not rejudge it. Older quotation-based versions normalize unverifiable citations to unknown, while current versions reject invalid excerpt references.
 Missing evidence is unknown; not applicable means the criterion does not apply to that run.
 The judge assesses the saved text and does not independently verify external sources or measure recall.
 
@@ -152,9 +143,9 @@ Rate-limited judge calls retain an error with guidance to wait or check usage li
 Polling reads the saved status or report without starting model calls.
 Every read remains restricted to the operator's current project and skill access.
 
-### Internal comparison UI
+### Trials UI
 
-Staff members in project 2 can open **Scouts > Compare scouts** to choose a scout, add prompt/model/effort variants, and set the number of runs per variant.
+Staff members in project 2 can open a scout's **Trials** tab or `/project/2/scout-trials`, then select **New trial** to compare prompt, model and effort versions with repeated runs.
 The page submits one trial with up to 20 versions and 20 runs per version, and shows deployment or scout compatibility blockers before launch.
 The server saves the variants, reviewed rubric and shared starting history before dispatch. Each run keeps its own private writable state.
 Once the comparison is accepted, execution and judging continue after the page closes.
@@ -273,7 +264,7 @@ Automatic payload deletion and usage billing are not enabled by these endpoints.
 ## Postgres experiment reads
 
 Read endpoints use the same feature flag as ingestion.
-The existing event-based offline UI and harness remain separate until they switch to these APIs.
+The offline UI uses these APIs. The harness above still reports through event capture until its producer migration.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
 
@@ -282,6 +273,7 @@ The following GET paths are relative to `/api/projects/{project_id}/ai_observabi
 | `offline_experiments/`                                             | Experiments, run context, lifecycle state, and counts.                               |
 | `offline_experiments/{experiment_id}/`                             | One experiment, regardless of list date filters.                                     |
 | `offline_experiments/{experiment_id}/items/`                       | Item metadata, payload availability, and optionally selected scorer-version results. |
+| `offline_experiments/{experiment_id}/result_cells/`                | Result cells for fixed item and scorer-version identities.                           |
 | `offline_experiments/{experiment_id}/items/{item_id}/`             | One item's metadata and payload availability.                                        |
 | `offline_experiments/{experiment_id}/items/{item_id}/results/`     | The item's results with pinned scorer configurations.                                |
 | `offline_experiments/{experiment_id}/items/{item_id}/payload/`     | Shared input, output, expected output, and item metadata.                            |
@@ -321,6 +313,12 @@ Filters use retained identifiers and continue to work after linked resources are
 Item pages can include result cells for up to 20 comma-separated `scorer_version_ids`.
 The page's `scorer_versions` list contains each selected, accessible version's metadata and configuration once, including versions with no results on the page.
 Item result cells link to that list with `scorer_version_id`.
+
+For a matrix with more than 20 scorer versions, fetch an item page once, then call `result_cells/` with its fixed `item_ids` and batches of `scorer_version_ids`.
+Both lists are required; requests allow up to 50 distinct item UUIDs and 20 distinct scorer-version UUIDs.
+The response includes scorer metadata and existing result cells, without payloads.
+An absent cell is a missing result only after its batch resolves successfully.
+Items must belong to the requested experiment and versions must be visible to the caller in the same environment.
 Version selection preserves unscored items, which have missing cells.
 Use the paginated item results endpoint to inspect additional versions; it includes full scorer metadata and configuration on each result.
 List and summary endpoints do not load input/output or reasoning payloads.
@@ -360,3 +358,52 @@ A deadline alone does not mean a cleanup worker has removed the payload.
 Automatic deletion remains separate work.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
+
+## Inspecting offline results
+
+Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
+A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
+The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
+Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
+Datasets, suites, and traces are optional context and are not required to display an experiment.
+The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
+
+**Choose scores** selects and orders recurring scorer definitions above the experiment list.
+When no scores are selected, the overview selects up to three from recent completed experiments, falling back to available scorer definitions.
+These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
+Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
+The shared date picker supports presets, custom ranges, and all time.
+History pages are bounded; the scorer history shows how many matching points are loaded.
+Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
+Different scorer versions retain their pinned configurations and are not averaged together.
+Overview cards show one version at a time, with arrows to browse versions that have results in the selected period.
+The card summary aggregates the loaded experiments in the selected period for the displayed scorer version, using the same history points as the chart.
+Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
+The card count shows distinct experiments, including experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
+Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
+Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
+Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
+With a bounded date range, every chart uses that range, so the guide appears on each chart, including charts with different experiment dates.
+With all time, the charts share a range from the earliest loaded result across the selected scorers to the common end time, including versions outside the currently displayed one.
+The shared guide stays aligned on sparse charts, including charts with a single result.
+Short date ranges show time-of-day labels, and short period comparisons show elapsed durations instead of rounded days.
+
+An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
+Scroll horizontally to reach additional scorer columns.
+Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
+These larger payloads load only when the inspector requests them.
+Upload completion is separate from score quality. **Mark as completed** checks declared expected counts on the server; it cannot force a mismatched upload to complete.
+
+Manage scorer definitions and versions under **Evaluations → Scorers**.
+The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
+Scorer management remains available for manual reviews when offline evaluations are disabled.
+With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+Its experiment table keeps names and coverage on one line, shows execution time in its own column, and opens run details with the arrow beside each name.
+Compare against a previous or custom period.
+Custom comparison periods ending now retain that end when their URL is shared or reloaded.
+Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
+Version creation copies the current stored configuration unchanged and requires refreshing after a concurrent version change.
+
+The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
+The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.

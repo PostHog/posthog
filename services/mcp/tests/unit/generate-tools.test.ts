@@ -1385,12 +1385,7 @@ describe('per-tool category in tool definitions', () => {
         }
         const definitions = generateDefinitionsJson([
             {
-                config: {
-                    category: 'AI observability',
-                    feature: 'llm_analytics',
-                    url_prefix: '/ai-observability',
-                    tools: {},
-                },
+                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
                 enabledTools: [['llma-prompt-list', toolConfig, resolved]],
                 enabledWrappers: [],
                 yamlDir: '/tmp',

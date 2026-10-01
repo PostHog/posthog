@@ -68,7 +68,6 @@ describe('ml-mirror staged batch runner', () => {
     function buildRunner(): MlMirrorStagedBatchRunner {
         return buildMlMirrorStagedRunner(mlMirrorTestPipelineConfig(promiseScheduler, services), {
             anonymizeMaxConcurrency: 2,
-            nowMs: () => Date.UTC(2026, 8, 15, 13),
         })
     }
 

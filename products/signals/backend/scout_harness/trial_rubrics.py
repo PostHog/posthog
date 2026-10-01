@@ -1,19 +1,12 @@
 from __future__ import annotations
 
-import sys
-import json
-import argparse
-from pathlib import Path
-from typing import Protocol
 from uuid import UUID
 
-from pydantic import JsonValue, TypeAdapter, ValidationError
+from pydantic import JsonValue, ValidationError
+
+from products.signals.backend.facade.rubrics import ScoutRubricNotFound, get_scout_rubric
 
 type RubricDocument = dict[str, JsonValue]
-
-
-class ScoutRubricReader(Protocol):
-    def read(self, *, config_id: UUID, skill_name: str) -> RubricDocument: ...
 
 
 class ScoutRubricReadError(ValueError):
@@ -25,11 +18,6 @@ class SavedScoutRubricReader:
         self.team_id = team_id
 
     def read(self, *, config_id: UUID, skill_name: str) -> RubricDocument:
-        from products.signals.backend.facade.rubrics import (  # noqa: PLC0415 -- keeps Django off the fixture CLI
-            ScoutRubricNotFound,
-            get_scout_rubric,
-        )
-
         try:
             document = get_scout_rubric(self.team_id, str(config_id))
         except ScoutRubricNotFound:
@@ -66,24 +54,3 @@ class SavedScoutRubricReader:
             "skill_name": document.skill_name,
             **state.model_dump(mode="json"),
         }
-
-
-class MockScoutRubricReader:
-    def read(self, *, config_id: UUID, skill_name: str) -> RubricDocument:
-        fixture = Path(__file__).with_name("mock_scout_rubric.json")
-        document: RubricDocument = TypeAdapter(RubricDocument).validate_json(fixture.read_text())
-        return {**document, "config_id": str(config_id), "skill_name": skill_name}
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Print a mock scout rubric for comparison development.")
-    parser.add_argument("--config-id", type=UUID, required=True)
-    parser.add_argument("--skill-name", required=True)
-    args = parser.parse_args()
-    reader: ScoutRubricReader = MockScoutRubricReader()
-    document = reader.read(config_id=args.config_id, skill_name=args.skill_name)
-    sys.stdout.write(json.dumps(document, indent=2) + "\n")
-
-
-if __name__ == "__main__":
-    main()

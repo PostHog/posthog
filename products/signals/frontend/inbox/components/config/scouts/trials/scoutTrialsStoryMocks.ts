@@ -254,21 +254,6 @@ export function createScoutTrialsStoryMocks(): { mocks: Mocks; runningMocks: Moc
                 const payload = (await request.json()) as ScoutTrialEvaluationRequestApi
                 return [202, buildEvaluation(payload)]
             },
-            '/api/projects/:team/signals/scout/configs/:config/trial/': async ({ request }) => {
-                const payload = (await request.json()) as ScoutTrialLaunchApi
-                submissions.set(payload.launch_id, payload)
-                return [
-                    202,
-                    {
-                        launch_id: payload.launch_id,
-                        context_id: trialFixtureResult.context_id,
-                        workflow_id: payload.launch_id,
-                        model: payload.model,
-                        reasoning_effort: payload.reasoning_effort,
-                        variant: payload.variant,
-                    },
-                ]
-            },
             '/api/projects/:team/tasks/:task/runs/:run/cancel/': () => [200, {}],
         },
     }

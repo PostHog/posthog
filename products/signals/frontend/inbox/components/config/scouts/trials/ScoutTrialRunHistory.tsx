@@ -83,8 +83,7 @@ export function ScoutTrialRunHistory(props: ScoutTrialsViewProps): JSX.Element {
                                                     type={
                                                         row.status === 'completed'
                                                             ? 'success'
-                                                            : row.status === 'failed' ||
-                                                                row.status === 'submission_failed'
+                                                            : row.status === 'failed'
                                                               ? 'danger'
                                                               : trialIsActive(row.status)
                                                                 ? 'primary'

@@ -14,7 +14,7 @@ import {
     trialFixtureSetup,
 } from './scoutTrialsFixtures'
 import { ScoutTrialsView, ScoutTrialsViewProps } from './ScoutTrialsView'
-import { createTrialBatch, initialTrialVariants } from './scoutTrialUtils'
+import { initialTrialVariants } from './scoutTrialUtils'
 
 const noop = (): void => {}
 const variants = initialTrialVariants(trialFixtureSetup)
@@ -32,7 +32,6 @@ const defaults: ScoutTrialsViewProps = {
     comparisonRows: [],
     managedComparison: false,
     serverComparisonIds: [],
-    editingComparison: true,
     trialView: 'setup',
     teamId: 2,
     fixedConfigId: trialFixtureConfig.id,
@@ -131,7 +130,7 @@ const meta: Meta<typeof ScoutTrialsView> = {
 export default meta
 type Story = StoryObj<typeof ScoutTrialsView>
 
-export const Idle: Story = { args: { trialView: 'list', editingComparison: false } }
+export const Idle: Story = { args: { trialView: 'list' } }
 export const Narrow: Story = {
     decorators: [
         (Story) => (
@@ -163,16 +162,6 @@ export const Loading: Story = { args: { configs: null, configsLoading: true, sel
 export const Error: Story = {
     args: { setup: null, pageError: "Couldn't load this scout's trial settings. Try again." },
 }
-
-let fixtureId = 100
-const completedBatch = createTrialBatch(
-    trialFixtureConfig.id,
-    variants,
-    1,
-    '',
-    () => `00000000-0000-4000-8000-${String(fixtureId++).padStart(12, '0')}`
-)
-completedBatch.submissions = completedBatch.submissions.map((entry) => ({ ...entry, accepted: true }))
 
 const runningRows = trialFixtureComparison.groups.flatMap((group, variantIndex) =>
     group.launchIds.map((launchId, repeatIndex) => ({
@@ -209,7 +198,6 @@ const completedRows = runningRows.map((row) => ({
 export const Running: Story = {
     args: {
         trialView: 'detail',
-        editingComparison: false,
         comparisons: [trialFixtureComparison],
         comparisonsForConfig: [trialFixtureComparison],
         selectedComparison: trialFixtureComparison,
@@ -236,28 +224,6 @@ export const Running: Story = {
     },
 }
 export const RunningNarrow: Story = { ...Running, decorators: Narrow.decorators }
-
-export const Results: Story = {
-    args: {
-        batch: completedBatch,
-        rows: [
-            {
-                launchId: trialFixtureResult.launch_id,
-                variant: 'Baseline (1)',
-                model: trialFixtureResult.model,
-                effort: trialFixtureResult.reasoning_effort,
-                status: 'completed',
-                startedAt: trialFixtureResult.started_at,
-                error: null,
-                result: trialFixtureResult,
-            },
-        ],
-    },
-}
-export const ResultDetails: Story = {
-    args: { ...Results.args, selectedResult: trialFixtureResult, selectedLaunchId: trialFixtureResult.launch_id },
-}
-export const ResultsNarrow: Story = { ...Results, decorators: Narrow.decorators }
 
 export const Scored: Story = {
     args: {

@@ -2,7 +2,13 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ConversationDetail } from '~/types'
 
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    TaskActivityDTOApi,
+    TaskActivityReadMarkerApi,
+    TaskListItemApi,
+    TaskRunDetailDTOApi,
+    TaskUserBasicInfoApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 export type TodayWorkItemKind = 'session' | 'chat'
@@ -16,6 +22,7 @@ export interface TodayWorkItem {
     status: string | null
     channel: string | null
     createdById: number | null
+    author: TaskUserBasicInfoApi | null
     latestRunId: string | null
     runEnvironment: string | null
     originProduct: string | null
@@ -23,6 +30,8 @@ export interface TodayWorkItem {
     source: string | null
     repository: string | null
     pullRequests: TaskPullRequest[]
+    /** The closing prose a cloud run saves when it finishes. */
+    finalMessage: string | null
 }
 
 export interface TodayWorkGroup {
@@ -54,6 +63,11 @@ export function activeCloudRunId(item: TodayWorkItem): string | null {
         : null
 }
 
+function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {
+    const message = output?.final_message
+    return typeof message === 'string' && message.trim() ? message.trim() : null
+}
+
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
     return {
         kind: 'session',
@@ -64,12 +78,14 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         status: task.latest_run?.status ?? null,
         channel: task.channel ?? null,
         createdById: task.created_by?.id ?? null,
+        author: task.created_by ?? null,
         latestRunId: task.latest_run?.id ?? null,
         runEnvironment: task.latest_run?.environment ?? null,
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
         pullRequests: taskPullRequests(task.latest_run?.output),
+        finalMessage: finalMessage(task.latest_run?.output),
     }
 }
 
@@ -83,12 +99,14 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
+        author: null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
         pullRequests: [],
+        finalMessage: null,
     }
 }
 
@@ -105,6 +123,58 @@ export function buildRecentItems(
     ]
         .sort((first, second) => timeOf(second) - timeOf(first))
         .slice(0, limit)
+}
+
+export interface TodaySessionReadRequest {
+    marker: TaskActivityReadMarkerApi
+    activityIds: string[]
+}
+
+// Comment notifications clear per comment, not per session, so only a session's own activity marks it unread.
+function unreadSessionActivity(activity: TaskActivityDTOApi[], sessionId?: string): TaskActivityDTOApi[] {
+    return activity.filter(
+        (row) => row.is_unread && !!row.task_id && !row.latest_comment_id && (!sessionId || row.task_id === sessionId)
+    )
+}
+
+export function unreadSessionIds(activity: TaskActivityDTOApi[]): Set<string> {
+    return new Set(unreadSessionActivity(activity).map((row) => row.task_id as string))
+}
+
+export function unreadSpaceIds(activity: TaskActivityDTOApi[]): Set<string> {
+    return new Set(unreadSessionActivity(activity).flatMap((row) => (row.channel_id ? [row.channel_id] : [])))
+}
+
+/**
+ * What to send to mark a session read, or null when it has nothing unread.
+ * `seen_before` is never earlier than the newest activity shown, so a client clock behind the server's still clears it.
+ */
+export function sessionReadRequest(
+    activity: TaskActivityDTOApi[],
+    sessionId: string,
+    now: Dayjs = dayjs()
+): TodaySessionReadRequest | null {
+    const rows = unreadSessionActivity(activity, sessionId)
+    if (!rows.length) {
+        return null
+    }
+    const seenBefore = rows.reduce(
+        (latest, row) => (dayjs(row.activity_at).isAfter(latest) ? dayjs(row.activity_at) : latest),
+        now
+    )
+    return {
+        marker: { task_id: sessionId, seen_before: seenBefore.toISOString() },
+        activityIds: rows.map((row) => row.id),
+    }
+}
+
+export function setActivityUnread(
+    activity: TaskActivityDTOApi[],
+    activityIds: string[],
+    isUnread: boolean
+): TaskActivityDTOApi[] {
+    const ids = new Set(activityIds)
+    return activity.map((row) => (ids.has(row.id) ? { ...row, is_unread: isUnread } : row))
 }
 
 export function groupByDay(

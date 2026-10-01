@@ -120,7 +120,6 @@ export interface scoutTrialsLogicValues {
     comparisonsForConfig: ScoutTrialComparison[]
     configs: SignalScoutConfigApi[] | null
     configsLoading: boolean
-    editingComparison: boolean
     evaluationState: ScoutTrialEvaluationState
     evaluations: Record<string, ScoutTrialEvaluationState>
     formError: string | null
@@ -358,7 +357,6 @@ export interface scoutTrialsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         pageError: (loadErrors: ScoutTrialLoadErrors, formPageError: string | null) => string | null
         pollError: (loadErrors: ScoutTrialLoadErrors, resultPollError: string | null) => string | null
-        editingComparison: (trialView: 'detail' | 'list' | 'setup') => boolean
         comparisonState: (
             selectedComparison: ScoutTrialComparison | null,
             comparisonStates: Record<string, ScoutTrialComparisonState>
@@ -693,7 +691,6 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             (errors: ScoutTrialLoadErrors, error: string | null): string | null =>
                 errors.history ?? errors.comparisonHistory ?? error,
         ],
-        editingComparison: [(s) => [s.trialView], (view: 'detail' | 'list' | 'setup'): boolean => view === 'setup'],
         comparisonState: [
             (s) => [s.selectedComparison, s.comparisonStates],
             (
@@ -823,10 +820,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                         .flatMap((state) => state.value?.variants ?? [])
                         .find((variant) => variant.launch_ids.includes(launchId))
                     const repeat = variant ? variant.launch_ids.indexOf(launchId) + 1 : null
-                    const status =
-                        result?.status ||
-                        saved?.status ||
-                        (submission?.accepted ? 'pending' : submission?.error ? 'submission_failed' : 'unknown')
+                    const status = result?.status || saved?.status || (submission?.accepted ? 'pending' : 'unknown')
                     // The row's Stop run button is the retry, so the failure only shows while that button does.
                     const cancelError =
                         trialIsActive(status) || trialTaskIsActive(result?.task_status) ? cancelErrors[launchId] : null
@@ -844,7 +838,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                             '',
                         status,
                         startedAt: result?.started_at || saved?.started_at || null,
-                        error: result?.error || submission?.error || errors[launchId] || cancelError || null,
+                        error: result?.error || errors[launchId] || cancelError || null,
                         result,
                     }
                 })
@@ -882,8 +876,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             if (values.batch?.comparison.id === comparison.comparison_id && values.hasUnaccepted) {
                 actions.setBatch({
                     ...values.batch,
-                    contextId: comparison.context_id,
-                    submissions: values.batch.submissions.map((entry) => ({ ...entry, accepted: true, error: null })),
+                    submissions: values.batch.submissions.map((entry) => ({ ...entry, accepted: true })),
                 })
             }
         },
@@ -1242,8 +1235,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                     actions.registerServerComparison(comparison)
                     actions.setBatch({
                         ...batch,
-                        contextId: comparison.context_id,
-                        submissions: batch.submissions.map((entry) => ({ ...entry, accepted: true, error: null })),
+                        submissions: batch.submissions.map((entry) => ({ ...entry, accepted: true })),
                     })
                 }
             } catch (error) {

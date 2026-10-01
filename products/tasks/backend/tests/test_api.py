@@ -22,7 +22,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone as django_timezone
 
 import jwt
-import requests
 import posthoganalytics
 from parameterized import parameterized
 from rest_framework import status
@@ -36,6 +35,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Pe
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
+from posthog.models.tag import Tag
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
@@ -58,7 +58,6 @@ from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskAr
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
 from products.tasks.backend.logic.services.code_usage_gate import (
     CodeUsageStatus,
-    _gateway_usage_url,
     code_access_required_response,
     get_posthog_code_usage,
     usage_limit_response,
@@ -112,6 +111,8 @@ from products.tasks.backend.presentation.serializers import (
 from products.tasks.backend.presentation.views import api as views_api
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
+
+from ee.billing.quota_limiting import QuotaResource
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
@@ -502,13 +503,19 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state["agent_version"] == "test-agent"
         marker = run.state["scout_trial"]
         assert run.state["scout_trial_private"] == {"reports": []}
-        response = client.patch(f"{base}set_summary/", {"summary": "Reviewed recent exports"}, format="json")
+        response = client.patch(
+            f"{base}set_summary/",
+            {"summary": "Reviewed recent exports", "tags": ["synthetic-trial-tag"]},
+            format="json",
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["task_summary"] == "Reviewed recent exports"
         assert "scout_trial" not in response.json()["state"]
         assert "scout_trial_private" not in response.json()["state"]
         run.refresh_from_db()
         assert run.state is not None and run.state["task_summary"] == "Reviewed recent exports"
+        assert run.state["task_tags"] == ["synthetic-trial-tag"]
+        assert not Tag.objects.filter(team=self.team, name="synthetic-trial-tag").exists()
         assert client.post(f"{base}cancel/", {}, format="json").status_code == status.HTTP_403_FORBIDDEN
         assert (
             client.post("/api/projects/@current/tasks/", {"title": "Child task"}, format="json").status_code
@@ -6943,6 +6950,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
         self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
         self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+        self.assertEqual(set(task.tagged_items.values_list("tag__name", flat=True)), {"bug-fix", "feature-flags"})
 
         cleared = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
@@ -6952,6 +6960,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(cleared.status_code, status.HTTP_200_OK)
         self.assertEqual(cleared.json()["task_tags"], [])
+        self.assertFalse(task.tagged_items.exists())
+        self.assertFalse(Tag.objects.filter(team=self.team, name__in=["bug-fix", "feature-flags"]).exists())
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -7915,6 +7925,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             state={
                 "ai_stage": "scout:custom",
                 "ai_agent_name": "signals-scout-errors",
+                "slack_app_agent_design_enabled": True,
                 "sandbox_connect_token": "connect-token",
             },
         )
@@ -7925,6 +7936,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         state = response.json()["state"]
         self.assertEqual(state["ai_stage"], "scout:custom")
         self.assertEqual(state["ai_agent_name"], "signals-scout-errors")
+        self.assertTrue(state["slack_app_agent_design_enabled"])
         self.assertNotIn("sandbox_connect_token", state)
 
     def test_list_runs_only_returns_task_runs(self):
@@ -16029,79 +16041,42 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
 
 class TestGetPosthogCodeUsage(TestCase):
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_parses_rate_limited_usage(self, mock_token, mock_get):
-        mock_token.return_value = "tok"
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "is_rate_limited": True,
-                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
-                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
-                "is_pro": True,
-            },
-        )
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Usage Org")
+        self.team = Team.objects.create(organization=self.organization, name="Usage Team")
 
-        usage = get_posthog_code_usage(MagicMock(), 1)
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True)
+    def test_exhausted_bucket_is_rate_limited_until_the_period_end(self, mock_over):
+        self.organization.usage = {"period": ["2026-09-01T00:00:00Z", "2026-10-01T00:00:00Z"]}
+        self.organization.save()
+
+        usage = get_posthog_code_usage(self.team.id)
+
+        assert usage == CodeUsageStatus(
+            is_rate_limited=True, limit_type=None, reset_at="2026-10-01T00:00:00+00:00", is_pro=False
+        )
+        mock_over.assert_called_once_with(self.team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=True)
+    def test_unknown_period_leaves_reset_unset(self, _mock_over):
+        usage = get_posthog_code_usage(self.team.id)
 
         assert usage is not None
         self.assertTrue(usage.is_rate_limited)
-        self.assertEqual(usage.limit_type, "burst")
-        self.assertEqual(usage.reset_at, "2026-06-09T00:00:00Z")
-        self.assertTrue(usage.is_pro)
-        self.assertEqual(mock_get.call_args.args[0], "https://gateway.us.posthog.com/v1/usage/posthog_code")
+        self.assertIsNone(usage.reset_at)
 
-    @override_settings(DEBUG=True, CLOUD_DEPLOYMENT=None)
-    def test_local_uses_localhost_gateway(self):
-        self.assertEqual(_gateway_usage_url(), "http://localhost:3308/v1/usage/posthog_code")
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=False)
+    def test_open_bucket_is_not_rate_limited(self, _mock_over):
+        usage = get_posthog_code_usage(self.team.id)
 
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.OAuthAccessToken")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_token_cleanup_error_does_not_break_fail_open(self, mock_token, mock_get, mock_oauth_model):
-        mock_token.return_value = "tok"
-        mock_get.return_value = MagicMock(
-            status_code=200,
-            json=lambda: {
-                "is_rate_limited": True,
-                "burst": {"exceeded": True, "reset_at": "2026-06-09T00:00:00Z"},
-                "sustained": {"exceeded": False, "reset_at": "2026-07-01T00:00:00Z"},
-                "is_pro": False,
-            },
-        )
-        mock_oauth_model.objects.filter.return_value.delete.side_effect = Exception("db down")
+        assert usage == CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)
 
-        usage = get_posthog_code_usage(MagicMock(), 1)
+    @patch("ee.billing.quota_limiting.is_team_over_credit_budget", side_effect=Exception("redis down"))
+    def test_fails_open_on_lookup_error(self, _mock_over):
+        self.assertIsNone(get_posthog_code_usage(self.team.id))
 
-        assert usage is not None
-        self.assertTrue(usage.is_rate_limited)
-
-    @parameterized.expand(
-        [
-            ("non_200", 500, None),
-            ("network_error", None, None),
-        ]
-    )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.requests.get")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_fails_open_on_gateway_error(self, _name, status_code, _unused, mock_token, mock_get):
-        mock_token.return_value = "tok"
-        if status_code is None:
-            mock_get.side_effect = requests.RequestException("boom")
-        else:
-            mock_get.return_value = MagicMock(status_code=status_code)
-
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
-
-    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="DEV")
-    @patch("products.tasks.backend.logic.services.code_usage_gate.create_oauth_access_token_for_user")
-    def test_fails_open_when_no_gateway_url(self, mock_token):
-        self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
-        mock_token.assert_not_called()
+    def test_fails_open_for_an_unknown_team(self):
+        self.assertIsNone(get_posthog_code_usage(self.team.id + 10_000))
 
 
 class TestUsageLimitResponse(TestCase):

@@ -26,12 +26,10 @@ export interface TrackedScoutTrial {
 export interface ScoutTrialSubmission {
     request: ScoutTrialLaunchApi
     accepted: boolean
-    error: string | null
 }
 
 export interface ScoutTrialBatch {
     configId: string
-    contextId: string | null
     comparison: ScoutTrialComparison
     request: ScoutTrialComparisonRequestApi
     labels: Record<string, string>
@@ -143,7 +141,6 @@ export function createTrialBatch(
     const comparisonId = newId()
     return {
         configId,
-        contextId: null,
         comparison: { id: comparisonId, configId, baselineVariantId: groups[0].variantId, groups },
         request: {
             comparison_id: comparisonId,
@@ -171,7 +168,6 @@ export function createTrialBatch(
                     ...(variant.replacePrompt ? { skill_body: variant.prompt } : {}),
                 },
                 accepted: false,
-                error: null,
             }))
         ),
     }
@@ -205,10 +201,6 @@ export function comparisonScoreDisabledReason(
 
 export function trialPercentage(value: number | null): string {
     return value === null ? 'Unavailable' : `${Math.round(value * 100)}%`
-}
-
-export function trialDelta(value: number | null): string {
-    return value === null ? 'Not comparable' : `${value > 0 ? '+' : ''}${Math.round(value * 100)} pp`
 }
 
 export function trialReportText(document: Record<string, unknown>): string {
