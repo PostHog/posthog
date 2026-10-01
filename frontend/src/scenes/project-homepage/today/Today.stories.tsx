@@ -328,3 +328,14 @@ export const ToolsPane: Story = {
         await userEvent.click(await within(canvasElement).findByLabelText('Tools'))
     },
 }
+
+export const NarrowWindow: Story = {
+    parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
+}
+
+export const NarrowWindowWithSidebar: Story = {
+    parameters: { testOptions: { viewport: { width: 800, height: 900 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Home'))
+    },
+}
