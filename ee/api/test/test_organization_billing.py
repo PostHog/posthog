@@ -893,6 +893,16 @@ class TestProjectBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual(json.loads(mock_get.call_args.kwargs["params"]["team_ids"]), [self.team.id])
 
+    @parameterized.expand([("billing_period_read", 0), ("usage_read", 1)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_project_usage_timeout_tells_the_person_to_ask_for_less(self, _name, timed_out_call, mock_get):
+        answers: list[Any] = [_response(SUBSCRIPTION), _response(SERIES)]
+        answers[timed_out_call] = requests.Timeout()
+        mock_get.side_effect = answers
+        response = self.client.get(self._project_url("usage/"))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "usage_query_timeout")
+
     @patch("ee.billing.billing_manager.http_session.get")
     def test_project_usage_sums_the_series_since_the_billing_period_began(self, mock_get):
         series = {

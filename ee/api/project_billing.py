@@ -119,7 +119,11 @@ class ProjectBillingViewSet(BillingReadViewSet):
         grants = self._grants(request, organization)
         self._require(grants, BillingEntitlement.USAGE_READ)
         manager = self._manager()
-        period = _billing_period(manager.get_organization_subscription(organization, grants).get("billing_period"))
+        try:
+            subscription = manager.get_organization_subscription(organization, grants)
+        except requests.Timeout:
+            raise BillingQueryTimeout()
+        period = _billing_period(subscription.get("billing_period"))
         today = datetime.now(UTC).date()
         period_start = (period or {}).get("current_period_start")
         start_date = period_start[:10] if period_start else today.replace(day=1).isoformat()
