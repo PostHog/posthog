@@ -16,7 +16,16 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
+from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.models.user import User
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.plugins import plugin_server_api
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+    SustainedRateThrottle,
+)
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
@@ -29,6 +38,26 @@ from products.messaging.backend.tasks import sync_preferences_to_customerio_task
 
 MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+class MessagingPreferencesBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = BurstRateThrottle.scope
+    rate = BurstRateThrottle.rate
+
+
+class MessagingPreferencesSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = SustainedRateThrottle.scope
+    rate = SustainedRateThrottle.rate
+
+
+class MessagingPreferencesProjectSecretKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "messaging_preferences_psak_team_burst"
+    rate = BurstRateThrottle.rate
+
+
+class MessagingPreferencesProjectSecretKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "messaging_preferences_psak_team_sustained"
+    rate = SustainedRateThrottle.rate
 
 
 class OptOutsPagination(PageNumberPagination):
@@ -194,15 +223,34 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # in neither.
     scope_object_read_actions = ["opt_outs", "export_opt_outs_csv"]
     scope_object_write_actions = ["add_opt_out", "bulk_add_opt_outs", "remove_opt_out"]
+    # A customer's server sets a recipient's preferences with a project secret key, which
+    # outlives the person who created it. Every other action stays on user credentials.
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["add_opt_out", "remove_opt_out"]
+    # Same buckets as the default throttles, which let project secret keys through unthrottled,
+    # plus one per project so minting more keys does not multiply its budget.
+    throttle_classes = [
+        MessagingPreferencesBurstThrottle,
+        MessagingPreferencesSustainedThrottle,
+        MessagingPreferencesProjectSecretKeyTeamBurstThrottle,
+        MessagingPreferencesProjectSecretKeyTeamSustainedThrottle,
+    ]
     serializer_class = _FallbackSerializer
 
     def _require_resource_access(self, required_level: Literal["viewer", "editor"], message: str) -> None:
+        # A project secret key has no user to evaluate access controls for. Its scope grants
+        # project-wide hog_flow access by design, and APIScopePermission has already checked it.
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
         # Resource-level check: `AccessControlPermission` only guarantees the caller has some
         # hog_flow object access. These endpoints act on team-wide data with no per-workflow
         # object, so require project-wide hog_flow access — otherwise a member granted access to
         # a single workflow could read or rewrite the whole team's opt-out list.
         if not self.user_access_control.check_access_level_for_resource("hog_flow", required_level):
             raise PermissionDenied(message)
+
+    def _requesting_user(self) -> User | None:
+        return self.request.user if isinstance(self.request.user, User) else None
 
     @validated_request(
         query_serializer=OptOutsListQuerySerializer,
@@ -280,7 +328,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         preference, created = MessageRecipientPreference.objects.get_or_create(
             team_id=self.team_id,
             identifier=identifier,
-            defaults={"created_by": request.user},
+            defaults={"created_by": self._requesting_user()},
         )
         preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
 
@@ -316,7 +364,7 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         preference, created = MessageRecipientPreference.objects.get_or_create(
             team_id=self.team_id,
             identifier=identifier,
-            defaults={"created_by": request.user},
+            defaults={"created_by": self._requesting_user()},
         )
         preferences = dict(preference.preferences or {})
 

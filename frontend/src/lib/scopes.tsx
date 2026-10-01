@@ -295,6 +295,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'hog_flow:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -391,6 +392,7 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+    { value: 'messaging_preferences', label: 'Messaging preference updates', scopes: ['hog_flow:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each grantable

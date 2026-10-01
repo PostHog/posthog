@@ -266,6 +266,10 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    # Lets a customer's server opt recipients in to or out of workflow messages. Only the
+    # messaging preference writes accept a project secret key, so it can't edit workflows. Like
+    # every write scope it covers the read half, so endpoint runs can query hog_flow system tables.
+    ("hog_flow", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
