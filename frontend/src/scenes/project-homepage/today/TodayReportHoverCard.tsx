@@ -24,11 +24,15 @@ import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/co
 import {
     asReportMetricAggregateQuery,
     asReportMetricSeriesQuery,
+    reportMetricRowParts,
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
 import { todayLogic } from './todayLogic'
 import { TodayReportHoverCardMetric } from './TodayReportHoverCardMetric'
+
+// The card lists a few more metrics by their saved value. A chart for each would run two live queries per metric on every hover.
+const LISTED_METRIC_COUNT = 2
 
 /**
  * A report's hover card, on its left-bar row and on its links in the briefing text: its priority, why the
@@ -50,6 +54,12 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
     const seriesQuery = metric ? asReportMetricSeriesQuery(metric) : null
     const lead = [card.priority, card.reason].filter(Boolean).join(' · ')
     const hasChart = !!(metric && aggregateQuery && seriesQuery)
+    const otherMetrics = card.metrics.flatMap((candidate) => {
+        const parts = hasChart && candidate === metric ? null : reportMetricRowParts(candidate, candidate.value)
+        return parts ? [{ metric: candidate, value: [parts.value, parts.unit].filter(Boolean).join(' ') }] : []
+    })
+    const listedMetrics = otherMetrics.slice(0, LISTED_METRIC_COUNT)
+    const unlistedMetricCount = otherMetrics.length - listedMetrics.length
     const activity = [
         card.signalCount ? pluralize(card.signalCount, 'signal') : null,
         card.updatedAt ? `updated ${dayjs(card.updatedAt).fromNow()}` : null,
@@ -114,17 +124,47 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     </ItemContent>
                 </Item>
             )}
-            {metric && aggregateQuery && seriesQuery && (
+            {(hasChart || listedMetrics.length > 0) && (
                 <>
                     <ItemSeparator className="my-0" />
                     <Item size="xs">
-                        <ItemContent className="min-w-0">
-                            <TodayReportHoverCardMetric
-                                cardKey={card.key}
-                                metric={metric}
-                                aggregateQuery={aggregateQuery.source}
-                                seriesQuery={seriesQuery.source}
-                            />
+                        <ItemContent className="min-w-0 gap-1.5">
+                            {metric && aggregateQuery && seriesQuery && (
+                                <TodayReportHoverCardMetric
+                                    cardKey={card.key}
+                                    metric={metric}
+                                    aggregateQuery={aggregateQuery.source}
+                                    seriesQuery={seriesQuery.source}
+                                />
+                            )}
+                            {listedMetrics.map(({ metric: listed, value }) => (
+                                <div
+                                    key={listed.metric_id}
+                                    className="flex items-baseline justify-between gap-2"
+                                    data-attr="today-report-hover-card-listed-metric"
+                                >
+                                    <Text
+                                        size="xs"
+                                        variant="muted"
+                                        render={<span title={listed.title} />}
+                                        className="truncate"
+                                    >
+                                        {listed.title}
+                                    </Text>
+                                    <Text
+                                        size="xs"
+                                        render={<span translate="no" />}
+                                        className="shrink-0 font-semibold tabular-nums"
+                                    >
+                                        {value}
+                                    </Text>
+                                </div>
+                            ))}
+                            {unlistedMetricCount > 0 && (
+                                <Text size="xs" variant="muted" render={<span />}>
+                                    {`${pluralize(unlistedMetricCount, 'more metric')} in the report`}
+                                </Text>
+                            )}
                         </ItemContent>
                     </Item>
                 </>
