@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 
-from .agents import DEFAULT_MODELS, AgentRun, Runtime, agent_failure, agent_usage, run_agent
+from products.tasks.evals.agents_md.__main__ import add_cloud_arguments, cloud_agent
+from products.tasks.evals.agents_md.cloud import CLOUD_LEDGER, CLOUD_RUNTIME, CloudAgent, CloudRuntime, RunnerStopped
+
+from .agents import DEFAULT_MODELS, AgentOutcome, Runtime, run_agent
 from .cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
 from .scoring import DEFAULT_JUDGE_MODEL, DiffScores, Verdict, changed_files, judge, score_diffs
 from .workspace import candidate_diff, checkout_parent, ensure_golden_commits, golden_diff
@@ -38,22 +41,34 @@ class CaseResult:
     candidate_files: list[str]
 
 
-def verdict_for(run: AgentRun, prompt: str, candidate: str, golden: str, judge_model: str) -> Verdict:
-    failure = agent_failure(run)
-    if failure and not candidate.strip():
-        return Verdict(score=0.0, reasoning=f"The agent failed before changing any file: {failure}")
+def verdict_for(outcome: AgentOutcome, prompt: str, candidate: str, golden: str, judge_model: str) -> Verdict:
+    if outcome.failure and not candidate.strip():
+        return Verdict(score=0.0, reasoning=f"The agent failed before changing any file: {outcome.failure}")
     return judge(prompt, candidate, golden, model=judge_model)
 
 
 def evaluate(
-    pr: GoldenPR, runtime: Runtime, model: str, judge_model: str, timeout_seconds: int, repo: Path
+    pr: GoldenPR,
+    runtime: Runtime | CloudRuntime,
+    model: str,
+    judge_model: str,
+    timeout_seconds: int,
+    repo: Path,
+    cloud: CloudAgent | None = None,
 ) -> tuple[CaseResult, str, str]:
     ensure_golden_commits(repo, pr)
     golden = golden_diff(repo, pr)
     prompt = build_prompt(pr)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
     with checkout_parent(repo, pr) as workdir:
-        run = run_agent(runtime, model, prompt, workdir, timeout_seconds)
+        if runtime == CLOUD_RUNTIME:
+            if cloud is None:
+                raise ValueError(f"The {CLOUD_RUNTIME} runtime needs a cloud agent.")
+            run = cloud.run(
+                model=model, prompt=prompt, agents_md=None, workdir=workdir, timeout_seconds=timeout_seconds
+            )
+        else:
+            run = AgentOutcome.from_run(run_agent(runtime, model, prompt, workdir, timeout_seconds))
         candidate = candidate_diff(workdir)
     verdict = verdict_for(run, prompt, candidate, golden, judge_model)
     result = CaseResult(
@@ -71,11 +86,11 @@ def evaluate(
         scores=score_diffs(candidate, golden),
         judge_score=verdict.score,
         judge_reasoning=verdict.reasoning,
-        usage=agent_usage(run),
+        usage=run.usage,
         golden_files=sorted(changed_files(golden)),
         candidate_files=sorted(changed_files(candidate)),
     )
-    return result, candidate, run.stdout + run.stderr
+    return result, candidate, run.log
 
 
 def write_result(results_dir: Path, result: CaseResult, candidate: str, agent_log: str) -> None:
@@ -85,8 +100,26 @@ def write_result(results_dir: Path, result: CaseResult, candidate: str, agent_lo
     (results_dir / f"{result.pr}.agent.log").write_text(agent_log)
 
 
+def result_paths(results_dir: Path) -> list[Path]:
+    """One file per case. A second judge's verdict (`<pr>.judge-<model>.json`) sits beside it and is not one."""
+    return [path for path in results_dir.rglob("*.json") if path.stem.isdigit()]
+
+
 def load_results(results_dir: Path) -> list[dict]:
-    return sorted((json.loads(path.read_text()) for path in results_dir.rglob("*.json")), key=lambda r: r["pr"])
+    return sorted((json.loads(path.read_text()) for path in result_paths(results_dir)), key=lambda r: r["pr"])
+
+
+def rejudge(results_dir: Path, golden_prs: list[GoldenPR], judge_model: str, repo: Path) -> None:
+    """Score each saved diff in `results_dir` again with `judge_model`, so two judges can be compared on the same work."""
+    by_number = {pr.number: pr for pr in golden_prs}
+    for path in result_paths(results_dir):
+        pr = by_number[int(path.stem)]
+        ensure_golden_commits(repo, pr)
+        candidate = path.with_suffix(".diff").read_text()
+        verdict = judge(build_prompt(pr), candidate, golden_diff(repo, pr), model=judge_model)
+        second = {"judge_model": judge_model, "judge_score": verdict.score, "judge_reasoning": verdict.reasoning}
+        path.with_name(f"{pr.number}.judge-{judge_model}.json").write_text(json.dumps(second, indent=2))
+        print(f"{path}: {judge_model} {verdict.score:.2f}", flush=True)
 
 
 def _cost(result: dict) -> str:
@@ -126,14 +159,26 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     commands.add_parser("list", help="Print the golden set.")
     run = commands.add_parser("run", help="Run the agent on golden PRs and score the result.")
     run.add_argument("--pr", type=int, action="append", help="PR number to run. Repeatable. Default: every PR.")
-    run.add_argument("--runtime", choices=("claude", "codex"), default="claude")
-    run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}")
-    run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    run.add_argument(
+        "--runtime",
+        choices=("claude", "codex", CLOUD_RUNTIME),
+        default="claude",
+        help=f"{CLOUD_RUNTIME} runs each PR as a PostHog Code cloud task and needs POSTHOG_PERSONAL_API_KEY.",
+    )
+    run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}. {CLOUD_RUNTIME} has no default.")
+    run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL, help="A gpt- model judges through the codex CLI.")
     run.add_argument("--case-timeout", type=_positive_int, default=DEFAULT_CASE_TIMEOUT_SECONDS, help="Seconds per PR.")
     run.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
-    run.add_argument("--repo", type=Path, default=REPO_ROOT, help="A posthog checkout to fetch golden commits into.")
+    run.add_argument(
+        "--repository", default="PostHog/posthog", help=f"The GitHub repository {CLOUD_RUNTIME} tasks clone."
+    )
+    add_cloud_arguments(run)
     show = commands.add_parser("report", help="Print a markdown summary of results.")
     show.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    second = commands.add_parser("rejudge", help="Score saved results again with another judge model.")
+    second.add_argument("--results-dir", type=Path, required=True)
+    second.add_argument("--judge-model", required=True, help="A gpt- model judges through the codex CLI.")
+    second.add_argument("--repo", type=Path, default=REPO_ROOT, help="A posthog checkout to fetch golden commits into.")
     return parser.parse_args(argv)
 
 
@@ -147,12 +192,32 @@ def main(argv: list[str]) -> int:
     if args.command == "report":
         print(report(load_results(args.results_dir)))
         return 0
+    if args.command == "rejudge":
+        rejudge(args.results_dir, golden_prs, args.judge_model, args.repo)
+        return 0
     selected = select_golden_prs(golden_prs, args.pr) if args.pr else golden_prs
+    if args.runtime == CLOUD_RUNTIME and not args.model:
+        raise SystemExit(f"The {CLOUD_RUNTIME} runtime needs --model.")
     model = args.model or DEFAULT_MODELS[args.runtime]
-    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{model}"
+    # Open model ids such as `zai-org/glm-5.3` contain a slash.
+    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{model}".replace("/", "_")
+    results_dir.mkdir(parents=True, exist_ok=True)
     for pr in selected:
         print(f"#{pr.number} {pr.title}: running {args.runtime} {model}", flush=True)
-        result, candidate, agent_log = evaluate(pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo)
+        # Each PR has its own parent commit, so each gets its own base branch.
+        cloud = cloud_agent(args, pr.parent_sha, results_dir / CLOUD_LEDGER) if args.runtime == CLOUD_RUNTIME else None
+        try:
+            result, candidate, agent_log = evaluate(
+                pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo, cloud
+            )
+        except RunnerStopped:
+            break
+        finally:
+            if cloud:
+                cloud.close()
+        # A run cut short by a signal is not a result.
+        if cloud and cloud.stopped:
+            break
         write_result(results_dir, result, candidate, agent_log)
         print(f"#{pr.number}: judge {result.judge_score:.2f}, files hit {result.scores.file_recall:.2f}", flush=True)
     print(f"\nResults in {results_dir}\n")

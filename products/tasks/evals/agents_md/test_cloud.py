@@ -148,17 +148,26 @@ def test_cloud_run_brings_the_agent_work_into_the_local_checkout(
     assert git(local, "ls-remote", "--heads", "origin") == ""
 
 
-def test_cloud_base_holds_the_arm_instructions_and_no_history(repo: tuple[Path, Path, str], tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "agents_md,changed",
+    [
+        pytest.param("- rule one\n", "AGENTS.md", id="arm instructions"),
+        pytest.param(None, "", id="tree as it is"),
+    ],
+)
+def test_cloud_base_holds_the_arm_instructions_and_no_history(
+    agents_md: str | None, changed: str, repo: tuple[Path, Path, str], tmp_path: Path
+) -> None:
     local, remote, ref = repo
     tasks = FakeTasks(remote, tmp_path, None)
     cloud = cloud_agent(tasks, local, ref, tmp_path)
     with checkout_with_agents_md(local, ref, "- rule one\n") as workdir:
-        cloud.run(model="m", prompt="p", agents_md="- rule one\n", workdir=workdir)
+        cloud.run(model="m", prompt="p", agents_md=agents_md, workdir=workdir)
         base = git(local, "ls-remote", "origin", tasks.started["branch"]).split()[0]
 
         assert git(local, "log", "-1", "--format=%P", base) == ""
-        assert git(local, "show", f"{base}:AGENTS.md") == "- rule one"
-        assert git(local, "diff", "--name-only", ref, base) == "AGENTS.md"
+        assert git(local, "show", f"{base}:AGENTS.md") == (agents_md or "- rule one\n- rule two\n").strip()
+        assert git(local, "diff", "--name-only", ref, base) == changed
     cloud.close()
     assert git(local, "ls-remote", "--heads", "origin") == ""
 

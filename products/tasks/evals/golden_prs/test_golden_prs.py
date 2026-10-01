@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import subprocess
 from collections import Counter
@@ -10,8 +11,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.tasks.evals.golden_prs.__main__ import report, verdict_for
+from products.tasks.evals.golden_prs.__main__ import load_results, rejudge, report, verdict_for
 from products.tasks.evals.golden_prs.agents import (
+    AgentOutcome,
     AgentRun,
     agent_command,
     agent_environment,
@@ -90,6 +92,11 @@ def test_build_prompt_strips_pr_template_noise(_name: str, body: str, must_not_c
     assert "# fix: a thing" in prompt
 
 
+def test_build_prompt_forbids_looking_up_the_merged_pr_on_github():
+    prompt = build_prompt(golden_pr(body="Do it."))
+    assert "You must not search GitHub" in prompt.split("# fix: a thing")[0]
+
+
 @parameterized.expand(
     [
         ("modified file", "diff --git a/posthog/x.py b/posthog/x.py\n", {"posthog/x.py"}),
@@ -149,6 +156,52 @@ def test_judge_uses_the_claude_cli_when_no_api_key_is_set(
     assert run.call_args.args[0][0] == "claude"
     assert verdict.score == expected_score
     assert expected_reasoning in verdict.reasoning
+
+
+@parameterized.expand(
+    [
+        ("verdict", 0, '{"score": 0.7, "reasoning": "Core done."}', 0.7, "Core done."),
+        ("prose", 0, "I cannot say.", 0.0, "I cannot say."),
+        ("no reply", 1, None, 0.0, "exit code 1"),
+    ]
+)
+def test_a_gpt_judge_answers_through_the_codex_cli(
+    _name: str, exit_code: int, reply: str | None, expected_score: float, expected_reasoning: str
+) -> None:
+    def codex(command: list[str], **_kwargs: Any) -> subprocess.CompletedProcess:
+        if reply is not None:
+            Path(command[command.index("--output-last-message") + 1]).write_text(reply)
+        return subprocess.CompletedProcess(args=command, returncode=exit_code, stdout="", stderr="")
+
+    with patch("products.tasks.evals.golden_prs.scoring.subprocess.run", side_effect=codex) as run:
+        verdict = judge("task", GOLDEN, GOLDEN, model="gpt-6-sol")
+    command = run.call_args.args[0]
+    assert command[:2] == ["codex", "exec"] and "--ignore-user-config" in command
+    assert verdict.score == expected_score
+    assert expected_reasoning in verdict.reasoning
+
+
+def test_rejudge_saves_a_second_verdict_beside_each_result_and_the_report_counts_each_case_once(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "7.json").write_text(json.dumps({"pr": 7, "judge_score": 0.5}))
+    (tmp_path / "7.diff").write_text(GOLDEN)
+    with (
+        patch("products.tasks.evals.golden_prs.__main__.ensure_golden_commits"),
+        patch("products.tasks.evals.golden_prs.__main__.golden_diff", return_value=GOLDEN),
+        patch(
+            "products.tasks.evals.golden_prs.__main__.judge", return_value=Verdict(score=0.9, reasoning="Same.")
+        ) as second_judge,
+    ):
+        rejudge(tmp_path, [golden_pr(number=7)], "gpt-6-sol", tmp_path)
+
+    assert second_judge.call_args.kwargs["model"] == "gpt-6-sol"
+    assert json.loads((tmp_path / "7.judge-gpt-6-sol.json").read_text()) == {
+        "judge_model": "gpt-6-sol",
+        "judge_score": 0.9,
+        "judge_reasoning": "Same.",
+    }
+    assert load_results(tmp_path) == [{"pr": 7, "judge_score": 0.5}]
 
 
 @parameterized.expand([("diff only", None, ""), ("with the checkout", Path("/work/tree"), "Read,Grep,Glob")])
@@ -247,7 +300,8 @@ def test_claude_agents_skip_user_level_instructions() -> None:
 
 
 def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():
-    verdict = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
+    outcome = AgentOutcome.from_run(agent_run(exit_code=1, stderr="boom"))
+    verdict = verdict_for(outcome, "task", "", GOLDEN, "judge-model")
     assert verdict.score == 0.0
     assert "boom" in verdict.reasoning
 

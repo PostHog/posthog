@@ -48,6 +48,8 @@ def clean_description(body: str) -> str:
 
 def build_prompt(pr: GoldenPR) -> str:
     return (
+        "You are involved in a test to evaluate coding performance. "
+        "You must not search GitHub for information.\n\n"
         "You are working in a checkout of the PostHog repository. "
         "Implement the change described below by editing files in the working directory. "
         "Do not commit. Stop when the change is complete.\n\n"

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import anthropic
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 DEFAULT_JUDGE_MODEL = "claude-opus-5"
 
@@ -132,8 +132,13 @@ def structured_answer[T: BaseModel](
 ) -> Answer[T]:
     """Ask a model for an `output_type`, through the SDK with an API key or the signed-in `claude` CLI without one.
 
-    Only the CLI can read `read_dir`; the SDK path sees the request alone.
+    A `gpt-` model answers through the signed-in `codex` CLI. Only the `claude` CLI can read `read_dir`;
+    the other paths see the request alone.
     """
+    if model.startswith("gpt-"):
+        if read_dir is not None:
+            raise ValueError("Only a Claude judge can read the checkout.")
+        return _answer_with_codex_cli(model, system_prompt, request, output_type)
     if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
         return _answer_with_claude_cli(model, system_prompt, request, output_type, read_dir)
     client = client or anthropic.Anthropic()
@@ -197,3 +202,47 @@ def _answer_with_claude_cli[T: BaseModel](
         return Answer(value=output_type.model_validate(report["structured_output"]))
     failure = report.get("result") or completed.stderr.strip() or f"exit code {completed.returncode}"
     return Answer(value=None, failure=str(failure))
+
+
+def _answer_with_codex_cli[T: BaseModel](
+    model: str, system_prompt: str, request: str, output_type: type[T]
+) -> Answer[T]:
+    # codex takes no system prompt, so the instructions lead the request. The user config is off
+    # for the same reason as USER_INSTRUCTIONS_OFF, and the scratch directory holds no AGENTS.md.
+    with tempfile.TemporaryDirectory() as scratch:
+        schema, reply = Path(scratch) / "schema.json", Path(scratch) / "reply.json"
+        # The OpenAI structured output mode refuses a schema that allows other keys.
+        schema.write_text(json.dumps(output_type.model_json_schema() | {"additionalProperties": False}))
+        command = [
+            "codex",
+            "exec",
+            "--model",
+            model,
+            "--ignore-user-config",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--output-schema",
+            str(schema),
+            "--output-last-message",
+            str(reply),
+            "-",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=scratch,
+                input=f"{system_prompt}\n\n{request}",
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=JUDGE_CLI_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            return Answer(value=None, failure="the CLI timed out")
+        text = reply.read_text() if reply.exists() else ""
+    try:
+        return Answer(value=output_type.model_validate_json(text))
+    except ValidationError:
+        return Answer(value=None, failure=text or f"exit code {completed.returncode}")

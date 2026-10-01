@@ -47,16 +47,19 @@ def checkout_with_agents_md(repo: Path, ref: str, agents_md: str) -> AbstractCon
     return checkout_tree(repo, ref, write_agents_md)
 
 
-def orphan_commit_with_agents_md(repo: Path, ref: str, agents_md: str) -> str:
-    """The tree at `ref` with `agents_md` as AGENTS.md, in a commit with no parent.
+def orphan_commit_with_agents_md(repo: Path, ref: str, agents_md: str | None) -> str:
+    """The tree at `ref` with `agents_md` as AGENTS.md, or unchanged when it is None, in a commit with no parent.
 
     A cloud agent clones the branch with its history, and a parent would let `git diff HEAD~1`
     show the rule that the arm removed. The commit takes the author and signing settings of `repo`,
     because a repository that requires verified signatures refuses the push otherwise.
     """
-    blob = _git_out(repo, "hash-object", "-w", "--stdin", input=agents_md).strip()
-    entries = [line for line in _git_out(repo, "ls-tree", ref).splitlines() if not line.endswith("\tAGENTS.md")]
-    tree = _git_out(repo, "mktree", input="\n".join([*entries, f"100644 blob {blob}\tAGENTS.md"]) + "\n").strip()
+    if agents_md is None:
+        tree = _git_out(repo, "rev-parse", f"{ref}^{{tree}}").strip()
+    else:
+        blob = _git_out(repo, "hash-object", "-w", "--stdin", input=agents_md).strip()
+        entries = [line for line in _git_out(repo, "ls-tree", ref).splitlines() if not line.endswith("\tAGENTS.md")]
+        tree = _git_out(repo, "mktree", input="\n".join([*entries, f"100644 blob {blob}\tAGENTS.md"]) + "\n").strip()
     # commit-tree ignores commit.gpgsign, so follow it here the way `git commit` would.
     sign = _git(repo, "config", "--type=bool", "commit.gpgsign", check=False).stdout.strip() == "true"
     return _git_out(repo, "commit-tree", *(["-S"] if sign else []), tree, "-m", "baseline").strip()

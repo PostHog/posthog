@@ -163,7 +163,7 @@ class CloudAgent:
     def __init__(self, tasks: Tasks, repo: Path, ref: str, *, repository: str, remote: str, ledger: Path) -> None:
         self._tasks, self._repo, self._ref = tasks, repo, ref
         self._repository, self._remote, self._ledger = repository, remote, ledger
-        self._bases: dict[str, tuple[str, str]] = {}
+        self._bases: dict[str | None, tuple[str, str]] = {}
         self._lock = threading.Lock()
         self._ledger_lock = threading.Lock()
         self._stopping = threading.Event()
@@ -172,8 +172,8 @@ class CloudAgent:
         with self._ledger_lock, self._ledger.open("a") as ledger:
             ledger.write(json.dumps(entry) + "\n")
 
-    def _base(self, agents_md: str) -> tuple[str, str]:
-        key = hashlib.sha256(agents_md.encode()).hexdigest()
+    def _base(self, agents_md: str | None) -> tuple[str, str]:
+        key = None if agents_md is None else hashlib.sha256(agents_md.encode()).hexdigest()
         with self._lock:
             if key not in self._bases:
                 commit = orphan_commit_with_agents_md(self._repo, self._ref, agents_md)
@@ -207,7 +207,7 @@ class CloudAgent:
         return run, log, cut_short
 
     def run(
-        self, *, model: str, prompt: str, agents_md: str, workdir: Path, timeout_seconds: float = 30 * 60
+        self, *, model: str, prompt: str, agents_md: str | None, workdir: Path, timeout_seconds: float = 30 * 60
     ) -> AgentOutcome:
         """Run one job and apply the agent's pushed change to `workdir`, a checkout of the same tree."""
         if self._stopping.is_set():
@@ -246,6 +246,10 @@ class CloudAgent:
     def stop(self) -> None:
         """Cut each wait short, cancelling its run, and refuse jobs that have not started."""
         self._stopping.set()
+
+    @property
+    def stopped(self) -> bool:
+        return self._stopping.is_set()
 
     def close(self) -> None:
         clean_up(self._ledger, self._tasks, self._repo, self._remote)
