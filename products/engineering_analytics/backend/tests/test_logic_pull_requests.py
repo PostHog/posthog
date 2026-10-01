@@ -59,7 +59,7 @@ class TestPRLifecycleMapping(BaseTest):
     def test_assembles_ordered_events_and_marks_partial(self) -> None:
         header = _header("merged", merged_at=_dt("2026-01-12T15:00:00"))
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -88,7 +88,7 @@ class TestPRLifecycleMapping(BaseTest):
             # both timestamps null -> both events dropped
             (2002, "Deploy", "completed", "success", None, None),
         ]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(runs)]):
+        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp([(*row, "github_actions") for row in runs])]):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
@@ -137,7 +137,10 @@ class TestPRLifecycleTransitionsMapping(BaseTest):
             ("ready_for_review", _dt("2026-01-11T08:00:00"), "bob"),
         ]
         runs = [(2001, "CI", "completed", "success", _dt("2026-01-11T09:00:00"), _dt("2026-01-11T12:00:00"))]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp([header]), _resp(transitions), _resp(runs)]):
+        with mock.patch(
+            _RUN_QUERY,
+            side_effect=[_resp([header]), _resp(transitions), _resp([(*row, "github_actions") for row in runs])],
+        ):
             lifecycle = api.get_pr_lifecycle(team=self.team, pr_number=10, repo="PostHog/posthog")
 
         assert lifecycle is not None
