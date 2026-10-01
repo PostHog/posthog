@@ -81,12 +81,15 @@ export function SpaceFeedPullRequestRow({
         )
     }
     return (
-        <Card size="sm" className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted">
+        <Card
+            size="sm"
+            className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
+        >
             <div className="flex min-w-0 items-center gap-3">
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                     <span className="flex translate-y-0.5">{icon}</span>
                     {number}
-                    {link('text-sm leading-snug font-semibold hover:underline')}
+                    {link('text-sm leading-snug font-semibold')}
                     {age && (
                         <Text render={<span />} size="xs" variant="muted" className="shrink-0" translate="no">
                             {`· ${age}`}
