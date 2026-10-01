@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -41,12 +39,11 @@ function tabContent(tab: DataWarehouseTab): JSX.Element {
 }
 
 export function DataWarehouseScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { availableTabs, activeTab, warehouseStatusResolved } = useValues(dataWarehouseSceneLogic)
+    const { availableTabs, activeTab, dataOpsVariant, warehouseStatusResolved } = useValues(dataWarehouseSceneLogic)
     const { setActiveTab } = useActions(dataWarehouseSceneLogic)
 
-    // Nothing to show without the scene flag, or when no tab's feature flag is enabled.
-    if (!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] || !activeTab) {
+    // Nothing to show without either scene flag, or when no tab's feature flag is enabled.
+    if (!dataOpsVariant || !activeTab) {
         return <NotFound object="Data warehouse" />
     }
 
