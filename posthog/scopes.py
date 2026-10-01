@@ -442,8 +442,8 @@ def grantable_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
     """The scopes a request may name: `effective_ceiling` plus the read half of every
     `<object>:write` entry.
 
-    `APIScopePermission` already accepts a `:write` token wherever `:read` is required,
-    so refusing a request for the narrower half denies access the token would have
+    `APIScopePermission` already accepts a `:write` token wherever `:read` is required
+    (except for `WRITE_EXCLUDES_READ_SCOPE_OBJECTS`, which get no read half), so refusing a request for the narrower half denies access the token would have
     carried anyway. That is what the consent screen's read-only toggle asks for.
 
     Distinct from `effective_ceiling` because the read halves must not reach the paths

@@ -1,3 +1,5 @@
+import { WRITE_EXCLUDES_READ_SCOPE_OBJECTS } from './oauth-scopes.generated'
+
 const SERVER_MINT_ONLY_SCOPE_OBJECTS = new Set([
     'context_layer_internal',
     'internal_run',
@@ -19,8 +21,12 @@ export const hasScope = (scopes: string[], requiredScope: string): boolean => {
         return true
     }
 
-    // if read scoped required, and write present, return true
-    if (requiredScope.endsWith(':read') && scopes.includes(requiredScope.replace(':read', ':write'))) {
+    const writeCoversRead = scopeObject === undefined || !WRITE_EXCLUDES_READ_SCOPE_OBJECTS.includes(scopeObject)
+    if (
+        writeCoversRead &&
+        requiredScope.endsWith(':read') &&
+        scopes.includes(requiredScope.replace(':read', ':write'))
+    ) {
         return true
     }
 

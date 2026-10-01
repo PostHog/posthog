@@ -599,6 +599,11 @@ describe('server-minted scope matching', () => {
         expect(hasScope(['insight:write'], 'insight:read')).toBe(true)
         expect(hasScope(['insight:read'], 'insight:write')).toBe(false)
     })
+
+    it('does not let messaging_preference:write satisfy messaging_preference:read', () => {
+        expect(hasScope(['messaging_preference:write'], 'messaging_preference:read')).toBe(false)
+        expect(hasScope(['messaging_preference:write'], 'messaging_preference:write')).toBe(true)
+    })
 })
 
 describe('getAdvertisedOAuthScopes', () => {

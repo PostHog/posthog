@@ -250,3 +250,6 @@ export const OAUTH_SCOPES_HIDDEN = [
     'wizard_session:read',
     'wizard_session:write',
 ] as const
+
+// Scope objects whose `:write` does not cover `:read` (mirrors posthog/scopes.py).
+export const WRITE_EXCLUDES_READ_SCOPE_OBJECTS: readonly string[] = ['messaging_preference']
