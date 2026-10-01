@@ -26,6 +26,7 @@ import threading
 from typing import Any
 
 from jupyter_client import KernelManager
+from jupyter_client.session import Session
 
 from . import data_plane, envelope
 
@@ -149,7 +150,13 @@ class KernelExecutor:
                         self._introspection_kc.stop_channels()
                     except Exception:  # noqa: BLE001 — best-effort teardown of a replaced kernel's client
                         pass
-                self._introspection_kc = km.client()
+                # Its own session: km.client() reuses the run client's session id as the ZMQ
+                # identity, and the kernel's shell ROUTER hands an identity over to its newest
+                # socket, so a shared id routes every later run reply here.
+                self._introspection_kc = km.client(
+                    session=Session(key=km.session.key, signature_scheme=km.session.signature_scheme)
+                )
+                self._introspection_kc.start_channels()
                 self._introspection_kc.start_channels()
                 self._introspection_km = km
             client = self._introspection_kc
