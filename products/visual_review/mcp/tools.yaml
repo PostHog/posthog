@@ -336,8 +336,9 @@ tools:
         title: Lift a visual review quarantine when the pull request merges
         description: >
             Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request
-            that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's UUID as
-            `snapshot_id`. Requesting a lift never approves a picture: a changed or new snapshot must first be approved
+            that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier`
+            (the story ID). The identifier works for an `unchanged` snapshot, which a listing with
+            `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved
             by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after
             the pull request merges and a default-branch run that contains the merge renders the expected picture,
             with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the

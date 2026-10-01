@@ -390,11 +390,14 @@ export const VisualReviewRunsLiftOnMergeCreateParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsLiftOnMergeCreateBodyIdentifierMax = 512
+
 export const VisualReviewRunsLiftOnMergeCreateBody = () => zod.object({
-    snapshot_id: zod
+    identifier: zod
         .string()
+        .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
         .describe(
-            'UUID of a quarantined snapshot in this run. Its picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.'
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
         ),
 })
 

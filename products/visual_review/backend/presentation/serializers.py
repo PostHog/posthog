@@ -414,11 +414,13 @@ class UnquarantineQuerySerializer(serializers.Serializer):
 
 
 class LiftOnMergeInputSerializer(DataclassSerializer):
-    snapshot_id = serializers.UUIDField(
+    identifier = serializers.CharField(
+        max_length=512,
         help_text=(
-            "UUID of a quarantined snapshot in this run. Its picture is what a default-branch run must render "
-            "for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot "
-            "must be approved first, because requesting a lift never approves a picture."
+            "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's "
+            "picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot "
+            "uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never "
+            "approves a picture."
         ),
     )
 

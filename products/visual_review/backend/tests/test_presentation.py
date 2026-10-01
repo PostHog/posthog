@@ -619,7 +619,7 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/runs/{run.id}/lift_on_merge/",
-            {"snapshot_id": str(snapshot.id)},
+            {"identifier": snapshot.identifier},
             format="json",
         )
 

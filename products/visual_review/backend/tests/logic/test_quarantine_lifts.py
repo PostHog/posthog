@@ -81,8 +81,8 @@ class TestRequestLiftOnMerge:
             is_quarantined=True,
         )
 
-        quarantine_lifts.request_lift_on_merge(run.id, snapshot.id, repo.team_id, user.id)
-        request = quarantine_lifts.request_lift_on_merge(run.id, snapshot.id, repo.team_id, user.id)
+        quarantine_lifts.request_lift_on_merge(run.id, IDENTIFIER, repo.team_id, user.id)
+        request = quarantine_lifts.request_lift_on_merge(run.id, IDENTIFIER, repo.team_id, user.id)
 
         pending = QuarantineLiftRequest.objects.filter(state=QuarantineLiftState.PENDING)
         assert [r.id for r in pending] == [request.id]
@@ -92,22 +92,41 @@ class TestRequestLiftOnMerge:
         assert RunSnapshot.objects.get(id=snapshot.id).review_state == review_state
 
     @pytest.mark.parametrize(
-        ("name", "pr_number", "stale", "is_quarantined", "result", "expected_error"),
+        ("name", "pr_number", "stale", "is_quarantined", "result", "requested_identifier", "expected_error"),
         [
-            ("not_quarantined", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, ValueError),
-            ("no_pull_request", None, False, True, SnapshotResult.UNCHANGED, ValueError),
-            ("stale_run", PR_NUMBER, True, True, SnapshotResult.UNCHANGED, errors.StaleRunError),
-            ("changed_not_approved", PR_NUMBER, False, True, SnapshotResult.CHANGED, ValueError),
+            ("not_quarantined", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
+            ("no_pull_request", None, False, True, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
+            ("stale_run", PR_NUMBER, True, True, SnapshotResult.UNCHANGED, IDENTIFIER, errors.StaleRunError),
+            ("changed_not_approved", PR_NUMBER, False, True, SnapshotResult.CHANGED, IDENTIFIER, ValueError),
+            (
+                "identifier_not_in_run",
+                PR_NUMBER,
+                False,
+                True,
+                SnapshotResult.UNCHANGED,
+                "other--story",
+                errors.RunNotFoundError,
+            ),
         ],
     )
     def test_refuses_a_request_it_cannot_verify(
-        self, repo, quarantine_row, user, name, pr_number, stale, is_quarantined, result, expected_error
+        self,
+        repo,
+        quarantine_row,
+        user,
+        name,
+        pr_number,
+        stale,
+        is_quarantined,
+        result,
+        requested_identifier,
+        expected_error,
     ):
         run = _run(repo, branch="fix-flake", pr_number=pr_number, commit_sha="pr-head")
         if stale:
             run.superseded_by = _run(repo, branch="other", pr_number=PR_NUMBER, commit_sha="newer")
             run.save(update_fields=["superseded_by"])
-        snapshot = _snapshot(
+        _snapshot(
             run,
             current_hash="new",
             baseline_hash="base" if result == SnapshotResult.CHANGED else "new",
@@ -117,7 +136,7 @@ class TestRequestLiftOnMerge:
         )
 
         with pytest.raises(expected_error):
-            quarantine_lifts.request_lift_on_merge(run.id, snapshot.id, repo.team_id, user.id)
+            quarantine_lifts.request_lift_on_merge(run.id, requested_identifier, repo.team_id, user.id)
 
         assert not QuarantineLiftRequest.objects.exists()
 

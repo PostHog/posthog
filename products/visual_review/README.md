@@ -270,7 +270,8 @@ The label only widens a Storybook run that happens anyway, so the PR must also c
 Neither the gate nor the PR comment shows a quarantined story's diff.
 So the author of a change to a quarantined story has to look for it: list the run's snapshots with `include_quarantined=true`.
 A fix for the flake itself usually renders the story exactly as its entry, so the run has nothing to approve.
-To record the fix, request a lift on merge for each snapshot the fix should release: the "Lift quarantine when #N merges" button on the run scene, `POST /runs/{id}/lift_on_merge/`, or the `visual-review-runs-lift-on-merge-create` MCP tool.
+To record the fix, request a lift on merge for each snapshot the fix should release: the "Lift quarantine when #N merges" button on the run scene, `POST /runs/{id}/lift_on_merge/` with the snapshot's `identifier`, or the `visual-review-runs-lift-on-merge-create` MCP tool.
+The request takes the identifier, not a snapshot UUID, because a listing with `exclude_unchanged` leaves the `unchanged` snapshot out.
 The request names one quarantine event, so a later quarantine of the same story is never lifted by an old request.
 It also names the picture the default branch must render.
 An `unchanged` snapshot names its entry.

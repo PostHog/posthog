@@ -58556,8 +58556,11 @@ export namespace Schemas {
     } as const;
 
     export interface LiftOnMergeInput {
-      /** UUID of a quarantined snapshot in this run. Its picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture. */
-      snapshot_id: string;
+      /**
+         * Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.
+         * @maxLength 512
+         */
+      identifier: string;
     }
 
     /**

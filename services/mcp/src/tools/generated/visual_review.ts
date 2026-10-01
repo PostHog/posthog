@@ -556,8 +556,8 @@ const visualReviewRunsLiftOnMergeCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewRunsLiftOnMergeCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.snapshot_id !== undefined) {
-            body['snapshot_id'] = params.snapshot_id
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
         }
         const result = await context.api.request<Schemas.QuarantineLiftEntry>({
             method: 'POST',

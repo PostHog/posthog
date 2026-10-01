@@ -925,7 +925,7 @@ def request_quarantine_lift_on_merge(
     and ValueError with a reviewer-readable message for any other refusal.
     """
     request = quarantine_lifts.request_lift_on_merge(
-        run_id, input.snapshot_id, team_id=team_id, user_id=user_id, source=source
+        run_id, input.identifier, team_id=team_id, user_id=user_id, source=source
     )
     return _to_quarantine_lift_entry(request, _fetch_user_basic_infos({user_id}))
 

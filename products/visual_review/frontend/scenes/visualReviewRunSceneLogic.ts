@@ -889,7 +889,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             }
             try {
                 await visualReviewRunsLiftOnMergeCreate(String(values.currentProjectId), props.runId, {
-                    snapshot_id: snapshot.id,
+                    identifier: snapshot.identifier,
                 })
                 actions.requestLiftOnMergeSuccess()
                 posthog.capture('visual_review_lift_on_merge_requested', { snapshot_result: snapshot.result })

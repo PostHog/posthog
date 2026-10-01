@@ -456,7 +456,7 @@ class QuarantineInput:
 class LiftOnMergeInput:
     """Request body for lifting a quarantine when the run's pull request merges. run_id comes from the URL."""
 
-    snapshot_id: UUID
+    identifier: str
 
 
 @dataclass(frozen=True)

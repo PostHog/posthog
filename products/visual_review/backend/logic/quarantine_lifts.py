@@ -72,7 +72,7 @@ def _expected_hash(snapshot: RunSnapshot) -> str:
 
 
 def request_lift_on_merge(
-    run_id: UUID, snapshot_id: UUID, team_id: int, user_id: int, source: ActorType = ActorType.HUMAN
+    run_id: UUID, identifier: str, team_id: int, user_id: int, source: ActorType = ActorType.HUMAN
 ) -> QuarantineLiftRequest:
     run = run_queries.get_run(run_id, team_id=team_id)
     if run.status != RunStatus.COMPLETED:
@@ -84,9 +84,11 @@ def request_lift_on_merge(
             "This run has been superseded by a newer run. Request the lift from the latest run instead."
         )
 
-    snapshot = RunSnapshot.objects.using(WRITER_DB).filter(id=snapshot_id, run_id=run.id, team_id=team_id).first()
+    snapshot = (
+        RunSnapshot.objects.using(WRITER_DB).filter(identifier=identifier, run_id=run.id, team_id=team_id).first()
+    )
     if snapshot is None:
-        raise errors.RunNotFoundError(f"Snapshot {snapshot_id} not found in run {run_id}")
+        raise errors.RunNotFoundError(f"Snapshot {identifier} not found in run {run_id}")
     if not snapshot.is_quarantined:
         raise ValueError("This snapshot is not quarantined in this run.")
     quarantine = _active_quarantine(run, snapshot.identifier, timezone.now())
