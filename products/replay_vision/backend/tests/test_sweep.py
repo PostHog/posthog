@@ -196,6 +196,25 @@ class TestFindScannerCandidatesActivity:
         scanner.refresh_from_db()
         assert scanner.enabled is False
 
+    def test_a_legacy_column_targeted_scanner_is_never_disabled(self) -> None:
+        # Scanners that target an experiment through the column predate the lifecycle gate;
+        # flipping them off on deploy would change scanners that exist today.
+        scanner = _make_scanner(experiment_targeting=None)
+        experiment = create_experiment(scanner.team, "legacy-flag", launched=True, variants=["control", "test"])
+        experiment.end_date = timezone.now()
+        experiment.save()
+        ReplayScanner.objects.filter(pk=scanner.pk).update(
+            experiment_targeting={"experiment_id": experiment.id, "variant": None, "variants": None}
+        )
+
+        with _patched_queries():
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
+
     def test_a_paused_experiment_keeps_its_scanner_sweeping(self) -> None:
         # Pausing turns the flag off temporarily; the experiment resumes without a lifecycle
         # change, so the sweep must not disable the scanner over it.

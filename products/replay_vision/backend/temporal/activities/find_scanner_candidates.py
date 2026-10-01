@@ -18,7 +18,7 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
@@ -72,7 +72,11 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> str | None:
 
     None when the scanner watches no experiment or the experiment is still active. A paused
     experiment stays watchable: it resumes without a lifecycle change (see ExperimentStatus).
+    Only the experiment type is judged: a legacy scanner targeting an experiment through the
+    column predates this gate, and flipping those off on deploy is not its call.
     """
+    if scanner.scanner_type != ScannerType.EXPERIMENT:
+        return None
     scope = scanner.experiment_scope()
     experiment_id = (scope or {}).get("experiment_id")
     if experiment_id is None:
