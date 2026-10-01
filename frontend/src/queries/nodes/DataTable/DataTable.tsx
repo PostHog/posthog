@@ -2,18 +2,21 @@ import './DataTable.scss'
 
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, useCallback, useMemo, useState } from 'react'
 
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { createMarketingAnalyticsOrderBy } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -99,6 +102,11 @@ import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
 import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
+
+// Event details render AI conversations and survey responses, which a table needs only once a row expands.
+const EventDetails = lazyWithRetry(() =>
+    import('scenes/activity/explore/EventDetails').then((m) => ({ default: m.EventDetails }))
+)
 
 export enum ColumnFeature {
     canSort = 'canSort',
@@ -757,12 +765,36 @@ export function DataTable({
                         onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
-                            if (isEventsQuery(query.source) && Array.isArray(result)) {
-                                return <EventDetails event={result[columnsInResponse.indexOf('*')] ?? {}} />
+                            const event =
+                                isEventsQuery(query.source) && Array.isArray(result)
+                                    ? (result[columnsInResponse.indexOf('*')] ?? {})
+                                    : result && !Array.isArray(result)
+                                      ? (result as EventType)
+                                      : null
+                            if (!event) {
+                                return undefined
                             }
-                            if (result && !Array.isArray(result)) {
-                                return <EventDetails event={result as EventType} />
-                            }
+                            return (
+                                // The query's ErrorBoundary is nearer than the scene's, so without this a stale
+                                // chunk never reloads. The fallback keeps the table if the reload already ran.
+                                <ChunkLoadErrorBoundary
+                                    fallback={() => (
+                                        <LemonBanner
+                                            type="warning"
+                                            action={{
+                                                children: 'Reload page',
+                                                onClick: () => window.location.reload(),
+                                            }}
+                                        >
+                                            Couldn't load the event details. Reload the page to try again.
+                                        </LemonBanner>
+                                    )}
+                                >
+                                    <Suspense fallback={<Spinner />}>
+                                        <EventDetails event={event} />
+                                    </Suspense>
+                                </ChunkLoadErrorBoundary>
+                            )
                         },
                         rowExpandable: ({ result }: DataTableRow) => !!result,
                         noIndent: true,
