@@ -194,6 +194,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         props = self._person_display_name_property_exprs("person.properties")
         return f"coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id})"
 
+    def _person_display_name_sort_key(self, table: EventsListTable) -> str:
+        return f"({self._person_display_name_key(table)})"
+
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
         person_indices: list[int] = []
@@ -572,8 +575,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         columns: list[str] = []
         for col in order_by_input:
             if col.split("--")[0].strip() == "person_display_name":
-                expr = f"({self._person_display_name_key(table)})"
-                columns.append(re.sub(r"person_display_name -- Person ", expr, col))
+                columns.append(
+                    re.sub(r"person_display_name -- Person ", self._person_display_name_sort_key(table), col)
+                )
             else:
                 columns.append(col)
         return [parse_order_expr(column, timings=self.timings) for column in columns]
@@ -597,8 +601,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 and self.select_input_raw()[0].split("--")[0].strip() == "person_display_name"
             ):
                 # The selected tuple holds distinct_id in place of the name. Sorting by that tuple does not sort by name.
-                sort_key = f"({self._person_display_name_key(table)})"
-                return [ast.OrderExpr(expr=parse_expr(sort_key), order="ASC")]
+                return [ast.OrderExpr(expr=parse_expr(self._person_display_name_sort_key(table)), order="ASC")]
             return [ast.OrderExpr(expr=select[0], order="ASC")]
         return []
 
