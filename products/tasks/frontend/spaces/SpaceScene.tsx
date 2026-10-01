@@ -142,7 +142,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                     <div className="-mx-4 border-b border-border px-4">
                         <TabsList variant="line" aria-label="Space pages">
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
-                                Feed
+                                Activity
                             </TabsTrigger>
                             <TabsTrigger value="settings" data-attr="today-space-tab-settings">
                                 Settings

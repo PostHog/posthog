@@ -13,8 +13,9 @@ facade, so it reaches the service only through ``_service()``, which imports it 
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
-``facade/temporal.py``; the pipeline internals the warehouse writers reuse live in
-``facade/pipeline.py``. Neither may be imported from here.
+``facade/temporal.py``. The destination clients the warehouse writers reuse live in
+``facade/destinations/``, and the stream transformers in ``facade/pipeline.py``. None of
+those may be imported from here.
 """
 
 import datetime as dt
