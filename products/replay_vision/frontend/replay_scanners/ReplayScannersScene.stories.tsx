@@ -151,6 +151,7 @@ const scannerStats: ScannerStatsResponseApi = {
         classifier: { enabled: 0, total: 1 },
         scorer: { enabled: 1, total: 1 },
         summarizer: { enabled: 1, total: 1 },
+        experiment: { enabled: 0, total: 0 },
     },
 }
 
@@ -964,6 +965,7 @@ const emptyProjectDecorators = [
                     classifier: { enabled: 0, total: 0 },
                     scorer: { enabled: 0, total: 0 },
                     summarizer: { enabled: 0, total: 0 },
+                    experiment: { enabled: 0, total: 0 },
                 },
             } satisfies ScannerStatsResponseApi,
             '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
