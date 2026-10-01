@@ -17,6 +17,8 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
 )
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
+_VIEWS = "products.data_warehouse.backend.presentation.views.data_warehouse"
+
 
 def _snapshot(organization_id: object) -> dict[str, object]:
     return {
@@ -109,6 +111,21 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
 
     def _series_url(self, query: str = "metric=query_rate&window=6h") -> str:
         return f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-monitoring-timeseries/?{query}"
+
+    @parameterized.expand([("snapshot",), ("series",)])
+    def test_duckdb_monitoring_returns_404_for_a_trino_organization(self, endpoint: str) -> None:
+        url = self._snapshot_url() if endpoint == "snapshot" else self._series_url()
+        with (
+            patch(f"{_VIEWS}.managed_warehouse.data_ops_variant", return_value="trino"),
+            patch(f"{_VIEWS}.managed_warehouse.monitoring_snapshot_for") as mock_snapshot,
+            patch(f"{_VIEWS}.managed_warehouse.monitoring_series_for") as mock_series,
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert "Trino" in response.json()["error"]
+        mock_snapshot.assert_not_called()
+        mock_series.assert_not_called()
 
     @patch(
         "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
