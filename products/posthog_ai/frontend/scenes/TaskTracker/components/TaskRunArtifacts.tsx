@@ -19,6 +19,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { withStrictCsp } from '../artifactHtml'
 import {
     ARTIFACT_KIND_LABEL,
     ArtifactPreviewKind,
@@ -42,20 +43,6 @@ function KindIcon({ kind }: { kind: ArtifactPreviewKind }): JSX.Element {
         return <IconDatabase />
     }
     return <IconDocument />
-}
-
-// The sandbox stops scripts but not subresources, so the policy keeps the page from fetching anything.
-const ARTIFACT_HTML_CSP =
-    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'"
-
-function withStrictCsp(html: string): string {
-    const meta = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_HTML_CSP}">`
-    const head = /<head[^>]*>/i.exec(html)
-    if (head) {
-        const end = head.index + head[0].length
-        return html.slice(0, end) + meta + html.slice(end)
-    }
-    return `<!doctype html><html><head>${meta}</head><body>${html}</body></html>`
 }
 
 /**
