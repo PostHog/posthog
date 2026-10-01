@@ -27,6 +27,11 @@ const server = await createServer({
 const runner = createServerModuleRunner(server.environments.ssr, {
   hmr: { logger: false },
 });
+// A crash skips the app's teardown, so turn off mouse reports, kitty keys and the alternate screen here too.
+process.once("exit", () => {
+  if (process.stdout.isTTY)
+    process.stdout.write("\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[<u\x1b[?1049l");
+});
 // Ctrl+R in the app: throw away every loaded module and run the app again from disk.
 globalThis.__posthogTuiReload = () =>
   server.environments.ssr.hot.send({ type: "full-reload" });

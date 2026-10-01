@@ -18,6 +18,7 @@ import { isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useLocalChats } from "../hooks/useLocalChats";
+import { useModels } from "../hooks/useModels";
 import { useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { useSheets } from "../hooks/useSheets";
@@ -43,13 +44,7 @@ import {
   splitSizes,
 } from "../layout";
 import type { LocalSession } from "../local";
-import {
-  type ModelChoice,
-  modelSheet,
-  type PiControl,
-  parseSlash,
-  type RunCommand,
-} from "../models";
+import { type PiControl, parseSlash } from "../models";
 import {
   type Click,
   hitTest,
@@ -66,7 +61,6 @@ import { DoublePress, shortcutFor } from "../shortcuts";
 import {
   activateRow,
   cursorIndex,
-  indicatorFor,
   moveSelection,
   selectionKey,
   sidebarRows,
@@ -129,7 +123,8 @@ export function App({
     control: cloudControl,
     startLocal,
   } = session ?? {};
-  const { notice, flashNotice, showNotice, clearNotice } = useNotice();
+  const notice = useNotice();
+  const { flashNotice, showNotice, clearNotice } = notice;
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
@@ -171,15 +166,6 @@ export function App({
     new Map(),
   );
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  // Models: the last list a live run gave us, each task's model, and picks held until a pane's run is live.
-  const knownModels = useRef<ModelChoice[] | null>(null);
-  const [taskModels, setTaskModels] = useState<Map<string, ModelChoice>>(
-    new Map(),
-  );
-  const [heldModels, setHeldModels] = useState<Map<string, ModelChoice>>(
-    new Map(),
-  );
-  const appliedHolds = useRef(new Set<string>());
   // The cursor follows a row's identity, since previewing a chat can move rows.
   const [selected, setSelected] = useState<string | null>(null);
   // Arrows keep walking the sidebar after it hands focus to a chat, until a pane is clicked.
@@ -242,123 +228,15 @@ export function App({
     flashNotice,
   });
 
-  const openModelSheet = (paneId: string, task: Task | undefined): void => {
-    const run = task?.latest_run;
-    const pane = findPane(layout, paneId);
-    const localSession = isLocal(pane?.taskId ?? null)
-      ? localSessions.get(pane?.taskId as string)
-      : undefined;
-    const target = localSession
-      ? { control: localSession.control, taskId: pane?.taskId as string }
-      : task && run && control && indicatorFor(task, false) === "alive"
-        ? { control: control(task.id, run.id), taskId: task.id }
-        : null;
-    if (target) {
-      const live = target.control;
-      showNotice("Loading models…");
-      live.models().then(
-        ({ available, current }) => {
-          clearNotice();
-          knownModels.current = available;
-          if (current)
-            setTaskModels((models) =>
-              new Map(models).set(target.taskId, current),
-            );
-          openModal(
-            paneId,
-            modelSheet(available, current, "Switches this chat's model now."),
-            (index) => {
-              const model = available[index];
-              live.setModel(model).then(
-                () =>
-                  setTaskModels((models) =>
-                    new Map(models).set(target.taskId, model),
-                  ),
-                (error: unknown) =>
-                  flashNotice(`Couldn't switch model: ${messageOf(error)}`),
-              );
-            },
-          );
-        },
-        (error: unknown) =>
-          flashNotice(`Couldn't load models: ${messageOf(error)}`),
-      );
-      return;
-    }
-    const available = knownModels.current;
-    if (!available) {
-      flashNotice(
-        "The model list comes from a running chat. Send a message first.",
-      );
-      return;
-    }
-    const held =
-      heldModels.get(paneId) ?? (task ? taskModels.get(task.id) : undefined);
-    openModal(
-      paneId,
-      modelSheet(
-        available,
-        held ?? null,
-        "Applies once this chat's run starts.",
-      ),
-      (index) =>
-        setHeldModels((models) =>
-          new Map(models).set(paneId, available[index]),
-        ),
-    );
-  };
-
-  // Each live run's slash commands, fetched once and handed to the composer of the pane showing it.
-  const runCommands = useRef(new Map<string, RunCommand[] | "loading">());
-  const commandsShown = useRef(new Map<string, string>());
-  const showRunCommands = (
-    paneId: string,
-    taskId: string,
-    runId: string,
-  ): void => {
-    if (!control) return;
-    const commands = runCommands.current.get(runId);
-    if (commands === undefined) {
-      runCommands.current.set(runId, "loading");
-      control(taskId, runId)
-        .commands()
-        .then(
-          (loaded) => {
-            runCommands.current.set(runId, loaded);
-            showRunCommands(paneId, taskId, runId);
-          },
-          // No retry: a run that cannot list commands just gets the built-in ones.
-          () => runCommands.current.set(runId, []),
-        );
-      return;
-    }
-    if (commands === "loading" || commandsShown.current.get(paneId) === runId)
-      return;
-    commandsShown.current.set(paneId, runId);
-    composerFor(paneId).setCommands(commands);
-  };
-
-  // A pick made while the run was not live is applied as soon as its sandbox is.
-  const onRunLive = (paneId: string, taskId: string, runId: string): void => {
-    showRunCommands(paneId, taskId, runId);
-    const held = heldModels.get(paneId);
-    if (!held || !control || appliedHolds.current.has(runId)) return;
-    appliedHolds.current.add(runId);
-    control(taskId, runId)
-      .setModel(held)
-      .then(
-        () => {
-          setTaskModels((models) => new Map(models).set(taskId, held));
-          setHeldModels((models) => {
-            const next = new Map(models);
-            next.delete(paneId);
-            return next;
-          });
-        },
-        (error: unknown) =>
-          flashNotice(`Couldn't switch model: ${messageOf(error)}`),
-      );
-  };
+  const { openModelSheet, onRunLive, modelName } = useModels({
+    layout,
+    isLocal,
+    localSessions,
+    control,
+    composerFor,
+    openModal,
+    notice,
+  });
 
   const openLoginSheet = (paneId: string, description: string): void => {
     openModal(
@@ -983,10 +861,7 @@ export function App({
               dismissed,
             }}
             modal={modalFor(node.id) ?? null}
-            model={
-              heldModels.get(node.id)?.name ??
-              (node.taskId ? taskModels.get(node.taskId)?.name : undefined)
-            }
+            model={modelName(node.id, node.taskId)}
             onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
             onTurn={(turn) => runningTurns.current.set(node.id, turn)}
             chips={
@@ -1047,7 +922,7 @@ export function App({
     <Box flexGrow={1} paddingBottom={1}>
       <Sidebar
         boxRef={sidebarBox}
-        notice={notice}
+        notice={notice.notice}
         rows={rows}
         focused={sidebarFocused}
         selectedIndex={selectedIndex}
