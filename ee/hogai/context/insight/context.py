@@ -9,7 +9,7 @@ from posthog.sync import database_sync_to_async
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -108,7 +108,7 @@ class InsightContext:
             elif isinstance(e, MaxToolError):
                 raise
             else:
-                raise MaxToolFatalError(error_message) from e
+                raise MaxToolRetryableError(error_message, error_type="internal") from e
 
         return format_prompt_string(
             prompt_template,

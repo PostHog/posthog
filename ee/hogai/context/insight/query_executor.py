@@ -140,6 +140,7 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
                 psycopg.errors.SyntaxError,
                 psycopg.errors.UndefinedColumn,
                 psycopg.errors.UndefinedTable,
+                psycopg.errors.UndefinedFunction,
             ),
         )
         else "internal"

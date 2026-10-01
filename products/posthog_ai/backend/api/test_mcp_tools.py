@@ -325,6 +325,18 @@ class TestMCPToolsAPI(APIBaseTest):
                 "internal",
                 "Tool failed: MaxToolRetryableError: Managed warehouse is not available. You may retry with adjusted inputs.",
             ),
+            (
+                _wrapped_hogql_error(
+                    psycopg.errors.UndefinedFunction("function does not exist"), "Unknown warehouse function"
+                ),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Unknown warehouse function. You may retry with adjusted inputs.",
+            ),
+            (
+                ValueError("Invalid query result encoding"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Invalid query result encoding. You may retry with adjusted inputs.",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -341,6 +353,59 @@ class TestMCPToolsAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"success": False, "content": content, "error_type": error_type})
+
+    @parameterized.expand(
+        [
+            (
+                "query_error",
+                None,
+                "Query failed",
+                "Tool failed: MaxToolRetryableError: Query failed. You may retry with adjusted inputs.",
+            ),
+            (
+                "missing_error_message",
+                None,
+                None,
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query failed. You may retry with adjusted inputs.",
+            ),
+            (
+                "polling_error",
+                ConnectionError("Query status unavailable"),
+                None,
+                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Query status unavailable. You may retry with adjusted inputs.",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    def test_async_query_failures_preserve_recovery_advice(
+        self,
+        _name: str,
+        polling_error: Exception | None,
+        error_message: str | None,
+        content: str,
+        mock_query: Mock,
+        mock_status: Mock,
+        _mock_sleep: AsyncMock,
+    ) -> None:
+        mock_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_status.side_effect = polling_error
+        mock_status.return_value.model_dump.return_value = {
+            "id": "test-query-id",
+            "complete": True,
+            "error": True,
+            "error_message": error_message,
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": "SELECT 1"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "internal"})
 
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
     def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
