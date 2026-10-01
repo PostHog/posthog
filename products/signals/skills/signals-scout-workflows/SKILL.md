@@ -13,8 +13,6 @@ compatibility: >
   `self-optimising-workflows` flag; hold the scout back from a team with the `signals-scout`
   flag's `withheld_skills` until the project has it. Deliberately on neither output channel -
   see "Why this scout files no reports".
-scout-write-scopes:
-  - hog_flow_proposal:write
 metadata:
   owner_team: workflows
   scope: workflows
