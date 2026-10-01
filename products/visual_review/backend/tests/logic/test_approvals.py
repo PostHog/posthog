@@ -4,6 +4,7 @@ import pytest
 
 from django.db import transaction
 
+from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import ReviewState, RunType, SnapshotResult
 from products.visual_review.backend.logic import (
@@ -135,6 +136,30 @@ class TestApproveRun:
 
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
+
+    @pytest.mark.parametrize(
+        ("approve", "tolerate", "expected"),
+        [
+            ([], [], 2),
+            (["A"], ["B"], 1),
+            ([], ["A", "B"], 0),
+        ],
+    )
+    def test_completing_again_reports_what_still_fails_the_gate(self, repo, user, mocker, approve, tolerate, expected):
+        # A re-run of the completing CI job calls complete on a finished run and gates on this
+        # count, so an untouched or approved-but-uncommitted change must still count.
+        run = self._completed_two_change_run(repo, mocker)
+        for identifier in tolerate:
+            toleration.mark_snapshot_as_tolerated(
+                run.id, run.snapshots.get(identifier=identifier).id, user.id, repo.team_id
+            )
+        approvals.approve_snapshots(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": i, "new_hash": f"h{i.lower()}"} for i in approve],
+        )
+
+        assert api.complete_run(run.id, team_id=repo.team_id).summary.unresolved == expected
 
     @pytest.mark.parametrize("add_images", [True, False])
     def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
