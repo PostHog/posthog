@@ -20,6 +20,110 @@ export namespace Schemas {
       name: string;
     }
 
+    /**
+     * * `$ai_trace_id` - $ai_trace_id
+     * * `$ai_session_id` - $ai_session_id
+     * * `$ai_parent_id` - $ai_parent_id
+     * * `$ai_span_id` - $ai_span_id
+     * * `$ai_span_type` - $ai_span_type
+     * * `$ai_generation_id` - $ai_generation_id
+     * * `$ai_experiment_id` - $ai_experiment_id
+     * * `$ai_span_name` - $ai_span_name
+     * * `$ai_trace_name` - $ai_trace_name
+     * * `$ai_prompt_name` - $ai_prompt_name
+     * * `$ai_model` - $ai_model
+     * * `$ai_provider` - $ai_provider
+     * * `$ai_framework` - $ai_framework
+     * * `$ai_total_tokens` - $ai_total_tokens
+     * * `$ai_input_tokens` - $ai_input_tokens
+     * * `$ai_output_tokens` - $ai_output_tokens
+     * * `$ai_text_input_tokens` - $ai_text_input_tokens
+     * * `$ai_text_output_tokens` - $ai_text_output_tokens
+     * * `$ai_image_input_tokens` - $ai_image_input_tokens
+     * * `$ai_image_output_tokens` - $ai_image_output_tokens
+     * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+     * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+     * * `$ai_video_input_tokens` - $ai_video_input_tokens
+     * * `$ai_video_output_tokens` - $ai_video_output_tokens
+     * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+     * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+     * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+     * * `$ai_web_search_count` - $ai_web_search_count
+     * * `$ai_input_cost_usd` - $ai_input_cost_usd
+     * * `$ai_output_cost_usd` - $ai_output_cost_usd
+     * * `$ai_total_cost_usd` - $ai_total_cost_usd
+     * * `$ai_request_cost_usd` - $ai_request_cost_usd
+     * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+     * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+     * * `$ai_image_cost_usd` - $ai_image_cost_usd
+     * * `$ai_video_cost_usd` - $ai_video_cost_usd
+     * * `$ai_latency` - $ai_latency
+     * * `$ai_time_to_first_token` - $ai_time_to_first_token
+     * * `$ai_is_error` - $ai_is_error
+     * * `$ai_error` - $ai_error
+     * * `$ai_error_type` - $ai_error_type
+     * * `$ai_error_normalized` - $ai_error_normalized
+     * * `$ai_input` - $ai_input
+     * * `$ai_output` - $ai_output
+     * * `$ai_output_choices` - $ai_output_choices
+     * * `$ai_input_state` - $ai_input_state
+     * * `$ai_output_state` - $ai_output_state
+     * * `$ai_tools` - $ai_tools
+     */
+    export type AIEventPropertyEnum = typeof AIEventPropertyEnum[keyof typeof AIEventPropertyEnum];
+
+
+    export const AIEventPropertyEnum = {
+      AiTraceId: '$ai_trace_id',
+      AiSessionId: '$ai_session_id',
+      AiParentId: '$ai_parent_id',
+      AiSpanId: '$ai_span_id',
+      AiSpanType: '$ai_span_type',
+      AiGenerationId: '$ai_generation_id',
+      AiExperimentId: '$ai_experiment_id',
+      AiSpanName: '$ai_span_name',
+      AiTraceName: '$ai_trace_name',
+      AiPromptName: '$ai_prompt_name',
+      AiModel: '$ai_model',
+      AiProvider: '$ai_provider',
+      AiFramework: '$ai_framework',
+      AiTotalTokens: '$ai_total_tokens',
+      AiInputTokens: '$ai_input_tokens',
+      AiOutputTokens: '$ai_output_tokens',
+      AiTextInputTokens: '$ai_text_input_tokens',
+      AiTextOutputTokens: '$ai_text_output_tokens',
+      AiImageInputTokens: '$ai_image_input_tokens',
+      AiImageOutputTokens: '$ai_image_output_tokens',
+      AiAudioInputTokens: '$ai_audio_input_tokens',
+      AiAudioOutputTokens: '$ai_audio_output_tokens',
+      AiVideoInputTokens: '$ai_video_input_tokens',
+      AiVideoOutputTokens: '$ai_video_output_tokens',
+      AiReasoningTokens: '$ai_reasoning_tokens',
+      AiCacheReadInputTokens: '$ai_cache_read_input_tokens',
+      AiCacheCreationInputTokens: '$ai_cache_creation_input_tokens',
+      AiWebSearchCount: '$ai_web_search_count',
+      AiInputCostUsd: '$ai_input_cost_usd',
+      AiOutputCostUsd: '$ai_output_cost_usd',
+      AiTotalCostUsd: '$ai_total_cost_usd',
+      AiRequestCostUsd: '$ai_request_cost_usd',
+      AiWebSearchCostUsd: '$ai_web_search_cost_usd',
+      AiAudioCostUsd: '$ai_audio_cost_usd',
+      AiImageCostUsd: '$ai_image_cost_usd',
+      AiVideoCostUsd: '$ai_video_cost_usd',
+      AiLatency: '$ai_latency',
+      AiTimeToFirstToken: '$ai_time_to_first_token',
+      AiIsError: '$ai_is_error',
+      AiError: '$ai_error',
+      AiErrorType: '$ai_error_type',
+      AiErrorNormalized: '$ai_error_normalized',
+      AiInput: '$ai_input',
+      AiOutput: '$ai_output',
+      AiOutputChoices: '$ai_output_choices',
+      AiInputState: '$ai_input_state',
+      AiOutputState: '$ai_output_state',
+      AiTools: '$ai_tools',
+    } as const;
+
     export type AIEventType = typeof AIEventType[keyof typeof AIEventType];
 
 
@@ -1613,6 +1717,18 @@ export namespace Schemas {
       value?: (string | number | boolean)[] | string | number | boolean | null;
     }
 
+    export interface AccountDetailTabsConfig {
+      /** Tab identifiers in the user's preferred order. */
+      ordered_tab_ids: string[];
+      /** Tab identifiers hidden from the tab strip. */
+      hidden_tab_ids: string[];
+      /**
+         * Tab identifier opened by default. Null uses the first available system tab.
+         * @nullable
+         */
+      default_tab_id: string | null;
+    }
+
     export interface ConversationMessageSender {
       /** Display name of the message sender. */
       readonly name: string;
@@ -1869,6 +1985,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship
+     */
+    export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
+
+
+    export const AccountPropertyPinKindEnum = {
+      CustomProperty: 'custom_property',
+      Relationship: 'relationship',
+    } as const;
+
+    /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
     export interface AccountRelationshipDefinition {
@@ -2088,6 +2216,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `private` - Personal
+     * * `team` - Team
+     */
+    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+
+
+    export const AccountViewVisibilityEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    /**
      * * `doc` - doc
      */
     export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
@@ -2144,8 +2284,11 @@ export namespace Schemas {
       readonly id: string;
       /** Name shown in the account view. */
       readonly name: string;
-      /** Account views created through this API are private. */
-      readonly visibility: string;
+      /** Whether the view is personal or available to the project.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      readonly visibility: AccountViewVisibilityEnum;
       /** Validated Markdown notebook document. */
       readonly content: AccountViewContent;
       /** Searchable component labels extracted from content. */
@@ -2166,6 +2309,12 @@ export namespace Schemas {
       readonly created_at: string;
       /** When the view was last changed. */
       readonly updated_at: string;
+      /** Whether the requesting user can edit the view. */
+      readonly can_edit: boolean;
+      /** Whether the requesting user can delete the view. */
+      readonly can_delete: boolean;
+      /** Whether the requesting user can change the view visibility. */
+      readonly can_change_visibility: boolean;
     }
 
     export interface AccountViewCreate {
@@ -2178,16 +2327,6 @@ export namespace Schemas {
       content: AccountViewContent;
     }
 
-    /**
-     * * `private` - Personal
-     */
-    export type AccountViewUpdateVisibilityEnum = typeof AccountViewUpdateVisibilityEnum[keyof typeof AccountViewUpdateVisibilityEnum];
-
-
-    export const AccountViewUpdateVisibilityEnum = {
-      Private: 'private',
-    } as const;
-
     export interface AccountViewUpdate {
       /**
          * New view name. Omit to keep the current name.
@@ -2196,10 +2335,11 @@ export namespace Schemas {
       name?: string;
       /** Replacement account view components. Omit to keep current content. */
       content?: AccountViewContent;
-      /** Views can only be private.
+      /** New visibility. Only the creator or a project admin can change it.
        *
-       * * `private` - Personal */
-      visibility?: AccountViewUpdateVisibilityEnum;
+       * * `private` - Personal
+       * * `team` - Team */
+      visibility?: AccountViewVisibilityEnum;
       /**
          * Version returned by the last read.
          * @minimum 1
@@ -23043,6 +23183,40 @@ export namespace Schemas {
       token: string;
     }
 
+    export interface ContentAutopilotBriefCompetitor {
+      /** Product to compare against. */
+      name: string;
+      /** The product's own page to research. */
+      url: string;
+    }
+
+    export interface ContentAutopilotBrief {
+      /** What the person asking wants to know or decide. */
+      intent?: string;
+      /** Who the content is for. */
+      audience?: string;
+      /** Whether the brief recommends new_content or page_improvement. */
+      recommended_type?: string;
+      /** Site page the brief chose to improve. Empty for a new page. */
+      target_page?: string;
+      /** Site pages the brief asked to read for facts. */
+      site_pages_to_read?: string[];
+      /** Products the brief asked to research for a comparison. */
+      competitors_to_research?: ContentAutopilotBriefCompetitor[];
+      /** Working title for the page. */
+      working_title?: string;
+      /** Planned sections, in order. */
+      outline?: string[];
+      /** Questions the page must answer. */
+      questions_to_answer?: string[];
+      /** Topics the cited competitor pages cover that the site's pages don't. */
+      competitor_coverage?: string[];
+      /** What AI answer engines currently say, including what they get wrong. */
+      engine_answer_summary?: string;
+      /** What the question means, when AI answer engines misread which product or company it asks about. */
+      disambiguation?: string;
+    }
+
     export interface ContentAutopilotEngineAnswer {
       /** Answer engine that gave the answer. */
       engine: string;
@@ -23143,6 +23317,10 @@ export namespace Schemas {
       internal_links: string[];
       /** Portable source notes included with the export. */
       source_notes: string[];
+      /** JSON-LD structured data to embed in the page, such as an FAQPage document. */
+      json_ld?: string;
+      /** Suggested llms.txt entry for the page. */
+      llms_txt_line?: string;
     }
 
     export interface ContentAutopilotExportResponse {
@@ -23238,6 +23416,17 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ContentAutopilotOpportunityDraftRequest {
+      /** Site profile the opportunities belong to. */
+      profile_id: string;
+      /**
+         * Opportunities to draft, up to 5 at a time.
+         * @minItems 1
+         * @maxItems 5
+         */
+      opportunity_ids: string[];
+    }
+
     export interface ContentAutopilotOpportunityRefreshRequest {
       /** Site profile to refresh opportunities for. */
       profile_id: string;
@@ -23281,6 +23470,32 @@ export namespace Schemas {
       checks: ContentAutopilotValidationCheck[];
     }
 
+    /**
+     * * `site` - site
+     * * `competitor` - competitor
+     */
+    export type ContentAutopilotSourceLedgerEntryKindEnum = typeof ContentAutopilotSourceLedgerEntryKindEnum[keyof typeof ContentAutopilotSourceLedgerEntryKindEnum];
+
+
+    export const ContentAutopilotSourceLedgerEntryKindEnum = {
+      Site: 'site',
+      Competitor: 'competitor',
+    } as const;
+
+    export interface ContentAutopilotSourceLedgerEntry {
+      /** Factual claim the draft makes. */
+      claim: string;
+      /** Page that supports the claim. */
+      source_url: string;
+      /** Short quote from the source page. */
+      quote: string;
+      /** Whether the source is one of the site's pages or a competitor's own page.
+       *
+       * * `site` - site
+       * * `competitor` - competitor */
+      kind?: ContentAutopilotSourceLedgerEntryKindEnum;
+    }
+
     export interface ContentAutopilotProposal {
       readonly id: string;
       /** Run that generated this proposal. */
@@ -23314,6 +23529,10 @@ export namespace Schemas {
       readonly original_markdown: string;
       /** Full proposed Markdown after edits. */
       readonly proposed_markdown: string;
+      /** Content brief the draft was written from. */
+      brief: ContentAutopilotBrief;
+      /** Factual claims in the draft and the site pages that support them. */
+      source_ledger: ContentAutopilotSourceLedgerEntry[];
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -40654,6 +40873,14 @@ export namespace Schemas {
       matches: EventMatch[];
     }
 
+    export type EventMatchScope = typeof EventMatchScope[keyof typeof EventMatchScope];
+
+
+    export const EventMatchScope = {
+      Recording: 'recording',
+      Session: 'session',
+    } as const;
+
     /**
      * * `DateTime` - DateTime
      * * `String` - String
@@ -41421,10 +41648,10 @@ export namespace Schemas {
       Product: 'product',
     } as const;
 
-    export type Kind1 = typeof Kind1[keyof typeof Kind1];
+    export type Kind2 = typeof Kind2[keyof typeof Kind2];
 
 
-    export const Kind1 = {
+    export const Kind2 = {
       ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -41435,7 +41662,7 @@ export namespace Schemas {
       /** Action ID. Required when kind is 'ActionsNode'. */
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
-      kind?: Kind1 | null;
+      kind?: Kind2 | null;
       /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
       properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
     }
@@ -41449,10 +41676,10 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
-    export type Kind = typeof Kind[keyof typeof Kind];
+    export type Kind1 = typeof Kind1[keyof typeof Kind1];
 
 
-    export const Kind = {
+    export const Kind1 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
     } as const;
@@ -41462,7 +41689,7 @@ export namespace Schemas {
       event?: string | null;
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
-      kind: Kind;
+      kind: Kind1;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -41485,10 +41712,10 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
-    export type Kind2 = typeof Kind2[keyof typeof Kind2];
+    export type Kind3 = typeof Kind3[keyof typeof Kind3];
 
 
-    export const Kind2 = {
+    export const Kind3 = {
       EventsNode: 'EventsNode',
       ActionsNode: 'ActionsNode',
       ExperimentExposureNode: 'ExperimentExposureNode',
@@ -41500,7 +41727,7 @@ export namespace Schemas {
       /** Action ID. Required for ActionsNode. */
       id?: number | null;
       /** Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset. */
-      kind: Kind2;
+      kind: Kind3;
       /** How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'. */
       math?: ExperimentMetricMathType | null;
       /** Group type index to aggregate over. Required when math is 'unique_group'. */
@@ -49131,6 +49358,18 @@ export namespace Schemas {
       size_bytes: number;
     }
 
+    /**
+     * * `review` - review
+     * * `observe` - observe
+     */
+    export type PurposeEnum = typeof PurposeEnum[keyof typeof PurposeEnum];
+
+
+    export const PurposeEnum = {
+      Review: 'review',
+      Observe: 'observe',
+    } as const;
+
     export interface RunSummary {
       total: number;
       changed: number;
@@ -49145,6 +49384,11 @@ export namespace Schemas {
 
     export interface Run {
       approved_by?: UserBasicInfo | null;
+      /** Why CI submitted the run. `review` runs gate the PR and need approval. `observe` runs are tracking-only, for example default-branch pushes and merge-queue runs, and can never be approved.
+       *
+       * * `review` - review
+       * * `observe` - observe */
+      readonly purpose: PurposeEnum;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
        *
        * * `exact` - exact
@@ -54093,6 +54337,8 @@ export namespace Schemas {
       date_from?: string | null;
       date_to?: string | null;
       distinct_ids?: string[] | null;
+      /** Where a filter that is evaluated against events must match. 'session' (default) matches an event anywhere in the session, including before the recording started or after it ended. 'recording' only matches events from one minute before the recording starts until one minute after it ends. This applies to every filter the events table answers: events, actions, event properties, and, when the project resolves them on events, person, group, and cohort properties. */
+      event_match_scope?: EventMatchScope | null;
       events?: RecordingsQueryEvents;
       /** Only sessions of persons exposed to this experiment, each ending at or after the person's first exposure as the experiment's exposure criteria count it. Resolved server-side from the experiment, so it links sessions even when the exposure events themselves carry no session id (e.g. server-side SDKs). Composes with the query's date range like any other filter, so set date_from to the experiment's start (or earlier) to cover the full run: the default window only reaches back a few days. */
       experiment_exposure?: RecordingsQueryExperimentExposureFilter | null;
@@ -64338,6 +64584,13 @@ export namespace Schemas {
       data: OfflineExperimentItemPayloadInput | null;
     }
 
+    export interface OfflineResultCells {
+      /** Selected authorized versions, including versions with no results for these items. */
+      scorer_versions: OfflineScorerVersionRead[];
+      /** Submitted results for the exact selected items and versions; at most 1,000 cells. */
+      results: OfflineResultCell[];
+    }
+
     export interface OfflineResultRead {
       /** Stable result UUID. */
       id: string;
@@ -66116,6 +66369,8 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: EnterpriseEventDefinition[];
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+      count_is_capped?: boolean;
     }
 
     export interface PaginatedEnterprisePropertyDefinitionList {
@@ -78063,6 +78318,16 @@ export namespace Schemas {
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
     }
 
+    export interface TeamCustomerAnalyticsPinnedAccountProperty {
+      /** Definition type for this default pinned account property.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship */
+      kind: AccountPropertyPinKindEnum;
+      /** Project-scoped custom property or relationship definition UUID. */
+      id: string;
+    }
+
     export interface TeamCustomerAnalyticsConfig {
       /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
@@ -78079,6 +78344,8 @@ export namespace Schemas {
          * @nullable
          */
       account_group_type_index?: number | null;
+      /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+      default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountProperty[];
     }
 
     export interface TeamWorkflowsConfig {
@@ -79310,8 +79577,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews?: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features?: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected?: boolean;
     }
@@ -81516,24 +81785,12 @@ export namespace Schemas {
       readonly requires_credential_review?: boolean;
     }
 
-    /**
-     * * `custom_property` - Custom property
-     * * `relationship` - Relationship
-     */
-    export type PinnedAccountPropertyKindEnum = typeof PinnedAccountPropertyKindEnum[keyof typeof PinnedAccountPropertyKindEnum];
-
-
-    export const PinnedAccountPropertyKindEnum = {
-      CustomProperty: 'custom_property',
-      Relationship: 'relationship',
-    } as const;
-
     export interface PinnedAccountProperty {
       /** Definition type for this pinned account property.
        *
        * * `custom_property` - Custom property
        * * `relationship` - Relationship */
-      kind: PinnedAccountPropertyKindEnum;
+      kind: AccountPropertyPinKindEnum;
       /** Team-scoped custom property or relationship definition UUID. */
       id: string;
     }
@@ -81567,6 +81824,8 @@ export namespace Schemas {
       pinned_properties?: PinnedAccountProperty[];
       /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
       task_digest?: TaskDigestPreferencesUpdate;
+      /** Complete personal account tab configuration. Omit to keep it unchanged. */
+      account_detail_tabs?: AccountDetailTabsConfig;
     }
 
     /**
@@ -82464,6 +82723,8 @@ export namespace Schemas {
     /**
      * * `business-knowledge-documents-search` - Search
      * * `business-knowledge-document-window-retrieve` - Window
+     * * `business-knowledge-repositories-search` - Repository search
+     * * `business-knowledge-repositories-file-retrieve` - Repository file
      */
     export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
 
@@ -82471,13 +82732,17 @@ export namespace Schemas {
     export const SandboxToolNameEnum = {
       BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
       BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+      BusinessKnowledgeRepositoriesSearch: 'business-knowledge-repositories-search',
+      BusinessKnowledgeRepositoriesFileRetrieve: 'business-knowledge-repositories-file-retrieve',
     } as const;
 
     export interface SandboxSearch {
       /** Business knowledge tool the agent called.
        *
        * * `business-knowledge-documents-search` - Search
-       * * `business-knowledge-document-window-retrieve` - Window */
+       * * `business-knowledge-document-window-retrieve` - Window
+       * * `business-knowledge-repositories-search` - Repository search
+       * * `business-knowledge-repositories-file-retrieve` - Repository file */
       tool: SandboxToolNameEnum;
       /** Tool input the agent sent. */
       input: string;
@@ -84571,8 +84836,59 @@ export namespace Schemas {
      * Request body for upserting a rule (create or update).
      */
     export interface PropertyAccessControlUpdate {
-      /** The property definition ID this rule applies to. */
-      property_definition_id: string;
+      /** The existing property definition ID. Provide this or ai_property. */
+      property_definition_id?: string;
+      /** A built-in AI event property. Creates its definition if missing. Provide this or property_definition_id.
+       *
+       * * `$ai_trace_id` - $ai_trace_id
+       * * `$ai_session_id` - $ai_session_id
+       * * `$ai_parent_id` - $ai_parent_id
+       * * `$ai_span_id` - $ai_span_id
+       * * `$ai_span_type` - $ai_span_type
+       * * `$ai_generation_id` - $ai_generation_id
+       * * `$ai_experiment_id` - $ai_experiment_id
+       * * `$ai_span_name` - $ai_span_name
+       * * `$ai_trace_name` - $ai_trace_name
+       * * `$ai_prompt_name` - $ai_prompt_name
+       * * `$ai_model` - $ai_model
+       * * `$ai_provider` - $ai_provider
+       * * `$ai_framework` - $ai_framework
+       * * `$ai_total_tokens` - $ai_total_tokens
+       * * `$ai_input_tokens` - $ai_input_tokens
+       * * `$ai_output_tokens` - $ai_output_tokens
+       * * `$ai_text_input_tokens` - $ai_text_input_tokens
+       * * `$ai_text_output_tokens` - $ai_text_output_tokens
+       * * `$ai_image_input_tokens` - $ai_image_input_tokens
+       * * `$ai_image_output_tokens` - $ai_image_output_tokens
+       * * `$ai_audio_input_tokens` - $ai_audio_input_tokens
+       * * `$ai_audio_output_tokens` - $ai_audio_output_tokens
+       * * `$ai_video_input_tokens` - $ai_video_input_tokens
+       * * `$ai_video_output_tokens` - $ai_video_output_tokens
+       * * `$ai_reasoning_tokens` - $ai_reasoning_tokens
+       * * `$ai_cache_read_input_tokens` - $ai_cache_read_input_tokens
+       * * `$ai_cache_creation_input_tokens` - $ai_cache_creation_input_tokens
+       * * `$ai_web_search_count` - $ai_web_search_count
+       * * `$ai_input_cost_usd` - $ai_input_cost_usd
+       * * `$ai_output_cost_usd` - $ai_output_cost_usd
+       * * `$ai_total_cost_usd` - $ai_total_cost_usd
+       * * `$ai_request_cost_usd` - $ai_request_cost_usd
+       * * `$ai_web_search_cost_usd` - $ai_web_search_cost_usd
+       * * `$ai_audio_cost_usd` - $ai_audio_cost_usd
+       * * `$ai_image_cost_usd` - $ai_image_cost_usd
+       * * `$ai_video_cost_usd` - $ai_video_cost_usd
+       * * `$ai_latency` - $ai_latency
+       * * `$ai_time_to_first_token` - $ai_time_to_first_token
+       * * `$ai_is_error` - $ai_is_error
+       * * `$ai_error` - $ai_error
+       * * `$ai_error_type` - $ai_error_type
+       * * `$ai_error_normalized` - $ai_error_normalized
+       * * `$ai_input` - $ai_input
+       * * `$ai_output` - $ai_output
+       * * `$ai_output_choices` - $ai_output_choices
+       * * `$ai_input_state` - $ai_input_state
+       * * `$ai_output_state` - $ai_output_state
+       * * `$ai_tools` - $ai_tools */
+      ai_property?: AIEventPropertyEnum;
       /** The access level to set for this rule.
        *
        * * `read_write` - read_write
@@ -89610,6 +89926,74 @@ export namespace Schemas {
       signals: SignalNode[];
     }
 
+    /**
+     * * `ready` - Ready
+     * * `warming` - Warming
+     */
+    export type RepositoryCacheStatusEnum = typeof RepositoryCacheStatusEnum[keyof typeof RepositoryCacheStatusEnum];
+
+
+    export const RepositoryCacheStatusEnum = {
+      Ready: 'ready',
+      Warming: 'warming',
+    } as const;
+
+    export interface RepositoryCacheState {
+      /** Lowercased owner/repo. */
+      repo: string;
+      /** True when the cached file list is incomplete because the repository has too many files. */
+      tree_truncated: boolean;
+      /** ready means the file list was cached recently. warming means a refresh was just queued.
+       *
+       * * `ready` - Ready
+       * * `warming` - Warming */
+      cache_status: RepositoryCacheStatusEnum;
+    }
+
+    export interface RepositoryConnect {
+      /** Id of a GitHub integration on this environment. */
+      integration_id: number;
+    }
+
+    export interface RepositoryConnection {
+      /** True when a GitHub installation is connected for this environment. */
+      connected: boolean;
+      /**
+         * Connected GitHub integration id, or null when GitHub is not connected.
+         * @nullable
+         */
+      integration_id: number | null;
+      /** GitHub account name for the connected installation. Empty when GitHub is not connected. */
+      integration_name: string;
+      /** Lowercased owner/repo names business knowledge is allowed to read. */
+      repos: string[];
+    }
+
+    export interface RepositoryFile {
+      /** Lowercased owner/repo. */
+      repo: string;
+      /** File path that was read. */
+      path: string;
+      /** Permalink for this file at the cached commit. Cite this when you use the file. */
+      url: string;
+      /** File text, cut off at 32,000 characters. */
+      content: string;
+      /** True when content was cut off at 32,000 characters. */
+      truncated: boolean;
+    }
+
+    /**
+     * * `path` - Path
+     * * `readme` - Readme
+     */
+    export type RepositoryHitKindEnum = typeof RepositoryHitKindEnum[keyof typeof RepositoryHitKindEnum];
+
+
+    export const RepositoryHitKindEnum = {
+      Path: 'path',
+      Readme: 'readme',
+    } as const;
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -89650,6 +90034,37 @@ export namespace Schemas {
       cacheAgeSeconds: number;
       /** Scan evidence details */
       scan?: ScanEvidence;
+    }
+
+    export interface RepositorySearchHit {
+      /** Lowercased owner/repo the hit came from. */
+      repo: string;
+      /** File path. Empty for a README hit. */
+      path: string;
+      /** Permalink for the hit. Cite this when you use the hit. */
+      url: string;
+      /** path is a file name match. readme is a short excerpt of the repository README.
+       *
+       * * `path` - Path
+       * * `readme` - Readme */
+      kind: RepositoryHitKindEnum;
+      /** Short README excerpt. Empty for a path hit. */
+      excerpt: string;
+    }
+
+    export interface RepositorySearchResponse {
+      /** Path matches, then README excerpts. */
+      results: RepositorySearchHit[];
+      /** Cache state for each repository that was searched. */
+      repositories: RepositoryCacheState[];
+    }
+
+    export interface RepositorySelection {
+      /**
+         * owner/repo names to allow. At most 20. Replaces the current list.
+         * @maxItems 20
+         */
+      repos: string[];
     }
 
     export interface RescoreRequest {
@@ -90813,8 +91228,10 @@ export namespace Schemas {
        * * `should_fix` - Should Fix
        * * `must_fix` - Must Fix */
       urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnum;
-      /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
+      /** Whether reviews can be started from this project's Code review page. */
       readonly can_trigger_reviews: boolean;
+      /** Whether to show Flash mode and settings for automatic, label-triggered, and Inbox reviews. */
+      readonly show_internal_features: boolean;
       /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
       readonly stamphog_connected: boolean;
     }
@@ -104076,6 +104493,8 @@ export namespace Schemas {
       readonly pinned_properties: readonly PinnedAccountProperty[];
       /** Task digest email preferences. Disabled until the user turns the digest on. */
       readonly task_digest: TaskDigestPreferences;
+      /** Personal order, visibility, and default for account tabs. */
+      readonly account_detail_tabs: AccountDetailTabsConfig;
     }
 
     export interface UserFacetSettings {
@@ -104995,6 +105414,7 @@ export namespace Schemas {
      * * `rare_tag` - Rare Tag
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
+     * * `jev_watchable` - Jev Watchable
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
@@ -105010,6 +105430,7 @@ export namespace Schemas {
       RareTag: 'rare_tag',
       NovelSummary: 'novel_summary',
       Friction: 'friction',
+      JevWatchable: 'jev_watchable',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
@@ -105028,7 +105449,7 @@ export namespace Schemas {
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `signal_emitted` - Signal Emitted
        * * `unusual_verdict` - Unusual Verdict
@@ -105038,6 +105459,7 @@ export namespace Schemas {
        * * `rare_tag` - Rare Tag
        * * `novel_summary` - Novel Summary
        * * `friction` - Friction
+       * * `jev_watchable` - Jev Watchable
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
@@ -105066,7 +105488,12 @@ export namespace Schemas {
          */
       notability?: number | null;
       /**
-         * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+         * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
+         * @nullable
+         */
+      jev_probability?: number | null;
+      /**
+         * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
          * @nullable
          */
       notability_reason?: string | null;
@@ -109469,6 +109896,43 @@ export namespace Schemas {
     include_plans?: boolean;
     };
 
+    export type BillingSpendExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
     export type BillingSpendTimeseriesRetrieveParams = {
     /**
      * JSON-encoded array of breakdown dimensions. Valid values are "type" and "team", for example ["type","team"]. Omit for a single aggregate series.
@@ -109496,6 +109960,43 @@ export namespace Schemas {
      * @nullable
      */
     limit?: number | null;
+    /**
+     * @nullable
+     */
+    start_date?: string | null;
+    /**
+     * JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.
+     * @nullable
+     */
+    team_ids?: string | null;
+    /**
+     * With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.
+     * @minimum 1
+     * @maximum 200
+     * @nullable
+     */
+    top_projects?: number | null;
+    /**
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * @nullable
+     */
+    usage_types?: string | null;
+    };
+
+    export type BillingUsageExportDownloadParams = {
+    /**
+     * JSON-encoded array of breakdown dimensions. Omit it for one series across the whole organization. Pass `["type"]` for a series per product. Pass `["type","team"]` for a series per product per project. To break usage down by project, pass `"type"` with `"team"`: billing counts usage per product, and the counts do not add up across products.
+     * @nullable
+     */
+    breakdowns?: string | null;
+    /**
+     * @nullable
+     */
+    end_date?: string | null;
+    /**
+     * @nullable
+     */
+    interval?: string | null;
     /**
      * @nullable
      */
@@ -110926,6 +111427,21 @@ export namespace Schemas {
     scorer_version_ids?: string;
     };
 
+    export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
+    /**
+     * Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.
+     * @minLength 1
+     * @maxLength 1849
+     */
+    item_ids: string;
+    /**
+     * Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.
+     * @minLength 1
+     * @maxLength 739
+     */
+    scorer_version_ids: string;
+    };
+
     export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -111375,6 +111891,31 @@ export namespace Schemas {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
+    };
+
+    export type BusinessKnowledgeRepositoriesFileRetrieveParams = {
+    /**
+     * File path returned by the repository search.
+     * @minLength 1
+     */
+    path: string;
+    /**
+     * owner/repo to read. It must already be selected.
+     * @minLength 1
+     */
+    repo: string;
+    };
+
+    export type BusinessKnowledgeRepositoriesSearchParams = {
+    /**
+     * File names, path fragments, or identifiers to match. Not a full sentence.
+     * @minLength 1
+     */
+    query: string;
+    /**
+     * Limit the search to this owner/repo. It must already be selected. Omit to search every selected repository.
+     */
+    repo?: string;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
@@ -114551,6 +115092,10 @@ export namespace Schemas {
 
     export type EventDefinitionsListParams = {
     /**
+     * `event_custom` keeps only names without a `$` prefix and `event_posthog` only names with one. Default `event`.
+     */
+    event_type?: EventDefinitionsListEventType;
+    /**
      * When true, omit events that have been explicitly hidden by a team admin (Enterprise only).
      */
     exclude_hidden?: boolean;
@@ -114559,7 +115104,12 @@ export namespace Schemas {
      */
     exclude_stale?: boolean;
     /**
+     * JSON-encoded list of event names to omit. The name matches the property definitions endpoint that shares it.
+     */
+    excluded_properties?: string;
+    /**
      * Number of results to return per page.
+     * @minimum 1
      */
     limit?: number;
     /**
@@ -114568,9 +115118,35 @@ export namespace Schemas {
     names?: string[];
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * Sort keys, prefixed with `-` for descending. Default `-last_seen_at::date` then `name`. Projects with more than 100000 event definitions default to `name`, unless the request sets `search`, `exclude_stale`, `verified`, `names`, `tags` or `event_type=event_posthog`.
+     */
+    ordering?: string[];
+    /**
+     * Case-insensitive match on the event name. Every whitespace-separated term has to match.
+     */
+    search?: string;
+    /**
+     * JSON-encoded list of tag names. Keeps events that carry any of them.
+     */
+    tags?: string;
+    /**
+     * When true, keep only verified events and core PostHog events. When false, keep the rest (Enterprise only).
+     */
+    verified?: boolean;
     };
+
+    export type EventDefinitionsListEventType = typeof EventDefinitionsListEventType[keyof typeof EventDefinitionsListEventType];
+
+
+    export const EventDefinitionsListEventType = {
+      Event: 'event',
+      EventCustom: 'event_custom',
+      EventPosthog: 'event_posthog',
+    } as const;
 
     export type EventDefinitionsByNameRetrieveParams = {
     /**

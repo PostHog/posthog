@@ -759,7 +759,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_error_handling() {
-        let redis_client = setup_redis_client(Some("redis://localhost:6379/".to_string())).await;
+        let redis_client = setup_redis_client(None).await;
         let context = TestContext::new(None).await;
 
         // Test malformed JSON in Redis (using Django-compatible hypercache key format)

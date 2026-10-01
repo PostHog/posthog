@@ -9,7 +9,7 @@ use feature_flags::flags::flag_models::FeatureFlag;
 use serde_json::{json, Value};
 
 pub fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.2.0")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/rules_v2_evaluation/2.3.0")
 }
 
 pub fn load(path: &str) -> Value {
@@ -18,6 +18,13 @@ pub fn load(path: &str) -> Value {
 
 pub fn cases() -> Vec<Value> {
     load("corpus/v2_boolean_evaluation.json")["cases"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+pub fn value_cases() -> Vec<Value> {
+    load("corpus/v2_value_evaluation.json")["cases"]
         .as_array()
         .unwrap()
         .clone()

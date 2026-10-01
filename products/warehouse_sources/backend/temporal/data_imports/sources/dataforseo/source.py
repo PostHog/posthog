@@ -139,6 +139,8 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
             "DataForSEO API error [40210]": insufficient_funds_message,
             "DataForSEO API error [40201]": "Your DataForSEO account is blocked. Contact DataForSEO support to restore access, then resync.",
             "DataForSEO API error [40203]": "Your DataForSEO daily spending limit was exceeded. Raise the limit in your DataForSEO account settings or wait for it to reset, then resync.",
+            # Raised by `source_for_pipeline`; the raw message already names the table and the fix.
+            "table is keyword-scoped. Add at least one keyword to the DataForSEO source": None,
         }
 
     def get_retryable_errors(self) -> set[str]:

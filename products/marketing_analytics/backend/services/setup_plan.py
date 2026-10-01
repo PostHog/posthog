@@ -282,16 +282,13 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
     source_type = integration.source_type
     ds = integration.data_source
     attribution = integration.attribution
-    # Exact and fuzzy source matches do not overlap, so both contribute to the source volume.
-    volume = (
-        attribution.events_matched_last_7d + attribution.events_unmatched_likely_yours_last_7d if attribution else 0
-    )
-
     if status == "events_only":
         # Organic and referral links can carry both utm_source and utm_campaign.
         if attribution is None or attribution.events_matched_paid_last_7d == 0:
             return None
 
+        paid_volume = attribution.events_matched_paid_last_7d
+        event_label = "event" if paid_volume == 1 else "events"
         # Traffic arrives but no spend data, so cost, ROAS and CAC are all unavailable.
         return Suggestion(
             id=f"connect_source:{key}",
@@ -300,13 +297,13 @@ def _integration_suggestion(integration: IntegrationDiagnostic) -> Suggestion | 
             confidence=0.95,
             title=f"Connect {display}",
             evidence=(
-                f"{volume:,} events in the last 7 days carry a {display} utm_source, "
-                "including traffic with paid attribution. Connect the platform to add spend data."
+                f"Detected {paid_volume:,} {event_label} with paid attribution signals for {display} "
+                "in the last 7 days. Connect the platform to add spend data."
             ),
             unlocks=[Capability.COST, Capability.ROAS, Capability.CAC],
             apply=OpenSourceWizard(kind=source_type),
             integration=source_type,
-            event_volume=volume,
+            event_volume=paid_volume,
         )
 
     if status == "sync_broken":
