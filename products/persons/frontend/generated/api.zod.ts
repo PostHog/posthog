@@ -127,13 +127,3 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
         .default(personsBulkDeleteCreateBodyKeepPersonDefault)
         .describe('If true, keep the person records but delete their events and recordings.'),
 })
-
-/**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
- */
-export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({
-    properties: zod
-        .unknown()
-        .optional()
-        .describe('Key-value map of person properties set via $set and $set_once operations.'),
-})

@@ -36,7 +36,6 @@ import type {
     PersonsPropertiesAtTimeRetrieveParams,
     PersonsPropertiesTimelineRetrieveParams,
     PersonsPushNotificationsListParams,
-    PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
     PersonsSplitCreateParams,
     PersonsUpdateParams,
@@ -677,42 +676,6 @@ export const personsPropertiesAtTimeRetrieve = async (
     return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getPersonsResetPersonDistinctIdCreateUrl = (
-    projectId: string,
-    params?: PersonsResetPersonDistinctIdCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/reset_person_distinct_id/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/reset_person_distinct_id/`
-}
-
-/**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
- */
-export const personsResetPersonDistinctIdCreate = async (
-    projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
-    params?: PersonsResetPersonDistinctIdCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsResetPersonDistinctIdCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
     })
 }
 
