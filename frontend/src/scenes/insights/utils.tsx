@@ -862,9 +862,9 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
         return 'product_analytics'
     }
 
-    let nodeKind: NodeKind
+    let nodeKind: NodeKind | undefined
     if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
-        nodeKind = query.source.kind
+        nodeKind = query.source?.kind
     } else {
         nodeKind = query.kind
     }
@@ -883,7 +883,7 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
         [NodeKind.DataTableNode]: 'insight/hog',
     }
 
-    const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
+    const mappedIconType: FileSystemIconType = (nodeKind && nodeKindToColor[nodeKind]) || 'product_analytics'
 
     return mappedIconType
 }
