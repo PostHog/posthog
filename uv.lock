@@ -3453,17 +3453,6 @@ wheels = [
 ]
 
 [[package]]
-name = "infi-clickhouse-orm"
-version = "2.1.0.post20"
-source = { git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5#4e3996becf66bf5c26580aff12a80425d9d56fe5" }
-dependencies = [
-    { name = "iso8601" },
-    { name = "pytz" },
-    { name = "requests" },
-    { name = "setuptools" },
-]
-
-[[package]]
 name = "inflect"
 version = "5.6.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3521,15 +3510,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ef/4c/5dd1d8af08107f88c7f741ead7a40854b8ac24ddf9ae850afbcf698aa552/ipython_pygments_lexers-1.1.1.tar.gz", hash = "sha256:09c0138009e56b6854f9535736f4171d855c8c08a563a0dcd8022f78355c7e81", size = 8393, upload-time = "2025-01-17T11:24:34.505Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d9/33/1f075bf72b0b747cb3288d011319aaf64083cf2efef8354174e3ed4540e2/ipython_pygments_lexers-1.1.1-py3-none-any.whl", hash = "sha256:a9462224a505ade19a605f71f8fa63c2048833ce50abc86768a0d81d876dc81c", size = 8074, upload-time = "2025-01-17T11:24:33.271Z" },
-]
-
-[[package]]
-name = "iso8601"
-version = "2.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b9/f3/ef59cee614d5e0accf6fd0cbba025b93b272e626ca89fb70a3e9187c5d15/iso8601-2.1.0.tar.gz", hash = "sha256:6b1d3829ee8921c4301998c909f7829fa9ed3cbdac0d3b16af2d743aed1ba8df", size = 6522, upload-time = "2023-10-03T00:25:39.317Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/0c/f37b6a241f0759b7653ffa7213889d89ad49a2b76eb2ddf3b57b2738c347/iso8601-2.1.0-py3-none-any.whl", hash = "sha256:aac4145c4dcb66ad8b648a02830f5e2ff6c24af20f4f482689be402db2429242", size = 7545, upload-time = "2023-10-03T00:25:32.304Z" },
 ]
 
 [[package]]
@@ -5849,7 +5829,6 @@ dependencies = [
     { name = "hogql-parser" },
     { name = "hogql-parser-rs" },
     { name = "humanize" },
-    { name = "infi-clickhouse-orm" },
     { name = "jsonpatch" },
     { name = "jsonref" },
     { name = "kafka-python" },
@@ -6138,7 +6117,6 @@ requires-dist = [
     { name = "hogql-parser", specifier = "==1.3.85" },
     { name = "hogql-parser-rs", specifier = "==1.3.109" },
     { name = "humanize", specifier = "~=4.12.3" },
-    { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonpatch", specifier = "~=1.33" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.3.0" },

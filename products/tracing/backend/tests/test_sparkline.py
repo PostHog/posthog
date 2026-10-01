@@ -22,7 +22,7 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
     def setUp(self):
         super().setUp()

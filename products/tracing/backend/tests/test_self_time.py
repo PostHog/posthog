@@ -30,7 +30,7 @@ class TestTraceSelfTime(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         rows: list[str] = []
         for trace_no, spans in TRACES.items():

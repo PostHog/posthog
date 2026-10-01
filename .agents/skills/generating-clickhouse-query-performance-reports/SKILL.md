@@ -250,4 +250,4 @@ This skill is fleet-level: it finds and ranks slow queries across all teams and 
 finding points at one query you want to explain or fix, switch to
 [`optimizing-clickhouse-and-hogql-queries`](../optimizing-clickhouse-and-hogql-queries/SKILL.md) — it
 owns root-causing an individual query (its `references/investigation-playbook.md`) and applying the fix at
-the right layer (printer, query runner, or ClickHouse migration).
+the right layer (printer, query runner, or ClickHouse schema change).

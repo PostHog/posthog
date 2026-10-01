@@ -259,7 +259,7 @@ class TestCIFailuresView(ClickhouseTestMixin, BaseTest):
 
     def _insert_logs(self, rows: list[dict[str, Any]]) -> None:
         payload = "".join(json.dumps({"team_id": self.team.id, **row}) + "\n" for row in rows)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
+        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{payload}")
 
     def _log(self, body: str, attributes: dict[str, str], minute: int = 0) -> dict[str, Any]:
         # attributes_map_str keys carry the "__str" suffix the logs table strips for the queryable

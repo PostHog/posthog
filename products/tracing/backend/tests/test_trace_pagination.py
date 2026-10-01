@@ -23,7 +23,7 @@ class TestTracePagination(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         trace_id = _b64((1).to_bytes(16, "big"))
         rows: list[str] = []

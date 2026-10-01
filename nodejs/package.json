@@ -31,7 +31,7 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "prepublishOnly": "pnpm build",
-        "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py migrate_clickhouse",
+        "setup:dev:clickhouse": "cd .. && DEBUG=1 python manage.py apply_clickhouse_schema",
         "setup:test": "cd .. && TEST=1 python manage.py setup_test_environment && cd nodejs && pnpm run setup:test:rust",
         "test:full": "docker compose -f ../docker-compose.dev.yml --profile dynamodb up -d && pnpm setup:test && pnpm test && pnpm test:postgres-parity && pnpm test:rust-ingestion-e2e",
         "setup:test:rust": "CYCLOTRON_NODE_DATABASE_NAME=test_cyclotron_node PERSONS_DATABASE_NAME=test_persons BEHAVIORAL_COHORTS_DATABASE_NAME=test_behavioral_cohorts ../rust/bin/migrate-entry all --fresh",

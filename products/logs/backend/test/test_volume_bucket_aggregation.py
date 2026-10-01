@@ -1,13 +1,15 @@
+import re
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV
 
 from products.logs.backend.temporal.volume_tick.aggregation import (
     _ENVIRONMENT_KEYS,
@@ -23,10 +25,18 @@ _START = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 _END = _START + timedelta(seconds=BUCKET_SECONDS)
 
 
+def _volume_buckets_mv_select() -> str:
+    [(select,)] = sync_execute(
+        "SELECT as_select FROM system.tables WHERE database = %(database)s AND name = 'logs34_to_volume_buckets'",
+        {"database": settings.CLICKHOUSE_DATABASE},
+    )
+    return select
+
+
 class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
     def _insert_logs(self, rows: list[dict]) -> None:
         payload = "".join(json.dumps(row) + "\n" for row in rows)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{payload}")
+        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{payload}")
 
     def _log(
         self,
@@ -208,12 +218,64 @@ class TestVolumeBucketAggregation(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(self._preview().rollup_rows, 1)
 
+    def test_mv_matches_the_detector_grid_and_dimension_keys(self) -> None:
+        sql = _volume_buckets_mv_select()
 
-def test_mv_matches_the_detector_grid_and_dimension_keys() -> None:
-    sql = LOGS34_TO_VOLUME_BUCKETS_MV()
+        assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
+        assert "lower(severity_text)" in sql
+        for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS):
+            first_seen = [sql.index(f"'{key}'") for key in chain]
+            assert first_seen == sorted(first_seen)
 
-    assert f"toIntervalSecond({BUCKET_SECONDS})" in sql
-    assert "lower(severity_text)" in sql
-    for chain in (_ENVIRONMENT_KEYS, _NAMESPACE_KEYS):
-        first_seen = [sql.index(f"'{key}'") for key in chain]
-        assert first_seen == sorted(first_seen)
+    @parameterized.expand(
+        [
+            ("aligned", timedelta(), timedelta(), [90], 90),
+            ("backdated", timedelta(), timedelta(hours=23), [90], 91),
+            ("future", timedelta(), timedelta(hours=-23), [90], 90),
+            ("bucket_rounding", timedelta(minutes=4, seconds=59), timedelta(), [90], 91),
+            ("subsecond", timedelta(microseconds=1), timedelta(), [90], 91),
+            ("floor", timedelta(), timedelta(), [14], 14),
+            ("mixed", timedelta(), timedelta(), [30, 90], 90),
+            ("negative", timedelta(), timedelta(), [-7], 0),
+            ("clamp", timedelta(), timedelta(), [5000], 3650),
+        ]
+    )
+    def test_mv_retention_covers_raw_expiry(
+        self,
+        _name: str,
+        timestamp_offset: timedelta,
+        observed_delay: timedelta,
+        retentions: list[int],
+        expected_days: int,
+    ) -> None:
+        bucket_start = datetime(2026, 1, 2, 12, tzinfo=UTC)
+        timestamp = bucket_start + timestamp_offset
+        observed_timestamp = timestamp + observed_delay
+        select, replaced = re.subn(r"FROM \S+\.logs34\b", "FROM retention_input", _volume_buckets_mv_select())
+        assert replaced == 1
+        rows = sync_execute(
+            """
+            WITH retention_input AS (
+                SELECT
+                    42 AS team_id,
+                    toDateTime64(%(timestamp)s, 6, 'UTC') AS timestamp,
+                    toDateTime64(%(observed_timestamp)s, 6, 'UTC') AS observed_timestamp,
+                    observed_timestamp + toIntervalDay(arrayJoin(%(retentions)s)) AS original_expiry_timestamp,
+                    'checkout' AS service_name,
+                    'INFO' AS severity_text,
+                    CAST(map(), 'Map(String, String)') AS resource_attributes
+            )
+            SELECT retention_days, log_count FROM ("""
+            + select
+            + ")",
+            {
+                "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "observed_timestamp": observed_timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+                "retentions": retentions,
+            },
+        )
+        assert rows == [(expected_days, len(retentions))]
+        if max(retentions) <= 2580:
+            assert bucket_start + timedelta(days=max(42, rows[0][0])) >= observed_timestamp + timedelta(
+                days=max(retentions)
+            )

@@ -27,7 +27,7 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightDeleteMutationRunner
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE, UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
@@ -60,12 +60,7 @@ from posthog.models.deletion_targets import (
     resolve_targets_here,
 )
 from posthog.models.event.deletion import cluster_has_events_json_table
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_DATA_TABLE,
-    EVENTS_JSON_DATA_TABLE,
-    json_property_presence_expr,
-)
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE, json_property_presence_expr
 from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,

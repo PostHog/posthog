@@ -8,7 +8,7 @@ from posthog.schema import CurrencyCode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.models.team.team import Team
 
 from products.revenue_analytics.backend.views.core import SourceHandle

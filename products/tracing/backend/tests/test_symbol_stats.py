@@ -138,7 +138,7 @@ class TestTraceSpansSymbolStats(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         rows: list[str] = []
         for i, (path, line, generation, status_code, duration_ms, busy, period) in enumerate(SPANS):

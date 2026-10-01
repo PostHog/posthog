@@ -286,7 +286,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 
 - `/improving-drf-endpoints` — any DRF viewset or serializer change
 - `/django-migrations` — any Django migration, including deleting a model, table, column, or whole product/app (even when no migration file is written, e.g. removing a product folder)
-- `/clickhouse-migrations` — any ClickHouse migration
+- `/clickhouse-migrations` — any ClickHouse schema change: a table, column, index, materialized view, Kafka table or dictionary, or any edit under `posthog/clickhouse/schema/`
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-ui-components` — creating, moving, splitting, or restructuring any component or file under `frontend/src/` or `products/*/frontend/`, extracting or promoting a shared component, or renaming frontend symbols or feature vocabulary
 - `/working-with-charts`: adding or editing a consumer of `@posthog/quill-charts`. For changes inside the library, follow its package guide instead.

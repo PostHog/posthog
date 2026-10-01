@@ -221,7 +221,7 @@ jobs:
                   # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | grep -v '/async_migrations/migrations/' \
                       | LC_ALL=C sort) || true
                   # Routing decides which app labels are in the dump, so these inputs belong in the key.
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)

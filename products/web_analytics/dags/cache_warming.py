@@ -560,9 +560,7 @@ def queries_to_keep_fresh(
 
     # Selection reads system.query_log across the whole cluster: Dagster connects
     # to offline nodes, while the user traffic we want to replay lands on other
-    # replicas. (metrics_query_log_mv only looks usable — its DDL in
-    # posthog/models/query_metrics/sql.py was never migrated, the table does not
-    # exist in production.) Demand is grouped by the NORMALIZED shape — the query
+    # replicas. Demand is grouped by the NORMALIZED shape — the query
     # JSON with the range-varying and non-shape fields stripped
     # (SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: dateRange, compareFilter, limit, …) —
     # which is the same set the precompute bucket namespace collapses to, so one

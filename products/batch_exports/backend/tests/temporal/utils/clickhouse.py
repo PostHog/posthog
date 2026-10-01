@@ -4,7 +4,7 @@ import collections.abc
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_METRICS2_MV_TABLE_SQL
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 
@@ -26,49 +26,8 @@ async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
 
 
 async def create_clickhouse_tables_and_views(clickhouse_client):
-    from posthog.clickhouse.schema import CREATE_KAFKA_TABLE_QUERIES, build_query
-
-    from products.batch_exports.backend.sql import (
-        CREATE_EVENTS_BATCH_EXPORT_VIEW,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-    )
-
-    create_view_queries = (
-        CREATE_EVENTS_BATCH_EXPORT_VIEW,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_BACKFILL,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_UNBOUNDED,
-        CREATE_EVENTS_BATCH_EXPORT_VIEW_RECENT,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW,
-        CREATE_PERSONS_BATCH_EXPORT_VIEW_BACKFILL,
-    )
-
-    clickhouse_tasks = set()
-    for query in create_view_queries + tuple(map(build_query, CREATE_KAFKA_TABLE_QUERIES)):
-        task = asyncio.create_task(execute_query(clickhouse_client, query))
-        clickhouse_tasks.add(task)
-        task.add_done_callback(clickhouse_tasks.discard)
-
-    done, pending = await asyncio.wait(clickhouse_tasks)
-
-    if len(pending) > 0:
-        raise ValueError("Not all required tables and views were created in time")
-
-    for task in done:
-        if exc := task.exception():
-            raise exc
-
-    for query in (
-        APP_METRICS2_DATA_TABLE_SQL(),
-        APP_METRICS2_MV_TABLE_SQL(),
-    ):
-        # NOTE: Must be executed in order and after Kafka tables
-        await execute_query(clickhouse_client, query)
-
-    return
+    # The Kafka tables and their materialized views are not part of the default test schema.
+    await asyncio.to_thread(ClickHouseDatabase().apply_schema, kafka=True)
 
 
 EVENTS_TABLES = (

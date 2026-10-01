@@ -74,7 +74,7 @@ class TestImpactApi(ClickhouseTestMixin, APIBaseTest):
         ]
         sql = "\n".join(json.dumps(row) for row in rows)
         sync_execute(f"""
-            INSERT INTO logs
+            INSERT INTO logs34
             FORMAT JSONEachRow
             {sql}
         """)

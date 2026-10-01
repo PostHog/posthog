@@ -1,11 +1,17 @@
 import pytest
 
-from posthog.models.bot_definition.sql import _bot_definition_rows
+from posthog.models.bot_definition.sql import BOT_DEFINITIONS_FILE, _bot_definition_rows, bot_definitions_file_content
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
 class TestBotDefinitionsDataStructure:
+    def test_clickhouse_rows_file_matches_bot_definitions(self):
+        assert BOT_DEFINITIONS_FILE.read_text() == bot_definitions_file_content(), (
+            "The ClickHouse schema loads web_bot_definition from a file that is out of date. "
+            "Run `python manage.py write_bot_definitions_file` and commit the result."
+        )
+
     def test_empty_ua_sentinel_row_appended(self):
         # The ^$ pattern is the empty-UA sentinel — appended in _bot_definition_rows() rather
         # than in BOT_DEFINITIONS, so it isn't covered by the parametrized fixture checks.

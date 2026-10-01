@@ -14,7 +14,6 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.tracing.backend.logic import TraceSpansQueryRunner
 
@@ -31,26 +30,13 @@ class _TraceSpansTestBase(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
 
     @classmethod
-    def _recreate_trace_spans_tables(cls) -> None:
+    def _truncate_trace_spans(cls) -> None:
         tag_queries(product="tracing", feature="query")
-        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
-        sync_execute("DROP TABLE IF EXISTS trace_spans")
-        sync_execute(TRACE_SPANS_TABLE_SQL())
-        # is_root_span ships via a separate logs-cluster migration, not the Python DDL.
-        sync_execute(
-            "ALTER TABLE trace_spans ADD COLUMN IF NOT EXISTS "
-            "is_root_span Bool MATERIALIZED (replaceAll(trimRight(parent_span_id, '='), 'A', '')) = ''"
-        )
-        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+        sync_execute("TRUNCATE TABLE trace_spans")
 
     @classmethod
     def tearDownClass(cls):
-        # Restore the standard Python DDL so a later test class in the same process doesn't inherit
-        # this class's modified schema. Drop the distributed table first (it depends on the base).
-        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
-        sync_execute("DROP TABLE IF EXISTS trace_spans")
-        sync_execute(TRACE_SPANS_TABLE_SQL())
-        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+        sync_execute("TRUNCATE TABLE trace_spans")
         super().tearDownClass()
 
     def _execute(self, query: TraceSpansQuery, *, session_timezone: str | None = None) -> list:
@@ -99,7 +85,7 @@ class TestTraceSpansKeysetPaginationTimezone(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         rows = []
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -160,7 +146,7 @@ class TestTraceSpansDurationOrdering(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         rows = []
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
@@ -261,7 +247,7 @@ class TestTraceSpansDurationRootScope(_TraceSpansTestBase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls._recreate_trace_spans_tables()
+        cls._truncate_trace_spans()
 
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
         ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")

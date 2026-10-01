@@ -591,7 +591,7 @@ services:
                 done
                 # The topic list is docker/kafka/topics.txt, mounted below. It is a
                 # shared file rather than a literal here so a test can check it against the
-                # Kafka tables in schema.py; that header explains what needs pre-creating.
+                # Kafka tables in the ClickHouse schema; that header explains what needs pre-creating.
                 TOPICS=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' /topics.txt)
                 EXISTING=$$(rpk topic list --brokers kafka:9092 | awk '{print $$1}')
                 for topic in $$TOPICS; do

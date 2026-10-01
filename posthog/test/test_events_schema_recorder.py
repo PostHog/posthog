@@ -1,12 +1,6 @@
 import pytest
 
-from posthog.models.event.sql import (
-    BULK_INSERT_EVENT_SQL,
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_JSON_TABLE_SQL,
-    INSERT_EVENT_SQL,
-    TRUNCATE_EVENTS_JSON_TABLE_SQL,
-)
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
 from posthog.test.events_schema_recorder import names_events_json_table
 
 
@@ -15,8 +9,8 @@ from posthog.test.events_schema_recorder import names_events_json_table
     [
         (INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), False),
         (BULK_INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE, values="(1), (2)"), False),
-        (TRUNCATE_EVENTS_JSON_TABLE_SQL(), False),
-        (EVENTS_JSON_TABLE_SQL(), False),
+        (f"TRUNCATE TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}", False),
+        (f"CREATE TABLE IF NOT EXISTS {EVENTS_JSON_DATA_TABLE} (uuid UUID) ENGINE = Memory", False),
         ("SELECT * FROM kafka_events_json_native_json", False),
         ("SELECT count() FROM events WHERE team_id = 1", False),
         ("SELECT count() FROM events_json AS events WHERE team_id = 1", True),

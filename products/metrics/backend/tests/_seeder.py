@@ -24,9 +24,9 @@ from typing import Any
 
 from posthog.clickhouse.client import sync_execute
 
-# `metrics2` and `metric_series2` hardcode `TTL original_expiry_timestamp`
-# instead of going through `ttl_period()`, so the seeder has to keep its rows
-# alive itself. A far-future expiry pins that independent of the wall clock.
+# `metrics2` and `metric_series2` expire rows at `original_expiry_timestamp` on a
+# database that has TTLs, so the seeder has to keep its rows alive itself.
+# A far-future expiry pins that independent of the wall clock.
 _EXPIRY = dt.datetime(2200, 1, 1, tzinfo=dt.UTC)
 
 

@@ -23,12 +23,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.log_entries import (
-    KAFKA_LOG_ENTRIES_TABLE_SQL,
-    LOG_ENTRIES_TABLE,
-    LOG_ENTRIES_TABLE_MV_SQL,
-    TRUNCATE_LOG_ENTRIES_TABLE_SQL,
-)
+from posthog.clickhouse.log_entries import LOG_ENTRIES_TABLE, TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
@@ -479,8 +474,31 @@ def log_entries_table():
     # consumer registered with the broker until its session.timeout.ms elapses. Sharing
     # one group would make every test after the first wait out that stale member's
     # rebalance before its own messages are assigned to it.
-    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL(group=f"test_log_entries_{uuid.uuid4().hex}"))
-    sync_execute(LOG_ENTRIES_TABLE_MV_SQL)
+    sync_execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS kafka_{LOG_ENTRIES_TABLE}
+        (
+            team_id UInt64,
+            log_source LowCardinality(String),
+            log_source_id String,
+            instance_id String,
+            timestamp DateTime64(6, 'UTC'),
+            level LowCardinality(String),
+            message String
+        ) ENGINE = Kafka(
+            {settings.CLICKHOUSE_KAFKA_NAMED_COLLECTION},
+            kafka_topic_list = '{KAFKA_LOG_ENTRIES}',
+            kafka_group_name = 'test_log_entries_{uuid.uuid4().hex}',
+            kafka_format = 'JSONEachRow'
+        )
+        """
+    )
+    sync_execute(
+        f"""
+        CREATE MATERIALIZED VIEW IF NOT EXISTS {LOG_ENTRIES_TABLE}_mv TO {LOG_ENTRIES_TABLE}
+        AS SELECT *, _timestamp, _offset FROM kafka_{LOG_ENTRIES_TABLE}
+        """
+    )
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
     yield LOG_ENTRIES_TABLE

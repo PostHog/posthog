@@ -592,7 +592,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 log_item["team_id"] = cls.team.id
                 sql += json.dumps(log_item) + "\n"
             sync_execute(f"""
-                INSERT INTO logs
+                INSERT INTO logs34
                 FORMAT JSONEachRow
                 {sql}
             """)
@@ -1200,7 +1200,7 @@ class _LogsScopeFilterTestMixin:
     def _insert_logs(self, rows: list[dict]) -> None:
         payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
         sync_execute(f"""
-            INSERT INTO logs
+            INSERT INTO logs34
             FORMAT JSONEachRow
             {payload}
         """)

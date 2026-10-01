@@ -15,10 +15,10 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
 from posthog.hogql.parser import parse_expr
 
-# The physical read table is the Distributed `flag_evaluations` on the DATA nodes, defined in
-# posthog/models/flag_evaluations/sql.py. That module imports django.conf, and
-# posthog/hogql/test/test_no_django_imports.py imports this package with no django.setup(), so the
-# name is spelled out here rather than imported.
+# The physical read table is the Distributed `flag_evaluations` on the DATA nodes.
+# posthog/models/flag_evaluations/sql.py holds the same name, but the posthog.models package needs
+# Django set up, and posthog/hogql/test/test_no_django_imports.py imports this package with no
+# django.setup(), so the name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
 

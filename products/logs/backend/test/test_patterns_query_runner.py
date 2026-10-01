@@ -26,7 +26,7 @@ _WINDOW = DateRange(date_from="2026-06-23T00:00:00Z", date_to="2026-06-23T13:00:
 class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _insert(self, rows: list[dict]) -> None:
         sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{sql}")
 
     def _log(self, body: str, severity: str = "info", service: str = "api", minute: int = 0) -> dict:
         return {

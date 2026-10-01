@@ -562,7 +562,6 @@ test('a single-language workflow claims that language rather than everything', (
     for (const file of [
         '.github/workflows/ci-backend.yml',
         '.github/workflows/ci-python.yml',
-        '.github/workflows/ci-clickhouse-multinode-migrations.yml',
         // The backend test-timing pair and the IDOR coverage check run only in
         // ci-backend and its timing workflow.
         '.github/scripts/optimize_test_durations.py',

@@ -16,7 +16,7 @@ Recipe (mount-over-image — the default, ~minutes per PR):
     later iteration.) DEBUG=0 is required: the prod image lacks DEBUG-only apps.
   - DB coherence: the restored golden's DB was migrated + seeded against the same
     image tag, so a restore only needs the PR's *delta* migrations on top
-    (``migrate`` + ``migrate_clickhouse``). Reseeding is skipped — the golden is
+    (``migrate`` + ``apply_clickhouse_schema``). Reseeding is skipped — the golden is
     already seeded (CI passes ``--no-seed``).
   - ``build`` ESCAPE HATCH: pass ``image=None`` to build ``web`` from the
     checkout instead (``build: .`` — cold ~20 min; used when baking a golden, or
@@ -611,7 +611,7 @@ class PostHogPreviewStack:
             timeout=1800,
         )
         self.backend.run_long(
-            self._compose("run --rm -T web python manage.py migrate_clickhouse"),
+            self._compose("run --rm -T web python manage.py apply_clickhouse_schema"),
             name="migrate-clickhouse",
             timeout=1800,
         )

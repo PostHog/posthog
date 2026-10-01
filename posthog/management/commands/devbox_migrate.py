@@ -12,7 +12,7 @@ class Command(BaseCommand):
         self.stdout.write("Running persons migrations...")
         call_command("apply_persons_migrations", "--ensure-database")
 
-        self.stdout.write("Running ClickHouse migrations...")
-        call_command("migrate_clickhouse")
+        self.stdout.write("Applying ClickHouse schema...")
+        call_command("apply_clickhouse_schema")
 
         self.stdout.write(self.style.SUCCESS("All migrations complete"))

@@ -7,7 +7,7 @@ NEXTGENSQUASH = {
     # 0001_initial creates partitioned tables and a view with raw SQL that
     # CreateModel cannot reproduce, and its migrate cost is negligible.
     "FROZEN_APPS": ["warehouse_sources_queue"],
-    # Created in the stub: bin/migrate runs migrate_clickhouse in parallel with
+    # Created in the stub: bin/migrate runs apply_clickhouse_schema in parallel with
     # `manage.py migrate`, and it reads posthog_instancesetting.
     "EARLY_MODELS": {"posthog": ["instancesetting"]},
     # The stub claims posthog's root so check_consistent_history stamps it on

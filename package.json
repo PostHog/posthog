@@ -27,7 +27,7 @@
         "// DEPRECATED - use hogli migrations:run instead": "",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "// DEPRECATED - use hogli migrations:run instead ": "",
-        "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
+        "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py apply_clickhouse_schema",
         "// DEPRECATED - use hogli format:python instead": "",
         "format:backend": "./bin/ruff.sh format .",
         "// DEPRECATED - use hogli format:js instead": "",

@@ -1,15 +1,15 @@
 ---
 name: optimizing-clickhouse-and-hogql-queries
-description: Workflow for optimizing ClickHouse and HogQL queries. Use when a HogQL query, query runner, insight, or report is too slow; when a hand-written ClickHouse query (via `sync_execute` or in a migration) is too slow; when ClickHouse times out or hits memory limits; when investigating a slow `system.query_log` row; or when reviewing a proposed HogQL printer change for performance. Covers extracting the ClickHouse SQL, common smells (`FROM ... FINAL`, `JSONExtract` over properties, missing skip indexes, self-joins, CTE blow-up), measuring against a real cluster, and applying the fix at the right layer (printer, query runner, or migration). Does NOT cover Postgres / Django ORM / app-database queries; for those use `profiling-slow-api-endpoints`.
+description: Workflow for optimizing ClickHouse and HogQL queries. Use when a HogQL query, query runner, insight, or report is too slow; when a hand-written ClickHouse query (via `sync_execute`) is too slow; when ClickHouse times out or hits memory limits; when investigating a slow `system.query_log` row; or when reviewing a proposed HogQL printer change for performance. Covers extracting the ClickHouse SQL, common smells (`FROM ... FINAL`, `JSONExtract` over properties, missing skip indexes, self-joins, CTE blow-up), measuring against a real cluster, and applying the fix at the right layer (printer, query runner, or schema change). Does NOT cover Postgres / Django ORM / app-database queries; for those use `profiling-slow-api-endpoints`.
 ---
 
 # Optimizing ClickHouse and HogQL queries
 
 Optimizes **ClickHouse and HogQL queries** (HogQL compiles to ClickHouse), not Postgres / Django ORM. For an app-DB query (`Model.objects.filter(...)`), stop and use [`profiling-slow-api-endpoints`](../profiling-slow-api-endpoints/SKILL.md); Step 0 has the full triage.
 
-**Work from the ClickHouse SQL, not the HogQL.** Get the ClickHouse SQL the query produces, optimize that, then translate the change back into the HogQL query, query runner, printer, or a migration. Reasoning about HogQL alone hides what ClickHouse executes.
+**Work from the ClickHouse SQL, not the HogQL.** Get the ClickHouse SQL the query produces, optimize that, then translate the change back into the HogQL query, query runner, printer, or a schema change. Reasoning about HogQL alone hides what ClickHouse executes.
 
-Assumes you can write HogQL. For new queries from scratch use `/writing-clickhouse-queries`; for migration mechanics, `/clickhouse-migrations`.
+Assumes you can write HogQL. For new queries from scratch use `/writing-clickhouse-queries`; for schema changes, `/clickhouse-migrations`.
 
 ## Optimizing every query a team owns
 
@@ -54,11 +54,11 @@ Handbook (conceptual model): [`query-performance-optimization.md`](../../../docs
 
 Table schemas, skim for `ORDER BY` / `PARTITION BY` / `INDEX` / materialized columns (don't read line-by-line):
 
-- Events: [`posthog/models/event/sql.py`](../../../posthog/models/event/sql.py)
-- Sessions v3: [`sessions_v3.py`](../../../posthog/models/raw_sessions/sessions_v3.py) (v2: [`sessions_v2.py`](../../../posthog/models/raw_sessions/sessions_v2.py))
-- Persons: [`posthog/models/person/sql.py`](../../../posthog/models/person/sql.py); overrides: [`person_overrides/sql.py`](../../../posthog/models/person_overrides/sql.py)
-- Cohorts (`cohortpeople` membership): [`products/cohorts/backend/models/sql.py`](../../../products/cohorts/backend/models/sql.py). The Postgres `Cohort` definition ([`cohort.py`](../../../products/cohorts/backend/models/cohort.py)) is a Postgres concern (Step 0).
-- Other tables (`app_metrics2`, `session_replay_events`, `log_entries`, `heatmaps`, product tables): find under [`posthog/models/*/sql.py`](../../../posthog/models/) or the [migration](../../../posthog/clickhouse/migrations/) that created them.
+- Events: [`modules/events/storage.tf`](../../../posthog/clickhouse/schema/modules/events/storage.tf)
+- Sessions v3 and v2: [`modules/raw_sessions/storage.tf`](../../../posthog/clickhouse/schema/modules/raw_sessions/storage.tf)
+- Persons: [`modules/person/`](../../../posthog/clickhouse/schema/modules/person/); overrides: [`modules/person_distinct_id_overrides/`](../../../posthog/clickhouse/schema/modules/person_distinct_id_overrides/)
+- Cohorts (`cohortpeople` membership): [`modules/cohortpeople/`](../../../posthog/clickhouse/schema/modules/cohortpeople/). The Postgres `Cohort` definition ([`cohort.py`](../../../products/cohorts/backend/models/cohort.py)) is a Postgres concern (Step 0).
+- Other tables (`app_metrics2`, `session_replay_events`, `log_entries`, `heatmaps`, product tables): find the group under [`posthog/clickhouse/schema/modules/`](../../../posthog/clickhouse/schema/modules/). The data table is in `storage.tf`.
 
 HogQL side: query entry [`query.py`](../../../posthog/hogql/query.py); printers [`clickhouse.py`](../../../posthog/hogql/printer/clickhouse.py) / [`base.py`](../../../posthog/hogql/printer/base.py); helpers [`utils.py`](../../../posthog/hogql/printer/utils.py); functions [`posthog/hogql/functions/`](../../../posthog/hogql/functions/) (aggregations in [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py)); schema [`posthog/hogql/database/schema/`](../../../posthog/hogql/database/schema/).
 
@@ -70,7 +70,7 @@ Materialization (auto-rewrites property access away from `JSONExtract`):
 
 This is why the same HogQL prints differently in test (sparse materialization) vs prod (dense): the lookup runs against the connected ClickHouse. Assume printer-path property access gets materialized; only hand-written SQL that bypasses the printer must do its own lookup.
 
-Cluster topology (shards, replicas, ingestion vs data nodes): [`posthog/clickhouse/migrations/CLAUDE.md`](../../../posthog/clickhouse/migrations/CLAUDE.md), read before proposing any migration.
+Which objects go on which nodes (storage, read, write, ingest components): [`posthog/clickhouse/schema/README.md`](../../../posthog/clickhouse/schema/README.md), read before proposing any schema change.
 
 ## Step 1: get the ClickHouse SQL
 
@@ -142,7 +142,7 @@ ClickHouse `WITH name AS (SELECT ...)` CTEs are **inlined, not materialized**: r
 
 `EXPLAIN` shows intent; to know if a rewrite is faster, run both versions against representative data.
 
-**Local ClickHouse** (correctness and EXPLAIN, not timing, which is too noisy): `hogli dev:demo-data` seeds synthetic data; `hogli db:ch` opens a client. You _can_ try skip indexes / materialized columns / schema changes locally (single node), but ask the user first, and remember prod is multi-node so structural changes must round-trip through [`/clickhouse-migrations`](../clickhouse-migrations/SKILL.md); `ALTER TABLE ... MATERIALIZE INDEX ...` builds a new index over existing data. Bytes-read (`FORMAT JSON`, or local `system.query_log`) is a less-noisy proxy than wall time.
+**Local ClickHouse** (correctness and EXPLAIN, not timing, which is too noisy): `hogli dev:demo-data` seeds synthetic data; `hogli db:ch` opens a client. You _can_ try skip indexes / materialized columns / schema changes locally (single node), but ask the user first, and remember prod is multi-node so structural changes must go through [`/clickhouse-migrations`](../clickhouse-migrations/SKILL.md); `ALTER TABLE ... MATERIALIZE INDEX ...` builds a new index over existing data. Bytes-read (`FORMAT JSON`, or local `system.query_log`) is a less-noisy proxy than wall time.
 
 **Test Cluster** (timing): Metabase-fronted, read-only snapshot of team 2's data, no noisy neighbors. Use [`/querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md). Adapt the prod query first: swap `team_id`, pick an overlapping date range, substitute/skip branches that depend on properties/features team 2 lacks (judgement call). **Apply prod materialized columns before timing**: `DESCRIBE <table>` lists real `pmat_*` (events) / `pmat_*` / `mat_*` (persons, groups); swap `JSONExtract(...)` for them or you're timing a shape the printer never emits. Set `SETTINGS use_uncompressed_cache=0`, take the **median of 5**, and read `query_duration_ms` / `read_rows` / `read_bytes` / `memory_usage` / `ProfileEvents` from `system.query_log`, not the Metabase request time.
 
@@ -157,7 +157,7 @@ Make HogQL emit the faster ClickHouse SQL at the lowest-blast-radius layer:
 - **Query runner** (cheapest): if the rewrite is a different HogQL query (aggregation, join order, CTE to conditional aggregation), edit the runner under `posthog/hogql_queries/` or `products/*/backend/`; snapshot via `.ambr`.
 - **New HogQL function**: add to [`aggregations.py`](../../../posthog/hogql/functions/aggregations.py) (or the right file in [`functions/`](../../../posthog/hogql/functions/)) with `HogQLFunctionMeta(name, min_args, max_args, aggregate=True)`.
 - **Printer change**: for a SQL-level rewrite the printer should apply automatically. `_get_optimized_materialized_column_equals_operation` (~line 574, [`clickhouse.py`](../../../posthog/hogql/printer/clickhouse.py)) is a template. Add a snapshot test plus a `get_index_from_explain` assertion.
-- **Migration**: for schema changes (skip index, materialized column, projection, engine). Use [`/clickhouse-migrations`](../clickhouse-migrations/SKILL.md); prod is multi-shard/replica with data vs ingestion roles, so `node_roles=[...]`, `sharded=True`, `is_alter_on_replicated_table=True` matter; never `ON CLUSTER`. Clean example: [`0250_property_values_lowercase_text_index.py`](../../../posthog/clickhouse/migrations/0250_property_values_lowercase_text_index.py).
+- **Schema change**: for a skip index, materialized column, projection, or engine. Use [`/clickhouse-migrations`](../clickhouse-migrations/SKILL.md); the schema is Terraform under `posthog/clickhouse/schema/`, an index or column is an in-place `ALTER`, and an engine or sorting key change replaces the table and loses its data. Clean example of a skip index: `idx_property_value_ngrambf` in [`modules/property_values/storage.tf`](../../../posthog/clickhouse/schema/modules/property_values/storage.tf).
 
 ## Team-specific heuristics
 

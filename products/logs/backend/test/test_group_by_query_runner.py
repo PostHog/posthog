@@ -19,7 +19,7 @@ _WINDOW = DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:
 class TestGroupByQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _insert(self, rows: list[dict]) -> None:
         sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
+        sync_execute(f"INSERT INTO logs34 FORMAT JSONEachRow\n{sql}")
 
     def _log(
         self,
@@ -282,7 +282,7 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_endpoint_returns_grouped_results(self) -> None:
         sync_execute(
-            "INSERT INTO logs FORMAT JSONEachRow\n"
+            "INSERT INTO logs34 FORMAT JSONEachRow\n"
             + json.dumps(
                 {
                     "team_id": self.team.id,
@@ -325,7 +325,7 @@ class TestGroupByAPI(ClickhouseTestMixin, APIBaseTest):
         # list (not fall back to the legacy single-key fields) and surface per-dimension
         # values in order.
         sync_execute(
-            "INSERT INTO logs FORMAT JSONEachRow\n"
+            "INSERT INTO logs34 FORMAT JSONEachRow\n"
             + json.dumps(
                 {
                     "team_id": self.team.id,

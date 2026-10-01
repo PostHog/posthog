@@ -1,0 +1,180 @@
+terraform {
+  required_providers {
+    clickhousedbops = {
+      source = "PostHog/clickhousedbops"
+    }
+  }
+}
+
+variable "enabled" {
+  description = "Create the object on the target nodes."
+  type        = bool
+  default     = true
+}
+
+variable "database" {
+  description = "Database the object lives in."
+  type        = string
+}
+
+variable "name" {
+  description = "Object name."
+  type        = string
+}
+
+# Override keys:
+#   engine, partition_by, primary_key, order_by, sample_by, ttl, settings
+#     replace the argument of the same name; null clears it
+#   drop_columns = ["name"], add_columns = [{...}], modify_columns = { name = {...} }
+#   drop_indexes, add_indexes, drop_projections, add_projections, drop_constraints, add_constraints
+#     the same, by name; to change one, drop it and add it
+#   unmanaged_columns, unmanaged_indexes = ["regex"]
+#     replace the argument of the same name
+#   force_destroy = true
+#     allow dropping or replacing the table while it holds rows; apply it on its own first
+#   ignore_drop_dependencies = true
+#     allow dropping or replacing the table while a dictionary or view reads from it
+variable "override" {
+  description = "Changes to the definition for the target nodes."
+  type        = any
+  default     = {}
+}
+
+variable "engine" {
+  description = "Engine expression."
+  type        = string
+}
+
+variable "partition_by" {
+  type    = string
+  default = null
+}
+
+variable "primary_key" {
+  type    = string
+  default = null
+}
+
+variable "order_by" {
+  type    = string
+  default = null
+}
+
+variable "sample_by" {
+  type    = string
+  default = null
+}
+
+variable "ttl" {
+  type    = string
+  default = null
+}
+
+variable "settings" {
+  type    = string
+  default = null
+}
+
+variable "columns" {
+  type = list(object({
+    name                    = string
+    type                    = string
+    default_expression      = optional(string)
+    materialized_expression = optional(string)
+    alias_expression        = optional(string)
+    ephemeral_expression    = optional(string)
+    codec                   = optional(string)
+    ttl                     = optional(string)
+    comment                 = optional(string)
+  }))
+}
+
+variable "indexes" {
+  type = list(object({
+    name        = string
+    expression  = string
+    type        = string
+    granularity = optional(number)
+  }))
+  default = []
+}
+
+variable "projections" {
+  type = list(object({
+    name     = string
+    query    = string
+    settings = optional(string)
+  }))
+  default = []
+}
+
+variable "constraints" {
+  type = list(object({
+    name  = string
+    check = string
+  }))
+  default = []
+}
+
+variable "unmanaged_columns" {
+  description = "Regexes. Columns on the node that match and are not declared are left alone: the app adds materialized columns at runtime."
+  type        = list(string)
+  default     = null
+}
+
+variable "unmanaged_indexes" {
+  description = "Regexes. Indexes on the node that match and are not declared are left alone."
+  type        = list(string)
+  default     = null
+}
+
+locals {
+  o = var.override
+
+  drop_columns     = try(local.o.drop_columns, [])
+  drop_indexes     = try(local.o.drop_indexes, [])
+  drop_projections = try(local.o.drop_projections, [])
+  drop_constraints = try(local.o.drop_constraints, [])
+
+  columns = concat(
+    [for c in var.columns : try(local.o.modify_columns[c.name], c) if !contains(local.drop_columns, c.name)],
+    try(local.o.add_columns, []),
+  )
+  indexes = concat(
+    [for i in var.indexes : i if !contains(local.drop_indexes, i.name)],
+    try(local.o.add_indexes, []),
+  )
+  projections = concat(
+    [for p in var.projections : p if !contains(local.drop_projections, p.name)],
+    try(local.o.add_projections, []),
+  )
+  constraints = concat(
+    [for c in var.constraints : c if !contains(local.drop_constraints, c.name)],
+    try(local.o.add_constraints, []),
+  )
+}
+
+resource "clickhousedbops_table" "this" {
+  count = var.enabled ? 1 : 0
+
+  database     = var.database
+  name         = var.name
+  engine       = try(local.o.engine, var.engine)
+  partition_by = try(local.o.partition_by, var.partition_by)
+  primary_key  = try(local.o.primary_key, var.primary_key)
+  order_by     = try(local.o.order_by, var.order_by)
+  sample_by    = try(local.o.sample_by, var.sample_by)
+  ttl          = try(local.o.ttl, var.ttl)
+  settings     = try(local.o.settings, var.settings)
+
+  columns     = local.columns
+  indexes     = length(local.indexes) > 0 ? local.indexes : null
+  projections = length(local.projections) > 0 ? local.projections : null
+  constraints = length(local.constraints) > 0 ? local.constraints : null
+
+  unmanaged_columns = try(local.o.unmanaged_columns, var.unmanaged_columns)
+  unmanaged_indexes = try(local.o.unmanaged_indexes, var.unmanaged_indexes)
+
+  force_destroy            = try(local.o.force_destroy, false)
+  ignore_drop_dependencies = try(local.o.ignore_drop_dependencies, false)
+}

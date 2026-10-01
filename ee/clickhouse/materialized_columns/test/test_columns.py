@@ -40,6 +40,11 @@ from ee.clickhouse.materialized_columns.columns import (
 EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS = [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)] + [
     "$session_id",
     "$window_id",
+    "$ai_trace_id",
+    "$ai_session_id",
+    "$ai_is_error",
+    "$ai_prompt_name",
+    "$ai_experiment_id",
 ]
 
 

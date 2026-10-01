@@ -24,8 +24,8 @@ from products.metrics.backend.search import ilike_pattern
 # `metric_query_runner.attribute_field`.
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
-# `time_bucket` floors timestamps to hourly buckets (see `_attributes_mv` in
-# posthog/clickhouse/metrics/metrics2.py); widen the lower bound so points near
+# `time_bucket` floors timestamps to hourly buckets (see the materialized views in
+# posthog/clickhouse/schema/modules/metrics/storage.tf); widen the lower bound so points near
 # the window start aren't dropped with their bucket.
 _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 

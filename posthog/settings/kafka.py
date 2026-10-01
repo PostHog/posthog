@@ -198,17 +198,6 @@ KAFKA_PROFILES: dict[str, KafkaProfileSettings] = {
 }
 
 
-# Kept as an alias to the DEFAULT profile's hosts. Only needed for code that
-# bakes the host list into ClickHouse Kafka-engine DDL at table creation time —
-# the six historical `posthog/clickhouse/migrations/*` files plus
-# `posthog/models/person_overrides/sql.py`. Those sites render `ENGINE = Kafka(...)`
-# and the produced DDL is stored in ClickHouse, so swapping them out now would
-# change migration output for already-applied migrations.
-#
-# Any *new* reader should go through `settings.KAFKA_PROFILES[profile.value].hosts`
-# directly — the routing layer already does.
-KAFKA_HOSTS: list[str] = KAFKA_PROFILES[KafkaClusterProfile.DEFAULT.value].hosts
-
 # Misc Kafka settings that don't vary per profile - these are largely only existing for self-hosted instance support
 KAFKA_PREFIX: str = os.getenv("KAFKA_PREFIX", "")
 KAFKA_BASE64_KEYS: bool = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str_to_bool)

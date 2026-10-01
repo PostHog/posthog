@@ -14,7 +14,7 @@ Read these files first, before writing or editing a migration:
 - `docs/published/handbook/engineering/databases/schema-changes.md`
 - `products/README.md` (`## Adding or moving backend models and migrations`) when working in `products/*`
 
-If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
+If the task is a ClickHouse schema change, use `clickhouse-migrations` instead.
 
 ## Never delete a migration file
 

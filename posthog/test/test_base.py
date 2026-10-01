@@ -10,13 +10,8 @@ from django.conf import settings
 from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_DATA_TABLE,
-    EVENTS_JSON_DATA_TABLE,
-    WRITABLE_EVENTS_DATA_TABLE,
-    WRITABLE_EVENTS_JSON_TABLE,
-)
+from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE, WRITABLE_EVENTS_JSON_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE, WRITABLE_EVENTS_DATA_TABLE
 
 
 def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:
@@ -38,23 +33,19 @@ def test_run_clickhouse_statement_in_parallel_propagates_errors():
 
 
 @pytest.mark.django_db
-def test_events_schema_setting_controls_legacy_table_availability(django_db_setup) -> None:
-    legacy_table_names = {"events", WRITABLE_EVENTS_DATA_TABLE(), EVENTS_DATA_TABLE()}
-    json_table_names = {DISTRIBUTED_EVENTS_JSON_TABLE, WRITABLE_EVENTS_JSON_TABLE, EVENTS_JSON_DATA_TABLE}
-    table_names_sql = ", ".join(f"'{table_name}'" for table_name in sorted(legacy_table_names | json_table_names))
+def test_test_database_has_both_events_table_families(django_db_setup) -> None:
+    table_names = {
+        "events",
+        WRITABLE_EVENTS_DATA_TABLE(),
+        EVENTS_DATA_TABLE(),
+        DISTRIBUTED_EVENTS_JSON_TABLE,
+        WRITABLE_EVENTS_JSON_TABLE,
+        EVENTS_JSON_DATA_TABLE,
+    }
 
     rows = sync_execute(
-        f"""
-        SELECT name
-        FROM system.tables
-        WHERE database = %(database)s
-        AND name IN ({table_names_sql})
-        """,
-        {"database": settings.CLICKHOUSE_DATABASE},
+        "SELECT name FROM system.tables WHERE database = %(database)s AND name IN %(names)s",
+        {"database": settings.CLICKHOUSE_DATABASE, "names": tuple(sorted(table_names))},
     )
-    actual_table_names = {row[0] for row in rows}
 
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        assert json_table_names <= actual_table_names
-    else:
-        assert legacy_table_names <= actual_table_names
+    assert {row[0] for row in rows} == table_names

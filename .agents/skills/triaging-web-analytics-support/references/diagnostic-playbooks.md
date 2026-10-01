@@ -49,7 +49,7 @@ Run a runtime loading audit (see [loading-audit.md](loading-audit.md)) against t
 
 ## Channel type misclassification
 
-- Classification is query-time (HogQL), driven by `posthog/models/channel_type/channel_definitions.json` through the `channel_definition_dict` ClickHouse dictionary; changes reclassify history automatically.
+- Classification is query-time (HogQL), driven by `posthog/clickhouse/schema/modules/channel_definition/channel_definitions.json` through the `channel_definition_dict` ClickHouse dictionary; changes reclassify history automatically.
 - The default decision tree ends in a fallback that maps _unknown_ source + `$direct` referring domain to Direct — an unrecognized `utm_source` on referrer-stripped traffic therefore reads as Direct. Fix by adding definition rows, not by changing the fallback (its behavior is pinned by tests as intentional for garbage UTMs).
 - Definition changes need a ClickHouse migration: `add_missing_channel_types` only INSERTs missing pairs; type _changes_ need a rebuild (truncate → re-insert → `SYSTEM RELOAD DICTIONARY`). Update `create_channel_definitions_file.py` too, or the next regeneration reverts the JSON.
 - Same-origin interstitials (bot challenges) destroy `document.referrer` while preserving query strings — self-referrals with intact UTMs are the signature. Mitigations: `before_send` rewrite of self-referrals, a custom channel rule on the customer's own domain, scoping the challenge down.

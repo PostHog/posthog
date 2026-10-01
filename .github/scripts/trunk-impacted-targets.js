@@ -259,11 +259,9 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-dagster.yml', PYTHON],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
-    // These two gate suites that run only Python: the tools and
-    // approval-agent pytest suites, and the ClickHouse multinode migration
-    // smoke.
+    // Gates suites that run only Python: the tools and approval-agent pytest
+    // suites.
     ['.github/workflows/ci-python.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -361,13 +359,12 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
     // More single-suite workflows, held to the trees their suites read: the AI
-    // evals, replay-vision evals, and ClickHouse HCL checks are Python; the
+    // evals and replay-vision evals are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
     ['.github/workflows/ci-ai.yml', PYTHON],
     ['.github/workflows/ci-replay-vision-evals.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
     ['.github/workflows/build-hogql-parser.yml', PYTHON],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
     ['.github/workflows/build-hogql-parser-rs.yml', RUST],
@@ -437,7 +434,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/migration-deletion-allowlist.txt', PYTHON],
     ['.github/scripts/signal-fanout', PYTHON],
     ['.github/scripts/verify-new-snapshots.sh', PYTHON],
-    ['.github/scripts/post-ch-migration-section.mjs', PYTHON],
     ['.github/scripts/post-django-migration-section.mjs', PYTHON],
     ['.github/scripts/post-coverage-section.mjs', PYTHON],
     ['.github/scripts/post-eval-section.mjs', PYTHON],
@@ -739,6 +735,10 @@ const TRIPWIRE_RULES = [
     ['bin/start-*', DEV_ENV],
     ['bin/dev-*', DEV_ENV],
     ['bin/check_*', DEV_ENV],
+    // The Python, nodejs, and rust suites all build their ClickHouse test
+    // database through this wrapper, so it cannot share the dev-env lane with
+    // the other bin/clickhouse-* helpers.
+    ['bin/clickhouse-schema', UNIVERSAL],
     ['bin/clickhouse-*', DEV_ENV],
     ['bin/docker-*', DEV_ENV],
     ['bin/temporal-*', DEV_ENV],

@@ -25,9 +25,10 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
-
 logger = structlog.get_logger(__name__)
+
+# Declared in posthog/clickhouse/schema/modules/platform_alert_events.
+PLATFORM_ALERT_EVENTS_TABLE = "platform_alert_events"
 
 
 @frozen

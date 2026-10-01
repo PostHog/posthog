@@ -38,7 +38,7 @@ from products.logs.backend.series_prediction import MIN_HISTORY_WEEKS, WeeklyPre
 
 WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 7
-VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhouse/hcl/sql/*/logs.sql
+VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhouse/schema/modules/logs/storage.tf
 # The whole window has to sit inside that retention, or the observed line itself
 # starts vanishing. Baseline depth thins well before this point, but a thin
 # baseline is reported per series through band_ready_at and drawn as still

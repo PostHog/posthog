@@ -192,7 +192,7 @@ jobs:
                         #    server code, notably playwright_setup_functions.py, which
                         #    posthog/urls.py serves at api/setup_test/.
                         #  - no '*_test.py': under posthog/ that suffix names production code
-                        #    (ClickHouse migrations, ClickHouse UDF scripts), not tests.
+                        #    (ClickHouse UDF scripts), not tests.
                         #  - per-tree prefixes, because an exclude is tested against every file
                         #    the filter sees, not just the include it sits next to: a bare
                         #    '!**/test_*.py' would also veto the include above for
@@ -361,7 +361,7 @@ jobs:
                   # to still be alive.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | grep -v '/async_migrations/migrations/' \
                       | LC_ALL=C sort) || true
                   # Routing decides which app labels are in the dump, so these inputs belong in the key.
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
@@ -850,11 +850,9 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
                   fi
 
-            - name: Apply postgres and clickhouse migrations and setup dev
+            - name: Apply postgres migrations and clickhouse schema and setup dev
               run: |
-                  # Postgres migrations must run first — ClickHouse migration 0026
-                  # depends on the posthog_instancesetting table in Postgres.
-                  # On cache hit this is near no-op; on cache miss it's a full migrate.
+                  # On cache hit the Postgres migrate is near no-op; on cache miss it's a full migrate.
                   # Either way, any PR-added migrations get applied here.
                   python manage.py migrate --noinput
 
@@ -870,7 +868,7 @@ jobs:
                   sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
-                  python manage.py migrate_clickhouse 2>&1
+                  python manage.py apply_clickhouse_schema 2>&1
 
                   # Person/group reads go through personhog (no ORM fallback), so the replica
                   # and router must be running before setup_dev creates demo persons.
