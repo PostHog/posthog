@@ -2271,6 +2271,7 @@ button.MarkdownNotebook__component-title:focus-visible {
 // `In [n]:` prompt column, the active cell carries a blue bar, and outputs line up under the code.
 .MarkdownNotebook--jupyter {
     --jupyter-prompt-width: 4.75rem;
+    --jupyter-text-control-left: calc(-1 * (var(--jupyter-prompt-width) + 0.5rem));
     --jupyter-prompt-font-size: 0.8125rem;
     --jupyter-input-prompt-color: var(--color-blue-600);
     --jupyter-output-prompt-color: var(--color-orange-600);
@@ -2361,8 +2362,33 @@ button.MarkdownNotebook__component-title:focus-visible {
         left: auto;
     }
 
+    // A text row's controls fill the prompt column its text leaves empty: the + lines up with
+    // the + between cells, and the drag handle sits right after it, clear of the text.
+    .MarkdownNotebook__text-group .MarkdownNotebook__line-insert-menu-hit-area,
+    .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-hover-zone {
+        left: var(--jupyter-text-control-left);
+        width: calc(var(--jupyter-prompt-width) + 0.5rem);
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__insert-boundary-button {
+        left: var(--jupyter-text-control-left);
+    }
+
     .MarkdownNotebook__text-group .MarkdownNotebook__drag-handle {
-        left: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.25rem);
+        left: calc(var(--jupyter-text-control-left) + var(--markdown-notebook-inline-control-width) + 0.25rem);
+        transform: none;
+    }
+
+    .MarkdownNotebook__blockquote-group .MarkdownNotebook__line-insert-menu-hit-area {
+        left: calc(var(--jupyter-text-control-left) - var(--markdown-notebook-quote-indent));
+        width: calc(var(--jupyter-prompt-width) + 0.5rem + var(--markdown-notebook-quote-indent));
+    }
+
+    .MarkdownNotebook__blockquote-group .MarkdownNotebook__drag-handle {
+        left: calc(
+            var(--jupyter-text-control-left) - var(--markdown-notebook-quote-indent) +
+                var(--markdown-notebook-inline-control-width) + 0.25rem
+        );
     }
 }
 
