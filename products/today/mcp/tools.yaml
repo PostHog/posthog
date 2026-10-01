@@ -20,15 +20,13 @@ tools:
             idempotent: true
         title: Get my Today briefing
         description: >
-            The current user's Today briefing for this project, as shown on the Today home page:
-            a short text about the items that need them most (reports assigned to them, insights
-            and dashboards they use, firing alerts, assigned support tickets and error issues,
-            and GitHub pull requests), plus up to 5 items with a label, a signal and a link. There
-            are two editions a day, from 8:00 and from noon local time. The first call of an
-            edition starts generation and returns status "collecting"; while a newer edition is
-            being written, the last ready briefing comes back with status "writing" and its text.
-            Generation takes a few minutes; call again later for the "ready" text. Use this to
-            answer "what should I look at today?".
+            The current user's Today briefing for this project, as shown on the Today home page: a short text about the
+            items that need them most (reports assigned to them, insights and dashboards they use, firing alerts,
+            assigned support tickets and error issues, and GitHub pull requests), plus up to 5 items with a label, a
+            signal and a link. There are two editions a day, from 8:00 and from noon local time. The first call of an
+            edition starts generation and returns status "collecting"; while a newer edition is being written, the last
+            ready briefing comes back with status "writing" and its text. Generation takes a few minutes; call again
+            later for the "ready" text. Use this to answer "what should I look at today?".
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
     today-briefing-refresh-create:
@@ -45,9 +43,8 @@ tools:
             idempotent: true
         title: List my Today candidates
         description: >
-            The items behind the current user's briefing, each with its source, the reason it
-            was picked, a link, and the facts the text rests on (for example a priority, a status,
-            or the two values behind a change). Use this when you need the numbers and details,
-            not the written text. Items are in briefing order, most urgent first.
+            The items behind the current user's briefing, each with its source, the reason it was picked, a link, and
+            the facts the text rests on (for example a priority, a status, or the two values behind a change). Use this
+            when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.
         feature_flag: today-rail-nav
         feature_flag_behavior: enable
