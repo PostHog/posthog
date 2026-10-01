@@ -3,32 +3,39 @@ import { describe, expect, it } from "vitest";
 import { type Box, extractMouse, hitTest, MouseInput } from "./mouse";
 
 describe("extractMouse", () => {
+  const none = { presses: [], drags: [], releases: [], wheels: [], moves: [] };
   it.each([
     [
       "a left press between keys",
       "a\x1b[<0;12;3Mb",
-      "ab",
-      [{ column: 12, row: 3 }],
-      [],
-      [],
+      { keys: "ab", presses: [{ column: 12, row: 3 }] },
     ],
-    ["a release", "\x1b[<0;12;3m", "", [], [], []],
-    ["a right click", "\x1b[<2;5;5M", "", [], [], []],
-    ["pointer motion", "\x1b[<35;7;4M", "", [], [], [{ column: 7, row: 4 }]],
+    ["a left release", "\x1b[<0;12;3m", { releases: [{ column: 12, row: 3 }] }],
+    [
+      "motion with the left button held",
+      "\x1b[<32;9;4M",
+      { drags: [{ column: 9, row: 4 }] },
+    ],
+    ["a right click", "\x1b[<2;5;5M\x1b[<2;5;5m", {}],
+    ["motion with the right button held", "\x1b[<34;5;5M", {}],
+    [
+      "pointer motion with no button held",
+      "\x1b[<35;7;4M",
+      { moves: [{ column: 7, row: 4 }] },
+    ],
     [
       "wheel up then down",
       "\x1b[<64;5;6M\x1b[<65;5;6M",
-      "",
-      [],
-      [
-        { column: 5, row: 6, delta: -1 },
-        { column: 5, row: 6, delta: 1 },
-      ],
-      [],
+      {
+        wheels: [
+          { column: 5, row: 6, delta: -1 },
+          { column: 5, row: 6, delta: 1 },
+        ],
+      },
     ],
-    ["keys only", "hello\x1b[A", "hello\x1b[A", [], [], []],
-  ])("strips %s", (_, text, keys, clicks, wheels, moves) => {
-    expect(extractMouse(text)).toEqual({ keys, clicks, wheels, moves });
+    ["keys only", "hello\x1b[A", { keys: "hello\x1b[A" }],
+  ])("strips %s", (_, text, expected) => {
+    expect(extractMouse(text)).toEqual({ keys: "", ...none, ...expected });
   });
 });
 

@@ -13,6 +13,7 @@ import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import { REGIONS } from "../auth";
 import { currentRepository, type PiChats } from "../chats";
 import { ChatView } from "../chatView";
+import { copyToClipboard } from "../clipboard";
 import { Composer, isAppKey, isTyping } from "../composer";
 import {
   activeWorkspace,
@@ -57,6 +58,7 @@ import {
   takesText,
 } from "../prompts";
 import type { CloudRuns } from "../runs";
+import { Gesture } from "../selection";
 import { moveCursor, type Sheet, type SheetKey, sheetKey } from "../sheet";
 import { parseShell } from "../shell";
 import { DoublePress, shortcutFor } from "../shortcuts";
@@ -1050,12 +1052,72 @@ export function App({
     }
   };
 
-  const handlers = useRef({ onClick, onMove, onWheel, onKey, onSubmit });
-  handlers.current = { onClick, onMove, onWheel, onKey, onSubmit };
+  // A press starts a click or, once the pointer moves, a selection in the chat it landed on.
+  const gesture = useRef(new Gesture());
+  const selecting = useRef<{ chat: ChatView; box: ScreenBox } | null>(null);
+  const selectIn = (from: Click, to: Click): void => {
+    const target = selecting.current;
+    if (!target) return;
+    const local = (at: Click): Click => ({
+      row: at.row - target.box.top,
+      column: at.column - target.box.left,
+    });
+    target.chat.select(local(from), local(to));
+    repaint((tick) => tick + 1);
+  };
+  const onPress = (at: Click): void => {
+    gesture.current.press(at);
+    for (const chat of chatViews.current.values()) chat.clearSelection();
+    selecting.current = null;
+    for (const [paneId, element] of chatBoxes.current) {
+      const box = boxOf(element);
+      if (hitTest(at, [["chat", box]]))
+        selecting.current = {
+          chat: chatFor(`${paneId}:${paneTaskId(paneId)}`),
+          box,
+        };
+    }
+    repaint((tick) => tick + 1);
+  };
+  const onDrag = (at: Click): void => {
+    const range = gesture.current.drag(at);
+    if (range) selectIn(range.from, range.to);
+  };
+  const onRelease = (at: Click): void => {
+    const end = gesture.current.release(at);
+    if (end?.kind === "click") onClick(end.at);
+    if (end?.kind !== "select" || !selecting.current) return;
+    selectIn(end.from, end.to);
+    const text = selecting.current.chat.selectedText();
+    if (!text.trim()) return;
+    copyToClipboard(text);
+    flashNotice("Copied to clipboard");
+  };
+
+  const handlers = useRef({
+    onPress,
+    onDrag,
+    onRelease,
+    onMove,
+    onWheel,
+    onKey,
+    onSubmit,
+  });
+  handlers.current = {
+    onPress,
+    onDrag,
+    onRelease,
+    onMove,
+    onWheel,
+    onKey,
+    onSubmit,
+  };
 
   useEffect(() => {
     if (!mouse) return;
-    const click = (at: Click): void => handlers.current.onClick(at);
+    const press = (at: Click): void => handlers.current.onPress(at);
+    const drag = (at: Click): void => handlers.current.onDrag(at);
+    const release = (at: Click): void => handlers.current.onRelease(at);
     const wheel = (at: Wheel): void => handlers.current.onWheel(at);
     const move = (at: Click): void => handlers.current.onMove(at);
     const keys = new StdinBuffer();
@@ -1064,12 +1126,16 @@ export function App({
       handlers.current.onKey(`\x1b[200~${text}\x1b[201~`),
     );
     const raw = (data: string): void => keys.process(data);
-    mouse.on("click", click);
+    mouse.on("press", press);
+    mouse.on("drag", drag);
+    mouse.on("release", release);
     mouse.on("wheel", wheel);
     mouse.on("move", move);
     mouse.on("keys", raw);
     return () => {
-      mouse.off("click", click);
+      mouse.off("press", press);
+      mouse.off("drag", drag);
+      mouse.off("release", release);
       mouse.off("wheel", wheel);
       mouse.off("move", move);
       mouse.off("keys", raw);

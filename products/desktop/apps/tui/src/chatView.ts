@@ -9,11 +9,14 @@ import {
   Container,
   ScrollView,
   Spacer,
+  sliceByColumn,
   stripTerminalSequences,
   Text,
   truncateToWidth,
+  visibleWidth,
 } from "@earendil-works/pi-tui";
 import { linkAt } from "./links";
+import type { Click } from "./mouse";
 import { orange } from "./theme";
 import {
   type ShellLine,
@@ -70,6 +73,25 @@ function assistantMessage(text: string): AssistantMessage {
 
 const isBlank = (line: string): boolean =>
   stripTerminalSequences(line).trim() === "";
+
+// A cell of the whole transcript: the row counts from its first line, not from the top of the screen.
+interface Cell {
+  row: number;
+  column: number;
+}
+
+const before = (a: Cell, b: Cell): boolean =>
+  a.row < b.row || (a.row === b.row && a.column < b.column);
+
+// The text a line draws from column start up to column end, without styles or its trailing padding.
+function textBetween(line: string, start: number, end: number): string {
+  const width = Math.min(
+    end,
+    visibleWidth(stripTerminalSequences(line).trimEnd()),
+  );
+  if (width <= start) return "";
+  return stripTerminalSequences(sliceByColumn(line, start, width - start));
+}
 
 // pi pads its message blocks for a full screen; panes keep them tight and space them here instead.
 class Trimmed implements Component {
@@ -202,6 +224,10 @@ export class ChatView {
   private rows: { id: string; start: number; end: number }[] = [];
   // The lines on screen after the last render, for finding the link under a click.
   private shown: string[] = [];
+  // Every transcript line and the chat's size at the last render, for selections.
+  private content: string[] = [];
+  private size = { width: 0, height: 0 };
+  private selection: { anchor: Cell; head: Cell } | null = null;
 
   setTranscript(
     lines: TranscriptLine[],
@@ -254,6 +280,8 @@ export class ChatView {
       content.push(...component.render(contentWidth));
       this.rows.push({ id, start: starts.get(id) ?? 0, end: content.length });
     }
+    this.content = content.map((line) => line.replace(PROMPT_MARKS, ""));
+    this.size = { width: contentWidth, height };
     this.scroll.updateLayout(content.length, height, () => {});
     const start = this.anchor ? starts.get(this.anchor.id) : undefined;
     if (
@@ -271,10 +299,11 @@ export class ChatView {
     this.anchor = anchorItem
       ? { id: anchorItem[0], within: top - anchorItem[1] }
       : null;
-    const visible = content
+    const visible = this.content
       .slice(top, top + height)
+      .map((line, index) => this.highlight(line, top + index))
       // Ink gives an empty string no height, so blank lines carry a space.
-      .map((line) => line.replace(PROMPT_MARKS, "") || " ");
+      .map((line) => line || " ");
     this.shown = visible;
     return [...visible, ...Array<string>(height - visible.length).fill(" ")];
   }
@@ -284,6 +313,67 @@ export class ChatView {
     const at = this.scroll.scrollTop + row;
     const hit = this.rows.find(({ start, end }) => at >= start && at < end);
     return hit && this.groups.has(hit.id) ? hit.id : null;
+  }
+
+  // Selects from one cell of the chat on screen to another; cells past the chat's edges count as its edges.
+  select(from: Click, to: Click): void {
+    this.selection = { anchor: this.cellAt(from), head: this.cellAt(to) };
+  }
+
+  clearSelection(): void {
+    this.selection = null;
+  }
+
+  // The selected text as drawn, one line per row.
+  selectedText(): string {
+    const range = this.range();
+    if (!range) return "";
+    const rows: string[] = [];
+    for (let row = range.start.row; row <= range.end.row; row++) {
+      const [start, end] = this.columnsOn(row, range);
+      rows.push(textBetween(this.content[row] ?? "", start, end));
+    }
+    return rows.join("\n");
+  }
+
+  private cellAt({ row, column }: Click): Cell {
+    const clamp = (value: number, size: number): number =>
+      Math.max(0, Math.min(value, size - 1));
+    return {
+      row: this.scroll.scrollTop + clamp(row, this.size.height),
+      column: clamp(column, this.size.width),
+    };
+  }
+
+  private range(): { start: Cell; end: Cell } | null {
+    if (!this.selection) return null;
+    const { anchor, head } = this.selection;
+    return before(head, anchor)
+      ? { start: head, end: anchor }
+      : { start: anchor, end: head };
+  }
+
+  // The selected columns of a transcript row, end exclusive.
+  private columnsOn(
+    row: number,
+    range: { start: Cell; end: Cell },
+  ): [number, number] {
+    if (row < range.start.row || row > range.end.row) return [0, 0];
+    return [
+      row === range.start.row ? range.start.column : 0,
+      row === range.end.row ? range.end.column + 1 : Number.POSITIVE_INFINITY,
+    ];
+  }
+
+  // Draws a row's selected text in inverse video, without its own styles, so it reads as one block.
+  private highlight(line: string, row: number): string {
+    const range = this.range();
+    if (!range) return line;
+    const [start, end] = this.columnsOn(row, range);
+    const text = textBetween(line, start, end);
+    if (!text) return line;
+    const after = start + visibleWidth(text);
+    return `${sliceByColumn(line, 0, start)}\u001b[7m${text}\u001b[27m${sliceByColumn(line, after, Math.max(0, visibleWidth(line) - after))}`;
   }
 
   // The web link at a cell within the chat, as last drawn, or null.

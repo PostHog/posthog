@@ -173,6 +173,76 @@ describe("ChatView", () => {
     for (const row of rows) expect(chat.linkAt(row, 2)).toBe(pr);
   });
 
+  describe("selecting text", () => {
+    const INVERSE = new RegExp(`${"\u001b"}\\[7m(.*?)${"\u001b"}\\[27m`, "g");
+    const highlighted = (lines: string[]): string[] =>
+      lines.flatMap((line) =>
+        [...line.matchAll(INVERSE)].map((match) =>
+          stripTerminalSequences(match[1]),
+        ),
+      );
+    const chatWith = (): { chat: ChatView; lines: string[] } => {
+      const chat = new ChatView();
+      chat.setTranscript([
+        ...replies(6),
+        { kind: "assistant", id: "a", text: "alpha beta gamma" },
+        { kind: "user", id: "u", text: "delta epsilon" },
+      ]);
+      return { chat, lines: chat.render(40, 5) };
+    };
+    const cellOf = (lines: string[], text: string) => {
+      const row = plain(lines).findIndex((line) => line.includes(text));
+      return { row, column: plain(lines)[row].indexOf(text) };
+    };
+
+    it.each([
+      ["forwards", false],
+      ["backwards", true],
+    ])("copies the text drawn between two cells, dragged %s", (_, reverse) => {
+      const { chat, lines } = chatWith();
+      const beta = cellOf(lines, "beta");
+      const epsilon = cellOf(lines, "epsilon");
+      const from = beta;
+      const to = { row: epsilon.row, column: epsilon.column + 2 };
+      if (reverse) chat.select(to, from);
+      else chat.select(from, to);
+
+      expect(chat.selectedText()).toBe("beta gamma\n\n delta eps");
+      expect(highlighted(chat.render(40, 5))).toEqual([
+        "beta gamma",
+        " delta eps",
+      ]);
+      expect(plain(chat.render(40, 5))).toEqual(plain(lines));
+    });
+
+    it("keeps the selection on the same text when the chat scrolls", () => {
+      const { chat, lines } = chatWith();
+      const gamma = cellOf(lines, "gamma");
+      chat.select(gamma, { row: gamma.row, column: gamma.column + 4 });
+      chat.scrollBy(-2);
+
+      expect(chat.selectedText()).toBe("gamma");
+      expect(highlighted(chat.render(40, 5))).toEqual(["gamma"]);
+    });
+
+    it("keeps a drag past the chat's edges inside the chat", () => {
+      const { chat, lines } = chatWith();
+      const delta = cellOf(lines, "delta");
+      chat.select(delta, { row: 99, column: 99 });
+
+      expect(chat.selectedText()).toBe("delta epsilon");
+    });
+
+    it("clears the highlight and the text", () => {
+      const { chat, lines } = chatWith();
+      chat.select(cellOf(lines, "alpha"), cellOf(lines, "beta"));
+      chat.clearSelection();
+
+      expect(chat.selectedText()).toBe("");
+      expect(highlighted(chat.render(40, 5))).toEqual([]);
+    });
+  });
+
   it("shows a shell command the user ran with its output, apart from the agent's tools", () => {
     const chat = new ChatView();
     chat.setTranscript([
