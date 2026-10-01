@@ -26,7 +26,7 @@ const RAIL_ITEMS: { pane: TodayRailPane; label: string; icon: JSX.Element }[] = 
 ]
 
 export function TodayRail(): JSX.Element {
-    const { activePane, sidebarOpen } = useValues(todayShellLogic)
+    const { activePane, sidebarVisible } = useValues(todayShellLogic)
     const { pickPane, toggleSidebar } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
@@ -76,14 +76,14 @@ export function TodayRail(): JSX.Element {
                 <ButtonPrimitive
                     iconOnly
                     size="lg"
-                    aria-label={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-                    tooltip={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+                    aria-label={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
+                    tooltip={sidebarVisible ? 'Hide sidebar' : 'Show sidebar'}
                     tooltipPlacement="right"
                     data-attr="today-rail-toggle-sidebar"
                     className="text-secondary [&_svg]:size-5"
                     onClick={toggleSidebar}
                 >
-                    {sidebarOpen ? <IconSidebarClose /> : <IconSidebarOpen />}
+                    {sidebarVisible ? <IconSidebarClose /> : <IconSidebarOpen />}
                 </ButtonPrimitive>
                 <NewAccountMenu isLayoutNavCollapsed />
             </div>

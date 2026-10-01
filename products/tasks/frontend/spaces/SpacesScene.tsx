@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { ChangeEvent } from 'react'
 
-import { IconSearch } from '@posthog/icons'
+import { IconChat, IconPlus, IconSearch } from '@posthog/icons'
 import {
     Button,
     Empty,
     EmptyContent,
     EmptyDescription,
     EmptyHeader,
+    EmptyMedia,
     EmptyTitle,
     Heading,
     InputGroup,
@@ -26,6 +27,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ChannelDTOApi } from '../generated/api.schemas'
+import { newSpaceLogic } from './newSpaceLogic'
 import { SpacesIndexRow } from './SpacesIndexRow'
 import { spacesSceneLogic } from './spacesSceneLogic'
 
@@ -38,19 +40,23 @@ export function SpacesScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { lists, search, spacesLoading, spacesUnavailable, sortedSpaces } = useValues(spacesSceneLogic)
     const { setSearch, loadSpaces } = useActions(spacesSceneLogic)
+    const { openNewSpace } = useActions(newSpaceLogic)
 
     if (!enabled) {
         return <NotFound object="page" />
     }
-    const section = (label: string, spaces: ChannelDTOApi[]): JSX.Element | null =>
+    // With nothing starred there is one list, so it needs no heading.
+    const section = (label: string | null, spaces: ChannelDTOApi[]): JSX.Element | null =>
         spaces.length > 0 ? (
-            <section className="flex flex-col gap-1" aria-label={label}>
-                <Heading size="sm" render={<h3 />} className="px-2 pb-1">
-                    <span>{label}</span>{' '}
-                    <Text render={<span />} size="sm" variant="muted" className="tabular-nums">
-                        {spaces.length}
-                    </Text>
-                </Heading>
+            <section className="flex flex-col gap-1" aria-label={label ?? 'Spaces'}>
+                {label && (
+                    <Heading size="sm" render={<h3 />} className="px-2 pb-1">
+                        <span>{label}</span>{' '}
+                        <Text render={<span />} size="sm" variant="muted" className="tabular-nums">
+                            {spaces.length}
+                        </Text>
+                    </Heading>
+                )}
                 <div className="flex flex-col gap-px">
                     {spaces.map((space) => (
                         <SpacesIndexRow key={space.id} space={space} />
@@ -62,7 +68,16 @@ export function SpacesScene(): JSX.Element {
     return (
         <TooltipProvider>
             <SceneContent>
-                <SceneTitleSection name="Spaces" resourceType={{ type: 'task' }} />
+                <SceneTitleSection
+                    name="Spaces"
+                    resourceType={{ type: 'task' }}
+                    actions={
+                        <Button variant="primary" onClick={openNewSpace} data-attr="today-new-space-open-index">
+                            <IconPlus />
+                            New space…
+                        </Button>
+                    }
+                />
                 <div className="mx-auto flex w-full max-w-5xl flex-col gap-5" data-quill>
                     <InputGroup className="max-w-80">
                         <InputGroupInput
@@ -78,10 +93,10 @@ export function SpacesScene(): JSX.Element {
                         </InputGroupAddon>
                     </InputGroup>
                     {spacesLoading && !sortedSpaces.length ? (
-                        <div className="flex flex-col gap-3 px-2">
-                            <Skeleton className="h-4 w-1/4" />
-                            <Skeleton className="h-4 w-1/2" />
-                            <Skeleton className="h-4 w-1/3" />
+                        <div className="flex flex-col gap-px">
+                            {[0, 1, 2, 3, 4, 5].map((row) => (
+                                <Skeleton key={row} className="h-9 w-full" />
+                            ))}
                         </div>
                     ) : spacesUnavailable && !sortedSpaces.length ? (
                         <Empty className="py-12">
@@ -103,18 +118,35 @@ export function SpacesScene(): JSX.Element {
                     ) : !lists.starred.length && !lists.rest.length ? (
                         <Empty className="py-12">
                             <EmptyHeader>
+                                {!search && (
+                                    <EmptyMedia variant="icon">
+                                        <IconChat />
+                                    </EmptyMedia>
+                                )}
                                 <EmptyTitle>{search ? 'No spaces match your search' : 'No spaces yet'}</EmptyTitle>
                                 <EmptyDescription>
                                     {search
                                         ? 'Try a different name or repository.'
-                                        : 'Spaces group the sessions you and your agents work on. Create one from PostHog Desktop.'}
+                                        : 'Spaces group the sessions you and your agents work on.'}
                                 </EmptyDescription>
                             </EmptyHeader>
+                            {!search && (
+                                <EmptyContent>
+                                    <Button
+                                        variant="outline"
+                                        onClick={openNewSpace}
+                                        data-attr="today-new-space-open-empty"
+                                    >
+                                        <IconPlus />
+                                        New space…
+                                    </Button>
+                                </EmptyContent>
+                            )}
                         </Empty>
                     ) : (
                         <>
                             {section('Starred', lists.starred)}
-                            {section('All spaces', lists.rest)}
+                            {section(lists.starred.length ? 'Everything else' : null, lists.rest)}
                         </>
                     )}
                 </div>

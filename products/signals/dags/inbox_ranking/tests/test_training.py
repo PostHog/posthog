@@ -81,7 +81,9 @@ from products.signals.dags.inbox_ranking.training.dag import (
     candidate_metadata,
     champion_object_key,
     embeddings_extras,
+    example_windows,
     examples_object_key,
+    examples_table,
     grade_metadata,
     inbox_ranking_training_examples,
     inbox_ranking_unseen_graded,
@@ -95,17 +97,24 @@ from products.signals.dags.inbox_ranking.training.dag import (
 )
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
+    ConsentExclusion,
     Snapshot,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
     cap_examples,
+    drop_without_training_consent,
     example_columns,
     holdout_mask,
     reports_missing_birth_snapshot,
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
-from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, PromotionDecision, decide_promotion
+from products.signals.dags.inbox_ranking.training.promotion import (
+    AUC_TOLERANCE,
+    ECE_TOLERANCE,
+    PromotionDecision,
+    decide_promotion,
+)
 from products.signals.dags.inbox_ranking.training.served import served_events, served_metadata, served_score_rows
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
@@ -124,7 +133,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_auc, train_head
+from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_grade, train_head
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
@@ -497,6 +506,25 @@ def test_build_examples_skips_label_only_rows():
     assert build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["a"]
 
 
+def test_build_examples_drops_reports_without_training_consent_at_training_time():
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    # opted_out: its organization opted out after these snapshots were written; no_team: a state row
+    # with no readable team; eu: a label-only row with no state.
+    ids = ["consenting", "opted_out", "no_team", "eu"]
+    state = _state(ids, report_team_id=[1, 2, None, None], signal_count=[3, 3, 3, None])
+    snapshots = {
+        D0: Snapshot(date=D0, state=state, labels=_labels(ids)),
+        later: Snapshot(date=later, state=state, labels=_labels(ids, pr_created_count=[1, 1, 1, 1])),
+    }
+
+    kept, excluded = drop_without_training_consent(snapshots, frozenset({1}))
+
+    assert build_examples(kept, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["consenting"]
+    assert (excluded.reports, excluded.teams) == (2, 1)
+    assert kept[later].labels.index.tolist() == ["consenting", "eu"]
+
+
 def test_holdout_mask_cuts_by_report_not_by_row():
     examples = pd.DataFrame(
         {
@@ -564,15 +592,38 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     # The saved holdout fit graded on the same rows must reproduce the stored metric: this is the
     # path the champion gate uses to compare two models on one holdout.
     assert trained.holdout_booster_ubj is not None
-    paired = booster_holdout_auc(
+    paired = booster_holdout_grade(
         trained.holdout_booster_ubj, examples, head, feature_names=FEATURE_NAMES, holdout_days=7
     )
-    assert paired == pytest.approx(trained.metrics.holdout_auc, abs=1e-6)
+    assert paired is not None
+    assert paired.auc == pytest.approx(trained.metrics.holdout_auc, abs=1e-6)
+    assert paired.expected_calibration_error == pytest.approx(
+        trained.metrics.holdout_expected_calibration_error, abs=1e-6
+    )
+    # The metadata that ships says what the probability is conditioned on and how much history it saw.
+    window = {"example_window_start": "2026-08-01", "example_cap_bound": False}
+    table = examples_table(examples, TABULAR_FEATURE_SET, {head.name: window})
+    buffer = io.BytesIO()
+    pq.write_table(table, buffer)
+    windows = example_windows(pq.read_table(pa.BufferReader(buffer.getvalue())))
+    candidate_head = candidate_metadata(
+        "2026-08-19",
+        [trained],
+        model_name=TABULAR_MODEL_NAME,
+        feature_set=TABULAR_FEATURE_SET,
+        skipped=[],
+        trained_at=NOW,
+        run_id="run-1",
+        windows=windows,
+    )["heads"][0]
+    assert {"cohort": head.cohort.__name__, "horizon_days": head.horizon_days, **window}.items() <= (
+        candidate_head.items()
+    )
     # A booster from another feature schema is not scorable on these examples: the gate must fall
     # back to the stored AUC instead of failing the champion asset every day.
     other_schema = xgb.XGBClassifier(n_estimators=2).fit(pd.DataFrame({"not_a_feature": [0, 1, 0, 1]}), [0, 1, 0, 1])
     other_ubj = bytes(other_schema.get_booster().save_raw("ubj"))
-    assert booster_holdout_auc(other_ubj, examples, head, feature_names=FEATURE_NAMES, holdout_days=7) is None
+    assert booster_holdout_grade(other_ubj, examples, head, feature_names=FEATURE_NAMES, holdout_days=7) is None
 
 
 def test_train_head_keeps_logloss_on_a_single_class_holdout():
@@ -786,7 +837,9 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
         pd.NaT,
     ]
     snapshots = {
-        date: Snapshot(date=date, state=_state(ids, report_created_at=created), labels=_labels(ids))
+        date: Snapshot(
+            date=date, state=_state(ids, report_created_at=created, report_team_id=[1] * 5), labels=_labels(ids)
+        )
         for date in dates
         if date != gap
     }
@@ -801,6 +854,7 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.snapshot_dates", lambda *args: dates)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: snapshots)
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset({1}))
     monkeypatch.setattr(f"{module}.embeddings_extras", lambda *args: NO_EXTRAS)
     monkeypatch.setattr(f"{module}._write_examples", lambda *args: {})
     with dagster.build_asset_context(partition_key=dates[-1].isoformat()) as context:
@@ -1391,7 +1445,16 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             feature_set=TABULAR_FEATURE_SET.name,
             snapshots=20,
             backfilled_rows=0,
-            per_head={"open": HeadExampleCounts(rows=10, positives=2, birth_day_positives=1)},
+            excluded=ConsentExclusion(reports=4, teams=2),
+            per_head={
+                "open": HeadExampleCounts(
+                    rows=10,
+                    positives=2,
+                    birth_day_positives=1,
+                    example_window_start=datetime.date(2026, 7, 1),
+                    example_cap_bound=True,
+                )
+            },
         ),
         promotion_event(
             partition_key="2026-08-25",
@@ -1402,6 +1465,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             champion_version="none",
             incumbent_champion_version="none",
             champion_aucs={"open": 0.6},
+            champion_eces={"open": 0.05},
         ),
         *unseen_score_events(run_id="run-1", rows=score_event_rows(scores, _state(["a"]))),
         *unseen_head_graded_events(run_id="run-1", grades=grades),
@@ -1466,7 +1530,11 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "rows": 10,
         "positives": 2,
         "birth_day_positives": 1,
+        "example_window_start": "2026-07-01",
+        "example_cap_bound": True,
         "feature_set": TABULAR_FEATURE_SET.name,
+        "excluded_no_training_consent_reports": 4,
+        "excluded_no_training_consent_teams": 2,
     }.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
     assert {
@@ -1474,6 +1542,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "promoted": False,
         "incumbent_champion_version": "none",
         "champion_open_auc_on_this_holdout": 0.6,
+        "champion_open_ece_on_this_holdout": 0.05,
     }.items() <= promotion_props.items()
     # The unseen series is charted next to the holdout series, so it breaks down on the same head
     # property and carries the model it graded; the p_/outcome_ naming is what a calibration read joins on.
@@ -1614,6 +1683,30 @@ def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     # Paired on this holdout the champion is stronger than its stored number said.
     paired = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.75})
     assert not paired.promote and "regressed" in paired.reason
+
+
+@pytest.mark.parametrize(
+    "candidate_ece,champion_eces,expected_promote",
+    [
+        (0.10, {"open": 0.10 - ECE_TOLERANCE - 0.01}, False),
+        (0.10, {"open": 0.10 - ECE_TOLERANCE + 0.01}, True),
+        # A champion fit on sampled negatives is badly calibrated, so a corrected candidate passes.
+        (0.02, {"open": 0.20}, True),
+        # The stored error was read on the champion's own holdout, so no paired error means no check.
+        (0.30, None, True),
+    ],
+)
+def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, champion_eces, expected_promote):
+    candidate = _metadata("d2", open=0.66)
+    candidate["heads"][0]["holdout_expected_calibration_error"] = candidate_ece
+    champion = {**_metadata("d1", open=0.66), "promoted_at": "2026-08-10T00:00:00+00:00"}
+
+    decision = decide_promotion(
+        candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.66}, champion_eces=champion_eces
+    )
+
+    assert decision.promote is expected_promote
+    assert expected_promote or "open calibration regressed" in decision.reason
 
 
 class _FakeS3:
@@ -2073,6 +2166,7 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
     monkeypatch.setattr(f"{module}.skip_unconfigured", lambda context: False)
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: {})
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset())
     monkeypatch.setattr(
         f"{module}.embeddings_extras",
         lambda context, client, bucket, prefix, partition_key, keys: {
@@ -2140,18 +2234,41 @@ def test_report_grain_keeps_one_example_per_report_and_needs_a_vector(feature_se
     assert moments["report_id"].tolist() == ["a", "b", "a", "b"]
 
 
-def test_cap_examples_keeps_every_positive_and_a_seeded_sample_of_the_negatives():
-    # The budget is what keeps a 1536-column head inside one partition's object and the job's
-    # runtime. Positives are the scarce side, and a re-run of a partition must keep the same rows.
-    moments = pd.DataFrame({"report_id": [f"r{index}" for index in range(23)], "label": [1] * 3 + [0] * 20})
+def _dated_moments(labels_by_day: dict[int, list[int]]) -> pd.DataFrame:
+    rows = [
+        (f"r{day}-{index}", pd.Timestamp(D0, tz="UTC") + pd.Timedelta(days=day, hours=index % 20), label)
+        for day, labels in labels_by_day.items()
+        for index, label in enumerate(labels)
+    ]
+    return pd.DataFrame(rows, columns=["report_id", "report_created_at", "label"])
 
-    capped = cap_examples(moments, 10)
 
-    assert (len(capped), capped["label"].sum()) == (10, 3)
-    assert capped.equals(cap_examples(moments, 10))
+@pytest.mark.parametrize(
+    "limit,expected_days",
+    [
+        (None, {0, 1, 2}),
+        (100, {0, 1, 2}),
+        # Days 2 and 1 fit in 12 rows; day 0 would push the total past the budget.
+        (12, {1, 2}),
+        # Day 1 does not fit whole, so it goes rather than a subset of its reports.
+        (7, {2}),
+        # The newest day alone exceeds the budget and is still kept, so the head has something to fit.
+        (3, {2}),
+    ],
+)
+def test_cap_examples_keeps_whole_days_newest_first(limit, expected_days):
+    # Day 0 is rich in positives, so a positive-keeping sample would raise the rate of what is kept.
+    moments = _dated_moments({0: [1] * 6 + [0] * 4, 1: [1] + [0] * 5, 2: [1] + [0] * 5})
+
+    capped = cap_examples(moments, limit)
+
+    kept_days = set(pd.to_datetime(capped["report_created_at"]).dt.date - D0)
+    assert {delta.days for delta in kept_days} == expected_days
+    source_days = (pd.to_datetime(moments["report_created_at"]).dt.date - D0).map(lambda delta: delta.days)
+    population = moments[source_days.isin(expected_days)]
+    assert len(capped) == len(population)
+    assert capped["label"].mean() == pytest.approx(population["label"].mean())
     assert cap_examples(moments, None) is moments
-    # A head with more positives than the budget is not the case the budget is for.
-    assert cap_examples(moments, 2)["label"].tolist() == [1, 1, 1]
 
 
 def test_score_pool_scores_every_newborn_even_without_a_vector():
