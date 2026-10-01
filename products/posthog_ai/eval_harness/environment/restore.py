@@ -277,6 +277,7 @@ class PreparedEnvironment:
         try:
             with transaction.atomic():
                 owner = cls._create_project(selected_user, workspace, dataset.manifest.timezone)
+                EnvironmentEvents.preflight(owner.team.id)
                 cls._install_metrics(dataset, transformer, owner)
                 event_ingestion = EnvironmentIngestion.install(owner.team, owner.user)
             receipt = receipt.model_copy(
