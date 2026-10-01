@@ -67,14 +67,40 @@ export function parseMermaidMessage(data: string): MermaidMessage | null {
   return null;
 }
 
+export function rememberSize(
+  cache: Map<string, DiagramSize>,
+  key: string,
+  size: DiagramSize,
+  limit: number,
+): void {
+  cache.delete(key);
+  cache.set(key, size);
+  for (const oldest of cache.keys()) {
+    if (cache.size <= limit) break;
+    cache.delete(oldest);
+  }
+}
+
 // Embeds a value in an inline script without letting it close the tag.
 function scriptLiteral(value: unknown): string {
   return JSON.stringify(value).replace(/</g, "\\u003c");
 }
 
-// The mermaid bundle arrives as an injected script before this page loads. The
+// Keeps a script source from ending its tag early. The escape only appears in
+// strings, regexes and comments, where it still reads as "<".
+export function inlineScriptSource(source: string): string {
+  return source.replace(/<(?=!--|\/?script)/gi, "\\x3C");
+}
+
+// The bundle loads in its own script tag before the render script. Injected
+// JavaScript runs inside a function on Android, where the bundle's top-level
+// `var` does not become a global, and it may run after the page scripts. The
 // policy blocks every network fetch, so the SVG can only use what it carries.
-export function mermaidHtml(code: string, dark: boolean): string {
+export function mermaidHtml(
+  code: string,
+  dark: boolean,
+  bundle: string,
+): string {
   const config = {
     startOnLoad: false,
     theme: dark ? "dark" : "default",
@@ -92,6 +118,7 @@ export function mermaidHtml(code: string, dark: boolean): string {
 </head>
 <body>
 <div id="root"></div>
+<script>${bundle}</script>
 <script>
 (function () {
   function post(message) {
