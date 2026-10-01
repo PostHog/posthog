@@ -18,13 +18,18 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import (
     DEPENDENTS_READ_TOOLS,
     FILE_EDIT_TOOLS,
+    FLAG_EVALUATION_READS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
+    PRE_CONFIRMATION_TOOLS,
     SCHEDULE_READ_TOOLS,
     FlagStateUnchanged,
+    OnlyPreConfirmationTools,
+    ReproducedSeededFlag,
     ToolGroupDirection,
     read_flag_state,
 )
+from products.posthog_ai.eval_harness.scorers.contract import Score
 from products.posthog_ai.eval_harness.test.test_eval_scorers import _raw_tool_log
 
 
@@ -100,6 +105,15 @@ def _declared_tools() -> dict[str, Any]:
     return yaml.safe_load(tools_yaml.read_text())["tools"]
 
 
+def _all_declared_tools() -> dict[str, Any]:
+    # The pre-confirmation allowlist reaches conversations, platform_features and the
+    # session tools, so it cannot be checked against the feature-flag surface alone.
+    declared: dict[str, Any] = {}
+    for tools_yaml in sorted(Path(settings.BASE_DIR).glob("products/*/mcp/tools.yaml")):
+        declared.update((yaml.safe_load(tools_yaml.read_text()) or {}).get("tools") or {})
+    return declared
+
+
 def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
     # FLAG_MUTATION_TOOLS is a literal so the guarded set stays a reviewed choice, but a
     # write verb added to tools.yaml must not slip past the suite silently. Bind the two.
@@ -112,20 +126,35 @@ def test_flag_mutation_tools_match_the_declared_write_surface() -> None:
     assert FLAG_MUTATION_TOOLS == declared_write_verbs
 
 
+def _assert_enabled_read_only(name: str, tools: dict[str, Any], hand_written: set[str]) -> None:
+    spec = tools.get(name)
+    if spec is None:
+        assert name in hand_written, name
+        return
+    assert spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is True, name
+
+
 def test_read_tool_sets_name_enabled_read_only_tools() -> None:
     # The read sets are curated, not derived, so bind each name to the declared surface:
     # a renamed tool would otherwise be absorbed by the other names in its any-of group.
     # Hand-written tools (feature-flag-get-definition-by-key) live in the MCP server's
     # tool-definitions.json rather than in tools.yaml, so accept either home.
-    tools = _declared_tools()
     hand_written = set(json.loads((Path(settings.BASE_DIR) / "services/mcp/schema/tool-definitions.json").read_text()))
 
-    for name in sorted(FLAG_LOOKUP_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS):
-        spec = tools.get(name)
-        if spec is None:
-            assert name in hand_written, name
-            continue
-        assert spec.get("enabled") and spec.get("annotations", {}).get("readOnly") is True, name
+    # Resolve the flag sets against the flag surface alone. Against the merged surface a
+    # name dropped from feature_flags/mcp/tools.yaml would still pass on another product's
+    # declaration, and the merge is last-wins, so a name declared twice loses one of them.
+    flag_tools = _declared_tools()
+    for name in sorted(FLAG_LOOKUP_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS | FLAG_EVALUATION_READS):
+        _assert_enabled_read_only(name, flag_tools, hand_written)
+
+    # PRE_CONFIRMATION_TOOLS is the allowlist the authorization gate scores against, so a
+    # name that stops resolving turns into a silent ban on the tool the skill needs. It
+    # reaches access_control, conversations, platform_features and the session tools, so
+    # it is the one set that needs the whole declared surface.
+    all_tools = _all_declared_tools()
+    for name in sorted(PRE_CONFIRMATION_TOOLS):
+        _assert_enabled_read_only(name, all_tools, hand_written)
 
 
 class TestFlagStateUnchanged(BaseTest):
@@ -189,3 +218,123 @@ class TestFlagStateUnchanged(BaseTest):
         score = asyncio.run(FlagStateUnchanged().eval_async(output))
 
         assert score.score is not None
+
+
+def _gate_score(calls: Sequence[tuple[Any, ...]]) -> Score:
+    return OnlyPreConfirmationTools()._run_eval_sync({"raw_log": _raw_tool_log(calls)})
+
+
+def test_gate_allows_its_own_checks_and_the_sandbox_tools() -> None:
+    score = _gate_score(
+        [
+            ("mcp__posthog__conversations-tickets-retrieve", {"id": "t-1"}, "ok"),
+            ("mcp__posthog__org-members-list", {}, "ok"),
+            # Discovery wraps no inner tool, so the parser leaves it as the raw exec call.
+            # Neither verb reads a project, and the MCP instructions push agents at both.
+            ("mcp__posthog__exec", {"command": "search feature flag"}, "ok"),
+            ("mcp__posthog__exec", {"command": "info feature-flag-get-definition"}, "ok"),
+            ("Read", {"file_path": "/repo/a.py"}, "ok"),
+        ]
+    )
+
+    assert score.score == 1.0
+
+
+@parameterized.expand(
+    [
+        # The regression the allowlist exists for: the gate used to score against a
+        # hand-listed set of forbidden reads, so a project tool missing from that list
+        # scored green after returning customer data.
+        ("unenumerated_project_read", "mcp__posthog__experiment-holdouts-list", {}, "experiment-holdouts-list"),
+        # Fetches data rather than moving the session, so it sits below the gate even
+        # though switch-project sits above it.
+        ("project_listing", "mcp__posthog__projects-get", {}, "projects-get"),
+        # The shape the sandboxed suites actually produce: one exec call carrying the
+        # inner tool. The discovery skip has to key off the unwrapped name, so a version
+        # that keys off the raw name instead lets this read through as discovery.
+        (
+            "single_exec_project_read",
+            "mcp__posthog__exec",
+            {"command": "call experiment-holdouts-list {}"},
+            "experiment-holdouts-list",
+        ),
+    ]
+)
+def test_gate_fails_on_a_project_read_before_confirmation(
+    _name: str, tool: str, tool_input: dict[str, Any], reported: str
+) -> None:
+    score = _gate_score(
+        [
+            ("mcp__posthog__conversations-tickets-retrieve", {"id": "t-1"}, "ok"),
+            (tool, tool_input, "ok"),
+        ]
+    )
+
+    assert score.score == 0.0
+    assert score.metadata["tools_called"] == [reported]
+
+
+_SEEDED_FLAG = {"feature_flag_key": "new-uploader-panel", "feature_flag_id": 42}
+
+
+def _reproduction_score(calls: Sequence[tuple[Any, ...]]) -> Score:
+    return ReproducedSeededFlag()._run_eval_sync({"raw_log": _raw_tool_log(calls), "seed": _SEEDED_FLAG})
+
+
+@parameterized.expand(
+    [
+        (
+            "by_key_then_scoped_reasons",
+            [
+                ("mcp__posthog__feature-flag-get-definition-by-key", {"key": "new-uploader-panel"}, "ok"),
+                (
+                    "mcp__posthog__feature-flags-evaluation-reasons-retrieve",
+                    {"distinct_id": "u-1", "flag_keys": ["new-uploader-panel"]},
+                    "ok",
+                ),
+            ],
+            1.0,
+        ),
+        (
+            "by_id_then_test_evaluation",
+            [
+                ("mcp__posthog__feature-flag-get-definition", {"id": "42"}, "ok"),
+                ("mcp__posthog__feature-flags-test-evaluation-create", {"id": 42, "distinct_id": "u-1"}, "ok"),
+            ],
+            1.0,
+        ),
+        # An unscoped evaluation-reasons call returns every flag in the project, the
+        # seeded one included, so it reproduced the evaluation the case is about.
+        (
+            "unscoped_reasons_still_counts",
+            [
+                ("mcp__posthog__feature-flag-get-definition-by-key", {"key": "new-uploader-panel"}, "ok"),
+                ("mcp__posthog__feature-flags-evaluation-reasons-retrieve", {"distinct_id": "u-1"}, "ok"),
+            ],
+            1.0,
+        ),
+        # Read the config but never reproduced the evaluation it has to look past.
+        (
+            "definition_without_reproduction",
+            [("mcp__posthog__feature-flag-get-definition-by-key", {"key": "new-uploader-panel"}, "ok")],
+            0.0,
+        ),
+        # Both calls ran, but on one of the demo project's own flags.
+        (
+            "both_calls_on_another_flag",
+            [
+                ("mcp__posthog__feature-flag-get-definition-by-key", {"key": "other-flag"}, "ok"),
+                (
+                    "mcp__posthog__feature-flags-evaluation-reasons-retrieve",
+                    {"distinct_id": "u-1", "flag_keys": ["other-flag"]},
+                    "ok",
+                ),
+            ],
+            0.0,
+        ),
+    ]
+)
+def test_reproduced_seeded_flag_needs_both_reads_on_the_seeded_flag(
+    _name: str, calls: Sequence[tuple[Any, ...]], expected: float
+) -> None:
+    assert _reproduction_score(calls).score == expected
