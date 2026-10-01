@@ -1,5 +1,6 @@
 import { Host, Image } from "@expo/ui/swift-ui";
 import { useRouter } from "expo-router";
+import { useDrawerStatus } from "expo-router/drawer";
 import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,7 +26,11 @@ export function DrawerContent({ closeDrawer }: { closeDrawer: () => void }) {
     () => (reports ?? []).map((report) => report.id),
     [reports],
   );
-  const newReports = useReportReadStates(reportIds).unread.size;
+  // The badge shows only while the drawer is open, so read state does not poll
+  // behind a closed drawer.
+  const drawerOpen = useDrawerStatus() === "open";
+  const newReports = useReportReadStates(reportIds, { enabled: drawerOpen })
+    .unread.size;
   const sorted = useMemo(
     () =>
       [...(tasks.data ?? [])].sort((a, b) =>

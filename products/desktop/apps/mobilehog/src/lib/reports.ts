@@ -26,8 +26,10 @@ import {
   reportFilterParams,
 } from "@/lib/reportFilters";
 import {
+  markReadOptimistically,
   type ReadStateResult,
   type ReportReadStates,
+  restoreReadState,
   summarizeReadStates,
 } from "@/lib/reportReadState";
 import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
@@ -233,13 +235,15 @@ export function useStartReportTask() {
 // all of them. The client batches the per-report lookups into one request.
 export function useReportReadStates(
   reportIds: readonly string[],
+  { enabled = true }: { enabled?: boolean } = {},
 ): ReportReadStates {
   const results = useQueries({
     queries: reportIds.map((id) => ({
       queryKey: reportKeys.read(id),
       queryFn: () => getClient().getReportReadState(id),
+      enabled,
       staleTime: 15_000,
-      refetchInterval: 30_000,
+      refetchInterval: enabled ? 30_000 : false,
     })),
     combine: pickReadStates,
   });
@@ -250,8 +254,9 @@ export function useReportReadStates(
 }
 
 function pickReadStates(results: ReadStateResult[]): ReadStateResult[] {
-  return results.map(({ data, isFetchedAfterMount }) => ({
+  return results.map(({ data, isError, isFetchedAfterMount }) => ({
     data,
+    isError,
     isFetchedAfterMount,
   }));
 }
@@ -261,18 +266,23 @@ export function useMarkReportRead(): (reportId: string) => void {
   const { mutate } = useMutation({
     mutationFn: (reportId: string) =>
       getClient().getReportReadStates([reportId], true),
-    onMutate: async (reportId) => {
-      const key = reportKeys.read(reportId);
-      await queryClient.cancelQueries({ queryKey: key });
-      queryClient.setQueryData(key, true);
-    },
+    onMutate: async (reportId) => ({
+      previous: await markReadOptimistically(
+        queryClient,
+        reportKeys.read(reportId),
+      ),
+    }),
     onSuccess: (states, reportId) =>
       queryClient.setQueryData(
         reportKeys.read(reportId),
         states[reportId] === true,
       ),
-    onError: (_error, reportId) =>
-      queryClient.invalidateQueries({ queryKey: reportKeys.read(reportId) }),
+    onError: (_error, reportId, context) =>
+      restoreReadState(
+        queryClient,
+        reportKeys.read(reportId),
+        context?.previous,
+      ),
   });
   return useCallback(
     (reportId: string) => {
