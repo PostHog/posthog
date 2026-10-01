@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 
 import { broadcastsSceneLogic } from '../Broadcasts/broadcastsSceneLogic'
 import { workflowsSceneLogic } from '../WorkflowsScene'
+import { audienceSceneLogic } from './audienceSceneLogic'
 
 const MOVED_TAB_REDIRECTS = [
     { from: '/workflows/opt-outs', to: '/audience/topics', surface: 'workflows', tab: 'opt-outs' },
@@ -55,5 +56,20 @@ describe('audience routing', () => {
 
         expect(currentPath()).toBe(from)
         expect(posthog.capture).not.toHaveBeenCalledWith('messaging tab redirected to audience', expect.anything())
+    })
+
+    it.each([
+        { visited: ['/audience'], tab: 'topics' },
+        { visited: ['/audience/topics'], tab: 'topics' },
+        { visited: ['/audience/suppression'], tab: 'suppression' },
+        { visited: ['/audience/suppression', '/audience'], tab: 'topics' },
+        { visited: ['/audience/not-a-tab'], tab: 'topics' },
+        { visited: ['/audience/recipients/jamie%40example.com'], tab: 'topics' },
+    ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab }) => {
+        audienceSceneLogic.mount()
+
+        visited.forEach((url) => router.actions.push(url))
+
+        expect(audienceSceneLogic.values.currentTab).toBe(tab)
     })
 })
