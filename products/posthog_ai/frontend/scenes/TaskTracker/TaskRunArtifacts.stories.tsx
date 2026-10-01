@@ -11,6 +11,7 @@ import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
+import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
 
 import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -199,7 +200,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard',
+    objectKind: 'insight' | 'dashboard' | 'flag',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -223,7 +224,21 @@ function objectReference(
 const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
     objectReference('phref_growth', 'Growth review', 'dashboard', '42', '2026-09-28T18:11:00Z'),
+    objectReference('phref_flag', 'new-plan-picker', 'flag', '7', '2026-09-28T18:10:00Z'),
 ]
+
+const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
+
+// The live insight embed loads the saved insight, then runs its query.
+const INSIGHT_MOCKS = {
+    get: {
+        '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
+        '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
+    },
+    post: {
+        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
+    },
+}
 
 const VIDEO_ARTIFACT: TaskRunArtifactResponseApi = {
     id: 'artifact-walkthrough',
@@ -464,9 +479,19 @@ export const Video: Story = {
     render: () => <StoryPage fileName={VIDEO_ARTIFACT.name} />,
 }
 
+function objectMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
+    return { get: { ...mocks.get, ...INSIGHT_MOCKS.get }, post: { ...mocks.post, ...INSIGHT_MOCKS.post } }
+}
+
 export const PostHogObjects: Story = {
-    parameters: { msw: { mocks: taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES]) } },
+    parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_trial_funnel" />,
+}
+
+export const PostHogObjectWithoutEmbed: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_flag" />,
 }
 
 export const Versions: Story = {

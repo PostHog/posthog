@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import {
     IconBolt,
@@ -96,12 +96,15 @@ import {
     formatArtifactSize,
     isTextPreview,
     parseCsv,
+    LIVE_OBJECT_KINDS,
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
 
 const MAX_CSV_ROWS = 500
+
+const ArtifactObjectEmbed = lazy(() => import('./ArtifactObjectEmbed'))
 
 type PreviewMode = 'rendered' | 'source'
 
@@ -157,13 +160,17 @@ function IconAction({
     label,
     onClick,
     href,
+    to,
     disabledReason,
     children,
     dataAttr,
 }: {
     label: string
     onClick?: () => void
+    /** A file to download. */
     href?: string
+    /** An app page to open. */
+    to?: string
     disabledReason?: string
     children: JSX.Element
     dataAttr: string
@@ -179,8 +186,16 @@ function IconAction({
                         disabled={!!disabledReason}
                         onClick={onClick}
                         data-attr={dataAttr}
-                        // eslint-disable-next-line react/forbid-elements
-                        render={href && !disabledReason ? <a href={href} download /> : undefined}
+                        // A link renders as `<a>`, so Base UI must not expect a native button.
+                        nativeButton={disabledReason ? true : !href && !to}
+                        render={
+                            disabledReason ? undefined : href ? (
+                                // eslint-disable-next-line react/forbid-elements
+                                <a href={href} download />
+                            ) : to ? (
+                                <LinkPrimitive to={to} />
+                            ) : undefined
+                        }
                     />
                 }
             >
@@ -320,6 +335,21 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
     if (!ref || currentProjectId === null) {
         return null
     }
+    if (LIVE_OBJECT_KINDS.has(ref.objectKind)) {
+        return (
+            <div className="h-full overflow-y-auto">
+                <Suspense
+                    fallback={
+                        <div className="flex h-full items-center justify-center">
+                            <Spinner />
+                        </div>
+                    }
+                >
+                    <ArtifactObjectEmbed key={artifact.id} {...ref} />
+                </Suspense>
+            </div>
+        )
+    }
     const { kind, url } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
     return (
         <div className="flex h-full items-center justify-center p-6">
@@ -331,7 +361,12 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
                         </span>
                         <div className="flex min-w-0 flex-col gap-1">
                             <CardTitle className="truncate">{artifact.name}</CardTitle>
-                            <CardDescription>{`${kind.kindLabel} in ${kind.source}`}</CardDescription>
+                            <CardDescription>
+                                {/* "Feature flag in Feature flags" repeats itself, so a kind named like its product shows the product alone. */}
+                                {kind.source.toLowerCase().startsWith(kind.kindLabel.toLowerCase())
+                                    ? kind.source
+                                    : `${kind.kindLabel} in ${kind.source}`}
+                            </CardDescription>
                         </div>
                     </div>
                 </CardHeader>
@@ -341,6 +376,7 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
                             variant="primary"
                             className="w-full"
                             render={<LinkPrimitive to={url} />}
+                            nativeButton={false}
                             onClick={() => reportObjectOpened(ref.objectKind)}
                             data-attr="task-artifact-open-object"
                         >
@@ -652,8 +688,13 @@ function ArtifactToolbar({
     const { files, selectedFile, selectedIndex, selectedText, currentProjectId } = useValues(
         taskRunArtifactsLogic({ taskId })
     )
-    const { stepArtifact, downloadArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { stepArtifact, downloadArtifact, reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
     const kind = artifactPreviewKind(artifact)
+    const objectRef = postHogObjectRef(artifact)
+    const objectLink =
+        objectRef && currentProjectId !== null
+            ? objectKindLink(objectRef.objectKind, objectRef.objectId, `/project/${currentProjectId}`)
+            : null
     const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
     const single = files.length < 2
     const versioned = !!selectedFile && selectedFile.versions.length > 1
@@ -746,7 +787,17 @@ function ArtifactToolbar({
                         <IconDownload className="size-4" />
                     </IconAction>
                 )}
-                {kind !== 'reference' && (
+                {objectLink?.url && objectRef && (
+                    <IconAction
+                        label={`Open ${lowerFirst(objectLink.kind.kindLabel)} page`}
+                        to={objectLink.url}
+                        onClick={() => reportObjectOpened(objectRef.objectKind)}
+                        dataAttr="task-artifact-open-object-page"
+                    >
+                        <IconExternal className="size-4" />
+                    </IconAction>
+                )}
+                {(kind !== 'reference' || (objectRef && LIVE_OBJECT_KINDS.has(objectRef.objectKind))) && (
                     <IconAction
                         label={expanded ? 'Exit full page' : 'Open full page'}
                         onClick={() => onExpandedChange(!expanded)}
