@@ -4,7 +4,10 @@ import posthog from 'posthog-js'
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { isStoredCrashFirst } from 'lib/components/Errors/displayOrder'
+import { stackFrameLogic } from 'lib/components/Errors/Frame/stackFrameLogic'
+import { ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import { getExceptionList } from 'lib/components/Errors/utils'
 import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
@@ -31,6 +34,7 @@ import {
     ErrorTrackingExternalIssueResultApi,
     ErrorTrackingExternalIssueResultApiExternalContext,
 } from '../generated/api.schemas'
+import { generateStacktraceText } from '../hooks/use-stacktrace-display'
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { externalIssueSearchLogic } from './externalIssueSearchLogic'
 
@@ -46,6 +50,9 @@ type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrati
 
 const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
 
+// Jira rejects a description over 32,767 characters, so a long trace is cut to leave room for the rest of the body.
+const MAX_STACKTRACE_LENGTH = 20000
+
 const PROVIDER_LABELS: Record<ErrorTrackingIntegrationKind, string> = {
     github: 'GitHub',
     gitlab: 'GitLab',
@@ -58,6 +65,7 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
     (
         issue: ErrorTrackingRelationalIssue,
         issueUrl: string,
+        stacktrace: string,
         integration: ErrorTrackingIntegration,
         onSubmit: onSubmitFormType
     ) => void
@@ -69,7 +77,9 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
 }
 
 export const ExternalReferences = (): JSX.Element | null => {
-    const { issue, issueLoading, issueFingerprints } = useValues(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, issueFingerprints, selectedEvent, initialEvent } =
+        useValues(errorTrackingIssueSceneLogic)
+    const { stackFrameRecords } = useValues(stackFrameLogic)
     const { createExternalReference, linkExternalReference } = useActions(errorTrackingIssueSceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
@@ -94,6 +104,7 @@ export const ExternalReferences = (): JSX.Element | null => {
             buildForm(
                 issue,
                 getIssueUrl(issueFingerprints),
+                getStacktrace(selectedEvent ?? initialEvent, stackFrameRecords),
                 integration as ErrorTrackingIntegration,
                 createExternalReference
             )
@@ -235,17 +246,44 @@ function getIssueUrl(fingerprints: ErrorTrackingFingerprint[]): string {
     return `${window.location.origin}${window.location.pathname}`
 }
 
-function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
+function getStacktrace(event: ErrorEventType | null, stackFrameRecords: Record<string, any>): string {
+    if (!event) {
+        return ''
+    }
+    const stacktrace = generateStacktraceText(getExceptionList(event.properties), stackFrameRecords, {
+        includeInAppMarkers: false,
+        storedCrashFirst: isStoredCrashFirst(event.properties?.$lib, event.timestamp),
+    })
+    if (stacktrace.length <= MAX_STACKTRACE_LENGTH) {
+        return stacktrace
+    }
+    const lastLineBreak = stacktrace.lastIndexOf('\n', MAX_STACKTRACE_LENGTH)
+    return `${stacktrace.slice(0, lastLineBreak > 0 ? lastLineBreak : MAX_STACKTRACE_LENGTH)}\n...`
 }
 
-function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}\n\nPostHog issue: ${issueUrl}`
+// Source lines in the stack trace can contain backticks, so the fence must be longer than any run of them.
+function markdownCodeBlock(text: string): string {
+    const longestBacktickRun = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
+    const fence = '`'.repeat(Math.max(3, longestBacktickRun + 1))
+    return `${fence}\n${text}\n${fence}`
+}
+
+function getIssueDescription(issue: ErrorTrackingRelationalIssue, stacktrace: string): string {
+    return [issue.description, stacktrace && markdownCodeBlock(stacktrace)].filter(Boolean).join('\n\n')
+}
+
+function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string, stacktrace: string): string {
+    return `${getIssueDescription(issue, stacktrace)}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
+}
+
+function getJiraIssueBody(issue: ErrorTrackingRelationalIssue, issueUrl: string, stacktrace: string): string {
+    return `${getIssueDescription(issue, stacktrace)}\n\nPostHog issue: ${issueUrl}`
 }
 
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    stacktrace: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -254,7 +292,7 @@ function createGitHubIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: getIssueMarkdownBody(issue, issueUrl, stacktrace),
             integrationId: integration.id,
             repositories: [],
         },
@@ -265,7 +303,7 @@ function createGitHubIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
             </div>
         ),
@@ -283,6 +321,7 @@ function createGitHubIssueForm(
 function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    stacktrace: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -291,7 +330,7 @@ function createGitLabIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: getIssueMarkdownBody(issue, issueUrl, stacktrace),
             integrationId: integration.id,
         },
         content: (
@@ -300,7 +339,7 @@ function createGitLabIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
             </div>
         ),
@@ -316,6 +355,7 @@ function createGitLabIssueForm(
 function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
     _issueUrl: string,
+    stacktrace: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -324,7 +364,7 @@ function createLinearIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: issue.description,
+            description: getIssueDescription(issue, stacktrace),
             integrationId: integration.id,
             teamIds: [],
         },
@@ -335,7 +375,7 @@ function createLinearIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
             </div>
         ),
@@ -352,6 +392,7 @@ function createLinearIssueForm(
 function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    stacktrace: string,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
@@ -360,7 +401,7 @@ function createJiraIssueForm(
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getIssuePlaintextBody(issue, issueUrl),
+            description: getJiraIssueBody(issue, issueUrl, stacktrace),
             integrationId: integration.id,
             projectKeys: [],
         },
@@ -371,7 +412,7 @@ function createJiraIssueForm(
                     <LemonInput data-attr="jira-issue-title" placeholder="Issue summary" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
             </div>
         ),

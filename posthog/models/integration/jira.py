@@ -1,5 +1,6 @@
 """Jira integration."""
 
+import re
 import time
 from datetime import timedelta
 from typing import Any, NoReturn
@@ -13,6 +14,34 @@ from posthog.exceptions_capture import capture_exception
 from . import common, model, oauth
 
 logger = structlog.get_logger(__name__)
+
+FENCED_CODE_BLOCK = re.compile(
+    r"^(?P<fence>`{3,})(?P<language>[^`\n]*)\n(?P<code>.*?)\n(?P=fence)[ \t]*$", re.MULTILINE | re.DOTALL
+)
+
+
+def description_to_adf(description: str) -> dict[str, Any]:
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise."""
+    content: list[dict[str, Any]] = []
+
+    def add_paragraph(text: str) -> None:
+        # Jira rejects an empty text node.
+        if text.strip():
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+
+    position = 0
+    for match in FENCED_CODE_BLOCK.finditer(description):
+        add_paragraph(description[position : match.start()].strip("\n"))
+        code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
+        if language := match.group("language").strip():
+            code_block["attrs"] = {"language": language}
+        if code := match.group("code"):
+            code_block["content"] = [{"type": "text", "text": code}]
+        content.append(code_block)
+        position = match.end()
+    add_paragraph(description[position:].strip("\n"))
+
+    return {"type": "doc", "version": 1, "content": content}
 
 
 class JiraIntegration:
@@ -117,21 +146,11 @@ class JiraIntegration:
         description = config.get("description")
         project_key = config.get("project_key")
 
-        # Jira uses Atlassian Document Format (ADF) for description
         payload = {
             "fields": {
                 "project": {"key": project_key},
                 "summary": title,
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": description}],
-                        }
-                    ],
-                },
+                "description": description_to_adf(description or ""),
                 "issuetype": {"name": "Task"},
             }
         }
