@@ -136,6 +136,7 @@ import { LogsSessionIdAttributeKeys } from './environment/LogsSessionIdAttribute
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
+import { OtherAgentSettings } from './environment/OtherAgentSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
@@ -423,6 +424,28 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <TaskAgentMyPreferenceSettings />,
                 keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
             },
+            {
+                id: 'task-agent-other-settings',
+                title: 'Other agent settings',
+                description: 'Where to find the agent settings that are not on this page.',
+                component: <OtherAgentSettings />,
+                keywords: [
+                    'self-driving',
+                    'signals',
+                    'scouts',
+                    'agents',
+                    'skills',
+                    'workspaces',
+                    'worktrees',
+                    'terminal',
+                    'harness',
+                    'permission rules',
+                    'keep awake',
+                    'discord',
+                    'updates',
+                    'desktop',
+                ],
+            },
         ],
     },
     {
@@ -496,6 +519,45 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-task-agent-instructions',
         title: 'Agent instructions',
         group: 'AI',
+        flag: 'TODAY_RAIL_NAV',
+        keywords: ['custom instructions', 'personalization', 'simplified technical english', 'desktop'],
+        settings: [
+            {
+                id: 'task-agent-project-instructions',
+                title: (
+                    <>
+                        Project instructions
+                        <SettingScopeTag scope="project" />
+                    </>
+                ),
+                searchTerm: 'Project instructions',
+                description:
+                    'Instructions that PostHog cloud agents read as their AGENTS.md in every Tasks run on this project, including all Self-driving runs (scouts, research, and implementation) and scheduled runs. Use them for project conventions and for guidance that spans repositories, such as which repository owns which part of your product.',
+                component: <AgentProjectInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'project'],
+            },
+            {
+                id: 'task-agent-my-instructions',
+                title: (
+                    <>
+                        My instructions
+                        <SettingScopeTag scope="user" />
+                    </>
+                ),
+                searchTerm: 'My instructions',
+                description:
+                    'Instructions that PostHog cloud agents read after the project instructions in Tasks runs you start, from PostHog AI, Slack, or PostHog Desktop. Use them for your personal preferences and for anything you want agents to remember about how you work. Anyone who continues a task you started can see them, so leave out anything private. Self-driving and scheduled runs do not use them.',
+                component: <AgentPersonalInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agent-instructions',
+        title: 'Agent instructions',
+        group: 'AI',
+        flag: '!TODAY_RAIL_NAV',
         settings: [
             {
                 id: 'task-agent-project-instructions',
