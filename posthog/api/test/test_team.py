@@ -49,8 +49,8 @@ from posthog.utils import get_context_for_template, get_instance_realm
 from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.playbook import compose_support_playbook
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
-from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 
@@ -1631,9 +1631,14 @@ def team_api_test_factory():
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
-            res = self.client.post(
-                f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
-            )
+            source_org_url = f"/api/organizations/{self.organization.id}/"
+            # Populates the source organization's cached project list before the move.
+            assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
+
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                )
 
             assert res.status_code == status.HTTP_200_OK, res.json()
             assert res.json()["id"] == self.team.id
@@ -1642,6 +1647,9 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             assert self.project.organization == other_org
             assert self.team.organization == other_org
+            source_org = self.client.get(source_org_url).json()
+            assert source_org["teams"] == []
+            assert source_org["projects"] == []
 
         def test_change_organization_reconciles_current_project_of_affected_users(self):
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)

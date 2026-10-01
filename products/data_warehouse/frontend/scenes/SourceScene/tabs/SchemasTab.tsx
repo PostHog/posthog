@@ -71,6 +71,10 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
         schema.user_access_level
     )
 
+// Only data columns use this, so the sync toggle and row actions still look clickable on a schema that is not syncing.
+const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
+    schema.should_sync ? '' : 'opacity-60'
+
 export interface SchemasTabProps {
     id: string
 }
@@ -392,6 +396,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Schema',
                     key: 'name',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
                         const fullName = schema.label ?? schema.name
@@ -420,6 +425,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Status',
                     key: 'status',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => (a.status ?? '').localeCompare(b.status ?? ''),
                     render: (_, schema) => {
                         if (!schema.status) {
@@ -454,6 +460,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Sync method',
                     key: 'sync_type',
+                    className: dimWhenNotSyncing,
                     render: (_, schema) => {
                         if (!schema.sync_type) {
                             return <span className="text-muted">Not set up</span>
@@ -472,12 +479,14 @@ function ManagedSchemaTable({
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
                     render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
                     key: 'last_synced_at',
+                    className: dimWhenNotSyncing,
                     sorter: (a, b) =>
                         (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
                         (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
@@ -491,6 +500,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Row count',
                     key: 'rows_synced',
+                    className: dimWhenNotSyncing,
                     align: 'right',
                     sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
                     render: (_, schema) => {
@@ -518,6 +528,7 @@ function ManagedSchemaTable({
                           {
                               title: 'Rows synced (7d)',
                               key: 'rows_synced_sparkline',
+                              className: dimWhenNotSyncing,
                               render: function RenderSparkline(_: unknown, schema: ExternalDataSourceSchema) {
                                   const lastSyncedAt = schema.last_synced_at ? dayjs(schema.last_synced_at) : null
                                   const syncedWithin7Days =

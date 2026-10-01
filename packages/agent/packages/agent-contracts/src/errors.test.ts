@@ -1,0 +1,506 @@
+import { describe, expect, it } from "vitest";
+import {
+  aiGatewayDenialCode,
+  aiGatewayRemintReason,
+  classifyGatewayLimitError,
+  classifyPromptFailure,
+  getErrorMessage,
+  isAuthError,
+  isFatalSessionError,
+  isNotAuthenticatedError,
+  isRateLimitError,
+  isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
+  NotAuthenticatedError,
+  serializeError,
+} from "./errors";
+
+describe("NotAuthenticatedError", () => {
+  it("has the expected name and a default message", () => {
+    const err = new NotAuthenticatedError();
+    expect(err.name).toBe("NotAuthenticatedError");
+    expect(err.message).toBe("Not authenticated");
+  });
+
+  it("accepts a custom message", () => {
+    expect(new NotAuthenticatedError("token gone").message).toBe("token gone");
+  });
+});
+
+describe("isNotAuthenticatedError", () => {
+  it("recognises a real NotAuthenticatedError", () => {
+    expect(isNotAuthenticatedError(new NotAuthenticatedError())).toBe(true);
+  });
+
+  it("recognises a structurally tagged object", () => {
+    expect(isNotAuthenticatedError({ name: "NotAuthenticatedError" })).toBe(
+      true,
+    );
+  });
+
+  it("rejects a plain Error and non-objects", () => {
+    expect(isNotAuthenticatedError(new Error("nope"))).toBe(false);
+    expect(isNotAuthenticatedError(null)).toBe(false);
+    expect(isNotAuthenticatedError("NotAuthenticatedError")).toBe(false);
+  });
+});
+
+describe("getErrorMessage", () => {
+  it("reads the message from an Error", () => {
+    expect(getErrorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("reads the message from a message-bearing object", () => {
+    expect(getErrorMessage({ message: 42 })).toBe("42");
+  });
+
+  it("returns an empty string for valueless inputs", () => {
+    expect(getErrorMessage(null)).toBe("");
+    expect(getErrorMessage("just a string")).toBe("");
+  });
+});
+
+describe("isAuthError", () => {
+  it.each([
+    "Authentication required",
+    "Failed to authenticate",
+    "authentication_error",
+    "authentication_failed",
+    "Access token has expired",
+  ])("matches the auth pattern in %j (case-insensitive)", (message) => {
+    expect(isAuthError(new Error(message))).toBe(true);
+  });
+
+  it("returns false for unrelated and empty errors", () => {
+    expect(isAuthError(new Error("disk full"))).toBe(false);
+    expect(isAuthError(null)).toBe(false);
+  });
+});
+
+describe("isRateLimitError", () => {
+  it("matches rate-limit patterns in the message or the details", () => {
+    expect(isRateLimitError("Rate limit exceeded")).toBe(true);
+    expect(isRateLimitError("oops", "rate_limit hit")).toBe(true);
+    expect(isRateLimitError("server said [429]")).toBe(true);
+  });
+
+  it("returns false when neither message nor details match", () => {
+    expect(isRateLimitError("network down", "timeout")).toBe(false);
+  });
+});
+
+describe("classifyGatewayLimitError", () => {
+  it.each([
+    [
+      // The gate 403 as the ACP layer surfaces it (full body embedded).
+      `Internal error: API Error: 403 {"error":{"message":"Model 'claude-opus-4-8' needs a paid PostHog plan. Models available on the free tier: @cf/zai-org/glm-5.2. Add a payment method to your organization to unlock all models. (rate_limit)","type":"permission_error","code":"model_gate"}}`,
+      "model_gate",
+    ],
+    [
+      // SDK surfaces that reduce the body to its message string.
+      "API Error: 403 Model 'gpt-5.5' needs a paid PostHog plan. (rate_limit)",
+      "model_gate",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Nope.","type":"permission_error","code":"model_gate"}}`,
+      "model_gate",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      "model_unavailable",
+    ],
+    [
+      `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available. Choose another model. (rate_limit)","type":"permission_error","code":"model_gate"}}`,
+      "model_unavailable",
+    ],
+    [
+      "API Error: 403 Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.",
+      "model_unavailable",
+    ],
+    [
+      // Bare FastAPI detail from gateways predating the error envelope.
+      `Internal error: API Error: 403 {"detail":"Model 'claude-opus-4-8' needs a paid PostHog plan."}`,
+      "model_gate",
+    ],
+    [
+      "Rate limit exceeded: Your team has reached its PostHog Desktop usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
+      "org_limit",
+    ],
+    [
+      // Pre-rename wording still sent by older gateway deployments.
+      "Rate limit exceeded: Your team has reached its PostHog Code usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
+      "org_limit",
+    ],
+    [
+      // Gateway fallback wording for a credit bucket without a mapped message.
+      "Your team has reached its usage limit for this billing period.",
+      "org_limit",
+    ],
+    [
+      // Per-user free valves fire only for unsubscribed orgs; the modal's
+      // subscribed bit picks the free-tier copy.
+      "Rate limit exceeded: User burst rate limit exceeded",
+      "org_limit",
+    ],
+    ["Rate limit exceeded: User sustained rate limit exceeded", "org_limit"],
+    ["Cloud usage limit reached", "org_limit"],
+  ])("classifies %j as %s", (message, expected) => {
+    expect(classifyGatewayLimitError(message)).toBe(expected);
+  });
+
+  it("matches against the details when the message is generic", () => {
+    expect(
+      classifyGatewayLimitError(
+        "Internal error",
+        "API Error: 403 Model 'gpt-5.5' needs a paid PostHog plan.",
+      ),
+    ).toBe("model_gate");
+  });
+
+  it.each([
+    [
+      'API Error: 402 {"error":{"code":"credit_bucket_exhausted","message":"Your organization has reached its PostHog Desktop usage limit"}}',
+      "org_limit",
+    ],
+    [
+      'API Error: 402 {"error":{"code":"token_cap_exceeded","message":"admission rejected"}}',
+      "org_limit",
+    ],
+    ['{"code":"cap_exceeded","message":"admission rejected"}', "org_limit"],
+    ['{"code":"insufficient_credits","message":"x"}', "org_limit"],
+    ["budget_exceeded:team", "org_limit"],
+    ["API Error: 402 admission rejected", "org_limit"],
+    [
+      'API Error: 403 {"error":{"code":"model_not_allowed","message":"model not allowed for this credential"}}',
+      "model_gate",
+    ],
+    ['{"code":"effort_not_allowed"}', "model_gate"],
+    ["API Error: 400 router rejected request", "model_gate"],
+    [
+      'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"reasoning effort not allowed for this credential"}}',
+      "model_gate",
+    ],
+    [
+      'API Error: 403 {"type":"error","error":{"type":"permission_error","message":"this credential requires an explicit reasoning effort"}}',
+      "model_gate",
+    ],
+    [
+      'API Error: 402 {"type":"error","error":{"type":"billing_error","message":"admission rejected"}}',
+      "org_limit",
+    ],
+  ])("classifies Go gateway refusal %j as %s", (message, expected) => {
+    expect(classifyGatewayLimitError(message)).toBe(expected);
+  });
+
+  it.each([
+    "API Error: 503 router rejected request",
+    "API Error: 500 router rejected request",
+    "API Error: 500 admission rejected",
+    "API Error: 401 admission rejected",
+    "API Error: 500 reasoning effort not allowed for this credential",
+    "router rejected request",
+    "admission rejected",
+  ])("does not read Go outage or auth prose %j as a limit", (message) => {
+    expect(classifyGatewayLimitError(message)).toBeNull();
+  });
+
+  it("prefers a Go model refusal over the admission fallback", () => {
+    expect(
+      classifyGatewayLimitError(
+        'admission rejected {"code":"model_not_allowed"}',
+      ),
+    ).toBe("model_gate");
+  });
+
+  it.each([
+    "Rate limit exceeded",
+    "Rate limit exceeded: Product rate limit exceeded",
+    "Your team has used its monthly PostHog AI credits.",
+    "network down",
+  ])("returns null for %j", (message) => {
+    expect(classifyGatewayLimitError(message)).toBeNull();
+  });
+});
+
+describe("aiGatewayDenialCode", () => {
+  it.each([
+    [
+      "the header over the body",
+      "token_cap_exceeded:team",
+      '{"error":{"code":"cap_exceeded"}}',
+      "token_cap_exceeded",
+    ],
+    [
+      "the body's error.code without a header",
+      null,
+      '{"error":{"code":"cap_exceeded"}}',
+      "cap_exceeded",
+    ],
+    [
+      "a top-level code",
+      undefined,
+      { code: "insufficient_credits" },
+      "insufficient_credits",
+    ],
+    [
+      "nothing from an Anthropic-dialect body",
+      null,
+      '{"type":"error","error":{"type":"x","message":"y"}}',
+      undefined,
+    ],
+    [
+      "a padded header",
+      " token_cap_exceeded :team",
+      null,
+      "token_cap_exceeded",
+    ],
+    [
+      "error.code over a top-level code",
+      null,
+      '{"code":"cap_exceeded","error":{"code":"token_cap_exceeded"}}',
+      "token_cap_exceeded",
+    ],
+    ["nothing from a non-JSON body", "", "<html>", undefined],
+  ])("reads %s", (_label, header, body, expected) => {
+    expect(aiGatewayDenialCode(header, body)).toBe(expected);
+  });
+});
+
+describe("aiGatewayRemintReason", () => {
+  it.each([
+    [401, undefined, "unauthorized"],
+    [402, "token_cap_exceeded", "token_cap_exceeded"],
+    [402, "cap_exceeded", null],
+    [402, undefined, null],
+    [403, "token_cap_exceeded", null],
+  ] as const)("maps %s %s to %s", (status, code, expected) => {
+    expect(aiGatewayRemintReason(status, code)).toBe(expected);
+  });
+});
+
+describe("classifyPromptFailure", () => {
+  it.each([
+    ["Rate limit exceeded", undefined, "usage_limit", false],
+    ["Cloud usage limit reached", undefined, "usage_limit", false],
+    ["API Error: 529 overloaded", undefined, "transient", true],
+    ["boom", "upstream_timeout", "transient", true],
+    [
+      "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      "turn_ended_without_response",
+      "transient",
+      true,
+    ],
+    ["Authentication required", undefined, "authentication", true],
+    ["process exited", undefined, "fatal_session", true],
+    [
+      "Internal error: This conversation is too large to continue.",
+      undefined,
+      "unknown",
+      false,
+    ],
+    ["invalid model", undefined, "unknown", false],
+  ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
+    expect(
+      classifyPromptFailure(new Error(message), undefined, errorType),
+    ).toMatchObject({ kind, retryable });
+  });
+});
+
+describe("isFatalSessionError", () => {
+  it.each([
+    "internal error",
+    "process exited",
+    "session did not end",
+    "not ready for writing",
+    "session not found",
+  ])("treats %j as fatal", (message) => {
+    expect(isFatalSessionError(message)).toBe(true);
+  });
+
+  it("does not tear the session down over a model the account can't use", () => {
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 403 {"error":{"message":"Model 'moonshotai/kimi-k3' is not available for your account. Choose another model.","type":"permission_error","code":"model_gate","reason":"model_not_available"}}`,
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat the auth proxy's body-size refusal as fatal", () => {
+    expect(
+      isFatalSessionError(
+        'Internal error: API Error: 413 {"error":{"type":"request_too_large","message":"request body too large"}}',
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a rate-limit error as fatal even if a fatal phrase is present", () => {
+    expect(isFatalSessionError("process exited", "rate limit exceeded")).toBe(
+      false,
+    );
+  });
+
+  it("returns false for ordinary recoverable errors", () => {
+    expect(isFatalSessionError("temporary network blip")).toBe(false);
+  });
+
+  it.each([
+    "This conversation is too large to continue.",
+    "API Error: 413 Payload Too Large",
+    "Request body too large",
+    "Prompt is too long",
+    "exceeded this model context window limit",
+    'API Error: 413 {"error":{"message":"Request rejected"}}',
+    "api error:413",
+  ])("does not treat the request size error %j as fatal", (message) => {
+    expect(isFatalSessionError(`Internal error: ${message}`)).toBe(false);
+    expect(isFatalSessionError("Internal error", message)).toBe(false);
+  });
+
+  it.each([
+    "Internal error: API Error: the operation timed out",
+    "Internal error: API Error: Request timeout",
+    "Internal error: API Error: terminated",
+    "Internal error: API Error: Connection error",
+    "Internal error: API Error: 529 overloaded_error",
+    "Internal error: API Error: Content block is not a thinking block",
+  ])("does not treat the transient upstream failure %j as fatal", (message) => {
+    expect(isFatalSessionError(message)).toBe(false);
+  });
+
+  it("does not treat a transient upstream failure in the details as fatal", () => {
+    expect(
+      isFatalSessionError(
+        "internal error",
+        "API Error: the operation timed out",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a no-response diagnostic as fatal", () => {
+    expect(
+      isFatalSessionError(
+        "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a free-tier model-gate 403 as fatal despite the Internal error wrapper", () => {
+    // Shim-less body (no "(rate_limit)" suffix), so this exercises the
+    // model-gate exclusion rather than the rate-limit one.
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 403 {"detail":"Model 'claude-opus-4-8' needs a paid PostHog plan."}`,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isTransientUpstreamError", () => {
+  it.each([
+    "API Error: the operation timed out",
+    "API Error: terminated",
+    "API Error: Connection error",
+    "API Error: 500 internal server error",
+    "API Error: 529 overloaded_error",
+    "Internal error: API Error: request timed out",
+    "Internal error: API Error: Connection closed mid-response. The response above may be incomplete.",
+    "The socket connection was closed unexpectedly.",
+    "socket connection closed",
+    "Internal error: API Error: Content block not found",
+    "Internal error: API Error: Content block is not a thinking block",
+  ])("recognises %j", (message) => {
+    expect(isTransientUpstreamError(message)).toBe(true);
+  });
+
+  it("matches against the details when the message is generic", () => {
+    expect(
+      isTransientUpstreamError(
+        "Internal error",
+        "API Error: the operation timed out",
+      ),
+    ).toBe(true);
+  });
+
+  it("recognises a no-response diagnostic separately", () => {
+    const message =
+      "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null";
+    expect(isTransientUpstreamError(message)).toBe(false);
+    expect(isTurnEndedWithoutResponseError(message)).toBe(true);
+  });
+
+  it.each([
+    "process exited",
+    "session not found",
+    "the operation timed out", // no "API Error:" marker — not an upstream turn failure
+    "API Error: 400 invalid_request_error",
+  ])("does not match %j", (message) => {
+    expect(isTransientUpstreamError(message)).toBe(false);
+  });
+});
+
+describe("serializeError", () => {
+  it("captures name, message and code from an Error", () => {
+    const err = Object.assign(new TypeError("boom"), { code: "ERR_X" });
+    expect(serializeError(err)).toEqual({
+      name: "TypeError",
+      message: "boom",
+      code: "ERR_X",
+    });
+  });
+
+  it("walks the cause chain (the undici 'terminated' shape)", () => {
+    const cause = Object.assign(new Error("other side closed"), {
+      code: "UND_ERR_SOCKET",
+    });
+    const err = new TypeError("terminated", { cause });
+    expect(serializeError(err)).toEqual({
+      name: "TypeError",
+      message: "terminated",
+      cause: {
+        name: "Error",
+        message: "other side closed",
+        code: "UND_ERR_SOCKET",
+      },
+    });
+  });
+
+  it("bounds depth to avoid runaway or cyclic chains", () => {
+    const cyclic: { message: string; cause?: unknown } = { message: "a" };
+    cyclic.cause = cyclic;
+    const result = serializeError(cyclic, 2);
+    expect(result.cause?.cause?.message).toBe("a");
+    expect(result.cause?.cause?.cause).toBeUndefined();
+  });
+
+  it("handles non-Error inputs", () => {
+    expect(serializeError("plain string")).toEqual({ message: "plain string" });
+    expect(serializeError(42)).toEqual({ message: "42" });
+    expect(serializeError(null)).toEqual({ message: "null" });
+  });
+
+  it("captures a numeric code", () => {
+    expect(serializeError({ message: "x", code: 42 })).toEqual({
+      message: "x",
+      code: 42,
+    });
+  });
+
+  it("does not follow the cause chain at maxDepth 0", () => {
+    const err = new Error("top", { cause: new Error("inner") });
+    expect(serializeError(err, 0)).toEqual({ name: "Error", message: "top" });
+  });
+
+  it("omits name for a plain object without one", () => {
+    expect(serializeError({ message: "foo", code: "ENOENT" })).toEqual({
+      message: "foo",
+      code: "ENOENT",
+    });
+  });
+
+  it("returns only name and message for a bare Error", () => {
+    expect(serializeError(new Error("x"))).toEqual({
+      name: "Error",
+      message: "x",
+    });
+  });
+});

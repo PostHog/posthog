@@ -2280,6 +2280,31 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_v2_group_references_reach_the_group_readers() {
+        use crate::flags::config_v2::Subject;
+        use crate::flags::test_helpers::v2_filters_referencing;
+
+        let flag = mock!(FeatureFlag,
+            filters: v2_filters_referencing(&[Subject::Group(0)], Some(4))
+        );
+        assert_eq!(
+            FeatureFlagMatcher::referenced_group_type_indexes(&flag).collect::<HashSet<_>>(),
+            HashSet::from([0, 4])
+        );
+
+        let (_context, matcher) = group_matcher_without_group_prep(true, true).await;
+        let industry = HashMap::from([("industry".to_string(), json!("tech"))]);
+        let overrides = Some(HashMap::from([(
+            "organization".to_string(),
+            industry.clone(),
+        )]));
+        assert_eq!(
+            matcher.merged_group_properties_for_flag(&flag, &overrides),
+            HashMap::from([(0, industry)])
+        );
+    }
+
     /// Regression test: a `NOT_IN` cohort filter must not match when person-property DB prep
     /// never ran. Cohort evaluation reads the same property map as direct filters, so under
     /// `Pending` the person looks like they have no properties, the cohort resolves to "not a
@@ -6032,6 +6057,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6055,6 +6081,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6078,6 +6105,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
     }

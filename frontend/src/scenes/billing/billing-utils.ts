@@ -646,6 +646,21 @@ export const formatWithDecimals = (value: number, decimals?: number): string => 
 }
 
 /**
+ * Formats a tier's unit price, scaled to the product's display unit when it has one (e.g. per-MB → per-GB).
+ */
+export const formatTierPrice = (
+    unitAmountUsd: string | null | undefined,
+    product: BillingProductV2Type | BillingProductV2AddonType
+): string => {
+    const price = parseFloat(unitAmountUsd || '0')
+    if (hasDisplayFormatting(product) && product.display_divisor) {
+        // Per-unit prices are stored rounded, so scaling leaves residue: 0.00000166666667 * 30000 = 0.0500000001.
+        return `$${formatWithDecimals(price * product.display_divisor, 8)}`
+    }
+    return `$${formatWithDecimals(price)}`
+}
+
+/**
  * Build a human-readable list of product names (e.g., "A, B and C")
  */
 export function formatProductNames(names: string[]): string {

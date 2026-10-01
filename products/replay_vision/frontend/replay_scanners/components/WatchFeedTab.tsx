@@ -97,6 +97,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Scanners"
+                        dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
                         options={scannerOptions}
@@ -105,6 +106,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Tags"
+                        dataAttr="vision-watch-feed-tags-filter"
                         searchable
                         options={tagOptions}
                         value={tagsFilter}
@@ -112,6 +114,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<ScannerType>
                         label="Type"
+                        dataAttr="vision-watch-feed-type-filter"
                         options={TYPE_OPTIONS}
                         value={scannerTypeFilter ? [scannerTypeFilter] : []}
                         onChange={(values) => setScannerTypeFilter(values[values.length - 1] ?? null)}

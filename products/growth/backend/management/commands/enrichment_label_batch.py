@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db import close_old_connections, connection, transaction
 from django.db.models import Q
@@ -163,6 +164,11 @@ class Command(BaseCommand):
             validate_output_fields(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e
+        if gates.region_allowed() and not settings.FIRECRAWL_API_KEY:
+            raise CommandError(
+                "FIRECRAWL_API_KEY is not configured, so every org whose model turn calls a web tool would be "
+                "deferred after a paid model call; aborting before any spend"
+            )
 
         lock_key = _advisory_lock_key(label)
         with connection.cursor() as cursor:

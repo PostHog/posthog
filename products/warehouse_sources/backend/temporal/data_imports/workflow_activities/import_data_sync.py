@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -134,14 +135,17 @@ class ImportDataActivityInputs:
         }
 
 
-def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+def _resolve_reset_pipeline(
+    inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
+) -> bool:
     if inputs.reset_pipeline is not None:
         return inputs.reset_pipeline
     if schema.sync_type_config.get("reset_pipeline", False) is True:
         return True
-    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
-    # retry after the wipe carries on with the re-import instead of wiping it again.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
 
 
 @database_sync_to_async_pool
@@ -446,7 +450,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
 
-        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
@@ -535,6 +539,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -891,6 +896,17 @@ async def _handle_import_error(
     if is_transient_object_store_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # The same concurrent-maintenance/reset race `is_transient_delta_maintenance_error` already
+    # covers for the writer's own table (a full-refresh purging `_delta_log` out from under a
+    # still-running maintenance pass) can just as well hit a *parent* table a warehouse-parent
+    # fan-out reader (sources/common/rest_source/warehouse_parent.py) opened at a pinned version:
+    # the parent resyncs and resets its table between the pin and the read. Same self-healing
+    # race, different table role, so classify it the same way here rather than letting it escape raw.
+    if is_transient_delta_maintenance_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
