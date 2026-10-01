@@ -1,4 +1,5 @@
 import type { Schemas } from '@/api/generated'
+import { wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
@@ -191,8 +192,11 @@ function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     if (!upstream) {
         return error
     }
-    return new Error(
-        `${message} Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`
+    // The original stays as the cause, so the error handler still finds the 400 and treats the
+    // mistake as recoverable rather than as an internal failure.
+    return wrapError(
+        `${message} Cell ${upstream.nodeId} produces ${name}. Run it with notebooks-run-cell, then run this cell again.`,
+        error
     )
 }
 
