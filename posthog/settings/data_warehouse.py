@@ -188,3 +188,9 @@ DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES = get_from_env(
 DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS = get_from_env(
     "DATA_WAREHOUSE_V3_COALESCE_ACROSS_RUNS", False, type_cast=str_to_bool
 )
+
+# Fleet-wide kill switch for the queue scheduler. Off means it never fires a schema, whatever the
+# per-schema flag says.
+WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED: bool = get_from_env(
+    "WAREHOUSE_QUEUE_SCHEDULER_FIRING_ENABLED", False, type_cast=str_to_bool
+)
