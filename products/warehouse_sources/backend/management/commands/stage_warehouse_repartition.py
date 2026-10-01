@@ -8,7 +8,8 @@ the tier, and the only limit is the budget itself.
 
 What it does NOT do is rewrite anything. It stages the same `repartition_pending` target as the admin
 page, and each table's next scheduled sync runs the rewrite before it extracts. The rewrite holds that
-sync until it finishes, which takes hours for the largest tables, so stage big tables off-peak.
+sync until it finishes, which takes hours for the largest tables, so stage big tables off-peak. A
+scheduled full refresh skips the repartition step, so the target then waits for the sync after it.
 
 Unlike the admin page, it measures the live table first and refuses a target whose largest partition
 would be over the budget. A partition over the budget is what makes a merge run out of memory, and the
@@ -149,6 +150,6 @@ class Command(BaseCommand):
             schemas[schema_id].set_repartition_pending(target)
         self.stdout.write(
             self.style.SUCCESS(
-                f"\nStaged {len(targets)}. Each rewrites on its next sync and holds that sync until done."
+                f"\nStaged {len(targets)}. Each rewrites on its next sync that is not a full refresh, and holds that sync until done."
             )
         )
