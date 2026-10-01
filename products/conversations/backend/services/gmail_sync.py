@@ -481,7 +481,9 @@ def _html_to_text(html: str) -> str:
             if type(string) is not NavigableString:
                 string.extract()
             elif string.find_parent("pre") is None:
-                string.replace_with(_HTML_WHITESPACE_RE.sub(" ", string))
+                string.replace_with(_HTML_WHITESPACE_RE.sub(" ", string).replace("\0", ""))
+            elif "\0" in string:
+                string.replace_with(string.replace("\0", ""))
         for br in soup.find_all("br"):
             br.replace_with("\n")
         for tag in soup.find_all(_HTML_PARAGRAPH_TAGS):

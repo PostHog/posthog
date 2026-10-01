@@ -23,6 +23,8 @@ import re
 import structlog
 from bs4 import BeautifulSoup
 
+from posthog.dataclasses import frozen
+
 logger = structlog.get_logger(__name__)
 
 _HTTP_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
@@ -187,29 +189,36 @@ def _link_labels(text: str, candidates: list[tuple[str, str]], used: set[str]) -
     return "".join(parts)
 
 
+@frozen
+class _FoldedAngleLink:
+    start: int
+    end: int
+    markdown: str
+
+
 def _split_angle_links(text: str, links: list[tuple[str, str]]) -> list[tuple[str, bool]]:
     """Split `text` around plain-text `label <href>` links, rewriting each to `[label](href)`.
 
     Returns `(segment, is_link)` pairs in order. Each link is folded once, at its
     first occurrence that does not overlap a link folded already.
     """
-    spans: list[tuple[int, int, str]] = []
+    folded: list[_FoldedAngleLink] = []
     for label, href in links:
-        span = _find_angle_link(text, label, href, spans)
-        if span:
-            spans.append((span[0], span[1], f"[{label}]({_md_safe_href(href)})"))
+        link = _find_angle_link(text, label, href, folded)
+        if link:
+            folded.append(link)
 
     segments: list[tuple[str, bool]] = []
     last = 0
-    for start, end, replacement in sorted(spans):
-        segments.append((text[last:start], False))
-        segments.append((replacement, True))
-        last = end
+    for link in sorted(folded, key=lambda link: link.start):
+        segments.append((text[last : link.start], False))
+        segments.append((link.markdown, True))
+        last = link.end
     segments.append((text[last:], False))
     return segments
 
 
-def _find_angle_link(text: str, label: str, href: str, taken: list[tuple[int, int, str]]) -> tuple[int, int] | None:
+def _find_angle_link(text: str, label: str, href: str, folded: list[_FoldedAngleLink]) -> _FoldedAngleLink | None:
     """Find `label <href>` in `text`, allowing any whitespace between label words.
 
     The search anchors on the literal `<href>` and matches the label backwards from
@@ -224,10 +233,8 @@ def _find_angle_link(text: str, label: str, href: str, taken: list[tuple[int, in
     while index != -1:
         start = _match_label_before(text, words, index)
         end = index + len(target)
-        if start is not None and not any(
-            start < taken_end and taken_start < end for taken_start, taken_end, _ in taken
-        ):
-            return start, end
+        if start is not None and not any(start < link.end and link.start < end for link in folded):
+            return _FoldedAngleLink(start=start, end=end, markdown=f"[{label}]({_md_safe_href(href)})")
         index = text.find(target, index + 1)
     return None
 

@@ -138,6 +138,7 @@ class TestGmailSync(BaseTest):
             b"<html><head><style>p { margin: 0 }</style></head><body>"
             b"<p>Hey team,</p>\n<p>It goes quickly, so start early.</p>"
             b'<p>See <a href="https://app.example.com/billing">your billing page</a>.<br>Cheers</p>'
+            b"<p>Ref &#0;0&#0;</p>"
             b"<pre>def run():\n    return 1</pre>"
             b"</body></html>"
         )
@@ -159,6 +160,7 @@ class TestGmailSync(BaseTest):
         assert imported.comment.content == (
             "Hey team,\n\nIt goes quickly, so start early.\n\n"
             "See [your billing page](https://app.example.com/billing).\nCheers\n\n"
+            "Ref 0\n\n"
             "def run():\n    return 1"
         )
 
