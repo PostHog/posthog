@@ -36140,6 +36140,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -36149,6 +36150,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     /**
@@ -36211,7 +36213,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
       scanner_config: unknown;
@@ -56311,7 +56314,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
       scanner_config?: unknown;
@@ -64158,12 +64162,13 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -68325,7 +68330,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -79824,7 +79830,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -92634,6 +92641,7 @@ export namespace Schemas {
       classifier: ScannerTypeStats;
       scorer: ScannerTypeStats;
       summarizer: ScannerTypeStats;
+      experiment: ScannerTypeStats;
     }
 
     /**
@@ -92644,7 +92652,7 @@ export namespace Schemas {
       total: number;
       /** Number of enabled scanners on the team. */
       enabled: number;
-      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
       by_type: ScannerStatsByType;
     }
 
@@ -123002,6 +123010,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
@@ -123025,6 +123034,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     export type VisualReviewReposListParams = {
