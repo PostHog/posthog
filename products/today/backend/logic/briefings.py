@@ -20,10 +20,9 @@ from ..facade import contracts
 from ..facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter, ItemGroup, ItemState
 from ..models import DailyBriefing
 from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, generate_workflow_id
-from .checks import check_content
-from .content import BriefingContent, ContentSegment
+from .content import BriefingContent
 from .eligibility import EditionSlot, current_edition, resolve_timezone
-from .fact_sheet import FactSheet, FactSheetCounts, FactSheetItem, stored_fact_sheet
+from .fact_sheet import FactSheet, FactSheetItem, stored_fact_sheet
 
 logger = structlog.get_logger(__name__)
 
@@ -100,57 +99,8 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     return briefing
 
 
-MAX_WRITE_ITEMS = 5
-
-
-def store_briefing(*, team: Team, user: User, write: contracts.BriefingWrite) -> DailyBriefing:
-    """Store the briefing the agent wrote for one of the person's own rows, after the shape checks.
-
-    The agent gathered the facts itself, so the number check stays off; the structural rules
-    (every item linked once, one highlight, label and signal lengths, no dashes) still apply and
-    come back as `BriefingWriteRejected` so the agent can fix them.
-    """
-    briefing = DailyBriefing.objects.for_team(team.id).filter(id=write.briefing_id, user_id=user.id).first()
-    if briefing is None:
-        raise contracts.BriefingNotFound()
-    if len(write.items) > MAX_WRITE_ITEMS:
-        raise contracts.BriefingWriteRejected([f"at most {MAX_WRITE_ITEMS} items, got {len(write.items)}"])
-    fact_sheet = FactSheet(
-        first_name=user.first_name,
-        local_day=briefing.local_day,
-        counts=FactSheetCounts(items_in_text=len(write.items)),
-        failed_sources=[],
-        reason_glossary={},
-        items=[
-            FactSheetItem(
-                key=item.key,
-                group=item.group,
-                source=item.source,
-                reason=item.reason,
-                title=item.title,
-                url=item.url,
-                rank=rank,
-                urgency=item.urgency,
-                in_text=True,
-                top=rank == 1,
-                source_product=item.source_product,
-                facts={fact.name: fact.value for fact in item.facts},
-            )
-            for rank, item in enumerate(write.items, start=1)
-        ],
-    )
-    content = BriefingContent(
-        headline=write.headline,
-        paragraphs=[
-            [ContentSegment(text=s.text, item_key=s.item_key, highlight=s.highlight) for s in paragraph]
-            for paragraph in write.paragraphs
-        ],
-        labels={item.key: item.label for item in write.items},
-        signals={item.key: item.signal for item in write.items},
-    )
-    problems = check_content(fact_sheet, content, check_numbers=False)
-    if problems:
-        raise contracts.BriefingWriteRejected(problems)
+def store_briefing(briefing: DailyBriefing, fact_sheet: FactSheet, content: BriefingContent) -> None:
+    """Store what the agent wrote and show it."""
     briefing.facts = fact_sheet.model_dump(mode="json")
     briefing.content = content.model_dump(mode="json")
     briefing.writer = BriefingWriter.AGENT
@@ -158,7 +108,6 @@ def store_briefing(*, team: Team, user: User, write: contracts.BriefingWrite) ->
     briefing.status = BriefingStatus.READY
     briefing.ready_at = timezone.now()
     briefing.save(update_fields=["facts", "content", "writer", "error", "status", "ready_at"])
-    return briefing
 
 
 @frozen

@@ -27,7 +27,6 @@ from posthog.temporal.oauth import (
     SCOUT_SCOPE_PRESETS,
     SCOUT_USER_WRITE_SCOPES,
     SCRATCHPAD_INTERNAL_SCOPES,
-    TODAY_BRIEFING_WRITE_SCOPES,
     McpScopePreset,
     PosthogMcpScopes,
     ScoutScopePosture,
@@ -103,16 +102,6 @@ class TestResolveScopes(SimpleTestCase):
         assert "signal_scratchpad_internal:write" in result
         assert "task:write" not in result
         assert "action:write" not in result
-
-    def test_today_briefing_preset_is_reads_plus_the_one_write(self) -> None:
-        # The briefing agent may store its briefing and nothing else; `task:write` stays out for
-        # the same reason as in the research preset.
-        result = resolve_scopes("today_briefing")
-        expected = set(MCP_READ_SCOPES + INTERNAL_SCOPES + TODAY_BRIEFING_WRITE_SCOPES) - RESEARCH_WITHHELD_SCOPES
-        assert set(result) == expected
-        assert "today:write" in result
-        assert "task:write" not in result
-        assert "signal_scratchpad_internal:write" not in result
 
     def test_signals_implementation_preset_is_full_plus_the_scratchpad(self) -> None:
         result = resolve_scopes("signals_implementation")
@@ -367,7 +356,6 @@ class TestHasWriteScopes(SimpleTestCase):
             # scratchpad tools the postures exist to grant.
             ("signals_research_preset", "signals_research", True),
             ("signals_implementation_preset", "signals_implementation", True),
-            ("today_briefing_preset", "today_briefing", True),
             # Read-only mode has to stay off for a scout posture, or the MCP server strips the
             # scout's own tools whether or not the scout holds a grant.
             ("scout_posture_with_a_grant", {"preset": "signals_scout", "extra_write_scopes": ["alert:write"]}, True),

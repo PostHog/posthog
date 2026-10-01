@@ -115,7 +115,9 @@ export const BriefingStatusEnumApi = zod
 export type BriefingStatusEnumApi = zod.input<typeof BriefingStatusEnumApi>
 export type BriefingStatusEnumApiOutput = zod.output<typeof BriefingStatusEnumApi>
 
-export const WriterEnumApi = zod.enum(['llm', 'template']).describe('\* `llm` - LLM\n\* `template` - TEMPLATE')
+export const WriterEnumApi = zod
+    .enum(['agent', 'llm', 'template'])
+    .describe('\* `agent` - AGENT\n\* `llm` - LLM\n\* `template` - TEMPLATE')
 
 export type WriterEnumApi = zod.input<typeof WriterEnumApi>
 export type WriterEnumApiOutput = zod.output<typeof WriterEnumApi>
@@ -200,7 +202,10 @@ export const BriefingApi = zod.object({
     status: zod
         .enum(['collecting', 'writing', 'ready', 'failed'])
         .describe('\* `collecting` - COLLECTING\n\* `writing` - WRITING\n\* `ready` - READY\n\* `failed` - FAILED'),
-    writer: zod.union([zod.enum(['llm', 'template']).describe('\* `llm` - LLM\n\* `template` - TEMPLATE'), zod.null()]),
+    writer: zod.union([
+        zod.enum(['agent', 'llm', 'template']).describe('\* `agent` - AGENT\n\* `llm` - LLM\n\* `template` - TEMPLATE'),
+        zod.null(),
+    ]),
     edition: zod
         .enum(['morning', 'midday'])
         .describe('\* `morning` - MORNING\n\* `midday` - MIDDAY')
@@ -213,13 +218,6 @@ export const BriefingApi = zod.object({
 
 export type BriefingApi = zod.input<typeof BriefingApi>
 export type BriefingApiOutput = zod.output<typeof BriefingApi>
-
-export const TodayErrorApi = zod.object({
-    detail: zod.string().describe('What went wrong.'),
-})
-
-export type TodayErrorApi = zod.input<typeof TodayErrorApi>
-export type TodayErrorApiOutput = zod.output<typeof TodayErrorApi>
 
 export const CandidateFactApi = zod.object({
     name: zod.string().describe('Fact name, for example pct_change or unread_messages.'),

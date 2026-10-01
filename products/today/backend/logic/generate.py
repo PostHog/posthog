@@ -1,4 +1,4 @@
-"""Generating a briefing: one sandbox agent run that gathers the person's data over MCP and writes the result."""
+"""Generating a briefing: one read-only sandbox agent run that gathers the person's data over MCP and answers with the text."""
 
 from datetime import timedelta
 from typing import Protocol
@@ -17,7 +17,9 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext, Mul
 from ..facade.enums import BriefingStatus
 from ..feature_flags import is_enabled_for
 from ..models import DailyBriefing
-from .prompt import build_prompt
+from .agent_output import BriefingOutput, problems_with, to_content, to_fact_sheet
+from .briefings import store_briefing
+from .prompt import build_prompt, recent_briefings
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +28,8 @@ RUNTIME_ADAPTER = "codex"
 REASONING_EFFORT = "medium"
 # A briefing is a few tool calls and a short text; a run past this is stuck.
 AGENT_TIMEOUT = timedelta(minutes=20)
+# Answers the agent gets to fix a briefing that broke the writing rules, the first one included.
+WRITE_ATTEMPTS = 3
 SANDBOX_ENV_NAME = "today-briefing"
 
 
@@ -75,22 +79,39 @@ def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext
         team_id=team.id,
         user_id=user.id,
         sandbox_environment_id=sandbox_environment_id,
-        posthog_mcp_scopes="today_briefing",
+        posthog_mcp_scopes="read_only",
         model=MODEL,
         runtime_adapter=RUNTIME_ADAPTER,
         reasoning_effort=REASONING_EFFORT,
-        # Headless: the agent must be able to call the write tool without anyone approving it.
+        # Headless: the agent's read tools must run without anyone approving them.
         initial_permission_mode="full-access",
     )
-    return context, build_prompt(briefing, user, _preranked_reports(team, user)), _title(briefing)
+    prompt = build_prompt(briefing, user, _preranked_reports(team, user), recent_briefings(briefing))
+    return context, prompt, _title(briefing)
 
 
-def _is_written(team_id: int, briefing_id: str) -> bool:
-    return DailyBriefing.objects.for_team(team_id).filter(id=briefing_id, status=BriefingStatus.READY).exists()
+def _fix_message(problems: list[str]) -> str:
+    return (
+        "Your briefing broke these rules. Fix all of them and answer again with the whole briefing in the same shape:\n- "
+        + "\n- ".join(problems)
+    )
+
+
+def _store(team_id: int, briefing_id: str, output: BriefingOutput) -> list[str]:
+    """Store the agent's answer, or return the rules it broke so the agent can fix them."""
+    briefing, _team, user = _load(team_id, briefing_id)
+    problems = problems_with(output, briefing, user)
+    if not problems:
+        store_briefing(briefing, to_fact_sheet(output, briefing, user), to_content(output))
+    return problems
 
 
 async def run_agent(*, team_id: int, briefing_id: str) -> None:
-    """Run the briefing agent to completion. Raises when it finished without storing a briefing."""
+    """Run the briefing agent to completion and store what it wrote.
+
+    The agent answers in `BriefingOutput`. An answer that breaks the writing rules goes back to it
+    as a follow-up turn in the same sandbox, a few times; after that the run fails.
+    """
     prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
     if prepared is None:
         return
@@ -102,20 +123,30 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
             task_run.task_id, team_id, title
         )
 
-    session, reply = await MultiTurnSession.start_raw(
+    session, output = await MultiTurnSession.start(
         prompt,
         context,
+        model=BriefingOutput,
         step_name="today_briefing",
         origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
         ai_stage="today_briefing",
         ai_agent_name="today-briefing",
         on_task_run_created=name_the_task,
         max_poll_seconds=int(AGENT_TIMEOUT.total_seconds()),
+        output_schema=BriefingOutput.model_json_schema(),
     )
+    try:
+        for attempt in range(1, WRITE_ATTEMPTS + 1):
+            problems = await database_sync_to_async(_store, thread_sensitive=False)(team_id, briefing_id, output)
+            if not problems:
+                break
+            if attempt == WRITE_ATTEMPTS:
+                raise RuntimeError("The agent's briefing kept breaking the rules: " + "; ".join(problems))
+            output = await session.send_followup(_fix_message(problems), BriefingOutput, label=f"fix_{attempt}")
+    except Exception as error:
+        await session.end(status="failed", error=str(error)[:500])
+        raise
     await session.end()
-    if not await database_sync_to_async(_is_written, thread_sensitive=False)(team_id, briefing_id):
-        logger.warning("today_agent_did_not_write", team_id=team_id, briefing_id=briefing_id, reply=reply[:500])
-        raise RuntimeError("The agent finished without storing the briefing.")
 
 
 def mark_failed(*, team_id: int, briefing_id: str, error: str) -> None:

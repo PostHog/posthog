@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -11,10 +10,9 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.sync import database_sync_to_async
-
 from products.signals.backend.facade import api as signals
-from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger
+from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
+from products.today.backend.logic.agent_output import BriefingOutput, to_fact_sheet
 from products.today.backend.logic.generate import MODEL, run_agent
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
@@ -41,16 +39,58 @@ def _report(report_id: str, relation: signals.BriefingReportRelation, priority: 
     )
 
 
+def _output(headline: str = "One report needs your input", **item_overrides: Any) -> BriefingOutput:
+    item = {
+        "key": "report:a",
+        "group": "report",
+        "source": "self_driving",
+        "reason": "waiting_for_you",
+        "title": "Report a",
+        "label": "Report a",
+        "signal": "P3, waits for you",
+        "url": "/project/1/inbox/a",
+        "urgency": 0,
+        "source_product": "error_tracking",
+        "facts": [{"name": "priority", "value": "P3"}],
+        **item_overrides,
+    }
+    return BriefingOutput.model_validate(
+        {
+            "headline": headline,
+            "paragraphs": [
+                [
+                    {"text": "The ", "item_key": None, "highlight": False},
+                    {"text": "report a", "item_key": "report:a", "highlight": True},
+                    {"text": " waits for your call.", "item_key": None, "highlight": False},
+                ]
+            ],
+            "items": [item],
+        }
+    )
+
+
 class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        self.briefing = DailyBriefing.objects.for_team(self.team.id).create(
+        self.previous = DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             user_id=self.user.id,
             local_day=timezone.now().date(),
             edition=BriefingEdition.MORNING,
+            timezone="UTC",
+            trigger=BriefingTrigger.SCHEDULED,
+            status=BriefingStatus.READY,
+            content={"headline": "Yesterday's headline", "paragraphs": [], "labels": {}, "signals": {}},
+        )
+        self.previous.facts = to_fact_sheet(_output(), self.previous, self.user).model_dump(mode="json")
+        self.previous.save(update_fields=["facts"])
+        self.briefing = DailyBriefing.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=timezone.now().date(),
+            edition=BriefingEdition.MIDDAY,
             timezone="UTC",
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.COLLECTING,
@@ -60,43 +100,48 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             _report("a", signals.BriefingReportRelation.WAITING_FOR_YOU, "P3"),
         ]
 
-    def _run(self, *, on_start: Callable[[], None] | None = None) -> MagicMock:
+    def _run(self, first: BriefingOutput, *followups: BriefingOutput) -> tuple[MagicMock, MagicMock]:
         session = MagicMock()
         session.end = AsyncMock()
-
-        async def start_raw(prompt: str, context: Any, **kwargs: Any) -> tuple[MagicMock, str]:
-            if on_start:
-                await database_sync_to_async(on_start, thread_sensitive=False)()
-            return session, "Stored."
-
+        session.send_followup = AsyncMock(side_effect=list(followups))
+        start = AsyncMock(return_value=(session, first))
         with (
             patch(SANDBOX_ENV, return_value="env-1"),
             patch(REPORTS, return_value=self.reports),
-            patch(f"{SESSION}.start_raw", side_effect=start_raw) as start,
+            patch(f"{SESSION}.start", start),
             patch(FLAG, return_value=True),
         ):
             async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(self.briefing.id))
-        return start
+        return start, session
 
-    def test_the_agent_runs_as_the_person_with_the_briefing_scopes(self) -> None:
-        def store() -> None:
-            DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).update(status=BriefingStatus.READY)
+    def test_a_good_answer_is_stored_and_the_run_was_read_only(self) -> None:
+        start, session = self._run(_output())
 
-        start = self._run(on_start=store)
-
+        self.briefing.refresh_from_db()
+        assert (self.briefing.status, self.briefing.writer) == (BriefingStatus.READY, BriefingWriter.AGENT)
+        assert self.briefing.content["headline"] == "One report needs your input"
+        assert self.briefing.facts["items"][0]["source_product"] == "error_tracking"
         prompt, context = start.call_args.args
-        assert str(self.briefing.id) in prompt
-        # The pre-ranked reports go in best first: what waits for the person before what names them.
+        assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "read_only", MODEL)
+        assert start.call_args.kwargs["model"] is BriefingOutput
+        # The pre-ranked reports go in best first, and the previous briefing is there to avoid repeats.
         assert prompt.index("report:a") < prompt.index("report:b")
-        assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "today_briefing", MODEL)
-        assert context.initial_permission_mode == "full-access"
-        # The run shows in the person's session list, under a name rather than the prompt.
+        assert "Yesterday's headline" in prompt
         assert start.call_args.kwargs.get("internal", False) is False
-        assert start.call_args.kwargs["on_task_run_created"] is not None
+        session.end.assert_awaited_once_with()
 
-    def test_a_run_that_stores_nothing_fails_the_briefing(self) -> None:
+    def test_an_answer_that_breaks_a_rule_comes_back_fixed_in_a_follow_up(self) -> None:
+        start, session = self._run(_output(headline="One report needs you — now"), _output())
+
+        self.briefing.refresh_from_db()
+        assert self.briefing.status == BriefingStatus.READY
+        [(message, model), _] = [(call.args, call.kwargs) for call in session.send_followup.call_args_list]
+        assert "em or en dash" in message and model is BriefingOutput
+
+    def test_an_answer_that_keeps_breaking_rules_fails_the_run(self) -> None:
+        broken = _output(headline="One report needs you — now")
         with self.assertRaises(RuntimeError):
-            self._run()
+            self._run(broken, broken, broken)
 
         self.briefing.refresh_from_db()
         assert self.briefing.status == BriefingStatus.WRITING
@@ -105,7 +150,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        start = self._run()
+        start, _ = self._run(_output())
 
         start.assert_not_called()
         assert not DailyBriefing.objects.for_team(self.team.id).filter(id=self.briefing.id).exists()

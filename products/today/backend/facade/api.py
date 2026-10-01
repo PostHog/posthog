@@ -5,10 +5,6 @@ from posthog.models import Team, User
 from ..feature_flags import is_enabled_for as is_enabled_for
 from ..logic import briefings
 from . import contracts
-from .contracts import (
-    BriefingNotFound as BriefingNotFound,
-    BriefingWriteRejected as BriefingWriteRejected,
-)
 
 
 def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
@@ -21,16 +17,6 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> co
     """Regenerate the current edition. The ready briefing stays until the new one is written."""
     briefings.refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return get_briefing(team=team, user=user, timezone_name=timezone_name)
-
-
-def write_briefing(*, team: Team, user: User, write: contracts.BriefingWrite) -> contracts.Briefing:
-    """Store the text and items an agent wrote for one of the person's briefings.
-
-    Raises BriefingNotFound for another person's row, and BriefingWriteRejected with the rules
-    the text broke.
-    """
-    briefing = briefings.store_briefing(team=team, user=user, write=write)
-    return briefings.to_contract(briefing, team, user)
 
 
 def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> contracts.CandidateList:

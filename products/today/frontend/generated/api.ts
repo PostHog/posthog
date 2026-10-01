@@ -10,7 +10,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BriefingApi,
-    BriefingWriteApi,
     CandidateListApi,
     TodayBriefingRefreshCreateParams,
     TodayBriefingRetrieveParams,
@@ -76,27 +75,6 @@ export const todayBriefingRefreshCreate = async (
     return apiMutator<BriefingApi>(getTodayBriefingRefreshCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
-    })
-}
-
-export const getTodayBriefingWriteCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/today/briefing/write/`
-}
-
-/**
- * Store the text and the items of a briefing that is being generated for the current user. Only the briefing named in the generation prompt can be written. The text must link every item exactly once, highlight only the first item, keep labels to 6 words and signals to 40 characters, and use no em or en dashes; a 400 lists every rule the text broke so it can be fixed and sent again.
- * @summary Write today's briefing
- */
-export const todayBriefingWriteCreate = async (
-    projectId: string,
-    briefingWriteApi: BriefingWriteApi,
-    options?: RequestInit
-): Promise<BriefingApi> => {
-    return apiMutator<BriefingApi>(getTodayBriefingWriteCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(briefingWriteApi),
     })
 }
 

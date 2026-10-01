@@ -10,10 +10,15 @@ from posthog.models import User
 
 from products.signals.backend.facade import api as signals
 
+from ..facade.enums import BriefingStatus
 from ..models import DailyBriefing
+from .content import BriefingContent
+from .fact_sheet import stored_fact_sheet
 
 # How many pre-ranked reports the agent gets handed; it chooses from these and from what it finds itself.
 PRERANKED_REPORTS = 10
+# How many of the person's previous briefings the agent sees, so it does not repeat itself.
+RECENT_BRIEFINGS = 3
 
 _RELATION_ORDER = {
     signals.BriefingReportRelation.WAITING_FOR_YOU: 0,
@@ -60,6 +65,38 @@ def _report_rows(reports: Sequence[signals.BriefingReport], team_id: int) -> lis
     ]
 
 
+def recent_briefings(briefing: DailyBriefing) -> list[DailyBriefing]:
+    """The person's latest ready briefings before this one, newest first."""
+    return list(
+        DailyBriefing.objects.for_team(briefing.team_id)
+        .filter(user_id=briefing.user_id, status=BriefingStatus.READY, created_at__lt=briefing.created_at)
+        .order_by("-created_at")[:RECENT_BRIEFINGS]
+    )
+
+
+def _recent_rows(briefings: Sequence[DailyBriefing]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for previous in briefings:
+        fact_sheet = stored_fact_sheet(previous)
+        content = BriefingContent.model_validate(previous.content or {})
+        rows.append(
+            {
+                "local_day": previous.local_day.isoformat(),
+                "edition": previous.edition,
+                "headline": content.headline,
+                "items": [
+                    {
+                        "key": item.key,
+                        "label": content.labels.get(item.key, item.title),
+                        "signal": content.signals.get(item.key, ""),
+                    }
+                    for item in (fact_sheet.text_items if fact_sheet else [])
+                ],
+            }
+        )
+    return rows
+
+
 _TEMPLATE_DIR = Path(__file__).parent / "prompts"
 _environment = Environment(
     loader=FileSystemLoader(_TEMPLATE_DIR),
@@ -69,7 +106,12 @@ _environment = Environment(
 )
 
 
-def build_prompt(briefing: DailyBriefing, user: User, reports: Sequence[signals.BriefingReport]) -> str:
+def build_prompt(
+    briefing: DailyBriefing,
+    user: User,
+    reports: Sequence[signals.BriefingReport],
+    previous: Sequence[DailyBriefing] = (),
+) -> str:
     return _environment.get_template("briefing.md.j2").render(
         first_name=user.first_name or "there",
         team_id=briefing.team_id,
@@ -77,4 +119,5 @@ def build_prompt(briefing: DailyBriefing, user: User, reports: Sequence[signals.
         edition=briefing.edition,
         briefing_id=str(briefing.id),
         reports_json=json.dumps(_report_rows(rank_reports(reports), briefing.team_id), ensure_ascii=False, indent=2),
+        recent_json=json.dumps(_recent_rows(previous), ensure_ascii=False, indent=2),
     )
