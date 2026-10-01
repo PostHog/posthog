@@ -72,19 +72,35 @@ const MANAGED_WAREHOUSE_UNAVAILABLE_CODE = 'managed_warehouse_connection_unavail
 
 const TRANSIENT_SUBMIT_ATTEMPTS = 3
 const TRANSIENT_SUBMIT_DELAY_MS = 600
+const CAPACITY_RETRY_MAX_WAIT_SECONDS = 10
+
+function shortCapacityWaitMs(error: unknown): number | undefined {
+    if (!(error instanceof ApiError) || error.status !== 503) {
+        return undefined
+    }
+    const retryAfter = error.headers?.get('Retry-After')
+    // The date form of Retry-After is read against the client clock, which can be off by more than a short wait.
+    if (!retryAfter || !/^\d+$/.test(retryAfter)) {
+        return undefined
+    }
+    const seconds = Number(retryAfter)
+    return seconds <= CAPACITY_RETRY_MAX_WAIT_SECONDS ? seconds * 1000 : undefined
+}
 
 /**
  * A 502, or a 503 without `Retry-After`, means the query did not start, so a quick resubmit is safe.
- * A 503 with `Retry-After` is the backend saying ClickHouse is at capacity for the next 30-60 seconds,
- * and a quick resubmit only adds load. A 504 means the gateway stopped waiting while the backend can
- * still be running the query, so a resubmit can compute it a second time.
+ * A 503 with `Retry-After` means the backend refused the query for lack of capacity. When the wait is
+ * at most CAPACITY_RETRY_MAX_WAIT_SECONDS, the client waits that long and resubmits, because room usually
+ * returns within seconds. With a longer wait the error goes to the caller at once, because an early
+ * resubmit only adds load. A 504 means the gateway stopped waiting while the backend can still be
+ * running the query, so a resubmit can compute it a second time.
  */
 function isRetryableSubmitFailure(error: unknown): boolean {
     return (
         error instanceof ApiError &&
         isTransientServerError(error) &&
         error.status !== 504 &&
-        !error.headers?.has('Retry-After')
+        (!error.headers?.has('Retry-After') || shortCapacityWaitMs(error) !== undefined)
     )
 }
 
@@ -228,6 +244,7 @@ async function executeQuery<N extends DataNode>(
                 initialDelayMs: TRANSIENT_SUBMIT_DELAY_MS,
                 signal: methodOptions?.signal,
                 shouldRetry: isRetryableSubmitFailure,
+                getDelayMs: shortCapacityWaitMs,
             }
         )
 
