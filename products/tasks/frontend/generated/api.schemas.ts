@@ -4957,6 +4957,24 @@ export interface PinnedTaskIdsResponseApi {
     task_ids: string[]
 }
 
+export interface TaskPullRequestTitlesRequestApi {
+    /**
+     * Task IDs whose latest run's pull request titles to fetch (max 30).
+     * @maxItems 30
+     */
+    ids: string[]
+}
+
+/**
+ * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+ */
+export type TaskPullRequestTitlesApiTitles = { [key: string]: string }
+
+export interface TaskPullRequestTitlesApi {
+    /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+    titles: TaskPullRequestTitlesApiTitles
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
