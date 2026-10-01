@@ -11,9 +11,7 @@ export type NotebookJupyterCompletions = {
 
 export type NotebookJupyterEditorKeyHandlers = {
     onSplit: (offset: number) => void
-    /** Up on the first line or Down on the last line leaves the cell. */
     onLeaveCell: (direction: 'previous' | 'next') => void
-    /** Backspace in an editor that holds nothing removes the cell. */
     onDeleteEmptyCell: () => void
     /** Completions from the kernel for the cursor position; without it Tab uses the editor's own suggestions. */
     complete?: (code: string, cursorPos: number) => Promise<NotebookJupyterCompletions | null>
@@ -26,7 +24,6 @@ const CODE_BEFORE_CURSOR = /[\w.)\]('"]$/
 const EDGE_KEY_PRECONDITION =
     'editorTextFocus && !suggestWidgetVisible && !parameterHintsVisible && !editorHasSelection && !editorHasMultipleSelections'
 
-// IPython reports the kind of each match; Monaco draws an icon per kind.
 function completionKind(monaco: MountedCodeEditor['monaco'], type: string): languages.CompletionItemKind {
     const kinds = monaco.languages.CompletionItemKind
     const byType: Record<string, languages.CompletionItemKind> = {

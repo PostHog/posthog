@@ -10,9 +10,7 @@ export type NotebookJupyterCell = {
     id: string
     kind: 'code' | 'markdown' | 'block'
     nodeIds: string[]
-    /** Index of the cell's first node in the document. */
     startIndex: number
-    /** Index of the cell's last node in the document. */
     endIndex: number
 }
 
@@ -49,7 +47,6 @@ export function findNotebookJupyterCellIndex(cells: NotebookJupyterCell[], nodeI
     return cells.findIndex((cell) => cell.nodeIds.includes(nodeId))
 }
 
-/** The cells from the anchor to the active cell, in document order, for a Shift+Up/Down selection. */
 export function getNotebookJupyterCellRange(
     cells: NotebookJupyterCell[],
     anchorCellId: string,

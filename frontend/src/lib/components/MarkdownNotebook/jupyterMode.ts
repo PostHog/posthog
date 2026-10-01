@@ -14,13 +14,11 @@ export type MarkdownNotebookJupyterModeConfig = {
     /** Gives a pasted or restored copy of a cell identities of its own, such as a fresh run id. */
     prepareCellCopy?: (node: NotebookComponentBlockNode) => NotebookComponentBlockNode
     onRestartKernel?: () => void
-    /** Kernel completions for a cell's source at `cursorPos`, for Tab. */
     completeCode?: (
         node: NotebookComponentBlockNode,
         code: string,
         cursorPos: number
     ) => Promise<NotebookJupyterCompletions | null>
-    /** The signature and docstring of the name at `cursorPos`, for Shift+Tab. */
     inspectCode?: (node: NotebookComponentBlockNode, code: string, cursorPos: number) => Promise<string | null>
 }
 
@@ -218,7 +216,6 @@ export class NotebookJupyterStore {
         this.listeners.forEach((listener) => listener())
     }
 
-    /** Makes one cell the selection, or, with `selectedCellIds`, a range ending at it. */
     setActiveCell(activeCellId: string | null, selectedCellIds?: string[]): void {
         const nextSelection = selectedCellIds ?? (activeCellId ? [activeCellId] : [])
         if (!selectedCellIds) {
@@ -263,7 +260,6 @@ export class NotebookJupyterStore {
     }
 }
 
-/** Cell operations the editor implements, for the cells' keys and the notebook toolbar. */
 export type NotebookJupyterCommands = {
     config: MarkdownNotebookJupyterModeConfig
     store: NotebookJupyterStore
@@ -273,7 +269,6 @@ export type NotebookJupyterCommands = {
     insertCell: (nodeId: string | null, position: 'above' | 'below', options?: { edit?: boolean }) => void
     /** Splits a code cell's source at `offset`; the part after it becomes a new cell below. */
     splitCell: (nodeId: string, offset: number) => void
-    /** Leaves a cell's editor across its edge, into the neighbouring cell's source. */
     moveEditFocus: (cellId: string, direction: 'previous' | 'next') => void
     /** Removes a cell whose editor was emptied with Backspace, and edits the end of the cell above. */
     deleteEmptyCell: (cellId: string) => void

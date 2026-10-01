@@ -9,7 +9,6 @@ export type MountedCodeEditor = {
 const mountedEditors = new Set<MountedCodeEditor>()
 const listeners = new Set<() => void>()
 
-/** Tracks a mounted editor until the returned callback runs. */
 export function registerMountedCodeEditor(entry: MountedCodeEditor): () => void {
     mountedEditors.add(entry)
     listeners.forEach((listener) => listener())
