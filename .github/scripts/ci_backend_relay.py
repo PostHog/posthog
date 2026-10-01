@@ -404,22 +404,21 @@ def depot_ci(*args: str) -> Any:
     return json.loads(result.stdout)
 
 
-def run_again(
+def retry_failed_jobs(
     org: str,
     workflow: str,
     *,
-    every_job: bool,
     deadline_minutes: int = 90,
     depot: Callable[..., Any] = depot_ci,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Progress | None:
-    """Runs the workflow's tests again on Depot and returns the gate's new verdict, or None when Depot cannot be reached.
+    """Retries the workflow's failed jobs on Depot and returns the gate's new verdict, or None when Depot cannot be reached.
 
     Depot refuses a retry while the workflow runs, so the retry waits for the workflow to finish.
-    Each retry adds one execution to the workflow and queues the gate job in the same call, so the
-    gate's state is the new verdict once the workflow has more executions than when the retry was sent.
-    A gate that another retry turned green in the meantime is relayed as it is, unless every job runs again.
+    A retry adds one execution to the workflow and queues the gate job in the same call. So the gate's
+    state is the new verdict once the workflow has more executions than it had when the retry was sent.
+    A gate that another retry turned green in the meantime is relayed as it is.
     """
     start = clock()
     url = f"https://depot.dev/orgs/{org}/workflows/{workflow}"
@@ -429,19 +428,15 @@ def run_again(
         try:
             shown = depot("workflow", "show", workflow, "--org", org)
             gate = next(job["status"] for job in shown["jobs"] if job["job_key"] == GATE_JOB_KEY)
-            verdict = Progress(Phase.FINISHED, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
             executions = len(shown["executions"])
             sys.stdout.write(f"Depot workflow: {shown['workflow']['status']}, gate {gate}\n")
-            if executions_at_retry is None:
-                if gate == "finished" and not every_job:
-                    return verdict
-                if shown["workflow"]["status"] not in DEPOT_LIVE_STATES:
-                    command = ("rerun",) if every_job else ("retry", "--failed")
-                    depot(command[0], shown["run"]["run_id"], "--workflow", workflow, "--org", org, *command[1:])
-                    executions_at_retry = executions
-                    sys.stdout.write(f"Depot runs {'every job' if every_job else 'the failed jobs'} again: {url}\n")
-            elif executions > executions_at_retry and gate not in DEPOT_LIVE_STATES:
-                return verdict
+            retried = executions_at_retry is not None and executions > executions_at_retry
+            if gate == "finished" or (retried and gate not in DEPOT_LIVE_STATES):
+                return Progress(Phase.FINISHED, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
+            if executions_at_retry is None and shown["workflow"]["status"] not in DEPOT_LIVE_STATES:
+                depot("retry", shown["run"]["run_id"], "--workflow", workflow, "--org", org, "--failed")
+                executions_at_retry = executions
+                sys.stdout.write(f"Depot retries the failed jobs: {url}\n")
             failures = 0
         except (subprocess.SubprocessError, OSError, ValueError, LookupError, TypeError, StopIteration) as error:
             failures += 1
@@ -458,19 +453,18 @@ def gate_verdict(
     event: Event,
     *,
     rerun: bool,
-    every_job: bool,
-    run_again: Callable[..., Progress | None] = run_again,
+    retry: Callable[[str, str], Progress | None] = retry_failed_jobs,
 ) -> Progress:
     """The gate verdict that this attempt of the relay job reports.
 
-    A GitHub re-run starts nothing on Depot. So when a re-run finds a verdict that is already there,
-    the relay runs the tests again on Depot: the failed jobs, or every job when GitHub re-ran every job.
+    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed
+    or was cancelled, the relay retries the failed Depot jobs and reports the new verdict.
     """
     if rerun:
         settled = poll(reader, event, GATE_CHECK, deadline_minutes=0, absent_minutes=0)
         target = DEPOT_RUN_URL.match(settled.details_url)
-        if target and settled.phase in (Phase.FINISHED, Phase.CANCELLED) and (every_job or settled.state != "success"):
-            return run_again(*target.groups(), every_job=every_job) or settled
+        if target and settled.phase in (Phase.FINISHED, Phase.CANCELLED) and settled.state != "success":
+            return retry(*target.groups()) or settled
     return poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
 
 
@@ -479,9 +473,8 @@ def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
         f"Depot run: {details_url or 'not found'}",
         "",
-        "Re-run on GitHub to run them again on Depot:",
-        f"  gh run rerun {run_id} --repo {event.repo} --failed   # 'Re-run failed jobs': the failed Depot jobs",
-        f"  gh run rerun {run_id} --repo {event.repo}   # 'Re-run all jobs': every Depot job",
+        "Re-run this job on GitHub to retry the failed Depot jobs:",
+        f"  gh run rerun {run_id} --repo {event.repo} --failed",
         "",
         "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
         f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
@@ -523,12 +516,7 @@ def main(argv: Sequence[str]) -> int:
     event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
-        result = gate_verdict(
-            reader,
-            event,
-            rerun=env.get("GITHUB_RUN_ATTEMPT", "1") != "1",
-            every_job=env.get("RERUN_EVERY_JOB") == "true",
-        )
+        result = gate_verdict(reader, event, rerun=env.get("GITHUB_RUN_ATTEMPT", "1") != "1")
     except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
