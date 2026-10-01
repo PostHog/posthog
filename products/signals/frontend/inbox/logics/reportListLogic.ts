@@ -63,7 +63,7 @@ export interface ReportListRequestContext {
 
 /**
  * A page of rows stamped with the query params and display context that produced it (see the loader).
- * Pages skip the total, so `count` is the only total.
+ * Pages skip the server count, so read the total from `count`, not from this response.
  */
 export type ReportListResponse = PaginatedResponse<SignalReport> & {
     requestParams?: Record<string, unknown>
