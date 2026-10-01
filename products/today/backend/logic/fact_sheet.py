@@ -28,8 +28,6 @@ class FactSheetItem(BaseModel):
     title: str
     url: str
     rank: int
-    # Only briefings that an agent wrote have an urgency. The rank gives the order.
-    urgency: int | None = None
     source_product: str | None = None
     # Short facts as text, never free text written by customers.
     facts: dict[str, str]

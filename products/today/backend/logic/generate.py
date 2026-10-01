@@ -3,8 +3,6 @@
 from datetime import timedelta
 from typing import Final
 
-import structlog
-
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import build_async_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
@@ -22,8 +20,6 @@ from .fact_sheet import FactSheet, fact_sheet_for_reports
 from .llm_output import BriefingOutput, strict_schema, to_content
 from .prompt import build_prompt
 
-logger = structlog.get_logger(__name__)
-
 MODEL = "gpt-6-luna"
 REASONING_EFFORT: Final = "low"
 MAX_COMPLETION_TOKENS = 8192
@@ -33,12 +29,12 @@ CALL_TIMEOUT = timedelta(minutes=2)
 ATTEMPT_TIMEOUT = CALL_TIMEOUT + timedelta(minutes=1)
 # Temporal retries the whole attempt, so the LLM client does not retry on its own.
 ATTEMPTS = 3
-# Every attempt at its budget plus the waits between them. The workflow, the stuck sweep
-# and the page's polling all derive from this.
+RETRY_INTERVAL = timedelta(seconds=10)
+# Every attempt at its budget plus the waits between them. The workflow enforces it, and the
+# stuck sweep and the page's polling derive from it.
 RUN_TIMEOUT = ATTEMPT_TIMEOUT * ATTEMPTS + timedelta(minutes=1)
 # How many of the person's previous briefings the LLM sees, so it does not repeat itself.
 RECENT_BRIEFINGS = 3
-NO_ITEMS_HEADLINE = "Nothing needs you right now"
 
 
 @frozen
@@ -67,28 +63,29 @@ def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
         team_id=team.id, user_id=user.id, limit_per_relation=MAX_ITEMS, limit=MAX_ITEMS
     )
     fact_sheet = fact_sheet_for_reports(reports, team.id)
-    prompt = build_prompt(briefing, user, reports, fact_sheet, recent_ready_briefings(briefing, RECENT_BRIEFINGS))
+    summaries = {item.key: report.summary for item, report in zip(fact_sheet.items, reports, strict=True)}
+    prompt = build_prompt(briefing, user, fact_sheet, summaries, recent_ready_briefings(briefing, RECENT_BRIEFINGS))
     return _PreparedRun(fact_sheet=fact_sheet, prompt=prompt, distinct_id=str(user.distinct_id))
 
 
 async def _write_text(prepared: _PreparedRun, team_id: int) -> BriefingOutput:
-    client = build_async_openai_client(
+    async with build_async_openai_client(
         product="posthog_ai",
         ai_product="today_briefing",
         distinct_id=prepared.distinct_id,
         properties={"team_id": str(team_id)},
-    ).with_options(timeout=CALL_TIMEOUT.total_seconds(), max_retries=0)
-    response = await client.chat.completions.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prepared.prompt}],
-        reasoning_effort=REASONING_EFFORT,
-        max_completion_tokens=MAX_COMPLETION_TOKENS,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "today_briefing", "strict": True, "schema": strict_schema(BriefingOutput)},
-        },
-        user=prepared.distinct_id,
-    )
+    ).with_options(timeout=CALL_TIMEOUT.total_seconds(), max_retries=0) as client:
+        response = await client.chat.completions.create(
+            model=MODEL,
+            messages=[{"role": "user", "content": prepared.prompt}],
+            reasoning_effort=REASONING_EFFORT,
+            max_completion_tokens=MAX_COMPLETION_TOKENS,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "today_briefing", "strict": True, "schema": strict_schema(BriefingOutput)},
+            },
+            user=prepared.distinct_id,
+        )
     # The gateway fronts several providers and does not honor a response format the same way on
     # every route, so a reply in a code fence still parses.
     return BriefingOutput.model_validate(extract_json_object(response.choices[0].message.content or "") or {})
@@ -102,7 +99,8 @@ def _store(team_id: int, briefing_id: str, fact_sheet: FactSheet, content: Brief
 async def write_briefing(*, team_id: int, briefing_id: str) -> None:
     """Write the briefing text in one LLM call and store it with the items PostHog picked.
 
-    With no items there is no call, and the briefing says that nothing needs the person.
+    With no items there is no call, and the stored text is empty: the page then says that nothing
+    needs the person.
     """
     prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
     if prepared is None:
@@ -110,7 +108,7 @@ async def write_briefing(*, team_id: int, briefing_id: str) -> None:
     if prepared.fact_sheet.items:
         content = to_content(await _write_text(prepared, team_id), prepared.fact_sheet)
     else:
-        content = BriefingContent(headline=NO_ITEMS_HEADLINE)
+        content = BriefingContent()
     await database_sync_to_async(_store, thread_sensitive=False)(team_id, briefing_id, prepared.fact_sheet, content)
 
 

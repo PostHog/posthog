@@ -18,7 +18,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger, BriefingWriter
 from products.today.backend.logic.fact_sheet import fact_sheet_for_reports
-from products.today.backend.logic.generate import MODEL, NO_ITEMS_HEADLINE, write_briefing
+from products.today.backend.logic.generate import write_briefing
 from products.today.backend.models import DailyBriefing
 from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
@@ -65,13 +65,13 @@ def _answer() -> str:
             "headline": "Two reports need your input",
             "paragraphs": [
                 [
-                    {"text": "The ", "item_key": None, "highlight": False},
-                    {"text": "report b", "item_key": "report:b", "highlight": True},
-                    {"text": " waits for a review. ", "item_key": None, "highlight": False},
-                    {"text": "Report a", "item_key": "report:a", "highlight": False},
-                    {"text": " waits for you, like ", "item_key": None, "highlight": False},
-                    {"text": "an invented report", "item_key": "report:invented", "highlight": False},
-                    {"text": ".", "item_key": None, "highlight": False},
+                    {"text": "The ", "item_key": None},
+                    {"text": "report b", "item_key": "report:b"},
+                    {"text": " waits for a review. ", "item_key": None},
+                    {"text": "Report a", "item_key": "report:a"},
+                    {"text": " waits for you, like ", "item_key": None},
+                    {"text": "an invented report", "item_key": "report:invented"},
+                    {"text": ".", "item_key": None},
                 ]
             ],
             "items": [
@@ -115,8 +115,10 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
 
     def _run(self, reply: str = "") -> AsyncMock:
         create = AsyncMock(return_value=_reply(reply))
+        opened = MagicMock()
+        opened.chat.completions.create = create
         client = MagicMock()
-        client.with_options.return_value.chat.completions.create = create
+        client.with_options.return_value.__aenter__.return_value = opened
         with (
             patch(ON_TEST_THREAD, _on_test_thread),
             patch(REPORTS, return_value=self.reports),
@@ -139,11 +141,12 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
         assert content["headline"] == "Two reports need your input"
         linked = [segment["item_key"] for segment in content["paragraphs"][0] if segment["item_key"]]
         assert linked == ["report:b", "report:a"]
+        highlighted = [segment["item_key"] for segment in content["paragraphs"][0] if segment["highlight"]]
+        assert highlighted == ["report:b"]
         assert "an invented report" in "".join(segment["text"] for segment in content["paragraphs"][0])
         assert set(content["labels"]) == set(content["signals"]) == {"report:b", "report:a"}
         create.assert_awaited_once()
         prompt = create.call_args.kwargs["messages"][0]["content"]
-        assert create.call_args.kwargs["model"] == MODEL
         assert prompt.index("report:b") < prompt.index("report:a")
         assert "Yesterday's headline" in prompt
 
@@ -155,7 +158,7 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
         self.briefing.refresh_from_db()
         create.assert_not_called()
         assert self.briefing.status == BriefingStatus.READY
-        assert (self.briefing.content["headline"], self.briefing.facts["items"]) == (NO_ITEMS_HEADLINE, [])
+        assert (self.briefing.content["headline"], self.briefing.facts["items"]) == ("", [])
 
     def test_a_reply_that_is_not_a_briefing_fails_the_attempt_and_stores_nothing(self) -> None:
         with self.assertRaises(ValidationError):

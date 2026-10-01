@@ -15,7 +15,6 @@ class OutputSegment(BaseModel):
 
     text: str
     item_key: str | None
-    highlight: bool
 
 
 class OutputItem(BaseModel):
@@ -43,13 +42,15 @@ def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
 
 def to_content(output: BriefingOutput, fact_sheet: FactSheet) -> BriefingContent:
     """The stored text. A link, label or signal for a key that is not on the fact sheet becomes plain
-    text or is dropped, so the page never links to an item it does not show."""
+    text or is dropped, so the page never links to an item it does not show. Links to the top item
+    are highlighted."""
     keys = {item.key for item in fact_sheet.items}
+    top_key = fact_sheet.items[0].key if fact_sheet.items else None
     return BriefingContent(
         headline=output.headline,
         paragraphs=[
             [
-                ContentSegment(text=s.text, item_key=s.item_key, highlight=s.highlight)
+                ContentSegment(text=s.text, item_key=s.item_key, highlight=s.item_key == top_key)
                 if s.item_key in keys
                 else ContentSegment(text=s.text)
                 for s in paragraph
