@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconComment, IconWarning } from '@posthog/icons'
 import {
@@ -9,7 +10,10 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
+    Label,
+    Separator,
     Skeleton,
+    SkeletonText,
     Switch,
     Text,
 } from '@posthog/quill'
@@ -48,9 +52,13 @@ export function CanvasCommentsTab(): JSX.Element {
             )
         }
         return (
-            <div className="flex flex-col gap-3 p-3">
-                <Skeleton className="h-20 w-full" />
-                <Skeleton className="h-20 w-full" />
+            <div className="flex flex-col gap-4 p-3">
+                {[0, 1].map((index) => (
+                    <div key={index} className="flex gap-2">
+                        <Skeleton className="size-6 shrink-0 rounded-full" />
+                        <SkeletonText lines={2} className="flex-1" />
+                    </div>
+                ))}
             </div>
         )
     }
@@ -62,21 +70,27 @@ export function CanvasCommentsTab(): JSX.Element {
                     Select text in the canvas to comment on it.
                 </Text>
                 {resolvedCount > 0 && (
-                    <label className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2">
                         <Switch
+                            id="canvas-comments-show-resolved"
                             size="sm"
                             checked={showResolved}
                             onCheckedChange={(checked: boolean) => setShowResolved(checked)}
                             data-attr="canvas-comments-show-resolved"
                         />
-                        <Text size="xs">{`Show resolved (${resolvedCount})`}</Text>
-                    </label>
+                        <Label htmlFor="canvas-comments-show-resolved" className="text-xs">
+                            {`Show resolved (${resolvedCount})`}
+                        </Label>
+                    </div>
                 )}
             </div>
             {visibleThreads && visibleThreads.length > 0 ? (
-                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
-                    {visibleThreads.map((thread) => (
-                        <CanvasCommentThreadCard key={thread.root.id} thread={thread} />
+                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1">
+                    {visibleThreads.map((thread, index) => (
+                        <Fragment key={thread.root.id}>
+                            {index > 0 && <Separator />}
+                            <CanvasCommentThreadCard thread={thread} />
+                        </Fragment>
                     ))}
                 </div>
             ) : (

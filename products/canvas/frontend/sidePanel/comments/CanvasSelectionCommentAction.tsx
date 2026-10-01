@@ -66,7 +66,7 @@ export function CanvasSelectionCommentAction(): JSX.Element | null {
                     data-attr="canvas-selection-comment-open"
                 >
                     <IconComment />
-                    Comment
+                    Comment…
                 </Button>
             ) : (
                 <form

@@ -30,21 +30,19 @@ export function CanvasSidePanel({ canvasId }: { canvasId: string }): JSX.Element
             onValueChange={(value: CanvasPanelTab) => selectTab(value, canvasId)}
             className="flex h-full min-h-0 flex-col gap-0"
         >
-            <div className="flex min-h-12 shrink-0 items-center gap-1 border-b border-border bg-chrome px-2 py-1.5">
-                <TabsList aria-label="Canvas panel" className="min-w-0">
-                    {CANVAS_PANEL_TABS.map(({ key, label, Icon }) => (
+            <div className="flex shrink-0 items-center gap-2 border-b border-border bg-chrome pr-2 pl-3">
+                <TabsList variant="line" aria-label="Canvas panel" className="min-w-0">
+                    {CANVAS_PANEL_TABS.map(({ key, label }) => (
                         <TabsTrigger
                             key={key}
                             value={key}
                             disabled={key === 'comments' && !commentsEnabled}
                             data-attr={`canvas-panel-tab-${key}`}
                         >
-                            <Icon />
                             {label}
                         </TabsTrigger>
                     ))}
                 </TabsList>
-                <div className="flex-1" />
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}
@@ -52,7 +50,8 @@ export function CanvasSidePanel({ canvasId }: { canvasId: string }): JSX.Element
                             <Button
                                 size="icon-sm"
                                 variant="default"
-                                aria-label="Hide panel"
+                                className="ml-auto"
+                                aria-label="Hide side panel"
                                 onClick={() => setCollapsed(true, canvasId)}
                                 data-attr="canvas-panel-hide"
                             />
@@ -60,7 +59,7 @@ export function CanvasSidePanel({ canvasId }: { canvasId: string }): JSX.Element
                     >
                         <IconSidebarOpen />
                     </TooltipTrigger>
-                    <TooltipContent>Hide panel</TooltipContent>
+                    <TooltipContent>Hide side panel</TooltipContent>
                 </Tooltip>
             </div>
             <TabsContent value={visibleTab} className="min-h-0 flex-1">

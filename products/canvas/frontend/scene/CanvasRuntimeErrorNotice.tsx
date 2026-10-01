@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconWarning } from '@posthog/icons'
-import { Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button } from '@posthog/quill'
 
 import { canvasErrorType } from '../canvasAnalytics'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { canvasChatLogic } from '../sidePanel/chat/canvasChatLogic'
 import { canvasSceneLogic } from './canvasSceneLogic'
+import { CanvasStatusIssue } from './CanvasStatusIssue'
 
 /**
  * The error the rendered canvas threw, with a way to hand it to the agent. A live build goes
@@ -35,27 +35,29 @@ export function CanvasRuntimeErrorNotice(): JSX.Element | null {
     }
 
     return (
-        <div className="flex items-center gap-1" data-attr="canvas-runtime-error">
-            <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex items-center gap-1" />}>
-                    <IconWarning className="text-destructive-foreground" />
-                    <Text size="xs" variant="destructive">
-                        Runtime error
-                    </Text>
-                </TooltipTrigger>
-                <TooltipContent>
-                    <span className="block max-w-sm whitespace-pre-wrap break-words">{runtimeError}</span>
-                </TooltipContent>
-            </Tooltip>
-            <Button
-                size="xs"
-                variant="outline"
-                loading={fixRequestPending}
-                onClick={askAgentToFix}
-                data-attr="canvas-runtime-error-ask-fix"
-            >
-                Ask agent to fix
-            </Button>
+        <div className="flex items-center" data-attr="canvas-runtime-error">
+            <CanvasStatusIssue
+                label="Runtime error"
+                title="The canvas threw an error"
+                description={
+                    buildId
+                        ? 'Parts of the canvas may not work. Ask the agent that wrote it to fix the error.'
+                        : 'Parts of the canvas may not work. Ask the agent to fix it from the chat.'
+                }
+                details={[runtimeError]}
+                dataAttr="canvas-runtime-error-details"
+                actions={
+                    <Button
+                        size="sm"
+                        variant="primary"
+                        loading={fixRequestPending}
+                        onClick={askAgentToFix}
+                        data-attr="canvas-runtime-error-ask-fix"
+                    >
+                        Ask agent to fix
+                    </Button>
+                }
+            />
         </div>
     )
 }

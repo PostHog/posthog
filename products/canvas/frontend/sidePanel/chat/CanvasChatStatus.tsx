@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { canvasChatLogic } from './canvasChatLogic'
 
 const STATUS_COPY = {
-    starting: 'Starting the agent',
     running: 'The agent is working on the canvas',
     finished: 'The agent finished this run',
     failed: "The agent's run stopped before it finished",
@@ -19,7 +18,8 @@ const STATUS_COPY = {
 export function CanvasChatStatus(): JSX.Element | null {
     const { chatState, chatTaskId, chatRun } = useValues(canvasChatLogic)
 
-    if (chatState !== 'starting' && chatState !== 'running' && chatState !== 'finished' && chatState !== 'failed') {
+    // A starting run says so in the chat body, so the status line waits until the agent is at work.
+    if (chatState !== 'running' && chatState !== 'finished' && chatState !== 'failed') {
         return null
     }
     const markerStatus = chatState === 'finished' ? 'done' : chatState === 'failed' ? 'error' : 'running'

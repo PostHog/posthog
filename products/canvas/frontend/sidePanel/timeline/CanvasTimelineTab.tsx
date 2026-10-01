@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconClock, IconPencil, IconSparkles } from '@posthog/icons'
+import { IconClock, IconPencil, IconSparkles, IconUser } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -10,6 +10,7 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
+    ItemGroup,
     Skeleton,
     Text,
 } from '@posthog/quill'
@@ -54,10 +55,11 @@ export function CanvasTimelineTab(): JSX.Element {
 
     if (versions.length === 0 && drafts.length === 0) {
         return versionsLoading ? (
-            <div className="flex flex-col gap-3 p-3">
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
-                <Skeleton className="h-12 w-full" />
+            <div className="flex flex-col gap-2 p-3">
+                <Skeleton className="h-3 w-16" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
+                <Skeleton className="h-14 w-full" />
             </div>
         ) : (
             <Empty className="h-full border-0">
@@ -66,7 +68,9 @@ export function CanvasTimelineTab(): JSX.Element {
                         <IconClock />
                     </EmptyMedia>
                     <EmptyTitle>No changes yet</EmptyTitle>
-                    <EmptyDescription>Every version of this canvas, by you or an agent, shows here.</EmptyDescription>
+                    <EmptyDescription>
+                        Each version of this canvas shows here, whether you or an agent made it.
+                    </EmptyDescription>
                 </EmptyHeader>
             </Empty>
         )
@@ -75,11 +79,11 @@ export function CanvasTimelineTab(): JSX.Element {
     return (
         <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-3" data-attr="canvas-timeline">
             {drafts.length > 0 && (
-                <section className="flex flex-col gap-1">
-                    <Text size="xs" variant="muted" weight="medium">
+                <section aria-labelledby="canvas-timeline-drafts" className="flex flex-col gap-2">
+                    <Text id="canvas-timeline-drafts" size="xs" variant="muted" weight="medium" render={<h3 />}>
                         Drafts
                     </Text>
-                    <ol className="flex flex-col">
+                    <ItemGroup combined>
                         {drafts.map((draft) => (
                             <CanvasTimelineRow
                                 key={draft.version_id}
@@ -108,34 +112,34 @@ export function CanvasTimelineTab(): JSX.Element {
                                 dataAttr="canvas-timeline-draft"
                             />
                         ))}
-                    </ol>
+                    </ItemGroup>
                 </section>
             )}
-            <section className="flex flex-col gap-1">
-                <Text size="xs" variant="muted" weight="medium">
+            <section aria-labelledby="canvas-timeline-versions" className="flex flex-col gap-2">
+                <Text id="canvas-timeline-versions" size="xs" variant="muted" weight="medium" render={<h3 />}>
                     Versions
                 </Text>
-                <ol className="flex flex-col">
+                <ItemGroup combined>
                     {versions.map((version) => {
                         const build = latestBuildByVersion.get(version.id)
                         const live = version.id === headVersionId
                         return (
                             <CanvasTimelineRow
                                 key={version.id}
-                                icon={version.task_id ? <IconSparkles /> : undefined}
+                                icon={version.task_id ? <IconSparkles /> : <IconUser />}
                                 title={canvasVersionTitle(version)}
-                                meta={canvasVersionByline(version)}
+                                meta={`${versionLabels[version.id]} · ${canvasVersionByline(version)}`}
                                 badges={
-                                    <>
-                                        <Badge variant={live ? 'success' : 'default'}>
-                                            {live ? `${versionLabels[version.id]} · Live` : versionLabels[version.id]}
-                                        </Badge>
-                                        {build && build.build_status !== 'ready' && (
-                                            <Badge variant={canvasBuildStatusBadgeVariant(build.build_status)}>
-                                                {canvasBuildStatusLabel(build.build_status)}
-                                            </Badge>
-                                        )}
-                                    </>
+                                    live || (build && build.build_status !== 'ready') ? (
+                                        <>
+                                            {live && <Badge variant="success">Live</Badge>}
+                                            {build && build.build_status !== 'ready' && (
+                                                <Badge variant={canvasBuildStatusBadgeVariant(build.build_status)}>
+                                                    {canvasBuildStatusLabel(build.build_status)}
+                                                </Badge>
+                                            )}
+                                        </>
+                                    ) : undefined
                                 }
                                 viewing={version.id === displayedVersionId}
                                 onOpen={() => setBrowseVersion(live ? null : version.id)}
@@ -157,7 +161,7 @@ export function CanvasTimelineTab(): JSX.Element {
                             />
                         )
                     })}
-                </ol>
+                </ItemGroup>
             </section>
         </div>
     )

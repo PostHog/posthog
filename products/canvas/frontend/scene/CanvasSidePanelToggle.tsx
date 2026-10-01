@@ -14,7 +14,7 @@ export function CanvasSidePanelToggle(): JSX.Element | null {
     if (!canvas || !sidePanelAvailable) {
         return null
     }
-    const label = sidePanelOpen ? 'Hide panel' : 'Show chat, comments, and timeline'
+    const label = sidePanelOpen ? 'Hide side panel' : 'Show side panel'
     return (
         <Tooltip>
             <TooltipTrigger
@@ -22,7 +22,7 @@ export function CanvasSidePanelToggle(): JSX.Element | null {
                 render={
                     <Button
                         size="icon-sm"
-                        variant="default"
+                        variant="outline"
                         aria-label={label}
                         aria-pressed={sidePanelOpen}
                         onClick={() => setCollapsed(sidePanelOpen, canvas.id)}

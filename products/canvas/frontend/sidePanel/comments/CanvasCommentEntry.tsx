@@ -1,7 +1,10 @@
+import { ReactNode } from 'react'
+
 import {
     Avatar,
     AvatarFallback,
     ThreadItem,
+    ThreadItemActions,
     ThreadItemAuthor,
     ThreadItemBody,
     ThreadItemContent,
@@ -19,8 +22,8 @@ function authorName(comment: CommentType): string {
     return comment.created_by ? fullNameOrEmail(comment.created_by) : 'Someone'
 }
 
-/** One comment in a thread: who wrote it, when, and what it says. */
-export function CanvasCommentEntry({ comment }: { comment: CommentType }): JSX.Element {
+/** One comment in a thread: who wrote it, when, and what it says. `actions` show on hover and focus. */
+export function CanvasCommentEntry({ comment, actions }: { comment: CommentType; actions?: ReactNode }): JSX.Element {
     const name = authorName(comment)
     return (
         <ThreadItem>
@@ -38,6 +41,7 @@ export function CanvasCommentEntry({ comment }: { comment: CommentType }): JSX.E
                 </ThreadItemHeader>
                 <ThreadItemBody className="break-words whitespace-pre-wrap">{comment.content}</ThreadItemBody>
             </ThreadItemContent>
+            {actions && <ThreadItemActions aria-label="Comment actions">{actions}</ThreadItemActions>}
         </ThreadItem>
     )
 }

@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 
-import { IconCheckCircle, IconPin, IconPinFilled, IconRefresh, IconWarning, IconX } from '@posthog/icons'
-import { Badge, Button, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconPin, IconPinFilled, IconRefresh, IconX } from '@posthog/icons'
+import { Badge, Button, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import {
     activeCanvasBuild,
@@ -12,6 +12,7 @@ import {
     topBuildErrors,
 } from './canvasBuildLifecycle'
 import { canvasSceneLogic } from './canvasSceneLogic'
+import { CanvasStatusIssue } from './CanvasStatusIssue'
 
 // A progress hint, not a stopwatch.
 const ELAPSED_TICK_MS = 5000
@@ -20,12 +21,14 @@ function IconAction({
     label,
     onClick,
     disabled,
+    pressed,
     dataAttr,
     children,
 }: {
     label: string
     onClick: () => void
     disabled: boolean
+    pressed?: boolean
     dataAttr: string
     children: JSX.Element
 }): JSX.Element {
@@ -38,6 +41,7 @@ function IconAction({
                         size="icon-sm"
                         variant="default"
                         aria-label={label}
+                        aria-pressed={pressed}
                         disabled={disabled}
                         onClick={onClick}
                         data-attr={dataAttr}
@@ -51,9 +55,29 @@ function IconAction({
     )
 }
 
+function StatusBadge({
+    variant,
+    hint,
+    children,
+}: {
+    variant: 'default' | 'info' | 'success' | 'warning'
+    hint: string
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <Tooltip>
+            {/* quill's Badge does not forward refs under React 18, so a span anchors the tooltip. */}
+            <TooltipTrigger render={<span className="inline-flex" />}>
+                <Badge variant={variant}>{children}</Badge>
+            </TooltipTrigger>
+            <TooltipContent>{hint}</TooltipContent>
+        </Tooltip>
+    )
+}
+
 /**
- * The build lifecycle beside the canvas name: progress with elapsed time while a build runs,
- * the errors and a fix or retry when the head's build failed, and pinning for the live build.
+ * The build lifecycle in the canvas header: progress with elapsed time while a build runs,
+ * what failed and how to fix it when the head's build failed, and pinning for the live build.
  */
 export function CanvasBuildStatus(): JSX.Element | null {
     const { builds, view, buildActionPending, fixRequestPending } = useValues(canvasSceneLogic)
@@ -72,25 +96,23 @@ export function CanvasBuildStatus(): JSX.Element | null {
 
     if (!builds) {
         return view?.has_active_build ? (
-            <div className="flex items-center gap-1.5" data-attr="canvas-build-status">
-                <Spinner />
-                <Text size="xs" variant="muted">
+            <div className="flex items-center" data-attr="canvas-build-status">
+                <Badge variant="info">
+                    <Spinner />
                     Building
-                </Text>
+                </Badge>
             </div>
         ) : null
     }
 
     if (active) {
         return (
-            <div className="flex items-center gap-1 whitespace-nowrap" data-attr="canvas-build-status">
-                <Spinner />
-                <Text size="xs" variant="muted">
-                    {active.build_status === 'queued' ? 'Queued' : 'Building'}
-                </Text>
-                <Text size="xs" variant="muted" translate="no">
-                    {formatBuildElapsed(Date.now() - Date.parse(active.created_at))}
-                </Text>
+            <div className="flex items-center gap-1" data-attr="canvas-build-status">
+                <StatusBadge variant="info" hint="A new version is building. The canvas updates when it's ready.">
+                    <Spinner />
+                    <span>{active.build_status === 'queued' ? 'Queued' : 'Building'}</span>
+                    <span translate="no">{formatBuildElapsed(Date.now() - Date.parse(active.created_at))}</span>
+                </StatusBadge>
                 {active.build_status === 'queued' && (
                     <IconAction
                         label="Cancel build"
@@ -109,56 +131,51 @@ export function CanvasBuildStatus(): JSX.Element | null {
     const latest = failedHead ?? latestFinishedCanvasBuild(builds)
     if (!latest) {
         return view?.current_version_id ? (
-            <Tooltip>
-                <TooltipTrigger render={<span className="inline-flex" />}>
-                    <Badge variant="default" data-attr="canvas-build-status">
-                        Draft
-                    </Badge>
-                </TooltipTrigger>
-                <TooltipContent>This canvas hasn't been built yet.</TooltipContent>
-            </Tooltip>
+            <div className="flex items-center" data-attr="canvas-build-status">
+                <StatusBadge variant="default" hint="This canvas hasn't been built yet.">
+                    Draft
+                </StatusBadge>
+            </div>
         ) : null
     }
 
     if (latest.build_status === 'failed') {
-        const errors = topBuildErrors(latest.diagnostics)
         return (
-            <div className="flex flex-wrap items-center gap-1" data-attr="canvas-build-status">
-                <Tooltip>
-                    <TooltipTrigger render={<span className="inline-flex items-center gap-1" />}>
-                        <IconWarning className="text-destructive-foreground" />
-                        <Text size="xs" variant="destructive">
-                            Build failed
-                        </Text>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <span className="block max-w-sm whitespace-pre-wrap break-words">
-                            {[
-                                builds.published_build_id
-                                    ? "The latest version didn't build. The last working version stays live."
-                                    : "This version didn't build, so the canvas shows its source as a draft.",
-                                ...errors,
-                            ].join('\n')}
-                        </span>
-                    </TooltipContent>
-                </Tooltip>
-                <Button
-                    size="xs"
-                    variant="outline"
-                    loading={fixRequestPending}
-                    onClick={() => requestFix({ buildId: latest.id })}
-                    data-attr="canvas-build-ask-fix"
-                >
-                    Ask agent to fix
-                </Button>
-                <IconAction
-                    label="Retry build"
-                    onClick={() => buildAction('retry', latest.id)}
-                    disabled={buildActionPending}
-                    dataAttr="canvas-build-retry"
-                >
-                    <IconRefresh />
-                </IconAction>
+            <div className="flex items-center" data-attr="canvas-build-status">
+                <CanvasStatusIssue
+                    label="Build failed"
+                    title="The latest version didn't build"
+                    description={
+                        builds.published_build_id
+                            ? 'The last working version stays live. Ask the agent to fix the errors, or retry the build.'
+                            : 'The canvas shows its source as a draft until a build works. Ask the agent to fix the errors, or retry the build.'
+                    }
+                    details={topBuildErrors(latest.diagnostics)}
+                    dataAttr="canvas-build-failed-details"
+                    actions={
+                        <>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                loading={buildActionPending}
+                                onClick={() => buildAction('retry', latest.id)}
+                                data-attr="canvas-build-retry"
+                            >
+                                <IconRefresh />
+                                Retry build
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant="primary"
+                                loading={fixRequestPending}
+                                onClick={() => requestFix({ buildId: latest.id })}
+                                data-attr="canvas-build-ask-fix"
+                            >
+                                Ask agent to fix
+                            </Button>
+                        </>
+                    }
+                />
             </div>
         )
     }
@@ -166,18 +183,20 @@ export function CanvasBuildStatus(): JSX.Element | null {
     const published = builds.builds.find((build) => build.id === builds.published_build_id)
     if (published && published.id === latest.id) {
         return (
-            <div className="flex items-center gap-0.5" data-attr="canvas-build-status">
-                <Tooltip>
-                    <TooltipTrigger render={<span className="inline-flex items-center gap-1" />}>
-                        <IconCheckCircle className="text-success-foreground" />
-                        <Text size="xs" variant="muted">
-                            Live
-                        </Text>
-                    </TooltipTrigger>
-                    <TooltipContent>Everyone with access sees this build.</TooltipContent>
-                </Tooltip>
+            <div className="flex items-center gap-1" data-attr="canvas-build-status">
+                <StatusBadge
+                    variant="success"
+                    hint={
+                        published.pinned
+                            ? 'Everyone with access sees this build. It stays live until you unpin it.'
+                            : 'Everyone with access sees this build.'
+                    }
+                >
+                    Live
+                </StatusBadge>
                 <IconAction
                     label={published.pinned ? 'Unpin build' : 'Pin build'}
+                    pressed={published.pinned}
                     onClick={() => buildAction(published.pinned ? 'unpin' : 'pin', published.id)}
                     disabled={buildActionPending}
                     dataAttr={published.pinned ? 'canvas-build-unpin' : 'canvas-build-pin'}
@@ -190,17 +209,16 @@ export function CanvasBuildStatus(): JSX.Element | null {
 
     if (published?.pinned && latest.build_status === 'ready') {
         return (
-            <div className="flex items-center gap-0.5" data-attr="canvas-build-status">
-                <Tooltip>
-                    <TooltipTrigger render={<span className="inline-flex" />}>
-                        <Text size="xs" variant="muted">
-                            Newer build available
-                        </Text>
-                    </TooltipTrigger>
-                    <TooltipContent>A newer build is ready, but an older build is pinned live.</TooltipContent>
-                </Tooltip>
+            <div className="flex items-center gap-1" data-attr="canvas-build-status">
+                <StatusBadge
+                    variant="warning"
+                    hint="A newer build is ready, but an older build is pinned live. Unpin it to show the newer one."
+                >
+                    Pinned
+                </StatusBadge>
                 <IconAction
                     label="Unpin build"
+                    pressed
                     onClick={() => buildAction('unpin', published.id)}
                     disabled={buildActionPending}
                     dataAttr="canvas-build-unpin"

@@ -4,6 +4,7 @@ import { IconChevronDown, IconRedo, IconUndo } from '@posthog/icons'
 import {
     Badge,
     Button,
+    ButtonGroup,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -45,7 +46,7 @@ function StepButton({
                 render={
                     <Button
                         size="icon-sm"
-                        variant="default"
+                        variant="outline"
                         aria-label={label}
                         disabled={!!disabledReason}
                         onClick={onClick}
@@ -81,38 +82,36 @@ export function CanvasVersionControls(): JSX.Element | null {
     const generatingReason = isGenerating ? 'The agent is changing the canvas. Wait for it to finish.' : null
 
     return (
-        <div className="flex flex-wrap items-center gap-1" data-attr="canvas-version-controls">
-            <StepButton
-                label="Previous version"
-                disabledReason={generatingReason ?? (canUndo ? null : 'This is the oldest version.')}
-                onClick={undo}
-                dataAttr="canvas-version-undo"
-            >
-                <IconUndo />
-            </StepButton>
-            <StepButton
-                label="Next version"
-                disabledReason={generatingReason ?? (canRedo ? null : 'This is the latest version.')}
-                onClick={redo}
-                dataAttr="canvas-version-redo"
-            >
-                <IconRedo />
-            </StepButton>
-            {browsedDraft ? (
-                <Badge variant="warning">Draft preview</Badge>
-            ) : (
-                versions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" data-attr="canvas-version-controls">
+            <ButtonGroup aria-label="Versions">
+                <StepButton
+                    label="Previous version"
+                    disabledReason={generatingReason ?? (canUndo ? null : 'This is the oldest version.')}
+                    onClick={undo}
+                    dataAttr="canvas-version-undo"
+                >
+                    <IconUndo />
+                </StepButton>
+                <StepButton
+                    label="Next version"
+                    disabledReason={generatingReason ?? (canRedo ? null : 'This is the latest version.')}
+                    onClick={redo}
+                    dataAttr="canvas-version-redo"
+                >
+                    <IconRedo />
+                </StepButton>
+                {!browsedDraft && versions.length > 0 && (
                     <DropdownMenu>
                         <DropdownMenuTrigger
                             render={
-                                <Button size="sm" variant="default" data-attr="canvas-version-menu">
+                                <Button size="sm" variant="outline" data-attr="canvas-version-menu">
                                     <span translate="no">{`v${versions.length - navigation.currentIndex}/${versions.length}`}</span>
                                     {!browseVersionId && <span>· Live</span>}
                                     <IconChevronDown />
                                 </Button>
                             }
                         />
-                        <DropdownMenuContent align="start" className="max-h-96 max-w-80 overflow-y-auto">
+                        <DropdownMenuContent align="end" className="max-h-96 max-w-80 overflow-y-auto">
                             {versions.map((version, index) => (
                                 <DropdownMenuItem
                                     key={version.id}
@@ -131,19 +130,20 @@ export function CanvasVersionControls(): JSX.Element | null {
                             ))}
                         </DropdownMenuContent>
                     </DropdownMenu>
-                )
-            )}
+                )}
+            </ButtonGroup>
+            {browsedDraft && <Badge variant="warning">Draft preview</Badge>}
             {drafts.length > 0 && (
                 <DropdownMenu>
                     <DropdownMenuTrigger
                         render={
-                            <Button size="sm" variant="default" data-attr="canvas-drafts-menu">
+                            <Button size="sm" variant="outline" data-attr="canvas-drafts-menu">
                                 <span>{`Drafts (${drafts.length})`}</span>
                                 <IconChevronDown />
                             </Button>
                         }
                     />
-                    <DropdownMenuContent align="start" className="max-h-96 max-w-80 overflow-y-auto">
+                    <DropdownMenuContent align="end" className="max-h-96 max-w-80 overflow-y-auto">
                         {drafts.map((draft) => (
                             <DropdownMenuItem
                                 key={draft.version_id}

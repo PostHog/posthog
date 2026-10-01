@@ -1,7 +1,19 @@
 import { useValues } from 'kea'
 
 import { IconMessage, IconWarning } from '@posthog/icons'
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton, Text } from '@posthog/quill'
+import {
+    ChatMarker,
+    ChatMarkerContent,
+    ChatMarkerIcon,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Skeleton,
+    Spinner,
+    Text,
+} from '@posthog/quill'
 
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 
@@ -61,9 +73,15 @@ export function CanvasChatBody(): JSX.Element {
     }
     if (chatState === 'starting') {
         return (
-            <div className="p-3">
-                <Text size="sm" variant="muted">
-                    The agent's messages show here once it starts working. This can take a minute.
+            <div className="flex flex-col gap-1 p-3" data-attr="canvas-chat-starting">
+                <ChatMarker status="running">
+                    <ChatMarkerIcon>
+                        <Spinner />
+                    </ChatMarkerIcon>
+                    <ChatMarkerContent>Starting the agent</ChatMarkerContent>
+                </ChatMarker>
+                <Text size="xs" variant="muted">
+                    Its messages show here once it starts working. This can take a minute.
                 </Text>
             </div>
         )

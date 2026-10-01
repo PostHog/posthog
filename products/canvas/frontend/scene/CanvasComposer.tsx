@@ -119,39 +119,39 @@ export function CanvasComposer({
                 </InputGroup>
             </form>
             {showSuggestions && (
-            <section aria-labelledby="canvas-suggestions-label" className="flex flex-col gap-2">
-                <Text id="canvas-suggestions-label" size="xs" variant="muted" weight="medium" render={<h2 />}>
-                    Start from an example
-                </Text>
-                <ItemGroup combined>
-                    {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
-                        <Item
-                            key={suggestion.label}
-                            variant="outline"
-                            size="xs"
-                            className="text-left hover:bg-fill-button-tertiary-hover"
-                            render={
-                                <button
-                                    type="button"
-                                    disabled={submitting}
-                                    onClick={() => {
-                                        onInstructionChange(suggestion.prompt, true)
-                                        focusComposer()
-                                    }}
-                                    data-attr="canvas-generate-suggestion"
-                                />
-                            }
-                        >
-                            <ItemMedia aria-hidden>
-                                <suggestion.icon />
-                            </ItemMedia>
-                            <ItemContent className="min-w-0">
-                                <ItemTitle className="truncate">{suggestion.label}</ItemTitle>
-                            </ItemContent>
-                        </Item>
-                    ))}
-                </ItemGroup>
-            </section>
+                <section aria-labelledby="canvas-suggestions-label" className="flex flex-col gap-2">
+                    <Text id="canvas-suggestions-label" size="xs" variant="muted" weight="medium" render={<h2 />}>
+                        Start from an example
+                    </Text>
+                    <ItemGroup combined>
+                        {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
+                            <Item
+                                key={suggestion.label}
+                                variant="outline"
+                                size="xs"
+                                className="text-left hover:bg-fill-button-tertiary-hover"
+                                render={
+                                    <button
+                                        type="button"
+                                        disabled={submitting}
+                                        onClick={() => {
+                                            onInstructionChange(suggestion.prompt, true)
+                                            focusComposer()
+                                        }}
+                                        data-attr="canvas-generate-suggestion"
+                                    />
+                                }
+                            >
+                                <ItemMedia aria-hidden>
+                                    <suggestion.icon />
+                                </ItemMedia>
+                                <ItemContent className="min-w-0">
+                                    <ItemTitle className="truncate">{suggestion.label}</ItemTitle>
+                                </ItemContent>
+                            </Item>
+                        ))}
+                    </ItemGroup>
+                </section>
             )}
         </div>
     )

@@ -14,7 +14,7 @@ export function CanvasChatComposer(): JSX.Element {
     const live = chatState === 'running' || chatState === 'starting'
 
     return (
-        <div className="flex flex-col gap-1.5 border-t border-border p-3">
+        <div className="flex flex-col gap-2 border-t border-border p-3">
             {sendError && (
                 <Text size="xs" variant="destructive" role="alert">
                     Couldn't send your message. {sendError}
