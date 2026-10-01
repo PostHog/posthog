@@ -86,7 +86,11 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
                 <ChatMessageFooter className={cn('min-h-5 items-center gap-1', footerRevealClass(revealed))}>
                     {item.startedAt !== undefined && (
                         // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
-                        <TZLabel time={new Date(item.startedAt).toISOString()} className="text-xs text-foreground" />
+                        <TZLabel
+                            time={new Date(item.startedAt).toISOString()}
+                            hoverOpenDelayMs={500}
+                            className="text-xs text-foreground"
+                        />
                     )}
                     {text && (
                         <QuillCopyButton value={text} label="Copy message" dataAttr="posthog-ai-human-message-copy" />

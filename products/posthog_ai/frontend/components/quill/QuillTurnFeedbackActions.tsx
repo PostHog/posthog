@@ -31,7 +31,11 @@ export function QuillTurnFeedbackActions({
                 className={cn('min-h-5 items-center gap-1 ps-0', footerRevealClass(!!rating || turnHovered))}
             >
                 {timestamp !== undefined && (
-                    <TZLabel time={new Date(timestamp).toISOString()} className="text-xs text-foreground" />
+                    <TZLabel
+                        time={new Date(timestamp).toISOString()}
+                        hoverOpenDelayMs={500}
+                        className="text-xs text-foreground"
+                    />
                 )}
                 {turnText && (
                     <QuillCopyButton
