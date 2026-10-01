@@ -1,33 +1,44 @@
 import { IconWrench } from '@posthog/icons'
-import { Button } from '@posthog/quill-primitives'
+import { Button, cn } from '@posthog/quill-primitives'
 
-import { ActivityElapsedTime } from '../ActivityElapsedTime'
+import type { ToolInvocation } from '../../types/streamTypes'
+import { resolveToolCall } from '../../utils/toolResolver'
+import { summarizeToolRun } from '../../utils/toolRunSummary'
 import { ActivityGroupRows } from '../ActivityGroupRows'
+import { lookupToolRenderer } from '../tool/toolRegistry'
 import { type ActivityGroupProps, useActivityGroup } from '../useActivityGroup'
 import { ThreadMarker } from './ThreadMarker'
 
+function describeCall(call: ToolInvocation): { name: string; detail?: string; icon: JSX.Element } {
+    const resolved = resolveToolCall(call)
+    const { displayName, icon } = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+    // The PostHog MCP asks the agent for a one-sentence `context` on every call, and its `exec` title says nothing.
+    const intent = typeof call.input.context === 'string' ? call.input.context.trim() : ''
+    if (intent || resolved.innerToolName || !call.title) {
+        return { name: displayName, detail: intent || undefined, icon }
+    }
+    // A title such as "Read digest/scheduler.py" already names the tool.
+    if (call.title.toLowerCase().startsWith(displayName.toLowerCase())) {
+        return { name: call.title, icon }
+    }
+    return { name: displayName, detail: call.title, icon }
+}
+
+const isRunning = (call: ToolInvocation): boolean => call.status === 'pending' || call.status === 'in_progress'
+
 export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
     const { group, toolInvocations, active, waitingForInput = false, renderItem } = props
-    const {
-        label,
-        currentLabel,
-        calls,
-        thoughtsOnly,
-        expanded,
-        setExpanded,
-        window,
-        showMiddle,
-        toggleMiddle,
-        visibleThoughtsOnly,
-        newCount,
-        showNew,
-    } = useActivityGroup(props)
+    const { calls, expanded, setExpanded, window, showMiddle, toggleMiddle, visibleThoughtsOnly, newCount, showNew } =
+        useActivityGroup(props)
     const rowProps = { thoughtsOnly: visibleThoughtsOnly, toolInvocations, active, renderItem }
     const running = active && !waitingForInput
+    const thinking = running && group.items.at(-1)?.type === 'assistant_thought'
+    const current = calls.findLast(isRunning) ?? calls.at(-1)
+    const lead = current ? describeCall(current) : undefined
 
     return (
         <ThreadMarker
-            icon={<IconWrench />}
+            icon={lead?.icon ?? <IconWrench />}
             running={running}
             spinner
             open={expanded}
@@ -63,16 +74,26 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
                 </div>
             }
         >
-            <span className="shrink-0 font-medium" data-attr="thread-activity-toggle">
-                {running && !thoughtsOnly ? currentLabel : label}
-            </span>
-            {waitingForInput && <span className="truncate">Review the request below</span>}
-            {!waitingForInput && (
-                <ActivityElapsedTime startedAt={group.startedAt} endedAt={group.endedAt} active={active} />
-            )}
-            {calls.length > 0 && (
-                <span className="shrink-0 tabular-nums">
-                    · {calls.length} tool {calls.length === 1 ? 'call' : 'calls'}
+            {waitingForInput ? (
+                <>
+                    <span className="shrink-0 font-medium" data-attr="thread-activity-toggle">
+                        Waiting for you
+                    </span>
+                    <span className="truncate">Review the request below</span>
+                </>
+            ) : running ? (
+                <>
+                    <span
+                        className={cn('truncate font-medium', !thinking && lead?.detail ? 'shrink-0' : 'min-w-0')}
+                        data-attr="thread-activity-toggle"
+                    >
+                        {thinking || !lead ? 'Thinking…' : lead.name}
+                    </span>
+                    {!thinking && lead?.detail && <span className="truncate opacity-70">{lead.detail}</span>}
+                </>
+            ) : (
+                <span className="truncate" data-attr="thread-activity-toggle">
+                    {summarizeToolRun(calls)}
                 </span>
             )}
         </ThreadMarker>

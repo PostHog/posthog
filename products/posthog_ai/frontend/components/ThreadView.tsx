@@ -6,8 +6,14 @@ import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ThreadItem } from '../types/streamTypes'
-import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
+import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
+import {
+    groupThreadActivity,
+    groupToolRuns,
+    isRunningStatus,
+    isStartupStatus,
+    type ThreadDisplayItem,
+} from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { TurnHoverStore } from '../utils/turnHoverStore'
@@ -47,6 +53,22 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     task_notification: 26,
     progress: 42,
     debug: 30,
+}
+
+/** The quill thread leaves a lone call or thought outside a group, and such a row shows its own live state. */
+function quillRowShowsProgress(item: ThreadDisplayItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean {
+    switch (item.type) {
+        case 'assistant_thought':
+            return true
+        case 'tool_invocation': {
+            const status = item.toolCallId ? toolInvocations.get(item.toolCallId)?.status : undefined
+            return status === 'pending' || status === 'in_progress'
+        }
+        case 'status':
+            return isStartupStatus(item) || isRunningStatus(item)
+        default:
+            return false
+    }
 }
 
 function estimateThreadItemHeight(item: ThreadDisplayItem): number {
@@ -129,15 +151,22 @@ export function ThreadView({
     // still going, so it keeps the softer title.
     const runEnded = isTerminalRunStatus(currentRunStatus)
     const displayItems = useMemo(() => {
-        const standaloneToolIds = new Set<string>()
+        const pinnedToolIds = new Set<string>()
+        const widgetToolIds = new Set<string>()
         for (const [id, invocation] of toolInvocations) {
             const resolved = resolveToolCall(invocation)
-            if (lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName).keepVisible) {
-                standaloneToolIds.add(id)
+            const entry = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+            if (entry.pinned) {
+                pinnedToolIds.add(id)
+            } else if (entry.keepVisible) {
+                widgetToolIds.add(id)
             }
         }
-        return groupThreadActivity(threadItems, standaloneToolIds)
-    }, [threadItems, toolInvocations])
+        if (skin === 'quill') {
+            return groupToolRuns(threadItems, toolInvocations, { pinnedToolIds, widgetToolIds, settled: !isThinking })
+        }
+        return groupThreadActivity(threadItems, new Set([...pinnedToolIds, ...widgetToolIds]))
+    }, [threadItems, toolInvocations, skin, isThinking])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -172,11 +201,12 @@ export function ThreadView({
     // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
     // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
     const showConnectionStatus = !!runConnectionState
+    const lastItem = displayItems.at(-1)
+    const lastRowShowsProgress =
+        lastItem?.type === 'activity_group' ||
+        (skin === 'quill' && !!lastItem && quillRowShowsProgress(lastItem, toolInvocations))
     const showThinking =
-        showThinkingIndicator &&
-        !showConnectionStatus &&
-        !pendingPermissionRequest &&
-        displayItems.at(-1)?.type !== 'activity_group'
+        showThinkingIndicator && !showConnectionStatus && !pendingPermissionRequest && !lastRowShowsProgress
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined

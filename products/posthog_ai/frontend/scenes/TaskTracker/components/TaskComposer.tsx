@@ -10,6 +10,7 @@ import {
     DEFAULT_SUGGESTIONS_DATA,
     type SuggestionItem,
     Suggestions,
+    useThreadSkin,
     Welcome,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { modelCatalogueLogic } from 'products/posthog_ai/frontend/logics/modelCatalogueLogic'
@@ -26,12 +27,18 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModes'
 
 import { AttachedContextBar } from '../../../components/composer/AttachedContextBar'
+import { AttachedContextChips } from '../../../components/composer/AttachedContextChips'
+import { ComposerAttachmentChips } from '../../../components/composer/ComposerAttachmentChips'
 import { ComposerAttachments, useComposerAttachmentPaste } from '../../../components/composer/ComposerAttachments'
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
 import { ComposerModePicker } from '../../../components/composer/ComposerModePicker'
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
+import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
+import { QuillComposerAttachButton } from '../../../components/quill/QuillComposerAttachButton'
+import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
+import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
@@ -83,6 +90,8 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const frameRef = useRef<HTMLLabelElement>(null)
+    const groupRef = useRef<HTMLDivElement>(null)
+    const skin = useThreadSkin()
 
     useEffect(() => {
         if (focusRequest > 0) {
@@ -96,6 +105,64 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
             textAreaRef.current?.focus()
         }
     }
+
+    const field = (
+        <Composer.Field>
+            <Composer.Placeholder>
+                {composerOverride?.placeholder ?? 'Describe the task in detail…'}
+            </Composer.Placeholder>
+            <Composer.Textarea autoFocus={autoFocus} onPaste={onPaste} data-attr="task-composer-input" />
+        </Composer.Field>
+    )
+    const modePicker = (
+        <ComposerModePicker
+            modes={getModesForRuntimeAdapter(composerAdapter)}
+            selectedMode={newTaskData.permissionMode}
+            onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
+        />
+    )
+    const modelPicker = (
+        <ComposerModelEffortPickers
+            models={offeredModels}
+            selectedModel={displayModel}
+            defaultModel={defaultModel}
+            isDefaultModelLoading={myConfigLoading}
+            selectedEffort={displayEffort}
+            isDefaultSelection={isDefaultSelection}
+            onModelChange={(model) =>
+                setNewTaskData({
+                    model,
+                    reasoningEffort: resolveEffortForModel(catalogue, newTaskData.reasoningEffort, model),
+                    // Clamp the mode too, not just the effort: leaving a
+                    // Claude-only mode selected against a Codex model would
+                    // show one permission ceiling and send a broader one.
+                    permissionMode: resolveModeForRuntimeAdapter(
+                        getRuntimeAdapterForModel(catalogue, model),
+                        newTaskData.permissionMode
+                    ),
+                })
+            }
+            onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+            // Clearing both pins is what hands the choice back to the resolved
+            // default — submit then omits the triple entirely.
+            onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
+            onOpenDefaultSettings={() =>
+                router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference'))
+            }
+        />
+    )
+    const withConsent = (sendButton: JSX.Element): JSX.Element => (
+        <AIConsentPopoverWrapper
+            placement="bottom-end"
+            showArrow
+            ignoreDismissal
+            hidden={!consentBlocked}
+            onApprove={() => submitNewTask()}
+            onDismiss={() => clearConsentBlock()}
+        >
+            {sendButton}
+        </AIConsentPopoverWrapper>
+    )
 
     return (
         <div
@@ -144,75 +211,47 @@ export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = t
                             loading={isSubmittingTask}
                             textAreaRef={textAreaRef}
                         >
-                            <Composer.Frame ref={frameRef}>
-                                <Composer.Header className="flex flex-wrap items-center gap-1">
-                                    <AttachedContextBar />
-                                    <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
-                                </Composer.Header>
-                                <Composer.Field>
-                                    <Composer.Placeholder>
-                                        {composerOverride?.placeholder ?? 'Describe the task in detail…'}
-                                    </Composer.Placeholder>
-                                    <Composer.Textarea
-                                        autoFocus={autoFocus}
-                                        onPaste={onPaste}
-                                        data-attr="task-composer-input"
-                                    />
-                                </Composer.Field>
-                                <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
-                                    <ComposerModePicker
-                                        modes={getModesForRuntimeAdapter(composerAdapter)}
-                                        selectedMode={newTaskData.permissionMode}
-                                        onModeChange={(permissionMode) => setNewTaskData({ permissionMode })}
-                                    />
-                                    <ComposerModelEffortPickers
-                                        models={offeredModels}
-                                        selectedModel={displayModel}
-                                        defaultModel={defaultModel}
-                                        isDefaultModelLoading={myConfigLoading}
-                                        selectedEffort={displayEffort}
-                                        isDefaultSelection={isDefaultSelection}
-                                        onModelChange={(model) =>
-                                            setNewTaskData({
-                                                model,
-                                                reasoningEffort: resolveEffortForModel(
-                                                    catalogue,
-                                                    newTaskData.reasoningEffort,
-                                                    model
-                                                ),
-                                                // Clamp the mode too, not just the effort: leaving a
-                                                // Claude-only mode selected against a Codex model would
-                                                // show one permission ceiling and send a broader one.
-                                                permissionMode: resolveModeForRuntimeAdapter(
-                                                    getRuntimeAdapterForModel(catalogue, model),
-                                                    newTaskData.permissionMode
-                                                ),
-                                            })
-                                        }
-                                        onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
-                                        // Clearing both pins is what hands the choice back to the resolved
-                                        // default — submit then omits the triple entirely.
-                                        onResetToDefault={() => setNewTaskData({ model: null, reasoningEffort: null })}
-                                        onOpenDefaultSettings={() =>
-                                            router.actions.push(
-                                                urls.settings('environment-task-agents', 'task-agent-my-preference')
-                                            )
-                                        }
-                                    />
-                                </Composer.Footer>
-                            </Composer.Frame>
+                            {skin === 'quill' ? (
+                                <QuillComposerLayout
+                                    groupRef={groupRef}
+                                    textAreaRef={textAreaRef}
+                                    chips={
+                                        <>
+                                            <AttachedContextChips />
+                                            <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
+                                        </>
+                                    }
+                                    field={field}
+                                    send={withConsent(<QuillComposerSendButton data-attr="task-composer-send" />)}
+                                    controls={
+                                        <>
+                                            <QuillComposerAttachButton
+                                                attachmentsKey={attachmentsKey}
+                                                dropTargetRef={groupRef}
+                                            />
+                                            <QuillAttachedContextPicker />
+                                            {modelPicker}
+                                            {modePicker}
+                                        </>
+                                    }
+                                    meta={null}
+                                />
+                            ) : (
+                                <Composer.Frame ref={frameRef}>
+                                    <Composer.Header className="flex flex-wrap items-center gap-1">
+                                        <AttachedContextBar />
+                                        <ComposerAttachments attachmentsKey={attachmentsKey} dropTargetRef={frameRef} />
+                                    </Composer.Header>
+                                    {field}
+                                    <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
+                                        {modePicker}
+                                        {modelPicker}
+                                    </Composer.Footer>
+                                </Composer.Frame>
+                            )}
                             {/* Open-group state is shared with the side panel; a group left open there would list generic prompts here. */}
                             {!composerOverride?.hideSuggestions && <Suggestions.Dropdown />}
-                            <AIConsentPopoverWrapper
-                                placement="bottom-end"
-                                showArrow
-                                ignoreDismissal
-                                hidden={!consentBlocked}
-                                onApprove={() => submitNewTask()}
-                                onDismiss={() => clearConsentBlock()}
-                            >
-                                <Composer.Submit data-attr="task-composer-send" />
-                            </AIConsentPopoverWrapper>
+                            {skin === 'lemon' && withConsent(<Composer.Submit data-attr="task-composer-send" />)}
                         </Composer.Root>
                     </div>
 

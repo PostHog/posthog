@@ -19,6 +19,7 @@ import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { Activity } from './ActivityPrimitives'
 import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
 import { useQuillThread } from './quill/quillThreadContext'
 import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
@@ -193,6 +194,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'error') {
         return <RunErrorRow item={item} isLast={isLast && runEnded} />
+    }
+    if (quill && (item.type === 'status' || item.type === 'compact_boundary' || item.type === 'conversation_cleared')) {
+        return <QuillSeparatorRow item={item} live={isLast && isThinking} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />
