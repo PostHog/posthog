@@ -38,13 +38,12 @@ const BriefCard = ({ title, text }: { title: string; text?: string }): JSX.Eleme
 
 export const ContentAutopilotBriefPanel = ({ brief, evidence }: ContentAutopilotBriefPanelProps): JSX.Element => {
     const reasons = evidence.map(({ explanation }) => explanation).filter(Boolean)
-    if (!brief.intent && !brief.outline?.length && reasons.length === 0) {
-        return <p className="text-muted m-0">No brief was saved for this draft.</p>
-    }
+    const briefSaved = Boolean(brief.intent || brief.outline?.length)
 
     return (
         <div className="@container flex flex-col gap-4">
             <BriefList title="Why this was picked" items={reasons} />
+            {briefSaved ? null : <p className="text-muted m-0">No brief was saved for this draft.</p>}
             <BriefText title="What the question means" text={brief.disambiguation} />
             <div className="grid grid-cols-1 @md:grid-cols-2 gap-3">
                 <BriefCard title="What the reader wants" text={brief.intent} />

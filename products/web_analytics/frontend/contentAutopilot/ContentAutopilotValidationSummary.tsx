@@ -45,9 +45,13 @@ export const ContentAutopilotValidationSummary = ({ report }: ContentAutopilotVa
                     it.
                     <CheckList checks={blocked} />
                 </LemonBanner>
-            ) : (
+            ) : report.passed && report.checks.length > 0 ? (
                 <LemonBanner type="success">
                     Ready to download. {pluralize(report.checks.filter(({ passed }) => passed).length, 'check')} passed.
+                </LemonBanner>
+            ) : (
+                <LemonBanner type="info">
+                    This draft hasn't been checked yet. Checks run after the draft is written.
                 </LemonBanner>
             )}
             {toReview.length > 0 ? (

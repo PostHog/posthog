@@ -12,7 +12,7 @@ export const ContentAutopilotSourceLedger = ({ entries, notes }: ContentAutopilo
         <p className="m-0 text-muted text-sm">Each fact in the draft and the page that backs it up.</p>
         <LemonTable
             dataSource={entries}
-            rowKey={(entry) => `${entry.claim}-${entry.source_url}`}
+            rowKey={(entry, index) => `${index}-${entry.claim}-${entry.source_url}`}
             emptyState="The draft doesn't make any claims that need a source."
             columns={[
                 { title: 'Claim', key: 'claim', render: (_, entry) => <span className="text-sm">{entry.claim}</span> },
