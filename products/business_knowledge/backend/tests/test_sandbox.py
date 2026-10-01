@@ -17,14 +17,17 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.business_knowledge.backend.api.sandbox import BusinessKnowledgeSandboxViewSet
-from products.business_knowledge.backend.api.serializers import SandboxQuestionSerializer
+from products.business_knowledge.backend.api.serializers import SandboxQuestionSerializer, SandboxSearchSerializer
 from products.business_knowledge.backend.logic import KnowledgeSearchResult
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 from products.business_knowledge.backend.sandbox import (
+    BK_REPO_FILE_TOOL,
+    BK_REPO_SEARCH_TOOL,
     BK_SEARCH_TOOL,
     BK_WINDOW_TOOL,
     DOCS_SEARCH_TOOL,
     SandboxAnswer,
+    build_sandbox_prompt,
     format_always_on_context,
     parse_sandbox_log,
 )
@@ -80,6 +83,34 @@ class TestSandboxLogParser(SimpleTestCase):
         assert len(activity.searches) == 1
         assert activity.searches[0].tool == BK_SEARCH_TOOL
         assert "refunds" in activity.searches[0].tool_input
+
+    def test_recognizes_repository_tools(self) -> None:
+        log = "\n".join(
+            [
+                _update_line(
+                    "repo-search",
+                    {"command": f"call {BK_REPO_SEARCH_TOOL} " + json.dumps({"query": "billing"})},
+                ),
+                _update_line(
+                    "repo-file",
+                    {
+                        "command": f"call {BK_REPO_FILE_TOOL} "
+                        + json.dumps({"repo": "acme/billing", "path": "src/a.py"})
+                    },
+                ),
+            ]
+        )
+        activity = parse_sandbox_log(log)
+        assert [search.tool for search in activity.searches] == [BK_REPO_SEARCH_TOOL, BK_REPO_FILE_TOOL]
+        for tool in (BK_REPO_SEARCH_TOOL, BK_REPO_FILE_TOOL):
+            assert SandboxSearchSerializer(data={"tool": tool, "input": "call"}).is_valid()
+
+    def test_prompt_names_repository_tools_only_when_enabled(self) -> None:
+        without = build_sandbox_prompt("Can I get a refund?", "")
+        assert BK_REPO_SEARCH_TOOL not in without
+        with_repos = build_sandbox_prompt("Can I get a refund?", "", repo_tools=True)
+        assert BK_REPO_SEARCH_TOOL in with_repos
+        assert BK_REPO_FILE_TOOL in with_repos
 
     def test_accepts_direct_tool_names_and_exact_docs_search(self) -> None:
         direct = json.dumps(

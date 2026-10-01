@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from django.db import transaction
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.dataclasses import frozen
 from posthog.models.utils import convert_legacy_metric, convert_legacy_metrics
 
@@ -32,6 +34,15 @@ class ExperimentMigration:
     migrated_saved_metric_ids: list[int]
 
 
+def _validation_reason(error: ValidationError) -> str:
+    """The message of a metric validation error, as the clause that ends a migration error. The
+    migrate endpoint adds its own closing sentence, so the reason carries no final period."""
+    detail = error.detail
+    messages = detail if isinstance(detail, list) else [detail]
+    reason = " ".join(str(message) for message in messages)
+    return reason.removeprefix("Invalid metric: ").rstrip(".")
+
+
 def migrate_saved_metric(saved_metric_id: int, team_id: int) -> ExperimentSavedMetric:
     """Create a new-engine copy of a legacy shared metric, or return the copy made earlier."""
     with transaction.atomic():
@@ -40,12 +51,19 @@ def migrate_saved_metric(saved_metric_id: int, team_id: int) -> ExperimentSavedM
         if existing := _migrated_target(original, team_id):
             return existing
 
+        try:
+            # Through the service, so the new query gets the uuid every new-engine metric needs.
+            query = ExperimentSavedMetricService.normalize_query_for_write(convert_legacy_metric(original.query))
+        except ValidationError as e:
+            raise LegacyMigrationError(
+                f'The shared metric "{original.name}" (id {original.id}) is not valid: {_validation_reason(e)}'
+            ) from e
+
         new_metric = ExperimentSavedMetric.objects.create(
             name=original.name,
             team=original.team,
             created_by=original.created_by,
-            # Through the service, so the new query gets the uuid every new-engine metric needs.
-            query=ExperimentSavedMetricService.normalize_query_for_write(convert_legacy_metric(original.query)),
+            query=query,
             metadata={"migrated_from": original.id},
         )
 

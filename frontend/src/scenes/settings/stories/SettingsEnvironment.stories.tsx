@@ -223,6 +223,12 @@ export const SettingsEnvironmentBusinessKnowledge: Story = {
                     learn_from_support_enabled: false,
                     support_enabled: true,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
             },
         }),
     ],
@@ -237,6 +243,12 @@ export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
                     learn_from_support_enabled: false,
                     support_enabled: false,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
             },
         }),
     ],
@@ -250,6 +262,12 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                 '/api/projects/:id/business_knowledge/settings/': {
                     learn_from_support_enabled: true,
                     support_enabled: false,
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
                 },
             },
         }),

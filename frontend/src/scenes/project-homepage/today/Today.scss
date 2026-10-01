@@ -71,11 +71,13 @@
     animation: Today__page-in 0.18s ease-out both;
 }
 
-// Zero-specificity resets, so component classes below and shared buttons keep their own styles.
-:where(.Today) button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
 }
 
 :where(.Today) :focus-visible {
@@ -89,12 +91,6 @@
 }
 
 // Sidebar
-
-.TodaySidebar__more {
-    display: block;
-    margin: 14px 11px 0;
-    font-size: 12px;
-}
 
 .TodaySidebar__list {
     display: flex;
@@ -177,6 +173,11 @@
     font-size: 13px;
     line-height: 1.4;
     color: var(--today-body-text);
+}
+
+.TodayNavItem[data-done='true'] .TodayNavItem__title,
+.TodayReportLink[data-done='true'] {
+    text-decoration: line-through;
 }
 
 .TodayNavItem__meta {
@@ -334,11 +335,27 @@
 }
 
 .TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
     margin-bottom: 10px;
     font-size: 21px;
     font-weight: 560;
     color: var(--today-ink);
     letter-spacing: -0.015em;
+}
+
+.TodayHome__badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-faint);
+    letter-spacing: 0;
+    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
+    border-radius: 999px;
 }
 
 .TodayChipStack {

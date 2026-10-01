@@ -82,16 +82,11 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import (
-    HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
-    InputsSerializer,
-    generate_template_bytecode,
-)
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -132,6 +127,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
+from products.workflows.backend.facade.api import create_batch_job
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -166,6 +162,11 @@ from products.workflows.backend.presentation.views.graph_validation import valid
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
+)
+from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HOG_FLOW_VARIABLES_MAX_BYTES,
+    HogFlowMaskingSerializer,
+    HogFlowVariableSerializer,
 )
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -2023,59 +2024,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         except Exception as e:
             if strict:
                 raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
-
-
-# Caps both the variable definitions on a workflow and the variable values a single run passes,
-# so the two share one number instead of drifting. The runtime also checks dynamically set
-# variables against this same limit; each cap here front-runs that check with a clearer error.
-HOG_FLOW_VARIABLES_MAX_BYTES = 5120
-
-
-class HogFlowVariableSerializer(serializers.ListSerializer):
-    child = serializers.DictField(
-        child=serializers.CharField(allow_blank=True),
-        help_text="Variable: {key, type: string|number|boolean, default}.",
-    )
-
-    def validate(self, attrs):
-        # Make sure the keys are unique
-        keys = [item.get("key") for item in attrs]
-        if len(keys) != len(set(keys)):
-            raise serializers.ValidationError("Variable keys must be unique")
-
-        # Make sure entire variables definition is less than 5KB
-        # This is just a check for massive keys / default values, we also have a check for dynamically
-        # set variables during execution
-        total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > HOG_FLOW_VARIABLES_MAX_BYTES:
-            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
-
-        return super().validate(attrs)
-
-
-class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(
-        required=False,
-        min_value=60,
-        max_value=60 * 60 * 24 * 365 * 3,
-        allow_null=True,
-        help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
-    )
-    threshold = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.",
-    )
-    hash = serializers.CharField(
-        required=True,
-        help_text="HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl.",
-    )
-    bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
-
-    def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
-
-        return super().validate(attrs)
 
 
 @extend_schema_field(HogFunctionFiltersSerializer)
@@ -7271,15 +7219,20 @@ class HogFlowViewSet(
             if get_event_source(request) in AGENT_EVENT_SOURCES:
                 self._require_audience_confirm_token(request, hog_flow)
 
-            serializer = HogFlowBatchJobSerializer(
-                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
-            )
+            serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
 
-            # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-            # caller-supplied filters are never what actually runs.
-            batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
+            batch_job = create_batch_job(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow.id,
+                created_by_id=cast(User, request.user).id,
+                variables=serializer.validated_data.get("variables", {}),
+                status=serializer.validated_data.get("status"),
+                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                # caller-supplied filters are never what actually runs.
+                filters=(hog_flow.trigger or {}).get("filters") or {},
+            )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
