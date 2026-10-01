@@ -90,9 +90,17 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
             resolve.return_value = read_with
             assert not ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False).ready
 
-    @parameterized.expand([(SessionTableVersion.V2, 50), (SessionTableVersion.V3, 50), (SessionTableVersion.V2, 1)])
+    @parameterized.expand(
+        [
+            ("engaged", SessionTableVersion.V2, 50),
+            ("engaged", SessionTableVersion.V3, 50),
+            ("engaged_capped", SessionTableVersion.V2, 1),
+            ("bounced_bot", SessionTableVersion.V2, 50),
+            ("bounced_bot", SessionTableVersion.V3, 50),
+        ]
+    )
     def test_session_columns_come_from_the_session_and_its_first_pageview(
-        self, version: SessionTableVersion, max_paths: int
+        self, scenario: str, version: SessionTableVersion, max_paths: int
     ) -> None:
         self.team.modifiers = {"sessionTableVersion": version}
         start = datetime(2026, 9, 1, tzinfo=UTC)
@@ -100,11 +108,17 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
         first_pageview = start + timedelta(hours=1)
         session_id = str(uuid7(int(first_pageview.timestamp() * 1000)))
         create_person(team=self.team, distinct_ids=["visitor"])
-        for offset_minutes, host, pathname, device, country in [
-            (0, "a.example.com", "/pricing", "Desktop", "US"),
-            (2, "b.example.com", "/docs", "Mobile", "BR"),
-            (5, "a.example.com", "/pricing", "Mobile", "BR"),
-        ]:
+        browser_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15"
+        pageviews = (
+            [
+                (0, "a.example.com", "/pricing", "Desktop", "US", browser_user_agent),
+                (2, "b.example.com", "/docs", "Mobile", "BR", browser_user_agent),
+                (5, "a.example.com", "/pricing", "Mobile", "BR", browser_user_agent),
+            ]
+            if scenario.startswith("engaged")
+            else [(0, "a.example.com", "/pricing", "Desktop", "US", "Googlebot/2.1 (+http://www.google.com/bot.html)")]
+        )
+        for offset_minutes, host, pathname, device, country, user_agent in pageviews:
             _create_event(
                 team=self.team,
                 distinct_id="visitor",
@@ -117,7 +131,7 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
                     "$current_url": f"https://{host}{pathname}",
                     "$device_type": device,
                     "$geoip_country_code": country,
-                    "$raw_user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15",
+                    "$raw_user_agent": user_agent,
                 },
             )
         flush_persons_and_events()
@@ -139,7 +153,12 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert response.columns is not None
         row = dict(zip(response.columns, response.results[0]))
-        expected_paths = [("a.example.com", "/pricing", 2), ("b.example.com", "/docs", 1)][:max_paths]
+        engaged = scenario.startswith("engaged")
+        expected_paths = (
+            [("a.example.com", "/pricing", 2), ("b.example.com", "/docs", 1)]
+            if engaged
+            else [("a.example.com", "/pricing", 1)]
+        )[:max_paths]
         assert {
             "entry_hostname": row["entry_hostname"],
             "end_pathname": row["end_pathname"],
@@ -148,15 +167,17 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
             "is_bounce": bool(row["is_bounce"]),
             "session_duration": row["session_duration"],
             "is_bot": bool(row["is_bot"]),
+            "pageview_count": row["pageview_count"],
             "paths": [tuple(entry) for entry in row["paths"]],
         } == {
             "entry_hostname": "a.example.com",
             "end_pathname": "/pricing",
             "device_type": "Desktop",
             "country_code": "US",
-            "is_bounce": False,
-            "session_duration": 300,
-            "is_bot": False,
+            "is_bounce": not engaged,
+            "session_duration": 300 if engaged else 0,
+            "is_bot": not engaged,
+            "pageview_count": 3 if engaged else 1,
             "paths": expected_paths,
         }
 

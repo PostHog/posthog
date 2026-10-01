@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import expand_default_channel_type_call
+from posthog.hogql.functions.traffic_type import bot_classifier_fingerprint
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.models.team import Team
@@ -64,23 +65,23 @@ SELECT
     any(toString(ifNull(events.session.$entry_pathname, ''))) AS entry_pathname,
     any(toString(ifNull(events.session.$entry_hostname, ''))) AS entry_hostname,
     any(toString(ifNull(events.session.$end_pathname, ''))) AS end_pathname,
-    argMin(toString(ifNull(events.properties.$device_type, '')), events.timestamp) AS device_type,
-    argMin(toString(ifNull(events.properties.$os, '')), events.timestamp) AS os,
-    argMin(toString(ifNull(events.properties.$browser, '')), events.timestamp) AS browser,
-    argMin(toString(ifNull(events.properties.$geoip_country_code, '')), events.timestamp) AS country_code,
-    argMin(toString(ifNull(events.properties.$geoip_subdivision_1_code, '')), events.timestamp) AS region_code,
-    argMin(toString(ifNull(events.properties.$geoip_city_name, '')), events.timestamp) AS city_name,
+    argMin(toString(ifNull(events.properties.$device_type, '')), tuple(events.timestamp, events.uuid)) AS device_type,
+    argMin(toString(ifNull(events.properties.$os, '')), tuple(events.timestamp, events.uuid)) AS os,
+    argMin(toString(ifNull(events.properties.$browser, '')), tuple(events.timestamp, events.uuid)) AS browser,
+    argMin(toString(ifNull(events.properties.$geoip_country_code, '')), tuple(events.timestamp, events.uuid)) AS country_code,
+    argMin(toString(ifNull(events.properties.$geoip_subdivision_1_code, '')), tuple(events.timestamp, events.uuid)) AS region_code,
+    argMin(toString(ifNull(events.properties.$geoip_city_name, '')), tuple(events.timestamp, events.uuid)) AS city_name,
     count() AS pageview_count,
     any(ifNull(events.session.$is_bounce, false)) AS is_bounce,
     any(ifNull(events.session.$session_duration, 0)) AS session_duration,
-    argMin(ifNull(events.$virt_is_bot, false), events.timestamp) AS is_bot,
+    argMin(ifNull(events.$virt_is_bot, false), tuple(events.timestamp, events.uuid)) AS is_bot,
     arraySlice(
         arraySort(
             entry -> (-tupleElement(entry, 3), tupleElement(entry, 1), tupleElement(entry, 2)),
             arrayMap(
-                (key, views) -> tuple(splitByChar('\t', key)[1], splitByChar('\t', key)[2], views),
-                tupleElement(sumMap([concat(toString(ifNull(events.properties.$host, '')), '\t', toString(ifNull(events.properties.$pathname, '')))], [1]), 1),
-                tupleElement(sumMap([concat(toString(ifNull(events.properties.$host, '')), '\t', toString(ifNull(events.properties.$pathname, '')))], [1]), 2)
+                (key, views) -> tuple(tupleElement(key, 1), tupleElement(key, 2), views),
+                tupleElement(sumMap([tuple(toString(ifNull(events.properties.$host, '')), toString(ifNull(events.properties.$pathname, '')))], [1]), 1),
+                tupleElement(sumMap([tuple(toString(ifNull(events.properties.$host, '')), toString(ifNull(events.properties.$pathname, '')))], [1]), 2)
             )
         ),
         1,
@@ -111,9 +112,12 @@ def base_placeholders() -> dict[str, ast.Expr]:
         ]
     )
     fingerprint = hashlib.sha256(classifier.to_hogql().encode()).hexdigest()
-    # The executor hashes before resolving $channel_type, so carry its identity in the input AST.
+    # The executor hashes before resolving $channel_type and $virt_is_bot, so carry both classifiers'
+    # identities in the input AST.
     return {
-        "classifier_version": ast.Constant(value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}"),
+        "classifier_version": ast.Constant(
+            value=f"{SESSION_CHANNEL_CLASSIFIER_VERSION}:{fingerprint}:{bot_classifier_fingerprint()}"
+        ),
         "max_session_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
         "max_session_paths": ast.Constant(value=MAX_SESSION_PATHS),
     }
