@@ -35,6 +35,11 @@ class TestPostHogAISystemPrompt(APIBaseTest):
         assert "Never present a `proposed` or drifted metric's result as the answer" in prompt
         assert "Derive from an approved metric when one covers the same measure" in prompt
         assert "otherwise derive the number yourself" in prompt
+        assert "`docs-search` also come after `metric-list`, not before it" in prompt
+        assert "Source or schema discovery about a measure's subject is not a measure request" in prompt
+        assert "Do not list, describe, query, or run catalog metrics for it" in prompt
+        assert "A metric over the same population does not match a different measure" in prompt
+        assert "Do not run that neighbor metric as the headline" in prompt
 
     def test_includes_core_sections(self):
         prompt = self._build()["append"]
