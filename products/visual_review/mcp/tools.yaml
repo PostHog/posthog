@@ -124,11 +124,11 @@ tools:
         description: >
             Stop one identifier of one run type from failing any run in the repo until the quarantine expires. It is
             still captured and diffed. Use it only for a story that flakes on the default branch (`unstable` in
-            `visual-review-repos-flakiness-retrieve`, `hard_count` of 5 or more, and a failure in the last 7 days), never for a `broken`
-            entry (its baseline needs a fix) or a diff your own change caused. Pass the failing run as `source_run_id`
-            and a `reason` with the evidence. An omitted `expires_at` becomes 30 days; do not set a later one. A repeat
-            call replaces the quarantine. Then call `visual-review-runs-recompute-create` to update the open pull
-            request's gate.
+            `visual-review-repos-flakiness-retrieve`, `hard_count` of 5 or more, and a failure in the last 7 days),
+            never for a `broken` entry (its baseline needs a fix) or a diff your own change caused. Pass the failing run
+            as `source_run_id` and a `reason` with the evidence. An omitted `expires_at` becomes 30 days; do not set a
+            later one. A repeat call replaces the quarantine. Then call `visual-review-runs-recompute-create` to update
+            the open pull request's gate.
         param_overrides:
             id:
                 description: |
@@ -320,9 +320,9 @@ tools:
             Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the
             gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved,
             tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones.
-            With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On `409 stale_run`, finalize the
-            newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an
-            explicit human yes for this run.
+            With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On
+            `409 stale_run`, finalize the newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP:
+            never finalize without an explicit human yes for this run.
         feature_flag: visual-review
     visual-review-runs-list:
         operation: visual_review_runs_list
@@ -353,9 +353,9 @@ tools:
         title: Re-check a visual review run's gate
         description: >
             Re-check the gate of a completed, unfinalized run after a quarantine or toleration: recount unresolved
-            snapshots, post the commit status, and re-run the CI job recorded on the run, so the required check reads the new verdict. Call it on the pull request's latest non-stale run.
-            Approved changes keep the gate red until finalize commits them. `ci_rerun_triggered` and `ci_rerun_error`
-            report the re-run.
+            snapshots, post the commit status, and re-run the CI job recorded on the run, so the required check reads
+            the new verdict. Call it on the pull request's latest non-stale run. Approved changes keep the gate red
+            until finalize commits them. `ci_rerun_triggered` and `ci_rerun_error` report the re-run.
         feature_flag: visual-review
     visual-review-runs-retrieve:
         operation: visual_review_runs_retrieve
