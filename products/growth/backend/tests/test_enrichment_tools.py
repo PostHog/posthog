@@ -20,6 +20,7 @@ from products.growth.backend.enrichment.tools import (
     MAX_PACED_WAIT_SECONDS,
     MAX_SEARCH_QUERY_CHARS,
     PACED_BUDGET_FRACTION,
+    SCRAPE_BUDGET_COST,
     SEARCH_BUDGET_COST,
     FirecrawlPacer,
     run_tool,
@@ -234,19 +235,38 @@ class TestPacedFirecrawlCalls(SimpleTestCase):
         assert client_mock.call_args.kwargs["priority"] == Priority.BATCH
         sleep_mock.assert_called_with(1.5)
 
-    def test_consecutive_paced_calls_are_spaced_by_the_admission_interval(self):
-        found = FirecrawlSearch(query="x", results=(FirecrawlSearchResult(url="https://x.example"),))
+    @parameterized.expand(
+        [
+            (
+                "web_search",
+                "search",
+                {"query": "x"},
+                FirecrawlSearch(query="x", results=(FirecrawlSearchResult(url="https://x.example"),)),
+                SEARCH_BUDGET_COST,
+            ),
+            (
+                "fetch_page",
+                "scrape",
+                {"url": "https://acme.example/pricing"},
+                FirecrawlScrape(url="https://acme.example/pricing", markdown="Plans start at $10/mo"),
+                SCRAPE_BUDGET_COST,
+            ),
+        ]
+    )
+    def test_consecutive_paced_calls_are_spaced_by_their_budget_cost(
+        self, tool, client_function, arguments, success, cost
+    ):
         pacer = FirecrawlPacer()
         with (
             patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=self._limiter(interval_seconds=4.0)),
             patch(f"{_TOOLS_MODULE}.time.monotonic", return_value=1000.0),
             patch(f"{_TOOLS_MODULE}.time.sleep") as sleep_mock,
-            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+            patch(f"{_TOOLS_MODULE}.{client_function}", return_value=success),
         ):
-            run_tool("web_search", {"query": "x"}, pacer=pacer)
-            run_tool("web_search", {"query": "y"}, pacer=pacer)
+            run_tool(tool, arguments, pacer=pacer)
+            run_tool(tool, arguments, pacer=pacer)
 
-        sleep_mock.assert_called_once_with(SEARCH_BUDGET_COST * 4.0 / PACED_BUDGET_FRACTION)
+        sleep_mock.assert_called_once_with(cost * 4.0 / PACED_BUDGET_FRACTION)
 
     def test_a_wait_past_the_cap_defers_without_sleeping_or_calling_firecrawl(self):
         limiter = self._limiter(pace_seconds=MAX_PACED_WAIT_SECONDS + 1)
