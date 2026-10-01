@@ -403,6 +403,9 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
+# Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
+_SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
+
 # Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
 # histories of such runs proceeded into provisioning; the marker keeps their replays
 # deterministic. Same two-step cleanup lifecycle as above.
@@ -564,6 +567,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._self_driving_quota_next_check_at: Optional[datetime] = None
         self._self_driving_quota_checks_active: bool = True
         self._current_slack_relay_workflow_id: Optional[str] = None
+        # A relay started during provisioning that the first turn_started must reuse.
+        self._early_slack_relay_open: bool = False
         self._agent_shadow_launched = False
         self._first_command_dispatched_recorded = False
         self._first_agent_activity_recorded = False
@@ -572,6 +577,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_ready_at: datetime | None = None
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
         self._progress_chain: asyncio.Task[None] | None = None
+        self._slack_setup_chain: asyncio.Task[None] | None = None
         self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
 
@@ -1827,6 +1833,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Agent-design path owns this surface via per-turn relay children.
         if not self._is_agent_design_enabled:
             await self._post_slack_update()
+        elif self._slack_thread_context:
+            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
+            await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
+            self._early_slack_relay_open = True
 
         sandbox_output = await self._get_sandbox_for_repository()
         sandbox_id = sandbox_output.sandbox_id
@@ -2781,6 +2791,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         scoped id is what actually goes on the wire — callers don't need to
         think about uniqueness.
         """
+        if self._early_slack_relay_open and group == "setup" and step in _SLACK_SETUP_PROGRESS_STEPS:
+            self._forward_slack_setup_step(step, status, label)
         activity_input = EmitProgressInput(
             run_id=self.context.run_id,
             step=step,
@@ -2800,6 +2812,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         emission.add_done_callback(lambda finished: self._pending_progress_activities.pop(finished, None))
         if wait:
             await emission
+
+    def _forward_slack_setup_step(self, step: str, status: str, label: str) -> None:
+        """Show a sandbox setup step in the Slack plan, in the order the steps happen."""
+        payload = {"step": step, "status": status, "title": label}
+        self._slack_setup_chain = asyncio.create_task(
+            self._signal_slack_setup_step_in_order(self._slack_setup_chain, payload)
+        )
+
+    async def _signal_slack_setup_step_in_order(
+        self, previous: "asyncio.Task[None] | None", payload: dict[str, str]
+    ) -> None:
+        if previous is not None:
+            await asyncio.wait([previous])
+        if not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.setup_step, payload)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_setup_step_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
 
     async def _emit_progress_in_order(
         self,
@@ -3426,27 +3461,39 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def turn_started(self, payload: dict[str, Any]) -> None:
         if not self._is_agent_design_enabled:
             return
+        if self._early_slack_relay_open:
+            # The relay started during provisioning already streams the first turn.
+            self._early_slack_relay_open = False
+            return
         # Any orphaned previous-turn child times out on its own.
         slack_ctx = payload.get("slack_thread_context") or self._slack_thread_context or {}
         if not slack_ctx:
             return
+        await self._start_slack_agent_design_relay(slack_ctx)
+
+    async def _start_slack_agent_design_relay(
+        self, slack_ctx: dict[str, Any], setup_title: Optional[str] = None
+    ) -> None:
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
         await workflow.start_child_workflow(
             SlackAgentDesignRelayWorkflow.run,
-            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx, run_id=self.context.run_id),
+            SlackAgentDesignRelayInput(
+                slack_thread_context=slack_ctx, run_id=self.context.run_id, setup_title=setup_title
+            ),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,
             # Cancel on parent close so the relay's finally block runs
             # stop_slack_agent_design_stream — otherwise the plan-block
             # stream is orphaned until Slack's own GC.
             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=1),
+            # The first turn's relay also spans provisioning, and a coding turn can run for hours.
+            execution_timeout=timedelta(hours=6),
         )
 
     @temporalio.workflow.signal
     async def agent_status_update(self, payload: dict[str, Any]) -> None:
-        """Forward {title, details} step update to the current per-turn child."""
+        """Forward a {phase} tool-call update to the current per-turn child."""
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         try:

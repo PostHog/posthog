@@ -2737,6 +2737,53 @@ describe('dashboardLogic', () => {
                 }
             })
 
+            it('keeps a manual tile refresh alive when an automatic refresh only reloads another stale tile', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const [manualTile, staleTile] = logic.values.insightTiles
+                const manualInsight = manualTile.insight!
+                const staleInsight = staleTile.insight!
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...manualInsight, cache_target_age: now().add(1, 'hour').toISOString() },
+                    undefined,
+                    5
+                )
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...staleInsight, cache_target_age: now().subtract(1, 'minute').toISOString() },
+                    undefined,
+                    5
+                )
+                let finishManual!: (response: Response) => void
+                const manualResponse = new Promise<Response>((resolve) => {
+                    finishManual = resolve
+                })
+                const getResponse = jest
+                    .spyOn(api, 'getResponse')
+                    .mockImplementation((url) =>
+                        String(url).includes(`/insights/${manualInsight.id}/`)
+                            ? manualResponse
+                            : Promise.resolve(new Response(JSON.stringify(staleInsight), { status: 200 }))
+                    )
+                try {
+                    logic.actions.refreshDashboardItem({ tile: manualTile })
+                    await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                    const signal = getResponse.mock.calls[0][1]?.signal
+                    await expectLogic(logic, () => {
+                        logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
+                    }).toDispatchActions(['refreshDashboardItems', 'setRefreshStatus'])
+                    expect(signal?.aborted).toBe(false)
+                    finishManual(
+                        new Response(JSON.stringify({ ...manualInsight, result: [{ count: 42 }] }), { status: 200 })
+                    )
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(
+                        logic.values.insightTiles.find((tile) => tile.insight?.id === manualInsight.id)?.insight?.result
+                    ).toEqual([{ count: 42 }])
+                } finally {
+                    finishManual(new Response(JSON.stringify(manualInsight), { status: 200 }))
+                    getResponse.mockRestore()
+                }
+            })
+
             it('allows another manual dashboard refresh after five minutes', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 for (const tile of logic.values.dashboard!.tiles) {

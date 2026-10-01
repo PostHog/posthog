@@ -4846,14 +4846,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortAnyRunningQuery: () => {
-            const controllers: Map<string, AbortController> | undefined = cache.manualRefreshControllers
-            controllers?.forEach((controller) => controller.abort())
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
             }
         },
         cancelDashboardRefresh: () => {
+            const controllers: Map<string, AbortController> | undefined = cache.manualRefreshControllers
+            controllers?.forEach((controller) => controller.abort())
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
