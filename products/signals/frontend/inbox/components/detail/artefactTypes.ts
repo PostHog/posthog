@@ -173,6 +173,95 @@ export interface ImplementationHandoverContent {
     results?: Record<string, 'closed' | 'already_closed' | 'skipped'>
 }
 
+export interface WorkClaimContent {
+    display_name?: string | null
+}
+
+export interface WorkReleaseContent {
+    reason?: 'released' | 'taken_over'
+}
+
+export const WORK_RELEASE_REASON_LABELS: Record<NonNullable<WorkReleaseContent['reason']>, string> = {
+    released: 'Released',
+    taken_over: 'Taken over',
+}
+
+// ── Ranking scores (staff only) ──────────────────────────────────────────────────────────────
+
+/** One outcome head of a ranking model. `readable` is false when the head has no holdout AUC yet. */
+export interface RankingHead {
+    name: string
+    probability: number
+    readable: boolean
+}
+
+export interface RankingModel {
+    key: string
+    roles: string[]
+    status: 'scored' | 'skipped'
+    skipReason: string | null
+    /** Highest probability first. */
+    heads: RankingHead[]
+}
+
+export interface RankingScoreView {
+    scoredAt: string
+    manifestVersion: string
+    served: RankingModel
+    challengers: RankingModel[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Mirrors `readable_head_names` in `ranking/model_contract.py`. */
+function readableHeadNames(metadata: unknown): Set<string> {
+    const heads = isRecord(metadata) && Array.isArray(metadata.heads) ? metadata.heads : []
+    return new Set(
+        heads.filter((entry) => isRecord(entry) && entry.readable === true).map((entry) => String(entry.head))
+    )
+}
+
+function readRankingModel(key: string, value: unknown): RankingModel | null {
+    if (!isRecord(value) || (value.status !== 'scored' && value.status !== 'skipped')) {
+        return null
+    }
+    const readable = readableHeadNames(value.metadata)
+    const heads = Object.entries(isRecord(value.scores) ? value.scores : {})
+        .filter((entry): entry is [string, number] => typeof entry[1] === 'number' && Number.isFinite(entry[1]))
+        .map(([name, probability]) => ({ name, probability, readable: readable.has(name) }))
+        .sort((a, b) => b.probability - a.probability)
+    return {
+        key,
+        roles: Array.isArray(value.roles) ? value.roles.filter((role): role is string => typeof role === 'string') : [],
+        status: value.status,
+        skipReason: typeof value.skip_reason === 'string' ? value.skip_reason : null,
+        heads,
+    }
+}
+
+/**
+ * Reads a `ranking_score` artefact (`RankingScore` in `artefact_schemas.py`). Returns null when the
+ * content does not parse or the served model is missing, so the row shows only its label.
+ */
+export function readRankingScore(content: unknown): RankingScoreView | null {
+    if (!isRecord(content) || !isRecord(content.results) || typeof content.served_key !== 'string') {
+        return null
+    }
+    const models = Object.entries(content.results).map(([key, value]) => readRankingModel(key, value))
+    const served = models.find((model) => model?.key === content.served_key)
+    if (!served) {
+        return null
+    }
+    return {
+        scoredAt: typeof content.scored_at === 'string' ? content.scored_at : '',
+        manifestVersion: typeof content.manifest_version === 'string' ? content.manifest_version : '',
+        served,
+        challengers: models.filter((model): model is RankingModel => !!model && model.key !== served.key),
+    }
+}
+
 // ── Activity visibility ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -220,6 +309,9 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     implementation_decision: 'Open PR assessed',
     implementation_replacement: 'Replacement started',
     implementation_handover: 'Replacement outcome',
+    ranking_score: 'Ranking scored',
+    work_claim: 'Work claimed',
+    work_release: 'Work released',
 }
 
 export function artefactTypeLabel(type: string): string {
