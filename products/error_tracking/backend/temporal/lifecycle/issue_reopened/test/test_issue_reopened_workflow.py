@@ -34,6 +34,7 @@ def _inputs() -> IssueReopenedWorkflowInputs:
         fingerprint="fingerprint",
         event_uuid=str(uuid.uuid4()),
         event_timestamp="2026-07-21T12:00:00Z",
+        native_alerts_enabled=True,
     )
 
 
@@ -47,16 +48,22 @@ def test_parse_inputs_accepts_cymbal_issue_reopened_notification() -> None:
 
     assert ErrorTrackingIssueReopenedWorkflow.parse_inputs([json.dumps(payload)]) == inputs
 
+    payload.pop("native_alerts_enabled")
+    assert ErrorTrackingIssueReopenedWorkflow.parse_inputs([json.dumps(payload)]) == dataclasses.replace(
+        inputs, native_alerts_enabled=False
+    )
+
 
 @pytest.mark.asyncio
 async def test_retries_and_emits_both_reopened_side_effects() -> None:
+    dispatched: list[str] = []
     emitted_events: list[str] = []
     emitted_signals: list[str] = []
     signal_attempts = 0
 
     @activity.defn(name="dispatch_issue_reopened_alert_activity")
-    async def dispatch_alert(_: IssueReopenedWorkflowInputs) -> None:
-        return None
+    async def dispatch_alert(inputs: IssueReopenedWorkflowInputs) -> None:
+        dispatched.append(inputs.issue_id)
 
     @activity.defn(name="emit_issue_reopened_internal_event_activity")
     async def emit_event(inputs: IssueReopenedWorkflowInputs) -> None:
@@ -86,11 +93,20 @@ async def test_retries_and_emits_both_reopened_side_effects() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            disabled_inputs = dataclasses.replace(_inputs(), native_alerts_enabled=False)
+            disabled_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueReopenedWorkflow.run,
+                disabled_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
 
     assert result == IssueReopenedWorkflowResult(notified=True)
-    assert emitted_events == [inputs.issue_id]
-    assert emitted_signals == [inputs.issue_id]
-    assert signal_attempts == 2
+    assert disabled_result == IssueReopenedWorkflowResult(notified=True)
+    assert dispatched == [inputs.issue_id]
+    assert emitted_events == [inputs.issue_id, disabled_inputs.issue_id]
+    assert emitted_signals == [inputs.issue_id, disabled_inputs.issue_id]
+    assert signal_attempts == 3
 
 
 @pytest.mark.asyncio

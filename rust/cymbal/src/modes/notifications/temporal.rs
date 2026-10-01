@@ -140,6 +140,7 @@ fn start_options(
 struct IssueCreatedWorkflowInput<'a> {
     notification_id: Uuid,
     team_id: i32,
+    native_alerts_enabled: bool,
     issue_id: Uuid,
     issue: &'a IssueSnapshot,
     fingerprint: &'a str,
@@ -154,6 +155,7 @@ impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
         Self {
             notification_id: notification.meta.notification_id,
             team_id: notification.meta.team_id,
+            native_alerts_enabled: notification.meta.native_alerts_enabled,
             issue_id: notification.issue.issue_id,
             issue: &notification.issue.issue,
             fingerprint: &notification.fingerprint,
@@ -169,6 +171,7 @@ impl<'a> From<&'a IssueCreated> for IssueCreatedWorkflowInput<'a> {
 struct IssueReopenedWorkflowInput<'a> {
     notification_id: Uuid,
     team_id: i32,
+    native_alerts_enabled: bool,
     issue_id: Uuid,
     issue: &'a IssueSnapshot,
     fingerprint: &'a str,
@@ -182,6 +185,7 @@ impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
         Self {
             notification_id: notification.meta.notification_id,
             team_id: notification.meta.team_id,
+            native_alerts_enabled: notification.meta.native_alerts_enabled,
             issue_id: notification.issue.issue_id,
             issue: &notification.issue.issue,
             fingerprint: notification.issue.event_properties.fingerprint(),
@@ -196,6 +200,7 @@ impl<'a> From<&'a IssueReopened> for IssueReopenedWorkflowInput<'a> {
 struct IssueSpikingWorkflowInput<'a> {
     notification_id: Uuid,
     team_id: i32,
+    native_alerts_enabled: bool,
     issue_id: Uuid,
     issue: &'a IssueSnapshot,
     fingerprint: &'a str,
@@ -212,6 +217,7 @@ impl<'a> From<&'a IssueSpiking> for IssueSpikingWorkflowInput<'a> {
         Self {
             notification_id: notification.meta.notification_id,
             team_id: notification.meta.team_id,
+            native_alerts_enabled: notification.meta.native_alerts_enabled,
             issue_id: notification.issue.issue_id,
             issue: &notification.issue.issue,
             fingerprint: notification.issue.event_properties.fingerprint(),
@@ -280,6 +286,7 @@ mod tests {
             meta: NotificationMeta {
                 notification_id: notification_id(),
                 team_id: 42,
+                native_alerts_enabled: true,
             },
             issue: issue_context(),
             fingerprint: "fingerprint".to_string(),
@@ -295,6 +302,7 @@ mod tests {
             meta: NotificationMeta {
                 notification_id: notification_id(),
                 team_id: 42,
+                native_alerts_enabled: true,
             },
             issue: issue_context(),
             event_uuid: Uuid::now_v7(),
@@ -308,6 +316,7 @@ mod tests {
             meta: NotificationMeta {
                 notification_id: notification_id(),
                 team_id: 42,
+                native_alerts_enabled: true,
             },
             issue: issue_context(),
             event_uuid: Uuid::now_v7(),
@@ -331,6 +340,7 @@ mod tests {
 
         for value in values {
             assert_eq!(value["team_id"], 42);
+            assert_eq!(value["native_alerts_enabled"], true);
             assert_eq!(value["fingerprint"], "fingerprint");
             assert_eq!(value["issue"]["severity"], "high");
             assert!(value.get("event_properties").is_none());

@@ -52,6 +52,7 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
+    pub native_alerts_enabled_team_ids: HashSet<i32>,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -180,6 +181,8 @@ impl AppContext {
         let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
+        let native_alerts_enabled_team_ids =
+            parse_team_id_set(&config.native_alerts_enabled_team_ids);
 
         Ok(Self {
             health_registry,
@@ -194,6 +197,7 @@ impl AppContext {
             issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
+            native_alerts_enabled_team_ids,
             issue_cache,
             release_cache,
             remote_resolution,
@@ -243,12 +247,25 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
     if value.is_empty() {
         return None;
     }
-    Some(
-        value
-            .split(',')
-            .filter_map(|s| s.trim().parse::<i32>().ok())
-            .collect(),
-    )
+    Some(parse_team_id_set(value))
+}
+
+fn parse_team_id_set(value: &str) -> HashSet<i32> {
+    value
+        .split(',')
+        .filter_map(|item| item.trim().parse::<i32>().ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_team_id_set;
+
+    #[test]
+    fn parses_team_id_set_with_empty_input_disabling_all_teams() {
+        assert!(parse_team_id_set("").is_empty());
+        assert_eq!(parse_team_id_set("2, 42,invalid"), [2, 42].into());
+    }
 }
 
 async fn build_remote_resolution(

@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from temporalio import common
+from temporalio import common, workflow
 
 ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
@@ -9,6 +9,7 @@ ACTIVITY_RETRY_POLICY = common.RetryPolicy(
 )
 ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
 ALERT_DISPATCH_PATCH = "error-tracking-alert-dispatch-activity"
+NATIVE_ALERT_TEAM_ALLOWLIST_PATCH = "error-tracking-native-alert-team-allowlist"
 # Unlimited attempts inside the window: the start is cheap and idempotent, and only a
 # Temporal outage longer than this loses the alert.
 ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
@@ -17,3 +18,7 @@ ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=0,
 )
 ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(hours=1)
+
+
+def should_dispatch_native_alert(native_alerts_enabled: bool) -> bool:
+    return not workflow.patched(NATIVE_ALERT_TEAM_ALLOWLIST_PATCH) or native_alerts_enabled

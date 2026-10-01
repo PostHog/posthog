@@ -183,6 +183,8 @@ pub struct NotificationMeta {
     #[serde(default)]
     pub notification_id: Uuid,
     pub team_id: i32,
+    #[serde(default)]
+    pub native_alerts_enabled: bool,
 }
 
 /// Shared context for notifications that produce issue side effects.
@@ -279,6 +281,7 @@ mod tests {
             meta: NotificationMeta {
                 notification_id,
                 team_id: 42,
+                native_alerts_enabled: true,
             },
             issue: IssueNotificationContext {
                 issue_id: Uuid::nil(),
@@ -314,6 +317,7 @@ mod tests {
         let json = serde_json::to_value(&notification).unwrap();
         assert_eq!(json["type"], "issue_created");
         assert_eq!(json["team_id"], 42);
+        assert_eq!(json["native_alerts_enabled"], true);
         assert_eq!(json["fingerprint"], "abc");
         assert_eq!(json["issue"]["severity"], "high");
         assert_eq!(json["severity_source"], "rule");
@@ -359,6 +363,7 @@ mod tests {
             meta: NotificationMeta {
                 notification_id: Uuid::now_v7(),
                 team_id: 42,
+                native_alerts_enabled: true,
             },
             issue: IssueNotificationContext {
                 issue_id,
@@ -391,6 +396,7 @@ mod tests {
         let mut legacy_json = serde_json::to_value(notification).unwrap();
         let object = legacy_json.as_object_mut().unwrap();
         object.remove("notification_id");
+        object.remove("native_alerts_enabled");
         object.remove("event_uuid");
         object.remove("event_timestamp");
         object
@@ -411,5 +417,9 @@ mod tests {
             decoded.notification_id(),
             Uuid::new_v5(&Uuid::NAMESPACE_OID, fallback_key.as_bytes())
         );
+        assert!(!match decoded {
+            IngestionNotification::IssueSpiking(value) => value.meta.native_alerts_enabled,
+            _ => unreachable!(),
+        });
     }
 }

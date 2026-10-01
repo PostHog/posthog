@@ -17,6 +17,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
     ALERT_DISPATCH_PATCH,
     ALERT_DISPATCH_RETRY_POLICY,
     ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
+    should_dispatch_native_alert,
 )
 from products.error_tracking.backend.temporal.lifecycle.types import SpikeEventPersistenceStatus
 
@@ -86,7 +87,7 @@ class ErrorTrackingIssueSpikingWorkflow(PostHogWorkflow):
                     retry_policy=ALERT_DISPATCH_RETRY_POLICY,
                 )
             )
-            if workflow.patched(ALERT_DISPATCH_PATCH)
+            if workflow.patched(ALERT_DISPATCH_PATCH) and should_dispatch_native_alert(inputs.native_alerts_enabled)
             else None
         )
         try:

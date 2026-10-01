@@ -200,6 +200,9 @@ pub struct ProcessingConfig {
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
 
+    #[envconfig(from = "ERROR_TRACKING_NATIVE_ALERTS_ENABLED_TEAM_IDS", default = "")]
+    pub native_alerts_enabled_team_ids: String,
+
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------

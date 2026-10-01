@@ -44,6 +44,7 @@ class IssueCreatedWorkflowInputs:
     event_timestamp: str
     assignee: str | None = None
     severity_source: SeveritySource | None = None
+    native_alerts_enabled: bool = False
 
     def severity_is_overridable(self) -> bool:
         """A model may only replace a severity that no person chose: the level/handled heuristic, or none.

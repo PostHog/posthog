@@ -18,6 +18,7 @@ class IssueSpikingWorkflowInputs:
     computed_baseline: float
     current_bucket_value: float
     assignee: str | None = None
+    native_alerts_enabled: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

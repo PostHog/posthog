@@ -68,6 +68,7 @@ def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
         fingerprint=fingerprint,
         event_uuid=event_uuid,
         event_timestamp="2026-07-21T12:00:00Z",
+        native_alerts_enabled=True,
     )
 
 
@@ -80,6 +81,11 @@ def test_parse_inputs_accepts_cymbal_issue_created_notification() -> None:
     }
 
     assert ErrorTrackingIssueCreatedWorkflow.parse_inputs([json.dumps(payload)]) == inputs
+
+    payload.pop("native_alerts_enabled")
+    assert ErrorTrackingIssueCreatedWorkflow.parse_inputs([json.dumps(payload)]) == dataclasses.replace(
+        inputs, native_alerts_enabled=False
+    )
 
 
 def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
@@ -419,6 +425,9 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         ):
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
+            native_alerts_disabled_inputs = dataclasses.replace(
+                _inputs("native-alerts-disabled"), native_alerts_enabled=False
+            )
             embedding_unavailable_inputs = _inputs("embedding-unavailable")
             heuristic_inputs = dataclasses.replace(_inputs("heuristic"), severity_source=SeveritySource.HEURISTIC)
             rule_inputs = dataclasses.replace(_inputs("rule"), severity_source=SeveritySource.RULE)
@@ -458,6 +467,12 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
+            native_alerts_disabled_result = await environment.client.execute_workflow(
+                ErrorTrackingIssueCreatedWorkflow.run,
+                native_alerts_disabled_inputs,
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+            )
 
     assert merged_result == IssueCreatedWorkflowResult(merged=True)
     assert unmerged_result == IssueCreatedWorkflowResult(notified=True)
@@ -465,14 +480,20 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
     )
+    assert native_alerts_disabled_result == IssueCreatedWorkflowResult(notified=True)
     severity_issue_ids = [
         heuristic_inputs.issue_id,
         rule_inputs.issue_id,
         inference_unavailable_inputs.issue_id,
         severity_changed_inputs.issue_id,
     ]
-    notified_issue_ids = [*severity_issue_ids, unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert alert_issue_ids == notified_issue_ids
+    notified_issue_ids = [
+        *severity_issue_ids,
+        unmerged_inputs.issue_id,
+        embedding_unavailable_inputs.issue_id,
+        native_alerts_disabled_inputs.issue_id,
+    ]
+    assert alert_issue_ids == notified_issue_ids[:-1]
     assert event_issue_ids == notified_issue_ids
     assert signal_issue_ids == notified_issue_ids
     assert signal_attempts == dict.fromkeys(notified_issue_ids, 2)

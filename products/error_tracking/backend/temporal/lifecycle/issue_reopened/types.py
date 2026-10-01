@@ -15,6 +15,7 @@ class IssueReopenedWorkflowInputs:
     event_uuid: str
     event_timestamp: str
     assignee: str | None = None
+    native_alerts_enabled: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

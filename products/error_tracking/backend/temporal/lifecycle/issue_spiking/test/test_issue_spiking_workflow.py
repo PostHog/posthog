@@ -42,6 +42,7 @@ def _inputs(
         detected_at="2026-07-21T12:05:00Z",
         computed_baseline=2.0,
         current_bucket_value=20.0,
+        native_alerts_enabled=True,
     )
 
 
@@ -54,6 +55,11 @@ def test_parse_inputs_accepts_cymbal_issue_spiking_notification() -> None:
     }
 
     assert ErrorTrackingIssueSpikingWorkflow.parse_inputs([json.dumps(payload)]) == inputs
+
+    payload.pop("native_alerts_enabled")
+    assert ErrorTrackingIssueSpikingWorkflow.parse_inputs([json.dumps(payload)]) == dataclasses.replace(
+        inputs, native_alerts_enabled=False
+    )
 
 
 class TestPersistIssueSpikingEventActivity(BaseTest):
@@ -75,6 +81,7 @@ class TestPersistIssueSpikingEventActivity(BaseTest):
 
 @pytest.mark.asyncio
 async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues() -> None:
+    dispatched: list[str] = []
     emitted_events: list[str] = []
     emitted_signals: list[str] = []
 
@@ -88,8 +95,8 @@ async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues(
         return SpikeEventPersistenceResult(status=status)
 
     @activity.defn(name="dispatch_issue_spiking_alert_activity")
-    async def dispatch_alert(_: IssueSpikingWorkflowInputs) -> None:
-        return None
+    async def dispatch_alert(inputs: IssueSpikingWorkflowInputs) -> None:
+        dispatched.append(inputs.issue_id)
 
     @activity.defn(name="emit_issue_spiking_internal_event_activity")
     async def emit_event(inputs: IssueSpikingWorkflowInputs) -> None:
@@ -101,6 +108,7 @@ async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues(
 
     task_queue = str(uuid.uuid4())
     inputs_by_status = {status: _inputs(status) for status in ("inserted", "existing", "missing")}
+    inputs_by_status["disabled"] = dataclasses.replace(_inputs("inserted"), native_alerts_enabled=False)
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         async with Worker(
             environment.client,
@@ -123,6 +131,16 @@ async def test_notifies_after_idempotent_persistence_and_ignores_missing_issues(
         "inserted": IssueSpikingWorkflowResult(persisted=True, notified=True),
         "existing": IssueSpikingWorkflowResult(persisted=True, notified=True),
         "missing": IssueSpikingWorkflowResult(),
+        "disabled": IssueSpikingWorkflowResult(persisted=True, notified=True),
     }
-    assert emitted_events == [inputs_by_status["inserted"].issue_id, inputs_by_status["existing"].issue_id]
-    assert emitted_signals == [inputs_by_status["inserted"].issue_id, inputs_by_status["existing"].issue_id]
+    assert dispatched == [inputs_by_status["inserted"].issue_id, inputs_by_status["existing"].issue_id]
+    assert emitted_events == [
+        inputs_by_status["inserted"].issue_id,
+        inputs_by_status["existing"].issue_id,
+        inputs_by_status["disabled"].issue_id,
+    ]
+    assert emitted_signals == [
+        inputs_by_status["inserted"].issue_id,
+        inputs_by_status["existing"].issue_id,
+        inputs_by_status["disabled"].issue_id,
+    ]

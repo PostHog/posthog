@@ -511,7 +511,7 @@ pub async fn send_issue_created_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueCreated(IssueCreated {
-            meta: notification_meta(issue),
+            meta: notification_meta(context, issue),
             issue: issue_notification_context(issue, processed_properties),
             fingerprint,
             event_uuid,
@@ -589,7 +589,7 @@ pub async fn send_issue_reopened_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueReopened(IssueReopened {
-            meta: notification_meta(issue),
+            meta: notification_meta(context, issue),
             issue: issue_notification_context(issue, processed_properties),
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
@@ -627,7 +627,7 @@ pub async fn send_issue_spiking_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
-            meta: notification_meta(issue),
+            meta: notification_meta(context, issue),
             issue: issue_notification_context(issue, processed_properties),
             event_uuid,
             event_timestamp: event_timestamp.to_string(),
@@ -639,10 +639,13 @@ pub async fn send_issue_spiking_notification(
     .await
 }
 
-fn notification_meta(issue: &Issue) -> NotificationMeta {
+fn notification_meta(context: &AppContext, issue: &Issue) -> NotificationMeta {
     NotificationMeta {
         notification_id: Uuid::now_v7(),
         team_id: issue.team_id,
+        native_alerts_enabled: context
+            .native_alerts_enabled_team_ids
+            .contains(&issue.team_id),
     }
 }
 
