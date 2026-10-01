@@ -4,13 +4,12 @@ import { useEffect } from 'react'
 
 import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import { IconChevronDown } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -182,15 +181,9 @@ function ConversationsWidgetRow({
                 onClick={captureTicketOpened}
             >
                 <div className="flex min-w-0 items-start gap-2 text-sm text-muted">
-                    <span
-                        className={cn('line-clamp-2', ticket.unread_team_count > 0 && 'font-medium text-primary')}
-                        title={ticketTitle(ticket)}
-                    >
+                    <span className="line-clamp-2" title={ticketTitle(ticket)}>
                         {stripMarkdown(ticketTitle(ticket))}
                     </span>
-                    {ticket.unread_team_count > 0 ? (
-                        <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
-                    ) : null}
                 </div>
             </Link>
             <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">

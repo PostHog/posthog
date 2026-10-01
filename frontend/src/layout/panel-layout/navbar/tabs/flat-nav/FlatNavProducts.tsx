@@ -10,8 +10,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
-import { getCustomIcon } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
-import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from '../../NavLink'
 import { flatNavLogic } from './flatNavLogic'
@@ -92,24 +91,12 @@ export function FlatNavProducts(): JSX.Element {
                                 </div>
                             )}
                             {group.items.map((item) => {
-                                // A product can register an icon that carries live state, such as the
-                                // support unread counter. iconForType supplies the color wrapper itself,
-                                // so a registered icon needs that wrapper added around it.
-                                const CustomIcon = getCustomIcon(item.type, item.href)
                                 return (
                                     <NavLink
                                         key={item.path}
                                         to={item.href}
                                         label={item.label}
-                                        icon={
-                                            CustomIcon ? (
-                                                <ProductIconWrapper type={item.iconType} colorOverride={item.iconColor}>
-                                                    <CustomIcon />
-                                                </ProductIconWrapper>
-                                            ) : (
-                                                iconForType(item.iconType, item.iconColor)
-                                            )
-                                        }
+                                        icon={iconForType(item.iconType, item.iconColor)}
                                         isCollapsed={false}
                                         tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}

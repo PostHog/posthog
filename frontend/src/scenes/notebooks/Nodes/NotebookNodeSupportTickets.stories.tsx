@@ -50,7 +50,6 @@ function makeTicket(overrides: Partial<Ticket> & { id: string; ticket_number: nu
         message_count: 3,
         last_message_at: '2024-01-11T09:15:00Z',
         last_message_text: 'Thanks for reaching out, we are looking into this.',
-        unread_team_count: 0,
         unread_customer_count: 0,
         ...overrides,
     }
@@ -103,7 +102,6 @@ const sampleTickets: Ticket[] = [
         priority: 'high',
         channel_source: 'widget',
         last_message_text: 'I cannot log in to my account after the latest update.',
-        unread_team_count: 2,
         person: {
             id: 'p1',
             name: 'Alice Smith',
@@ -118,7 +116,6 @@ const sampleTickets: Ticket[] = [
         priority: 'medium',
         channel_source: 'email',
         last_message_text: 'The dashboard charts are not loading properly.',
-        unread_team_count: 0,
         person: {
             id: 'p1',
             name: 'Alice Smith',
@@ -132,7 +129,6 @@ const sampleTickets: Ticket[] = [
         status: 'resolved',
         channel_source: 'slack',
         last_message_text: 'Thanks, that fixed it!',
-        unread_team_count: 0,
         person: {
             id: 'p1',
             name: 'Alice Smith',

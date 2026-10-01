@@ -210,7 +210,6 @@ export interface TicketApi {
     readonly last_message_at: string | null
     /** @nullable */
     readonly last_message_text: string | null
-    readonly unread_team_count: number
     readonly unread_customer_count: number
     /** @nullable */
     readonly session_id: string | null
@@ -662,7 +661,7 @@ export interface ComposeTicketResponseApi {
 
 export interface TicketUnreadCountResponseApi {
     /**
-     * Unread messages across the non-resolved tickets the caller can see.
+     * Customer messages across the non-resolved tickets the caller can see.
      * @minimum 0
      */
     count: number

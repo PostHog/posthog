@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { render, waitFor } from '@testing-library/react'
 
-import { useMocks } from '~/mocks/jest'
 import { UserProductListItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, TeamType } from '~/types'
@@ -27,11 +26,6 @@ function renderedProductRow(container: HTMLElement, slug: string): HTMLElement {
 
 describe('FlatNavProducts', () => {
     beforeEach(() => {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/conversations/tickets/unread_count': () => [200, { count: 3 }],
-            },
-        })
         // customProductsLogic seeds the picked products from the page context rather than fetching them
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,
@@ -44,21 +38,6 @@ describe('FlatNavProducts', () => {
             ],
         } as AppContext
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_enabled: true } as TeamType)
-    })
-
-    // customIconRegistry is the only thing that puts Support's unread count in the sidebar. A row
-    // that falls back to the static product icon loses the count and shows no other symptom.
-    it.each<[string, string | null]>([
-        ['support', '3'],
-        ['feature-flags', null],
-    ])('renders the icon that the %s row resolves to', async (slug, expectedCount) => {
-        const { container } = render(<FlatNavProducts />)
-
-        await waitFor(() => {
-            const row = renderedProductRow(container, slug)
-            expect(row.querySelector('.LemonBadge')?.textContent ?? null).toBe(expectedCount)
-            expect(row.querySelector('svg')).not.toBeNull()
-        })
     })
 
     // The inline menus are keyed by product path, so a path that stops matching silently drops

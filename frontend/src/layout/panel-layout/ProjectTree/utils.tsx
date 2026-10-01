@@ -8,8 +8,7 @@ import { RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
-import { getCustomIcon } from './customIconRegistry'
-import { ProductIconWrapper, getSidebarProduct, iconForType } from './defaultTree'
+import { getSidebarProduct, iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
@@ -149,15 +148,7 @@ export function convertFileSystemEntryToTreeDataItem({
             ('iconType' in item ? item.iconType : undefined) ||
             (item.type as FileSystemIconType)
         const iconColor = sidebarProduct?.iconColor ?? ('iconColor' in item ? item.iconColor : undefined)
-        // Check for custom icon component first (e.g., badges), then fall back to static icon
-        const CustomIcon = getCustomIcon(item.type, item.href)
-        const icon = CustomIcon ? (
-            <ProductIconWrapper type={iconType} colorOverride={iconColor}>
-                <CustomIcon />
-            </ProductIconWrapper>
-        ) : (
-            iconForType(iconType, iconColor)
-        )
+        const icon = iconForType(iconType, iconColor)
         const node: TreeDataItem = {
             id: nodeId,
             name: itemName,

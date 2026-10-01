@@ -63,8 +63,8 @@ export interface browserNotificationLogicActions {
     setPermission: (permission: NotificationPermission) => {
         permission: NotificationPermission
     }
-    showNotification: (count: number) => {
-        count: number
+    showNotification: () => {
+        value: true
     }
 }
 
@@ -97,7 +97,7 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
         requestPermission: true,
         setPermission: (permission: NotificationPermission) => ({ permission }),
         setEnabled: (enabled: boolean) => ({ enabled }),
-        showNotification: (count: number) => ({ count }),
+        showNotification: true,
     }),
     reducers({
         permission: [
@@ -135,13 +135,13 @@ export const browserNotificationLogic = kea<browserNotificationLogicType>([
         setEnabled: ({ enabled }) => {
             setStoredPreference(enabled)
         },
-        showNotification: ({ count }) => {
+        showNotification: () => {
             // Defense in depth - caller should check canShowNotifications but verify here too
             if (!isNotificationSupported() || Notification.permission !== 'granted') {
                 return
             }
 
-            const title = count === 1 ? 'New support message' : `${count} unread support messages`
+            const title = 'New support message'
             const body = 'Click to view your support tickets'
 
             const notification = new Notification(title, {

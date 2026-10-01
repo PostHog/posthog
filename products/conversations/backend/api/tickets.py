@@ -414,7 +414,6 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "message_count",
             "last_message_at",
             "last_message_text",
-            "unread_team_count",
             "unread_customer_count",
             "session_id",
             "session_context",
@@ -446,7 +445,6 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "message_count",
             "last_message_at",
             "last_message_text",
-            "unread_team_count",
             "unread_customer_count",
             "assignee",
             "session_id",
@@ -593,7 +591,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(
-        min_value=0, help_text="Unread messages across the non-resolved tickets the caller can see."
+        min_value=0, help_text="Customer messages across the non-resolved tickets the caller can see."
     )
 
 
@@ -1091,16 +1089,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 )
 
     def retrieve(self, request, *args, **kwargs):
-        """Get single ticket and mark as read by team."""
+        """Get single ticket."""
         instance = self.get_object()
-        # Marking as read is a write to shared team state - gate it by editor access so a
-        # viewer can't clear the team's unread indicator just by opening a ticket.
-        can_edit = self.user_access_control.check_access_level_for_object(instance, required_level="editor")
-        if can_edit and instance.unread_team_count > 0:
-            instance.unread_team_count = 0
-            instance.save(update_fields=["unread_team_count"])
-            # Invalidate cache since unread count changed
-            invalidate_unread_count_cache(self.team_id)
 
         # Attach person data
         self._attach_persons_to_tickets([instance])
@@ -1344,14 +1334,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
-        summary="Count unread tickets",
+        summary="Count customer messages on open tickets",
         responses={200: TicketUnreadCountResponseSerializer},
     )
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
-        Get total unread ticket count for the team.
+        Get the total customer message count on open tickets for the team.
 
+        The browser notification poller uses this count to detect new customer messages.
         Returns the sum of unread_team_count for all non-resolved tickets visible to the
         caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
         callers without object-level ticket restrictions, since it holds one unscoped total

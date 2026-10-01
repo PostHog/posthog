@@ -16,7 +16,6 @@ export type ConversationsWidgetTicket = {
     assignee: { user: { id: number; name: string } | null; role: { id: string; name: string } | null } | null
     updated_at: string
     last_message_text: string | null
-    unread_team_count: number
     email_subject: string | null
     requester_name: string | null
     requester_email: string
