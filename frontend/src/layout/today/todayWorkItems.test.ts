@@ -36,12 +36,14 @@ const mixedItems = [
         title: 'Fix Login',
         origin_product: 'user_created',
         created_by: { id: ME },
+        latest_run: { environment: 'cloud' },
     } as TaskListItemApi),
     sessionItem({
         id: 'theirs',
         title: 'Triage',
         origin_product: 'error_tracking',
         created_by: { id: 8 },
+        latest_run: { environment: 'local' },
     } as TaskListItemApi),
     sessionItem({ id: 'orphan', title: 'Old login', origin_product: 'slack', created_by: null } as TaskListItemApi),
     chatItem({ id: 'chat', title: 'Login funnel', user: { id: ME } } as ConversationDetail),
@@ -117,8 +119,20 @@ describe('todayWorkItems', () => {
         ['created by others skips a deleted creator', '', { createdBy: 'others' }, ['theirs']],
         ['source matches chats as PostHog AI', '', { sources: ['posthog_ai', 'slack'] }, ['orphan', 'chat']],
         ['search and filters combine', 'login', { createdBy: 'me', sources: ['user_created'] }, ['mine']],
+        ['unread keeps unread sessions only', '', { status: 'unread' }, ['theirs']],
+        ['pinned only keeps pinned sessions', '', { pinned: 'pinned' }, ['orphan']],
+        ['an environment skips chats and sessions that never ran', '', { environment: 'cloud' }, ['mine']],
     ])('filters recent items: %s', (_name, query, filters, ids) => {
-        const items = filterRecentItems(mixedItems, query, { ...DEFAULT_RECENT_FILTERS, ...filters }, ME)
+        const items = filterRecentItems(
+            mixedItems,
+            query,
+            { ...DEFAULT_RECENT_FILTERS, ...filters },
+            {
+                userId: ME,
+                unreadIds: new Set(['theirs']),
+                pinnedIds: new Set(['orphan']),
+            }
+        )
 
         expect(items.map((item) => item.id)).toEqual(ids)
     })
@@ -192,5 +206,16 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(activeCloudRunId(item)).toBe(runId)
+    })
+
+    it.each([
+        ['the closing message, trimmed', { final_message: '  Opened the pull request.\n' }, 'Opened the pull request.'],
+        ['nothing when the run saved no message', { pr_url: 'https://github.com/a/b/pull/1' }, null],
+        ['nothing for a blank message', { final_message: '   ' }, null],
+        ['nothing for a message that is not text', { final_message: { text: 'hi' } }, null],
+    ])('reads %s from the latest run', (_name, output, message) => {
+        const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
+
+        expect(item.finalMessage).toBe(message)
     })
 })

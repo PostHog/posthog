@@ -10,12 +10,14 @@ const item = (kind: TodayWorkItem['kind'], status: string | null): TodayWorkItem
     status,
     channel: null,
     createdById: null,
+    author: null,
     latestRunId: null,
     runEnvironment: null,
     originProduct: null,
     source: null,
     repository: null,
     pullRequests: [],
+    finalMessage: null,
 })
 
 describe('todaySessionIcon', () => {

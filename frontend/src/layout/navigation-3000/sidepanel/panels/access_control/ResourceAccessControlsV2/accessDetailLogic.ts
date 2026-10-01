@@ -12,7 +12,7 @@ import {
     propertyAccessControlsCreate,
     propertyAccessControlsDestroy,
 } from 'products/access_control/frontend/generated/api'
-import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+import type { AIEventPropertyEnumApi, ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import type { ScopeType } from './types'
@@ -203,6 +203,9 @@ export interface accessDetailLogicActions {
         properties: AccessPropertyRule[]
         payload?: any
     }
+    propertyRuleSaved: () => {
+        value: true
+    }
     ruleSaveFinished: () => {
         value: true
     }
@@ -217,8 +220,10 @@ export interface accessDetailLogicActions {
     }
     setPropertyRule: (
         propertyDefinitionId: string,
-        level: AccessLevelEnumApi | null
+        level: AccessLevelEnumApi | null,
+        aiProperty?: AIEventPropertyEnumApi
     ) => {
+        aiProperty: AIEventPropertyEnumApi | undefined
         level: AccessLevelEnumApi | null
         propertyDefinitionId: string
     }
@@ -247,10 +252,12 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             resourceId,
             level,
         }),
-        setPropertyRule: (propertyDefinitionId: string, level: AccessLevelEnumApi | null) => ({
-            propertyDefinitionId,
-            level,
-        }),
+        setPropertyRule: (
+            propertyDefinitionId: string,
+            level: AccessLevelEnumApi | null,
+            aiProperty?: AIEventPropertyEnumApi
+        ) => ({ propertyDefinitionId, level, aiProperty }),
+        propertyRuleSaved: true,
         ruleSaveFinished: true,
     }),
 
@@ -306,7 +313,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
                 actions.ruleSaveFinished()
             }
         },
-        setPropertyRule: async ({ propertyDefinitionId, level }) => {
+        setPropertyRule: async ({ propertyDefinitionId, level, aiProperty }) => {
             try {
                 if (level === null) {
                     await propertyAccessControlsDestroy(props.projectId, {
@@ -315,11 +322,14 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
                     })
                 } else {
                     await propertyAccessControlsCreate(props.projectId, {
-                        property_definition_id: propertyDefinitionId,
+                        ...(aiProperty
+                            ? { ai_property: aiProperty }
+                            : { property_definition_id: propertyDefinitionId }),
                         access_level: level,
                         ...subjectBody(props),
                     })
                 }
+                actions.propertyRuleSaved()
                 lemonToast.success(level === null ? 'Rule removed' : 'Property rule saved')
                 actions.loadProperties()
             } catch (e) {

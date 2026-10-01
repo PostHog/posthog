@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ChangeEvent, useId, useState } from 'react'
+import { useId } from 'react'
 
 import {
     IconArchive,
@@ -12,7 +12,6 @@ import {
     IconPinFilled,
     IconSearch,
     IconSend,
-    IconStar,
     IconStopFilled,
 } from '@posthog/icons'
 import {
@@ -20,15 +19,11 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-    Input,
-    Text,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
@@ -37,13 +32,12 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { TodaySessionArchiveDialog } from './TodaySessionArchiveDialog'
 import { TodaySessionHandoffDialog } from './TodaySessionHandoffDialog'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
-import { fileToSpaces, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
-
-/** Desktop's "File to…" list gets a fixed height past this many spaces; the web adds its search there. */
-const SPACE_SEARCH_THRESHOLD = 5
+import { TodaySpaceFileList } from './TodaySpaceFileList'
+import { todaySpacesLogic } from './todaySpacesLogic'
 
 interface TodaySessionMenuProps {
     sessionId: string
@@ -82,15 +76,14 @@ export function TodaySessionMenu({
         copySessionLink,
         stopSession,
     } = useActions(todaySessionMenuLogic)
-    const [spaceSearch, setSpaceSearch] = useState('')
+    const reportMenuOpen = useTodayPreviewMenuReport()
     const runId = featureFlags[FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS] ? analysisRunId : null
     const saving = pendingSessionIds.includes(sessionId)
-    const fileTargets = fileToSpaces(spaces, spaceId, spaceSearch)
     const label = saving ? 'Saving your last change' : 'More actions'
 
     return (
         <>
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={reportMenuOpen}>
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}
@@ -156,53 +149,18 @@ export function TodaySessionMenu({
                         </DropdownMenuItem>
                     )}
                     {spaces.length > 0 && (
-                        <DropdownMenuSub onOpenChange={(open: boolean) => !open && setSpaceSearch('')}>
+                        <DropdownMenuSub>
                             <DropdownMenuSubTrigger>
                                 <IconFolder />
                                 File to…
                             </DropdownMenuSubTrigger>
                             <DropdownMenuSubContent className="max-h-80 w-64">
-                                {spaces.length > SPACE_SEARCH_THRESHOLD && (
-                                    // Keep typing away from the menu's typeahead; Escape still closes the menu.
-                                    <div
-                                        className="p-1"
-                                        onKeyDown={(event) => event.key !== 'Escape' && event.stopPropagation()}
-                                    >
-                                        <Input
-                                            autoFocus
-                                            value={spaceSearch}
-                                            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                                                setSpaceSearch(event.target.value)
-                                            }
-                                            placeholder="Search spaces…"
-                                            aria-label="Search spaces"
-                                            data-attr="today-session-move-search"
-                                        />
-                                    </div>
-                                )}
-                                {fileTargets.length === 0 && (
-                                    <Text render={<div />} size="sm" variant="muted" className="px-2 py-1.5">
-                                        No spaces match your search
-                                    </Text>
-                                )}
-                                <DropdownMenuRadioGroup
-                                    value={spaceId ?? ''}
-                                    onValueChange={(value: string) => moveSession(sessionId, value)}
-                                >
-                                    {fileTargets.map((space) => (
-                                        <DropdownMenuRadioItem
-                                            key={space.id}
-                                            value={space.id}
-                                            closeOnClick
-                                            data-attr="today-session-move"
-                                        >
-                                            <span className="truncate">{spaceLabel(space)}</span>
-                                            {space.starred && space.system_role !== 'personal' && (
-                                                <IconStar className="ml-auto text-muted-foreground" />
-                                            )}
-                                        </DropdownMenuRadioItem>
-                                    ))}
-                                </DropdownMenuRadioGroup>
+                                <TodaySpaceFileList
+                                    currentSpaceId={spaceId}
+                                    onSelect={(value) => moveSession(sessionId, value)}
+                                    itemDataAttr="today-session-move"
+                                    searchDataAttr="today-session-move-search"
+                                />
                             </DropdownMenuSubContent>
                         </DropdownMenuSub>
                     )}
