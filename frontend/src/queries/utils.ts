@@ -601,7 +601,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
 
 export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
-        return query.series
+        // A query read back from storage or a URL carries whatever shape was stored, and callers
+        // iterate the result, so a series of another shape must read as no series at all.
+        return Array.isArray(query.series) ? query.series : undefined
     }
     return undefined
 }
