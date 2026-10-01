@@ -7747,9 +7747,9 @@ snapshots:
     replay-sharing--public-link--light:
         hash: v1.k794b7964.ddfd8254ca69a6fc3cb638c1bcec9cd839fda06322c538d5b077f979d563e246.rsWbpqFKkbOOKpotVfWuctA8mHs1X9zPI8bkJU0TVQg
     replay-tabs-collections--recordings-play-lists--dark:
-        hash: v1.k794b7964.e0b88639193593d2310eb018f49347a9bb33a0cb1c2d709eb4123cea650151c9.MBJ1QFzWoPfRJD6kFjienFZcvIbeOXG63IgbNcH3BgM
+        hash: v1.k794b7964.ac3814dd592bef17fb3127d9bef1940e89f5e9a0200a4bc0fe4d3263d86b6824.UZc2OicZl2dG1SUw1lETtFqg6EQqyEZF-fUkQnGx8eE
     replay-tabs-collections--recordings-play-lists--light:
-        hash: v1.k794b7964.f903e9b0791fe14a54094c6d60ebf2f783b038c3af2cd48a4b683405e0fa9804.T5HCxaEs6jav9oxx4Xh3I7cpQE5LAHe5hxr3m8mPZiU
+        hash: v1.k794b7964.28b102aeaaa3602c1633cab0260f6c42b9f14ed9ff6d57c216e3a6eb4d37f574.D4E91X4jSaMsOH6ujfQL-c0V1zA9oxUR6mlHUBCyO98
     replay-tabs-home-failure--not-found--dark:
         hash: v1.k794b7964.b9a8cf652792ff2c0bd190c60a09632c19b4d185a26cd90bd1778a70602948d7.VxjlB-GndCf740MtiPkEF0T7pY69VB1RDP9D1MH5DhY
     replay-tabs-home-failure--not-found--light:
