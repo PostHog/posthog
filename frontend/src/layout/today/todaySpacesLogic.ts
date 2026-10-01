@@ -241,10 +241,16 @@ export interface todaySpacesLogicActions {
         errorObject?: any
     }
     loadSpaceActivitySuccess: (
-        spaceActivity: SpaceActivity,
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        },
         payload?: any
     ) => {
-        spaceActivity: SpaceActivity
+        spaceActivity: {
+            lastActivityAt: Record<string, string>
+            presence: Record<string, SpacePresence>
+        }
         payload?: any
     }
     loadSpaces: () => any
