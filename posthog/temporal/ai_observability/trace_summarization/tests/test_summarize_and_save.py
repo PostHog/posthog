@@ -119,9 +119,7 @@ class TestSummarizeAndSaveActivity:
             # Dropping flex here silently doubles the pipeline's LLM bill, so pin it.
             assert mock_summarize.call_args.kwargs["flex"] is True
             # A wrong final_attempt either alerts on failures the retry recovers or hides lost summaries.
-            call_context = mock_summarize.call_args.kwargs["call_context"]
-            assert call_context.final_attempt is final_attempt
-            assert call_context.trace_id == input_data.trace_id
+            assert mock_summarize.call_args.kwargs["final_attempt"] is final_attempt
             mock_create_event.assert_called_once()
             call_kwargs = mock_create_event.call_args.kwargs
             assert call_kwargs["event"] == "$ai_trace_summary"

@@ -36,7 +36,7 @@ class TestSummarize:
                 DEFAULT_MODEL_OPENAI,
                 None,
                 flex=False,
-                call_context=None,
+                final_attempt=True,
             )
             assert result == mock_response
 

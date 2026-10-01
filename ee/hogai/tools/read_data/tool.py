@@ -35,7 +35,6 @@ from products.access_control.backend.property_access_control import (
 from products.ai_observability.backend.summarization.budget import text_repr_budget
 from products.ai_observability.backend.summarization.llm.call import summarize
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
-from products.ai_observability.backend.summarization.models import SummarizationCallContext
 from products.ai_observability.backend.summarization.utils import get_summary_cache_key
 from products.ai_observability.backend.text_repr.formatters.trace_formatter import (
     format_trace_text_repr,
@@ -966,7 +965,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         summary = await database_sync_to_async(summarize)(
             text_repr=text_repr,
             team_id=self._team.id,
-            call_context=SummarizationCallContext(source="posthog_ai", trace_id=trace_id),
         )
 
         cache_value = {

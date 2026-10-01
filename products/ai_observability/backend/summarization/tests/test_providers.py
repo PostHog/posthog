@@ -12,11 +12,7 @@ from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
-from products.ai_observability.backend.summarization.models import (
-    OpenAIModel,
-    SummarizationCallContext,
-    SummarizationMode,
-)
+from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
 
 _REQUEST = httpx.Request("POST", "https://example.com/v1/chat/completions")
 
@@ -153,9 +149,7 @@ class TestSummarizeWithOpenAI:
                     team_id=1,
                     mode=SummarizationMode.MINIMAL,
                     model=OpenAIModel.GPT_4_1_MINI,
-                    call_context=SummarizationCallContext(
-                        source="batch", trace_id="trace-1", final_attempt=final_attempt
-                    ),
+                    final_attempt=final_attempt,
                 )
 
             assert is_expected_activity_failure(raised.value)
@@ -167,7 +161,6 @@ class TestSummarizeWithOpenAI:
             assert properties["$exception_fingerprint"] == "aio_summarization.BadRequestError.400"
             assert properties["provider_status"] == 400
             assert properties["gateway_request_id"] == "req-123"
-            assert properties["summarized_trace_id"] == "trace-1"
 
     def test_uses_correct_model(self, valid_response_json):
         mock_response = MagicMock()
