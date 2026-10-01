@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'
@@ -362,15 +364,19 @@ export const canvasChatLogic = kea<canvasChatLogicType>([
                         resumeFromRunId: run?.id ?? null,
                         message,
                     })
-                    // The canvas follows the run that is writing it, so the scene polls its builds.
-                    if (canvas.generation_task_id !== resumed.id) {
-                        actions.canvasUpdated(
-                            await canvasesPartialUpdate(projectId, canvas.id, { generation_task_id: resumed.id })
-                        )
-                    }
                     actions.taskStarted(resumed.id)
                     actions.loadGenerationTaskSuccess(resumed)
                     actions.startPolling()
+                    // The canvas follows the run that is writing it, so the scene polls its builds.
+                    if (canvas.generation_task_id !== resumed.id) {
+                        try {
+                            actions.canvasUpdated(
+                                await canvasesPartialUpdate(projectId, canvas.id, { generation_task_id: resumed.id })
+                            )
+                        } catch {
+                            lemonToast.error('Your message was sent, but the canvas could not follow the new run.')
+                        }
+                    }
                 }
                 actions.sendFinished(null)
             } catch (error) {

@@ -10,13 +10,16 @@ import {
 import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 export type CanvasSpace = Pick<ChannelDTOApi, 'id' | 'name' | 'system_role'>
-export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status' | 'error_message'>
+export type CanvasTaskRun = Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'id' | 'status'> &
+    Partial<Pick<NonNullable<TaskDetailDTOApi['latest_run']>, 'error_message'>>
 export type CanvasGenerationTask = Pick<TaskDetailDTOApi, 'id' | 'title'> & {
     latest_run: CanvasTaskRun | null
     created_by?: Pick<NonNullable<TaskDetailDTOApi['created_by']>, 'uuid'> | null
 }
 
-function toCanvasTask(task: Pick<TaskDetailDTOApi, 'id' | 'title' | 'latest_run' | 'created_by'>): CanvasGenerationTask {
+function toCanvasTask(
+    task: Pick<TaskDetailDTOApi, 'id' | 'title' | 'latest_run' | 'created_by'>
+): CanvasGenerationTask {
     return { id: task.id, title: task.title, latest_run: task.latest_run ?? null, created_by: task.created_by }
 }
 
@@ -105,8 +108,13 @@ export async function sendCanvasRunMessage(
     runId: string,
     content: string
 ): Promise<void> {
-    const response = await tasksRunsCommandCreate(projectId, taskId, runId, { jsonrpc: '2.0', method: 'user_message', params: { content } })
-    if (response?.result?.queued !== true) {
+    const response = await tasksRunsCommandCreate(projectId, taskId, runId, {
+        jsonrpc: '2.0',
+        method: 'user_message',
+        params: { content },
+    })
+    const result = response.result
+    if (!result || typeof result !== 'object' || !('queued' in result) || result.queued !== true) {
         throw new Error("The agent didn't confirm the message.")
     }
 }
@@ -120,8 +128,10 @@ export async function resumeCanvasTask(
     taskId: string,
     input: { resumeFromRunId: string | null; message: string }
 ): Promise<CanvasGenerationTask> {
-    return toCanvasTask(await tasksRunCreate(projectId, taskId, {
-        ...(input.resumeFromRunId ? { resume_from_run_id: input.resumeFromRunId } : {}),
-        pending_user_message: input.message,
-    }))
+    return toCanvasTask(
+        await tasksRunCreate(projectId, taskId, {
+            ...(input.resumeFromRunId ? { resume_from_run_id: input.resumeFromRunId } : {}),
+            pending_user_message: input.message,
+        })
+    )
 }

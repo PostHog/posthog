@@ -41,6 +41,7 @@ async function loadAllCanvasComments(canvasId: string): Promise<CommentType[]> {
         if (!page.next || index === MAX_COMMENT_PAGES - 1) {
             break
         }
+        // nosemgrep: prefer-codegen-api -- The server supplies this pagination URL.
         page = await api.get(page.next)
     }
     return comments
