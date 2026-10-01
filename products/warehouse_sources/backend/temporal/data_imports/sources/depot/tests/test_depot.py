@@ -133,19 +133,19 @@ class TestDepotSource:
         workflows = {run["runId"]: [_single_attempt_workflow(run)] for run in [*TERMINAL_RUNS, stuck]}
         session = _fake_session(TERMINAL_RUNS, [stuck], workflows_by_run=workflows)
 
-        assert [row["run_id"] for row in _synced_rows(session, WATERMARK)] == ["r3", "r4", "r5", "r6"]
+        assert [row["run_id"] for row in _synced_rows(session, WATERMARK)] == ["r6", "r5", "r4", "r3"]
 
     @pytest.mark.parametrize(
         "created_after, expected_run_ids, expected_terminal_pages",
         [
-            (WATERMARK, ["r3", "r4", "r5", "r6"], 5),
-            (TERMINAL_RUNS[4]["createdAt"], ["r2", "r3", "r4", "r5", "r6"], 5),
-            (None, ["r0", "r1", "r2", "r3", "r4", "r5", "r6"], 7),
+            (WATERMARK, ["r6", "r5", "r4", "r3"], 5),
+            (TERMINAL_RUNS[4]["createdAt"], ["r6", "r5", "r4", "r3", "r2"], 5),
+            (None, ["r6", "r5", "r4", "r3", "r2", "r1", "r0"], 7),
         ],
         # The bounds derive from the wall clock, so fixed ids keep every xdist worker collecting the same tests.
         ids=["datetime_watermark", "watermark_in_a_runs_second", "no_watermark"],
     )
-    def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_oldest_first(
+    def test_walks_terminal_runs_down_to_the_lower_bound_and_yields_them_newest_first(
         self, created_after: dt.datetime | str | None, expected_run_ids: list[str], expected_terminal_pages: int
     ) -> None:
         session = _fake_session(TERMINAL_RUNS)
@@ -162,8 +162,8 @@ class TestDepotSource:
     @pytest.mark.parametrize(
         "page_sizes, expected_run_ids",
         [
-            ((3,), ["oldest", "tied-0", "tied-1", "newest"]),
-            ((3, 4), ["oldest", "tied-0", "tied-1", "tied-2", "newest"]),
+            ((3,), ["newest", "tied-1", "tied-0", "oldest"]),
+            ((3, 4), ["newest", "tied-2", "tied-1", "tied-0", "oldest"]),
         ],
         ids=["one_walk_skips_the_rest_of_the_second", "a_second_walk_returns_it"],
     )
@@ -201,7 +201,7 @@ class TestDepotSource:
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3}),
             ("ListRuns", {"repo": REPOSITORY, "status": TERMINAL, "pageSize": 3, "pageToken": "3"}),
         ]
-        assert _requests(session)[4:6] == [("GetRunStatus", {"runId": "r3"}), ("GetWorkflow", {"workflowId": "r3-wf"})]
+        assert _requests(session)[4:6] == [("GetRunStatus", {"runId": "r6"}), ("GetWorkflow", {"workflowId": "r6-wf"})]
 
     def test_flattens_one_row_per_attempt_of_every_workflow_in_the_run(self) -> None:
         run = _run("run-1", dt.timedelta(hours=1))
@@ -350,11 +350,11 @@ class TestDepotReconciliation:
     @pytest.mark.parametrize(
         "reconciled_days_ago, history_days, has_watermark, expected_runs, expected_reconciled",
         [
-            (None, 30, True, ["old", "recent"], True),
+            (None, 30, True, ["recent", "old"], True),
             (1, 30, True, ["recent"], False),
-            (7, 30, True, ["old", "recent"], True),
-            (1, 30, False, ["old", "recent"], True),
-            (None, None, True, ["outside", "old", "recent"], True),
+            (7, 30, True, ["recent", "old"], True),
+            (1, 30, False, ["recent", "old"], True),
+            (None, None, True, ["recent", "old", "outside"], True),
             (1, 1, True, [], False),
         ],
     )
@@ -407,7 +407,7 @@ class TestDepotReconciliation:
         post = session.post.side_effect
 
         def interrupted_post(url: str, json: dict[str, Any], timeout: float) -> Response:
-            if url.endswith("/GetWorkflow") and json["workflowId"] == "recent-wf":
+            if url.endswith("/GetWorkflow") and json["workflowId"] == "old-wf":
                 return _response(500, {}, "GetWorkflow")
             return cast(Response, post(url, json=json, timeout=timeout))
 
@@ -415,7 +415,7 @@ class TestDepotReconciliation:
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             response = source.source_for_pipeline(DepotSourceConfig(api_token=API_TOKEN, repository=REPOSITORY), inputs)
             batches = cast(Iterator[list[dict[str, Any]]], response.items())
-            assert next(batches)[0]["run_id"] == "old"
+            assert next(batches)[0]["run_id"] == "recent"
             assert manager.staged is None
             with pytest.raises(HTTPError, match="500 Server Error"):
                 list(batches)

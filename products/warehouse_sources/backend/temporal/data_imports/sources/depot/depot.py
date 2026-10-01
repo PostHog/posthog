@@ -159,7 +159,8 @@ def depot_source(
 
     def items() -> Iterator[list[JSONObject]]:
         session = _make_session(api_token)
-        runs = [run for _, run in _list_runs(session, repository, TERMINAL_STATUSES, lower_bound)]
+        # Newest first, so a sync that stops partway has already stored the runs that no earlier sync read.
+        runs = [run for _, run in reversed(_list_runs(session, repository, TERMINAL_STATUSES, lower_bound))]
         logger.info(
             "depot_ci.runs_to_sync",
             run_count=len(runs),
@@ -179,8 +180,9 @@ def depot_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],
-        sort_mode="asc",
-        # The watermark saves per chunk, and the default chunk holds a whole first sync of a busy repository.
+        # Descending defers the watermark save to the end of the sync, so a replay that stops partway cannot move it back.
+        sort_mode="desc",
+        # Rows become durable per chunk, and the default chunk holds a whole first sync of a busy repository.
         chunk_size=5_000,
     )
 
