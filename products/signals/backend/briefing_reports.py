@@ -33,6 +33,8 @@ logger = structlog.get_logger(__name__)
 
 _OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 _SUMMARY_LIMIT = 300
+# The hover card shows more of the summary than the briefing writer reads.
+_CARD_SUMMARY_LIMIT = 450
 PR_MERGED_HEAD = "pr_merged"
 
 
@@ -331,7 +333,7 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
                 report_id=report_id,
                 status=report.status,
                 priority=priorities.get(report_id),
-                summary=summary_lead(report.summary, _SUMMARY_LIMIT),
+                summary=summary_lead(report.summary, _CARD_SUMMARY_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
                 if pull_request
                 else None,

@@ -92,17 +92,6 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             )}
                         </ItemDescription>
                     )}
-                    {card.summary && (
-                        // A few lines say what the report is about without turning the card into the report.
-                        // Without a chart below, the summary gets the room.
-                        <Text
-                            size="xs"
-                            variant="muted"
-                            className={cn('mt-1 leading-snug break-words', hasChart ? 'line-clamp-2' : 'line-clamp-5')}
-                        >
-                            {card.summary}
-                        </Text>
-                    )}
                 </ItemContent>
                 {card.stateLabel && (
                     <ItemActions className="self-start">
@@ -110,6 +99,21 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                     </ItemActions>
                 )}
             </Item>
+            {card.summary && (
+                // Its own row, so the summary uses the full card width, not the column beside the state badge.
+                <Item size="xs" className="pt-0">
+                    <ItemContent className="min-w-0">
+                        {/* A few lines say what the report is about. Without a chart below, the summary gets the room. */}
+                        <Text
+                            size="xs"
+                            variant="muted"
+                            className={cn('leading-snug break-words', hasChart ? 'line-clamp-3' : 'line-clamp-8')}
+                        >
+                            {card.summary}
+                        </Text>
+                    </ItemContent>
+                </Item>
+            )}
             {metric && aggregateQuery && seriesQuery && (
                 <>
                     <ItemSeparator className="my-0" />
