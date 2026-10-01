@@ -13,7 +13,8 @@ The calculation key includes the start date, so no reader needs `query_from` to 
 Rows written before calculation key version 2 carry the legacy key (`CalculationSpec.legacy_key`), which leaves out
 several analytical inputs. No reuse check accepts them. The readers that show results (the run read, the cold-start
 read, the chart and the current outcome) fall back to them only where no row under the current key covers the same
-metric, window or day, and they mark such a result `legacy`.
+metric, window or day, and they mark such a result `legacy`. The run read does so only for a run that finished
+before the first write under the current keys. The daily significance check never reads them.
 
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
@@ -41,8 +42,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.metric_calculation.spec import CalculationSpec, ExperimentCalculationSettings, plan
-from products.experiments.backend.metric_resolution import resolve_experiment_metrics
+from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -141,7 +141,11 @@ class MetricResultStore:
 
         A run from before key version 2 holds rows under the legacy keys. Such a row is returned as legacy when the
         metric has no row under its current key at the window, so that the results page shows the run complete
-        instead of starting a new run to fill the gaps.
+        instead of starting a new run to fill the gaps. Only a run that finished before the first write under its
+        metrics' current keys gets legacy rows. A run in progress has not computed its metrics yet, so a legacy row
+        would show an old result as a new one. A run that finished later recomputed every metric it reached, because
+        no legacy row counts for reuse, so a metric it left without a row under the current key is one it did not
+        compute.
         """
         if run.query_to is None:
             return []
@@ -163,12 +167,29 @@ class MetricResultStore:
         rows = ExperimentMetricResult.objects.filter(
             filed_under_run_keys, experiment_id=self.experiment_id, query_to=run.query_to
         )
-        return [
+        stored = [
             StoredResult(row=row, legacy=row.fingerprint not in current_keys)
             for row in _newest_write_first(rows, "metric_uuid", _current_key_first(current_keys)).distinct(
                 "metric_uuid"
             )
         ]
+        if any(item.legacy for item in stored) and not self._finished_before_current_keys(run, run_specs):
+            return [item for item in stored if not item.legacy]
+        return stored
+
+    def _finished_before_current_keys(self, run: ExperimentMetricsRecalculation, specs: list[CalculationSpec]) -> bool:
+        """Whether the run finished before any row of its metrics was written under a current key, bare or salted."""
+        if run.status not in _TERMINAL_RECALC_STATUSES or run.completed_at is None:
+            return False
+        current_keys = [
+            key for spec in specs for key in (spec.calculation_key(), _recalc_fingerprint(spec.calculation_key()))
+        ]
+        return not ExperimentMetricResult.objects.filter(
+            experiment_id=self.experiment_id,
+            metric_uuid__in=[spec.metric_id for spec in specs],
+            fingerprint__in=current_keys,
+            updated_at__lte=run.completed_at,
+        ).exists()
 
     def has_completed(self, spec: CalculationSpec, *, window: datetime) -> bool:
         """Whether a recalculation already stored a completed result for this spec at this window. A result under
@@ -510,39 +531,18 @@ class MetricResultStore:
         return summaries
 
 
-def _legacy_key_of(experiment: Experiment, *, metric_uuid: str, calculation_key: str) -> str | None:
-    """The legacy key of the experiment's metric whose calculation key is `calculation_key`, or None when no metric
-    with this uuid has that key. Inline and saved metrics can share a uuid, so the uuid alone does not decide."""
-    settings = ExperimentCalculationSettings.of_experiment(experiment)
-    for metric in resolve_experiment_metrics(experiment):
-        if metric.uuid == metric_uuid:
-            spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
-            if spec.calculation_key() == calculation_key:
-                return spec.legacy_key()
-    return None
-
-
 def previous_completed_metric_result(
     experiment_id: int, *, team_id: int, metric_uuid: str, calculation_key: str, before: datetime
 ) -> dict[str, Any] | None:
     """The stored result of the completed daily point under this key with the latest query_to before `before`,
     for callers outside the product. None when there is no such point or the experiment is not in the team.
 
-    When no point carries the key, the latest point under the metric's legacy key stands in. The daily significance
-    check compares a new result with this one, and without the fallback every significant variant would read as
-    newly significant on the first daily run under key version 2.
+    A point under another key, the legacy key included, never stands in. It can come from other settings, so a
+    comparison with it would not tell whether the current settings crossed a threshold.
     """
-    experiment = (
-        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
-    )
-    if experiment is None:
+    if not Experiment.objects.filter(id=experiment_id, team_id=team_id).exists():
         return None
-    store = MetricResultStore(experiment_id=experiment_id)
-    row = store.previous_completed(metric_uuid, calculation_key, before=before)
-    if row is None:
-        legacy_key = _legacy_key_of(experiment, metric_uuid=metric_uuid, calculation_key=calculation_key)
-        if legacy_key is not None:
-            row = store.previous_completed(metric_uuid, legacy_key, before=before)
+    row = MetricResultStore(experiment_id=experiment_id).previous_completed(metric_uuid, calculation_key, before=before)
     return row.result if row is not None else None
 
 
