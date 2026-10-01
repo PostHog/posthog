@@ -17,7 +17,7 @@ from products.growth.backend.audit_execution import create_audit_task
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.signals.backend.facade.api import resolve_audit_actor_for_team
-from products.skills.backend.facade.api import get_skill_prompt
+from products.skills.backend.facade.api import get_skill_prompt_for_audit
 
 COOLDOWN = timedelta(days=7)
 PROJECT_ACTIVITY_WINDOW = timedelta(days=30)
@@ -62,8 +62,8 @@ class AccountAuditService:
 
     @classmethod
     def start(cls, payload: AccountAuditRequest, public_key_id: UUID, webhook_id: str) -> AccountAuditResult:
-        credential = AccountAuditCredential.objects.select_related("owner").filter(public_key_id=public_key_id).first()
-        if credential is None or not cls._credential_is_eligible(credential):
+        credential = AccountAuditCredential.objects.filter(public_key_id=public_key_id, is_active=True).first()
+        if credential is None:
             return AccountAuditResult(status="unauthorized")
         if (get_instance_region() or "US") not in ("US", "EU"):
             return AccountAuditResult(status="unavailable")
@@ -138,9 +138,7 @@ class AccountAuditService:
             actor_id = resolve_audit_actor_for_team(team_id)
             if actor_id is None:
                 return AccountAuditResult(status="forbidden")
-            skill = get_skill_prompt(
-                team_id=payload.skill_project, skill_name=payload.skill_name, user=credential.owner
-            )
+            skill = get_skill_prompt_for_audit(team_id=payload.skill_project, skill_name=payload.skill_name)
             if skill is None or not skill.body.strip():
                 return AccountAuditResult(status="skill_unavailable")
             notebook = notebooks_facade.create_notebook(
@@ -189,13 +187,4 @@ class AccountAuditService:
             .order_by("-recent_active_users", "project__created_at", "id")
             .values_list("id", flat=True)
             .first()
-        )
-
-    @staticmethod
-    def _credential_is_eligible(credential: AccountAuditCredential) -> bool:
-        return (
-            credential.is_active
-            and credential.owner is not None
-            and credential.owner.is_active
-            and credential.owner.is_staff
         )

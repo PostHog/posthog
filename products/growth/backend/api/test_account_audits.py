@@ -19,16 +19,19 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 from posthog.models.user import User
 
-from products.growth.backend.account_audits import COOLDOWN, AccountAuditService
+from products.access_control.backend.models import AccessControl
+from products.growth.backend.account_audits import COOLDOWN
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
 from products.growth.backend.presentation.views.account_audits import (
     AccountAuditCredentialThrottle,
     AccountAuditStartThrottle,
 )
+from products.skills.backend.models import LLMSkill
 
 
 class TestAccountAuditStartAPI(APIBaseTest):
@@ -40,7 +43,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.user.save(update_fields=["is_staff"])
         self.secret = f"whsec_{base64.b64encode(b'a' * 32).decode()}"
         self.credential = AccountAuditCredential.objects.create(
-            owner=self.user,
+            created_by=self.user,
             signing_secret=self.secret,
         )
         self.url = "/api/growth_account_audits/start/"
@@ -91,7 +94,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch(
                 "products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id
             ) as actor,
-            patch("products.growth.backend.account_audits.get_skill_prompt", return_value=MagicMock()) as skill,
+            patch(
+                "products.growth.backend.account_audits.get_skill_prompt_for_audit", return_value=MagicMock()
+            ) as skill,
             patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
             yield actor, skill, dispatch
@@ -111,7 +116,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             limited = self._post(payload, key_id=str(self.credential.public_key_id).upper())
             self.assertEqual(limited.status_code, 429)
             self.assertGreater(int(limited.headers["Retry-After"]), 0)
-            self.credential = AccountAuditCredential.objects.create(owner=self.user, signing_secret=self.secret)
+            self.credential = AccountAuditCredential.objects.create(created_by=self.user, signing_secret=self.secret)
             self.assertEqual(self._post(payload).status_code, 409)
             self.assertEqual(self._post(payload, signature="invalid").status_code, 429)
 
@@ -144,7 +149,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(notebook.status_code, 200)
         listed = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
         self.assertNotIn(admission.notebook_short_id, [item["short_id"] for item in listed.json()["results"]])
-        skill.assert_called_once_with(team_id=skill_project, skill_name="onboarding-account-audit", user=self.user)
+        skill.assert_called_once_with(team_id=skill_project, skill_name="onboarding-account-audit")
 
     @parameterized.expand([(False, False, False), (False, False, True), (True, False, True), (False, True, True)])
     def test_defaults_to_the_oldest_eligible_root_project_on_tied_activity(
@@ -220,7 +225,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             response = self._post(payload)
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["team_id"], explicit_team.id)
-        skill.assert_called_once_with(team_id=self.team.id, skill_name="activation-audit", user=self.user)
+        skill.assert_called_once_with(team_id=self.team.id, skill_name="activation-audit")
         self.assertEqual(dispatch.call_args.kwargs["skill"], skill.return_value)
         admission = AccountAuditAdmission.objects.unscoped().get(credential=self.credential)
         self.assertEqual(admission.reason, "activation-review")
@@ -423,9 +428,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(
             response.json()["detail"],
-            "Skill not found, inaccessible, or unsupported. Check skill_project and skill_name.",
+            "Skill not found or unsupported. Check skill_project and skill_name.",
         )
-        skill.assert_called_once_with(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user)
+        skill.assert_called_once_with(team_id=self.team.id, skill_name="onboarding-account-audit")
         self.assertFalse(dispatch.called)
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
@@ -510,16 +515,42 @@ class TestAccountAuditStartAPI(APIBaseTest):
                     team_id=self.team.id,
                 )
 
-    @parameterized.expand(
-        [("revoked",), ("owner_inactive",), ("owner_not_staff",), ("unknown_key",), ("wrong_secret",)]
-    )
+    @parameterized.expand([("inactive",), ("not_staff",), ("deleted",)])
+    def test_audit_uses_a_private_skill_independently_of_credential_creator(self, condition: str) -> None:
+        creator = User.objects.create(email="audit-creator@example.com", is_staff=True)
+        self.credential.created_by = creator
+        self.credential.save(update_fields=["created_by"])
+        if condition == "deleted":
+            creator.delete()
+        else:
+            User.objects.filter(pk=creator.pk).update(**{"is_active" if condition == "inactive" else "is_staff": False})
+        skill_org = Organization.objects.create(
+            name="Skill organization", available_product_features=[{"key": AvailableFeature.ACCESS_CONTROL}]
+        )
+        skill_team = Team.objects.create(organization=skill_org, name="Private skills")
+        skill = LLMSkill.objects.create(
+            team=skill_team, name="onboarding-account-audit", description="Audit", body="# Audit\n", is_latest=True
+        )
+        AccessControl.objects.create(
+            team=skill_team, resource="project", resource_id=str(skill_team.id), access_level="none"
+        )
+        AccessControl.objects.create(
+            team=skill_team, resource="llm_skill", resource_id=str(skill.id), access_level="none"
+        )
+        with (
+            patch("products.growth.backend.account_audits.resolve_audit_actor_for_team", return_value=self.user.id),
+            patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
+        ):
+            response = self._post({"organization_id": str(self.organization.id), "skill_project": skill_team.id})
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(dispatch.call_args.kwargs["skill"].body, skill.body)
+        self.assertEqual(AccountAuditAdmission.objects.unscoped().get().skill_project, skill_team.id)
+
+    @parameterized.expand([("revoked",), ("unknown_key",), ("wrong_secret",)])
     def test_rejects_an_ineligible_destination_credential(self, condition: str) -> None:
         if condition == "revoked":
             AccountAuditCredential.objects.filter(pk=self.credential.pk).update(is_active=False)
-        elif condition == "owner_inactive":
-            User.objects.filter(pk=self.user.pk).update(is_active=False)
-        elif condition == "owner_not_staff":
-            User.objects.filter(pk=self.user.pk).update(is_staff=False)
         elif condition == "unknown_key":
             AccountAuditCredential.objects.filter(pk=self.credential.pk).update(public_key_id=uuid4())
         else:
@@ -532,9 +563,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
         dispatch.assert_not_called()
         self.assertFalse(AccountAuditAdmission.objects.unscoped().exists())
 
-    def test_preserves_historic_admissions_when_an_owner_or_credential_is_deleted(self) -> None:
-        owner = User.objects.create_user(email="audit-owner@example.com", password=None, first_name="Audit")
-        credential = AccountAuditCredential.objects.create(owner=owner, signing_secret=self.secret)
+    def test_preserves_historic_admissions_when_a_creator_or_credential_is_deleted(self) -> None:
+        creator = User.objects.create_user(email="audit-creator@example.com", password=None, first_name="Audit")
+        credential = AccountAuditCredential.objects.create(created_by=creator, signing_secret=self.secret)
         admission = AccountAuditAdmission.objects.unscoped().create(
             credential=credential,
             task_run_id=uuid4(),
@@ -543,10 +574,9 @@ class TestAccountAuditStartAPI(APIBaseTest):
             team_id=self.team.id,
         )
 
-        owner.delete()
+        creator.delete()
         credential.refresh_from_db()
-        self.assertIsNone(credential.owner)
-        self.assertFalse(AccountAuditService._credential_is_eligible(credential))
+        self.assertIsNone(credential.created_by)
         with self.assertRaises(ProtectedError):
             credential.delete()
         self.assertTrue(AccountAuditAdmission.objects.unscoped().filter(pk=admission.pk).exists())

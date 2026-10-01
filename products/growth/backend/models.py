@@ -18,7 +18,7 @@ from products.growth.backend.enrichment.scoring_rules import validate_scoring_ru
 class AccountAuditCredential(models.Model):
     public_key_id = models.UUIDField(default=uuid4, unique=True, editable=False)
     signing_secret = EncryptedTextField()
-    owner = models.ForeignKey(
+    created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False, related_name="+"
     )
     is_active = models.BooleanField(default=True)

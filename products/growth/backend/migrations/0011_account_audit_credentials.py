@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                 ("is_active", models.BooleanField(default=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
-                    "owner",
+                    "created_by",
                     models.ForeignKey(
                         db_constraint=False,
                         null=True,

@@ -29,7 +29,9 @@ export const GrowthAccountAuditsStartCreateBody = /* @__PURE__ */ zod.object({
     skill_project: zod
         .number()
         .min(1)
-        .describe('Project ID containing the skill in this region. The credential owner must have read access.'),
+        .describe(
+            'Project ID containing the skill in this region. Audit credentials authorize reading skills from any project.'
+        ),
     skill_name: zod
         .string()
         .max(growthAccountAuditsStartCreateBodySkillNameMax)

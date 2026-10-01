@@ -2,11 +2,9 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team, User
+from posthog.models import Team
 
-from products.access_control.backend.models import AccessControl
-from products.skills.backend.facade.api import get_skill_prompt
+from products.skills.backend.facade.api import get_skill_prompt_for_audit
 from products.skills.backend.models import LLMSkill, LLMSkillFile
 
 
@@ -36,13 +34,13 @@ class TestGetSkillPrompt(BaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
         self._create_skill(body="# Other team\n", team=other_team)
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
+        assert get_skill_prompt_for_audit(team_id=self.team.id, skill_name="onboarding-account-audit") is None
 
     def test_returns_the_latest_active_version(self) -> None:
         self._create_skill(body="# Version one\n", version=1, is_latest=False)
         self._create_skill(body="# Version two\n", version=2)
 
-        prompt = get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user)
+        prompt = get_skill_prompt_for_audit(team_id=self.team.id, skill_name="onboarding-account-audit")
 
         assert prompt is not None
         assert prompt.body == "# Version two\n"
@@ -53,6 +51,8 @@ class TestGetSkillPrompt(BaseTest):
             ("missing",),
             ("archived",),
             ("empty",),
+            ("project_deleted",),
+            ("project_missing",),
         ]
     )
     def test_returns_none_for_unavailable_skill(self, state: str) -> None:
@@ -60,41 +60,22 @@ class TestGetSkillPrompt(BaseTest):
             self._create_skill(deleted=True)
         elif state == "empty":
             self._create_skill(body="")
+        elif state == "project_deleted":
+            self._create_skill()
+            self.team.project.is_pending_deletion = True
+            self.team.project.save(update_fields=["is_pending_deletion"])
+        elif state == "project_missing":
+            Team.objects.filter(pk=self.team.pk).delete()
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
+        assert get_skill_prompt_for_audit(team_id=self.team.id, skill_name="onboarding-account-audit") is None
 
     def test_returns_none_when_skill_has_bundled_files(self) -> None:
         skill = self._create_skill()
         LLMSkillFile.objects.create(skill=skill, path="references/guide.md", content="# Guide\n")
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
+        assert get_skill_prompt_for_audit(team_id=self.team.id, skill_name="onboarding-account-audit") is None
 
     def test_returns_none_when_skill_body_exceeds_64_kb(self) -> None:
         self._create_skill(body="x" * (64 * 1024 + 1))
 
-        assert get_skill_prompt(team_id=self.team.id, skill_name="onboarding-account-audit", user=self.user) is None
-
-    def test_returns_none_when_user_cannot_read_the_skill_project(self) -> None:
-        other_org = Organization.objects.create(name="Other organization")
-        other_team = Team.objects.create(organization=other_org, name="Other project")
-        self._create_skill(team=other_team)
-
-        assert get_skill_prompt(team_id=other_team.id, skill_name="onboarding-account-audit", user=self.user) is None
-
-    @parameterized.expand([("creator", True), ("member", False)])
-    def test_private_project_denies_skill_access(self, _name: str, is_creator: bool) -> None:
-        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
-        self.organization.save()
-        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
-        skill = self._create_skill()
-        if is_creator:
-            skill.created_by = member
-            skill.save(update_fields=["created_by"])
-        rule = AccessControl.objects.create(
-            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
-        )
-
-        assert get_skill_prompt(team_id=self.team.id, skill_name=skill.name, user=member) is None
-
-        rule.delete()
-        assert get_skill_prompt(team_id=self.team.id, skill_name=skill.name, user=member) is not None
+        assert get_skill_prompt_for_audit(team_id=self.team.id, skill_name="onboarding-account-audit") is None

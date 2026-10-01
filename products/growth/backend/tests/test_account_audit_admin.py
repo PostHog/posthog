@@ -9,7 +9,6 @@ from parameterized import parameterized
 
 from posthog.models import User
 
-from products.growth.backend.admin import AccountAuditCredentialForm
 from products.growth.backend.models import AccountAuditCredential
 
 
@@ -28,11 +27,11 @@ class TestAccountAuditCredentialAdmin(BaseTest):
     ) -> None:
         self.enterContext(self.settings(SITE_URL=site_url))
         other_staff = User.objects.create(email="other-staff@example.com", is_staff=True)
-        self.assertNotContains(self.client.get(self.add_url), 'name="owner"')
-        response = self.client.post(self.add_url, {**self.add_data, "owner": other_staff.pk})
+        self.assertNotContains(self.client.get(self.add_url), 'name="created_by"')
+        response = self.client.post(self.add_url, {**self.add_data, "created_by": other_staff.pk})
         self.assertEqual(response.status_code, 200)
         credential = AccountAuditCredential.objects.get()
-        self.assertEqual(credential.owner_id, self.user.pk)
+        self.assertEqual(credential.created_by_id, self.user.pk)
         secret = credential.signing_secret
         self.assertTrue(secret.startswith("whsec_"))
         self.assertEqual(len(base64.b64decode(secret.removeprefix("whsec_"))), 32)
@@ -51,20 +50,11 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         credential.refresh_from_db()
         self.assertTrue(credential.is_active)
 
-        response = self.client.post(change_url, {"owner": "", "signing_secret": "replacement"})
+        response = self.client.post(change_url, {"created_by": "", "signing_secret": "replacement"})
         self.assertEqual(response.status_code, 302)
         credential.refresh_from_db()
         self.assertFalse(credential.is_active)
-        self.assertEqual(credential.owner_id, self.user.pk)
+        self.assertEqual(credential.created_by_id, self.user.pk)
         self.assertEqual(credential.signing_secret, secret)
         replacement.refresh_from_db()
         self.assertTrue(replacement.is_active)
-
-    @parameterized.expand([("is_staff",), ("is_active",)])
-    def test_admin_cannot_reactivate_a_credential_for_an_ineligible_owner(self, field: str) -> None:
-        credential = AccountAuditCredential.objects.create(owner=self.user, signing_secret="unused", is_active=False)
-        setattr(self.user, field, False)
-        self.user.save(update_fields=[field])
-        form = AccountAuditCredentialForm(instance=credential, data=self.add_data)
-        self.assertFalse(form.is_valid())
-        self.assertIn("The credential owner must be an active staff user", str(form.errors))

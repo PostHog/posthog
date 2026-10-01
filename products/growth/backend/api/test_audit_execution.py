@@ -29,7 +29,7 @@ class TestAuditExecution(BaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.run_id = uuid4()
-        credential = AccountAuditCredential.objects.create(owner=self.user, signing_secret="unused")
+        credential = AccountAuditCredential.objects.create(created_by=self.user, signing_secret="unused")
         self.admission = AccountAuditAdmission.objects.for_team(self.team.id).create(
             credential=credential,
             webhook_id="delivery",

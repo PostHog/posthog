@@ -44,28 +44,21 @@ class AccountAuditCredentialForm(forms.ModelForm):
             "is_active": "Disable to revoke access. To rotate, configure the workflow with a new credential before disabling this one.",
         }
 
-    def clean(self) -> dict[str, Any]:
-        cleaned = super().clean() or {}
-        owner = self.instance.owner
-        if self.instance.pk and cleaned.get("is_active") and (not owner or not owner.is_active or not owner.is_staff):
-            raise ValidationError("The credential owner must be an active staff user.")
-        return cleaned
-
 
 @admin.register(AccountAuditCredential)
 class AccountAuditCredentialAdmin(admin.ModelAdmin):
     form = AccountAuditCredentialForm
-    readonly_fields = ("public_key_id", "owner", "created_at")
-    list_display = ("public_key_id", "owner", "is_active", "created_at")
+    readonly_fields = ("public_key_id", "created_by", "created_at")
+    list_display = ("public_key_id", "created_by", "is_active", "created_at")
     list_filter = ("is_active",)
-    list_select_related = ("owner",)
-    search_fields = ("public_key_id", "owner__email")
+    list_select_related = ("created_by",)
+    search_fields = ("public_key_id", "created_by__email")
     actions = None
 
     def get_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
         if obj is None:
             return ("is_active",)
-        return ("public_key_id", "owner", "is_active", "created_at")
+        return ("public_key_id", "created_by", "is_active", "created_at")
 
     def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
         return False
@@ -74,7 +67,7 @@ class AccountAuditCredentialAdmin(admin.ModelAdmin):
         self, request: HttpRequest, obj: AccountAuditCredential, form: forms.ModelForm, change: bool
     ) -> None:
         if not change:
-            obj.owner_id = request.user.pk
+            obj.created_by_id = request.user.pk
             obj.signing_secret = f"whsec_{base64.b64encode(secrets.token_bytes(32)).decode()}"
         super().save_model(request, obj, form, change)
 

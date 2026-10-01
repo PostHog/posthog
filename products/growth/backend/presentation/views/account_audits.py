@@ -47,7 +47,7 @@ class AccountAuditStartRequestSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, help_text="Why the account audit is being requested.")
     skill_project = serializers.IntegerField(
         min_value=1,
-        help_text="Project ID containing the skill in this region. The credential owner must have read access.",
+        help_text="Project ID containing the skill in this region. Audit credentials authorize reading skills from any project.",
     )
     skill_name = serializers.CharField(
         max_length=64,
@@ -89,7 +89,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             400: OpenApiResponse(
                 description=(
                     "The request was rejected. A body that is not JSON or is too large, or a missing or ineligible "
-                    "team, returns no body. Invalid fields return a validation error body. A missing, inaccessible, "
+                    "team, returns no body. Invalid fields return a validation error body. A missing "
                     "or unsupported skill returns a detail message."
                 )
             ),
@@ -140,7 +140,7 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             return Response(status=204)
         if result.status == "skill_unavailable":
             return Response(
-                {"detail": "Skill not found, inaccessible, or unsupported. Check skill_project and skill_name."},
+                {"detail": "Skill not found or unsupported. Check skill_project and skill_name."},
                 status=400,
             )
         if result.status == "cooldown":
