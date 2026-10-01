@@ -36,10 +36,7 @@ import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-pro
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
-import {
-  AgentInstructionFiles,
-  buildLateAgentInstructionsContext,
-} from "@posthog/harness/extensions/agent-instructions";
+import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import {
   appendBenjaminGuidance,
   appendSte100Guidance,
@@ -4529,7 +4526,8 @@ export class AgentServer {
         { taskId, runId },
       );
       if (instructions && instructions !== this.agentInstructions) {
-        context.push(buildLateAgentInstructionsContext(instructions));
+        // The session read its instruction files at prewarm, before this user was known.
+        context.push(instructions);
       }
       if (state) {
         this.agentInstructions = instructions;

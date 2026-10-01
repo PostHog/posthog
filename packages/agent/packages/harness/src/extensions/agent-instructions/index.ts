@@ -4,7 +4,6 @@ export {
   type AgentInstructionFilesOptions,
   type AgentInstructionFilesSyncContext,
   applyInstructionsBlock,
-  buildLateAgentInstructionsContext,
   getAgentInstructionFilePaths,
 } from "./instruction-files";
 export {

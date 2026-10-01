@@ -30,14 +30,14 @@ describe("agent instruction files", () => {
     ["creates the block in a missing file", null, "Use pnpm.", true, null],
     [
       "keeps foreign content around a replaced block",
-      "# Image rules\n\n<!-- posthog:agent-instructions:start -->\nold\n<!-- posthog:agent-instructions:end -->\n",
+      "# Image rules\n\n<!-- posthog -->\nold\n<!-- /posthog -->\n",
       "Use pnpm.",
       true,
       "# Image rules",
     ],
     [
       "removes only the block when instructions are cleared",
-      "# Image rules\n\n<!-- posthog:agent-instructions:start -->\nold\n<!-- posthog:agent-instructions:end -->\n",
+      "# Image rules\n\n<!-- posthog -->\nold\n<!-- /posthog -->\n",
       null,
       false,
       "# Image rules",

@@ -49,7 +49,7 @@ class TestAgentInstructionsResolver(APIBaseTest):
             ("workflow", Task.OriginProduct.WORKFLOW, False, True, False),
             ("signals_scout", Task.OriginProduct.SIGNALS_SCOUT, False, True, False),
             ("signal_report", Task.OriginProduct.SIGNAL_REPORT, False, True, False),
-            ("posthog_ai", Task.OriginProduct.POSTHOG_AI, False, False, False),
+            ("posthog_ai", Task.OriginProduct.POSTHOG_AI, False, True, True),
             ("internal", Task.OriginProduct.USER_CREATED, True, False, False),
         ]
     )

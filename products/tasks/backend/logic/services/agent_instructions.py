@@ -1,6 +1,6 @@
 """Project and personal agent instructions, written into cloud runs as each agent's user-level AGENTS.md.
 
-Separate from PostHog AI memory: PostHog AI runs never receive them.
+Stored apart from PostHog AI memory.
 """
 
 import structlog
@@ -30,11 +30,9 @@ PERSONLESS_ORIGINS = frozenset(
     }
 )
 
-# PostHog AI builds its own system prompt and keeps its own memory. The rest are infrastructure
-# agents with fixed prompts that user-written instructions must not steer.
+# Infrastructure agents with fixed prompts that user-written instructions must not steer.
 EXCLUDED_ORIGINS = frozenset(
     {
-        Task.OriginProduct.POSTHOG_AI,
         Task.OriginProduct.BUSINESS_KNOWLEDGE,
         Task.OriginProduct.IMAGE_BUILDER,
         Task.OriginProduct.TASK_ANALYSIS,
@@ -43,7 +41,6 @@ EXCLUDED_ORIGINS = frozenset(
 
 PROJECT_HEADING = "# Project instructions"
 PERSONAL_HEADING = "# Personal instructions"
-PERSONAL_PREAMBLE = "These come from the person who started this run. Where they conflict with the project instructions above, follow these."
 
 
 def _canonical_team_id(team_id: int) -> int:
@@ -112,7 +109,7 @@ class AgentInstructionsResolver:
         if project:
             sections.append(f"{PROJECT_HEADING}\n\n{project}")
         if personal:
-            sections.append(f"{PERSONAL_HEADING}\n\n{PERSONAL_PREAMBLE}\n\n{personal}")
+            sections.append(f"{PERSONAL_HEADING}\n\n{personal}")
         return "\n\n".join(sections) or None
 
 

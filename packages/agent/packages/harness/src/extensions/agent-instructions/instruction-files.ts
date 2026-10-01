@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import type { TaskRunState } from "@posthog/agent-contracts";
 
 // The sandbox image may ship these files, so only the text between the markers is ever replaced.
-const BLOCK_START = "<!-- posthog:agent-instructions:start -->";
-const BLOCK_END = "<!-- posthog:agent-instructions:end -->";
+const BLOCK_START = "<!-- posthog -->";
+const BLOCK_END = "<!-- /posthog -->";
 const BLOCK_RE = new RegExp(
   `\\n*${escapeRegExp(BLOCK_START)}[\\s\\S]*?${escapeRegExp(BLOCK_END)}\\n*`,
   "g",
@@ -46,19 +46,6 @@ export function applyInstructionsBlock(
   }
   const block = `${BLOCK_START}\n${instructions.trim()}\n${BLOCK_END}`;
   return rest ? `${rest}\n\n${block}\n` : `${block}\n`;
-}
-
-// An agent reads its instruction file once at session start, so a warm run activated later gets the text as context.
-export function buildLateAgentInstructionsContext(
-  instructions: string,
-): string {
-  return [
-    "<agent_instructions>",
-    "These instructions were set in PostHog for this project and for the person who started this run. Treat them as your user-level AGENTS.md and follow them for the rest of this session.",
-    "",
-    instructions.trim(),
-    "</agent_instructions>",
-  ].join("\n");
 }
 
 export interface AgentInstructionFilesLogger {

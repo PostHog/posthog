@@ -436,7 +436,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'task-agent-project-instructions',
                 title: 'Project instructions',
                 description:
-                    'Instructions every cloud agent run on this project reads as its AGENTS.md, including scheduled and automated runs. Use them for project conventions. PostHog AI chats do not use them.',
+                    'Instructions every cloud agent run on this project reads as its AGENTS.md, including scheduled and automated runs. Use them for project conventions.',
                 component: <AgentProjectInstructionsSettings />,
                 keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'project'],
             },
