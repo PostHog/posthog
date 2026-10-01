@@ -1749,12 +1749,14 @@ message_suppressions: PostgresTable = PostgresTable(
             name="source",
             description="Why the address is suppressed: 'BOUNCE' (repeated soft bounces), 'COMPLAINT' (marked as spam) or 'MANUAL' (added by a user).",
         ),
-        "reason": StringDatabaseField(name="reason", description="Free-text reason recorded with the suppression."),
+        "reason": StringDatabaseField(
+            name="reason", nullable=True, description="Free-text reason recorded with the suppression."
+        ),
         "suppressed": BooleanDatabaseField(
             name="suppressed", description="Whether the address is actively suppressed and skipped on send."
         ),
         "suppressed_at": DateTimeDatabaseField(
-            name="suppressed_at", description="When the address became suppressed, or null if it is not."
+            name="suppressed_at", nullable=True, description="When the address became suppressed; NULL while it is not."
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
