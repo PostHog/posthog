@@ -644,12 +644,12 @@ function livingMocks(): ReturnType<typeof taskMocks> {
     return {
         get: {
             ...mocks.get,
-            ...INSIGHT_MOCKS.get,
+            ...OBJECT_MOCKS.get,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/`]: {
                 artifacts: LIVING_DOCUMENTS,
             },
         },
-        post: { ...mocks.post, ...INSIGHT_MOCKS.post },
+        post: { ...mocks.post, ...OBJECT_MOCKS.post },
     }
 }
 

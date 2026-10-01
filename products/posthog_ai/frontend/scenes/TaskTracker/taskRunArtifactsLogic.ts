@@ -44,6 +44,7 @@ import {
     isTextPreview,
     livingArtifactFiles,
     livingArtifactsFromResponse,
+    postHogObjectRef,
 } from './taskRunArtifacts'
 
 export interface TaskRunArtifactsLogicProps {
@@ -434,13 +435,14 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             (livingArtifacts: TaskRunLivingArtifactResponseApi[]): ArtifactFile[] =>
                 livingArtifactFiles(livingArtifacts),
         ],
-        // Living documents come last, after the files and cited objects, so the list and the stepper share one order.
+        // Documents the agent updates sit with the files, before cited objects, so the list and the stepper keep one order.
         files: [
             (s) => [s.artifacts, s.livingFiles],
-            (artifacts: RunArtifact[], livingFiles: ArtifactFile[]): ArtifactFile[] => [
-                ...groupArtifactVersions(artifacts),
-                ...livingFiles,
-            ],
+            (artifacts: RunArtifact[], livingFiles: ArtifactFile[]): ArtifactFile[] => {
+                const grouped = groupArtifactVersions(artifacts)
+                const objects = grouped.filter((file) => !!postHogObjectRef(file.latest))
+                return [...grouped.filter((file) => !postHogObjectRef(file.latest)), ...livingFiles, ...objects]
+            },
         ],
         selectedIndex: [
             (s) => [s.files, s.selectedFileKey],

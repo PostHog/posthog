@@ -506,7 +506,6 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     // Cited PostHog objects sit under their own label, after the files.
     const objects = files.filter((file) => !!postHogObjectRef(file.latest))
-    const livingDocuments = files.filter((file) => !!file.latest.living)
     const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
         const target = event.target as HTMLElement
         if (event.altKey || event.ctrlKey || event.metaKey || target.getAttribute('role') !== 'option') {
@@ -559,7 +558,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                     Files
                 </Text>
                 <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                    {files.length - objects.length - livingDocuments.length}
+                    {files.length - objects.length}
                 </Text>
             </div>
             <div
@@ -568,7 +567,7 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                 onKeyDown={onKeyDown}
                 className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
             >
-                {files.filter((file) => !postHogObjectRef(file.latest) && !file.latest.living).map(renderRow)}
+                {files.filter((file) => !postHogObjectRef(file.latest)).map(renderRow)}
                 {objects.length > 0 && (
                     <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
                         <Text
@@ -581,20 +580,6 @@ function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
                             In PostHog
                         </Text>
                         {objects.map(renderRow)}
-                    </div>
-                )}
-                {livingDocuments.length > 0 && (
-                    <div role="group" aria-label="Living documents" className="flex flex-col gap-px">
-                        <Text
-                            size="xs"
-                            weight="medium"
-                            variant="muted"
-                            render={<span aria-hidden />}
-                            className="px-2 pt-3 pb-1"
-                        >
-                            Living documents
-                        </Text>
-                        {livingDocuments.map(renderRow)}
                     </div>
                 )}
             </div>
