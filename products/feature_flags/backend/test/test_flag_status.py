@@ -400,6 +400,21 @@ class TestRolloutSummary(BaseTest):
                 100,
                 False,
             ),
+            # A group condition at 100% reaches only requests that carry the group key. The person
+            # condition decides for the rest, and at 50% it leaves the flag partially rolled out.
+            (
+                "mixed_aggregation_group_condition_first",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": 0},
+                        {"properties": [], "rollout_percentage": 50, "aggregation_group_type_index": None},
+                    ]
+                },
+                False,
+                False,
+                100,
+                False,
+            ),
         ]
     )
     def test_rollout_summary(
@@ -533,6 +548,110 @@ class TestMultivariateFullRollout(BaseTest):
                 'This flag will always use the variant "control"',
                 ROLLOUT_FULLY_ROLLED_OUT,
                 "control",
+            ),
+            # The matcher skips a group-aggregated condition when the request carries no key for
+            # that group, so those requests fall through to the person condition.
+            (
+                "mixed_group_condition_first_names_a_different_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            (
+                "mixed_conditions_pin_the_same_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                            "aggregation_group_type_index": None,
+                        },
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            # A flag whose conditions all aggregate on one group type addresses only requests that
+            # carry that key, so its group condition decides for the whole audience.
+            (
+                "pure_group_aggregated_condition_decides",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        }
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "test"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "test",
+            ),
+            # A condition with no `aggregation_group_type_index` key takes the flag-level value, so
+            # this flag mixes aggregation the same as the first mixed case. Reading the absent key
+            # as person aggregation would make both conditions person-level and name `test`.
+            (
+                "absent_condition_key_falls_back_to_the_flag_level_aggregation",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
             ),
         ]
     )

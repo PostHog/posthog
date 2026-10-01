@@ -122,7 +122,9 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     Second, a multivariate flag is stale here as soon as a variant sits at 100% under an
     untargeted 100% condition, or that condition carries a variant override, while the checker
     requires every reachable path to serve the same variant. A flag that serves two variants is
-    therefore stale to the SQL and not to the checker. The SQL stays as it is on purpose: it backs
+    therefore stale to the SQL and not to the checker. The SQL does not read aggregation either,
+    so it also admits a flag that mixes person and group aggregation and declares the
+    group-aggregated condition first. The SQL stays as it is on purpose: it backs
     the public `active=STALE` filter, and reading declaration order and cumulative variant slices
     in raw SQL would cost more than the filter is worth.
 
@@ -276,6 +278,18 @@ def _sole_reachable_variant(variants: list[dict]) -> str | None:
             continue
         return variant.get("key") if percentage >= 100 else None
     return None
+
+
+def _condition_aggregation(filters: dict, group: dict) -> int | None:
+    """The group type index a condition aggregates on, or None for person aggregation.
+
+    An absent key falls back to the flag-level value and an explicit null means person
+    aggregation, the same as `effective_aggregation` in
+    `rust/feature-flags/src/flags/flag_property_group.rs`.
+    """
+    if "aggregation_group_type_index" in group:
+        return group.get("aggregation_group_type_index")
+    return filters.get("aggregation_group_type_index")
 
 
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
@@ -458,7 +472,8 @@ class FeatureFlagStatusChecker:
         that matches, so a condition declared before the blanket one decides the result for the
         users it matches. A condition carrying a `variant` override serves that variant, and any
         other condition serves whatever the variant distribution gives. The flag is fully rolled
-        out to one variant only when every one of those paths lands on the same variant.
+        out to one variant only when every one of those paths lands on the same variant. The walk
+        ends at the first condition that decides for everyone, see `decides_for_everyone`.
 
         A boolean flag carries no variants and returns None, so a caller must not read None as
         "the flag is not constant". `multivariate_results_agree` holds that distinction.
@@ -467,7 +482,7 @@ class FeatureFlagStatusChecker:
         variants = ((filters.get("multivariate") or {}).get("variants")) or []
 
         groups = filters.get("groups") or []
-        decider = next((index for index, group in enumerate(groups) if self.is_group_fully_rolled_out(group)), None)
+        decider = next((index for index, group in enumerate(groups) if self.decides_for_everyone(filters, group)), None)
         if decider is None:
             return None
 
@@ -497,21 +512,32 @@ class FeatureFlagStatusChecker:
         properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
+    def decides_for_everyone(self, filters: dict, group: dict) -> bool:
+        """Whether an untargeted 100% condition settles the result for every request the flag addresses.
+
+        The matcher skips a group-aggregated condition when the request carries no key for that
+        group. A flag whose conditions all aggregate on one target addresses only the requests
+        that carry it, so its condition decides for that whole audience. A flag that mixes person
+        and group aggregation addresses requests without the key too, and only a person-level
+        condition reaches those.
+        """
+        if not self.is_group_fully_rolled_out(group):
+            return False
+        modes = {_condition_aggregation(filters, other) for other in filters.get("groups") or []}
+        return len(modes) == 1 or _condition_aggregation(filters, group) is None
+
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
         # Treat missing filters, `{}`, and `{"groups": []}` as "no release conditions"
         # and therefore fully rolled out. Not a supported state, but legacy data hits
         # all three shapes (especially `{"groups": []}` post-backfill).
-        release_conditions = (flag.filters or {}).get("groups", [])
+        filters = flag.filters or {}
+        release_conditions = filters.get("groups", [])
         if not release_conditions:
             logger.debug(f"Boolean flag {flag.id} has no release conditions, so it is rolled out to 100%")
             return True
 
-        # If flag is boolean flag and rolled release conditions have rolled out to 100%, it is fully rolled out.
-        # The fully rolled out release condition must have no properties set.
         for release_condition in release_conditions:
-            rollout_percentage = release_condition.get("rollout_percentage")
-            properties = release_condition.get("properties") or []
-            if rollout_percentage == 100 and len(properties) == 0:
+            if self.decides_for_everyone(filters, release_condition):
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True
 

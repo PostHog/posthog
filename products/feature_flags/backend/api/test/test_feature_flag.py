@@ -14223,6 +14223,24 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 },
             },
         )
+        # Requests without a group key skip the first condition and get "control" from the second.
+        mixed_aggregation = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="mixed_aggregation",
+            filters={
+                "groups": [
+                    {"properties": [], "rollout_percentage": 100, "variant": "test", "aggregation_group_type_index": 0},
+                    {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 100},
+                        {"key": "test", "rollout_percentage": 0},
+                    ]
+                },
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -14235,13 +14253,14 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     empty_variants.id,
                     targeted_override.id,
                     overallocated.id,
+                    mixed_aggregation.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 7
+        assert len(data["deleted"]) == 8
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -14265,6 +14284,9 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["overallocated"]["rollout_state"] == "partial"
         assert by_key["overallocated"]["active_variant"] is None
+
+        assert by_key["mixed_aggregation"]["rollout_state"] == "partial"
+        assert by_key["mixed_aggregation"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""
