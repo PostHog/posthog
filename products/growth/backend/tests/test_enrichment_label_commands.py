@@ -564,7 +564,9 @@ class TestToolCallAccounting(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+        def _classify(
+            config: Any, payload: Any, signup_domain: Any, llm_client: Any, *, pace_tools: bool = False
+        ) -> dict[str, Any]:
             return {
                 "is_ai": True,
                 "confidence": 0.9,
@@ -583,11 +585,6 @@ class TestToolCallAccounting(_BatchCommandTestCase):
 
 
 class TestToolDeferral(_BatchCommandTestCase):
-    """A transient tool problem (Firecrawl busy/not_configured) must defer the whole org - no
-    classification, no result row, and no contribution to the circuit breaker - rather than
-    compute a permanent verdict with a missing tool result. See labels.py's TransientToolError
-    and enrichment_label_batch.py's _process."""
-
     def test_a_transient_tool_error_defers_the_org_without_writing_a_result(self):
         self._config()
         self._fetch()
@@ -597,6 +594,7 @@ class TestToolDeferral(_BatchCommandTestCase):
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+            self.assertRaises(CommandError),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
@@ -604,7 +602,23 @@ class TestToolDeferral(_BatchCommandTestCase):
         assert "tools_deferred 1" in out.getvalue()
         assert "failed 0" in out.getvalue()
 
-    def test_deferred_orgs_never_trip_the_circuit_breaker(self):
+    def test_the_batch_paces_web_tool_calls(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(
+                f"{_BATCH_COMMAND_MODULE}.classify_payload",
+                return_value={"is_ai": True, "confidence": 0.9, "reasoning": "x", "inputs": {}},
+            ) as classify_mock,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=StringIO())
+
+        assert classify_mock.call_args.kwargs["pace_tools"] is True
+
+    def test_consecutive_deferrals_trip_the_circuit_breaker(self):
         self._config()
         for i in range(3):
             self._fetch(organization=Organization.objects.create(name=f"org-{i}"))
@@ -613,15 +627,17 @@ class TestToolDeferral(_BatchCommandTestCase):
 
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
-            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
+            patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")) as classify_mock,
+            self.assertRaises(CommandError) as ctx,
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1, stdout=out)
 
+        assert "aborted after 1 consecutive failures or tool deferrals" in str(ctx.exception)
+        assert classify_mock.call_count == 1
         assert EnrichmentLabelResult.objects.count() == 0
-        assert "tools_deferred 3" in out.getvalue()
-        assert "failed 0" in out.getvalue()
+        assert "tools_deferred 1" in out.getvalue()
 
-    def test_deferred_orgs_are_excluded_from_the_success_rate_denominator(self) -> None:
+    def test_deferred_orgs_count_against_the_success_rate(self) -> None:
         self._config()
         self._fetch(organization=Organization.objects.create(name="good"), payload={"name": "good"})
         for i in range(3):
@@ -629,7 +645,9 @@ class TestToolDeferral(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        def _classify(config: Any, payload: Any, signup_domain: Any, llm_client: Any) -> dict[str, Any]:
+        def _classify(
+            config: Any, payload: Any, signup_domain: Any, llm_client: Any, *, pace_tools: bool = False
+        ) -> dict[str, Any]:
             if isinstance(payload, dict) and str(payload.get("name", "")).startswith("busy"):
                 raise TransientToolError("boom")
             return {"is_ai": True, "confidence": 0.9, "reasoning": "x", "inputs": {"signup_domain": None, "fields": {}}}
@@ -637,9 +655,11 @@ class TestToolDeferral(_BatchCommandTestCase):
         with (
             patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
+            self.assertRaises(CommandError) as ctx,
         ):
-            call_command("enrichment_label_batch", label="test_label", workers=1, min_success_rate=0.9, stdout=out)
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
+        assert "success_rate 0.25 is below --min-success-rate 0.5" in str(ctx.exception)
         assert EnrichmentLabelResult.objects.count() == 1
         assert "succeeded 1" in out.getvalue()
         assert "tools_deferred 3" in out.getvalue()

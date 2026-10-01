@@ -2,6 +2,9 @@
 against Firecrawl. See enrichment/labels.py for the tool-calling loop that drives these."""
 
 import re
+import time
+import threading
+from collections.abc import Callable
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
@@ -17,10 +20,18 @@ from posthog.egress.firecrawl import (
     search,
 )
 from posthog.egress.firecrawl.client import MAX_SEARCH_LIMIT, MAX_SEARCH_QUERY_CHARS
+from posthog.egress.firecrawl.limiter import firecrawl_account_key
+from posthog.egress.limiter.outbound import get_outbound_rate_limiter
 from posthog.egress.limiter.policies import Priority
 
 EGRESS_SOURCE = "growth_ai_enrichment"
 DEFAULT_SEARCH_RESULTS = 5
+
+# Budget units per call: the client reserves a second unit for a search because Firecrawl bills it
+# at two credits.
+SEARCH_BUDGET_COST = 2
+SCRAPE_BUDGET_COST = 1
+MAX_PACED_ATTEMPTS = 3
 
 ToolError = Literal[
     "not_configured", "busy", "unreachable", "no_results", "invalid_url", "unknown_tool", "bad_arguments"
@@ -90,7 +101,47 @@ def _truncate_markdown(markdown: str) -> str:
     return markdown[:_MAX_MARKDOWN_CHARS] + "…" if len(markdown) > _MAX_MARKDOWN_CHARS else markdown
 
 
-def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
+class _FirecrawlPacer:
+    """Spreads paced calls from every worker thread across the BATCH share of the instance's
+    Firecrawl budget. A bulk run that calls at full speed exhausts the share, and the limiter then
+    sheds every call for the rest of the window, after the model call that asked for the tool is
+    already paid for."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._next_admission_at = 0.0
+
+    def wait_for_admission(self, cost: int) -> None:
+        limiter = get_outbound_rate_limiter()
+        key = firecrawl_account_key()
+        with self._lock:
+            # The interval keeps admissions inside the lane even while the limiter cannot yet see
+            # the calls this process admitted but has not consumed.
+            wait = max(limiter.pace_seconds(key, priority=Priority.BATCH), self._next_admission_at - time.monotonic())
+            if wait > 0:
+                time.sleep(wait)
+            interval = limiter.admission_interval_seconds(key, priority=Priority.BATCH)
+            self._next_admission_at = time.monotonic() + cost * interval
+
+
+_PACER = _FirecrawlPacer()
+
+
+def _call_firecrawl[T](call: Callable[[], T], *, cost: int, paced: bool) -> T:
+    if not paced:
+        return call()
+    attempt = 1
+    while True:
+        _PACER.wait_for_admission(cost)
+        try:
+            return call()
+        except FirecrawlEgressBudgetExhausted:
+            if attempt >= MAX_PACED_ATTEMPTS:
+                raise
+            attempt += 1
+
+
+def _web_search(arguments: dict[str, Any], *, paced: bool) -> ToolOutcome:
     query = arguments.get("query")
     if not isinstance(query, str) or not query:
         return ToolOutcome(
@@ -120,7 +171,11 @@ def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
         )
 
     try:
-        found = search(query, source=EGRESS_SOURCE, limit=limit, priority=Priority.BATCH)
+        found = _call_firecrawl(
+            lambda: search(query, source=EGRESS_SOURCE, limit=limit, priority=Priority.BATCH),
+            cost=SEARCH_BUDGET_COST,
+            paced=paced,
+        )
     except FirecrawlNotConfigured:
         return ToolOutcome(
             name="web_search",
@@ -154,7 +209,7 @@ def _web_search(arguments: dict[str, Any]) -> ToolOutcome:
     )
 
 
-def _fetch_page(arguments: dict[str, Any]) -> ToolOutcome:
+def _fetch_page(arguments: dict[str, Any], *, paced: bool) -> ToolOutcome:
     url = arguments.get("url")
     if not isinstance(url, str):
         return ToolOutcome(
@@ -171,7 +226,11 @@ def _fetch_page(arguments: dict[str, Any]) -> ToolOutcome:
         )
 
     try:
-        scraped = scrape(url, source=EGRESS_SOURCE, formats=("markdown",), priority=Priority.BATCH)
+        scraped = _call_firecrawl(
+            lambda: scrape(url, source=EGRESS_SOURCE, formats=("markdown",), priority=Priority.BATCH),
+            cost=SCRAPE_BUDGET_COST,
+            paced=paced,
+        )
     except FirecrawlNotConfigured:
         return ToolOutcome(
             name="fetch_page",
@@ -208,13 +267,14 @@ def _fetch_page(arguments: dict[str, Any]) -> ToolOutcome:
     )
 
 
-def run_tool(name: str, arguments: dict[str, Any]) -> ToolOutcome:
+def run_tool(name: str, arguments: dict[str, Any], *, paced: bool = False) -> ToolOutcome:
     """Executes one model-requested tool call. Never raises: a Firecrawl failure degrades to an
-    "error" outcome instead of failing the classification."""
+    "error" outcome instead of failing the classification. A paced call waits for room in the
+    Firecrawl budget, which can take minutes, so only a bulk run that can afford the wait sets it."""
     if name == "web_search":
-        return _web_search(arguments)
+        return _web_search(arguments, paced=paced)
     if name == "fetch_page":
-        return _fetch_page(arguments)
+        return _fetch_page(arguments, paced=paced)
     return ToolOutcome(
         name=name, arguments=arguments, result={"error": f"unknown tool {name!r}"}, urls=(), error="unknown_tool"
     )

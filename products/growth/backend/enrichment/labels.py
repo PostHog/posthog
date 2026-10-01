@@ -423,7 +423,7 @@ def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
             combined[key] = turn[key]
 
 
-def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None) -> ToolOutcome:
+def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | None, paced: bool) -> ToolOutcome:
     try:
         arguments = json.loads(call.function.arguments or "{}")
     except (TypeError, ValueError):
@@ -454,7 +454,7 @@ def _run_tool_call(call: Any, *, presented_urls: set[str], signup_domain: str | 
                 error="invalid_url",
             )
         arguments["url"] = fetch_url
-    return run_tool(call.function.name, arguments)
+    return run_tool(call.function.name, arguments, paced=paced)
 
 
 @retry(
@@ -476,7 +476,12 @@ def _complete(client: OpenAI, request: dict[str, Any]) -> ChatCompletion:
 
 
 def _call_and_parse(
-    config: EnrichmentPromptConfig, messages: list[dict[str, Any]], client: OpenAI, *, signup_domain: str | None
+    config: EnrichmentPromptConfig,
+    messages: list[dict[str, Any]],
+    client: OpenAI,
+    *,
+    signup_domain: str | None,
+    pace_tools: bool,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     meta: dict[str, Any] = {}
     tool_log: list[dict[str, Any]] = []
@@ -540,7 +545,7 @@ def _call_and_parse(
                     )
                     continue
                 tool_calls_used += 1
-                outcome = _run_tool_call(call, presented_urls=tool_urls, signup_domain=signup_domain)
+                outcome = _run_tool_call(call, presented_urls=tool_urls, signup_domain=signup_domain, paced=pace_tools)
                 tool_log.append(
                     {
                         "name": outcome.name,
@@ -651,6 +656,8 @@ def classify_payload(
     payload: dict[str, Any] | None,
     signup_domain: str | None,
     client: OpenAI,
+    *,
+    pace_tools: bool = False,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
@@ -665,7 +672,7 @@ def classify_payload(
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
-    output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain)
+    output, meta = _call_and_parse(config, messages, client, signup_domain=signup_domain, pace_tools=pace_tools)
     tool_calls = meta.pop("tool_calls", None)
     _reject_unsupported_evidence_url(output, signup_domain, set(meta.get("tool_urls", ())), meta)
     inputs_record: dict[str, Any] = {"signup_domain": signup_domain, "fields": inputs}
