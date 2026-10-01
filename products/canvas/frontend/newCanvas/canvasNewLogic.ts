@@ -412,7 +412,8 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
                     } catch {
                         // The canvas exists, so the person lands on it and can describe it to the agent instead.
                         toast.error({
-                            title: "The canvas was created, but its blank layout didn't save. Describe the canvas to have the agent build it.",
+                            title: "The canvas was created, but its blank layout didn't save",
+                            description: 'Describe the canvas to have the agent build it.',
                         })
                     }
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()) {
