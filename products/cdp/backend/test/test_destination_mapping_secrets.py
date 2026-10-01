@@ -27,7 +27,7 @@ class TestDestinationMappingSecrets(BaseTest):
     @parameterized.expand([("all_secret", True), ("first_mapping_not_secret", False)])
     def test_moves_a_shared_secret_into_encrypted_inputs(self, _name: str, first_secret: bool) -> None:
         first = _mapping("a", "key-1")
-        first["inputs_schema"] = [URL_SCHEMA, {**SECRET_SCHEMA, "secret": first_secret}]
+        first["inputs_schema"] = [URL_SCHEMA, {**SECRET_SCHEMA, "secret": first_secret, "default": "default-key"}]
         hog_function = self._destination([], [first, _mapping("b", "key-1")])
 
         keys = find_mapping_secret_keys(self.team.pk)
@@ -37,7 +37,9 @@ class TestDestinationMappingSecrets(BaseTest):
         hog_function.refresh_from_db()
         assert hog_function.encrypted_inputs == {"api_key": {"value": "key-1"}}
         assert "api_key" not in (hog_function.inputs or {})
-        assert [(s["key"], s.get("secret")) for s in hog_function.inputs_schema or []] == [("api_key", True)]
+        assert [(s["key"], s.get("secret"), s.get("default")) for s in hog_function.inputs_schema or []] == [
+            ("api_key", True, None)
+        ]
         for mapping in hog_function.mappings or []:
             assert [s["key"] for s in mapping["inputs_schema"]] == ["url"]
             assert set(mapping["inputs"]) == {"url"}

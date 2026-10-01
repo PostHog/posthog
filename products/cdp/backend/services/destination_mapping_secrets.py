@@ -94,7 +94,8 @@ def _move_keys(hog_function: HogFunction, keys: list[str]) -> None:
             for schema in mapping.get("inputs_schema") or []
             if schema.get("key") == key and schema.get("secret")
         )
-        inputs_schema.append(schema)
+        # A default sits in plaintext in `inputs_schema`, and the server never reads a top-level default.
+        inputs_schema.append({k: v for k, v in schema.items() if k != "default"})
         values = _stored_values(mappings, key)
         if values:
             # `save` moves every secret key of `inputs` into `encrypted_inputs`.
