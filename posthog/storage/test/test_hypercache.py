@@ -853,7 +853,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert caches["default"].get(cache_key) is None
         assert caches["default"].get(etag_key) is None
 
-    def test_delete_sends_one_key_per_command_etag_first(self):
+    def test_delete_sends_one_key_per_command_etag_around_payload(self):
         # A cluster rejects a multi-key DEL whose keys hash to different slots.
         hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
         hc.cache_client = Mock()
@@ -865,8 +865,29 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert hc.cache_client.delete.call_args_list == [
             call(hc.get_etag_key(team_id)),
             call(hc.get_cache_key(team_id)),
+            call(hc.get_etag_key(team_id)),
         ]
         hc.cache_client.delete_many.assert_not_called()
+
+    def test_delete_leaves_no_etag_when_a_write_lands_between_deletes(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        team_id = self.team.id
+        hc.set_cache_value(team_id, self.sample_data)
+        real_delete = hc.cache_client.delete
+        deleted: list[str] = []
+
+        def write_after_first_delete(key: str) -> bool:
+            deleted.append(key)
+            result = real_delete(key)
+            if len(deleted) == 1:
+                hc.set_cache_value(team_id, {"rewritten": True})
+            return result
+
+        with patch.object(hc.cache_client, "delete", side_effect=write_after_first_delete):
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert hc.cache_client.get(hc.get_cache_key(team_id)) is None
+        assert hc.cache_client.get(hc.get_etag_key(team_id)) is None
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""

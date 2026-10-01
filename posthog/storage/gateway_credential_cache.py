@@ -411,6 +411,9 @@ def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
     gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
+REFRESH_MAX_CONSECUTIVE_FAILURES = 50
+
+
 def refresh_all_gateway_credentials() -> int:
     """Re-project every credential currently granted llm_gateway:read, keeping entries warm.
 
@@ -431,6 +434,7 @@ def refresh_all_gateway_credentials() -> int:
 
     count = 0
     failed = 0
+    consecutive_failures = 0
     first_error: Exception | None = None
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
@@ -440,10 +444,17 @@ def refresh_all_gateway_credentials() -> int:
                 project_gateway_credential(credential, memo)
             except Exception as e:
                 failed += 1
+                consecutive_failures += 1
                 first_error = first_error or e
+                # A run of failures means Redis itself is down: fail the task instead of timing out on every credential.
+                if consecutive_failures >= REFRESH_MAX_CONSECUTIVE_FAILURES:
+                    raise
                 continue
             count += 1
+            consecutive_failures = 0
 
+    if first_error is not None and count == 0:
+        raise first_error
     if first_error is not None:
         logger.warning("gateway_credential refresh skipped failing credentials", failed=failed, projected=count)
         capture_exception(first_error)

@@ -2,10 +2,11 @@ import json
 import time
 import hashlib
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
 from django.core.cache import cache, caches
+from django.core.cache.backends.base import BaseCache
 
 import structlog
 import redis.exceptions
@@ -615,12 +616,13 @@ class HyperCache:
         try:
             cache_key = self.get_cache_key(key)
             if "redis" in kinds:
-                # One key per DEL: on a cluster the two keys can sit in different slots. The ETag
-                # goes first, so a reader that checks it never answers 304 for a dropped payload.
-                # It goes even when enable_etag is off, to clear a stale ETag from when it was on.
-                redis_keys = (self.get_etag_key(key), cache_key)
+                # One key per DEL: on a cluster the two keys can sit in different slots. The ETag goes
+                # before and after the payload, so no reader or racing write sees an ETag without its
+                # payload. It goes even when enable_etag is off, to clear a stale one.
+                etag_key = self.get_etag_key(key)
+                redis_keys = (etag_key, cache_key, etag_key)
 
-                def delete_each(client: Any) -> None:
+                def delete_each(client: BaseCache) -> None:
                     for redis_key in redis_keys:
                         client.delete(redis_key)
 

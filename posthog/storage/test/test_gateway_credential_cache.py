@@ -1,4 +1,6 @@
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 
@@ -502,28 +504,67 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
         self.assertIsNone(self._read_blob(credential_hash(ignored)))
 
+    @contextmanager
+    def _failing_blob_writes(self, fails: Callable[[int], bool]) -> Iterator[list[str]]:
+        # Fails the Redis write for each nth blob write where fails(n) is true.
+        client = hypercache.cache_client
+        real_set = client.set
+        writes: list[str] = []
+
+        def flaky_set(key: str, value: object, timeout: float | None = None) -> None:
+            writes.append(key)
+            if fails(len(writes)):
+                raise ConnectionError("redis down")
+            real_set(key, value, timeout=timeout)
+
+        with patch.object(client, "set", side_effect=flaky_set):
+            yield writes
+
     def test_refresh_continues_past_a_failing_credential(self):
         first, _ = self._make_secret_key([GATEWAY_SCOPE])
         second, _ = self._make_secret_key([GATEWAY_SCOPE])
-        real_project = gateway_credential_cache.project_gateway_credential
-        seen: list = []
-
-        def fail_first(credential, memo=None):
-            seen.append(credential)
-            if len(seen) == 1:
-                raise RuntimeError("CROSSSLOT Keys in request don't hash to the same slot")
-            real_project(credential, memo)
 
         with (
-            patch.object(gateway_credential_cache, "project_gateway_credential", side_effect=fail_first),
+            self._failing_blob_writes(lambda n: n == 1) as writes,
             patch.object(gateway_credential_cache, "capture_exception") as capture,
         ):
             projected = refresh_all_gateway_credentials()
 
-        self.assertEqual(projected, len(seen) - 1)
+        self.assertEqual(projected, len(writes) - 1)
         capture.assert_called_once()
-        survivor = second if seen[0].pk == first.pk else first
-        self.assertIsNotNone(self._read_blob(credential_hash(survivor)))
+        blobs = [self._read_blob(credential_hash(key)) for key in (first, second)]
+        self.assertEqual(sum(blob is not None for blob in blobs), 1)
+
+    def test_refresh_raises_when_every_credential_fails(self):
+        self._make_secret_key([GATEWAY_SCOPE])
+        self._make_secret_key([GATEWAY_SCOPE])
+        with self._failing_blob_writes(lambda n: True) as writes, self.assertRaises(ConnectionError):
+            refresh_all_gateway_credentials()
+        self.assertEqual(len(writes), 2)
+
+    def test_refresh_resets_the_failure_run_after_a_success(self):
+        for _ in range(3):
+            self._make_secret_key([GATEWAY_SCOPE])
+        with (
+            patch.object(gateway_credential_cache, "REFRESH_MAX_CONSECUTIVE_FAILURES", 2),
+            self._failing_blob_writes(lambda n: n % 2 == 1) as writes,
+            patch.object(gateway_credential_cache, "capture_exception"),
+        ):
+            projected = refresh_all_gateway_credentials()
+
+        self.assertEqual(projected, 1)
+        self.assertEqual(len(writes), 3)
+
+    def test_refresh_stops_after_consecutive_failures(self):
+        for _ in range(3):
+            self._make_secret_key([GATEWAY_SCOPE])
+        with (
+            patch.object(gateway_credential_cache, "REFRESH_MAX_CONSECUTIVE_FAILURES", 2),
+            self._failing_blob_writes(lambda n: True) as writes,
+            self.assertRaises(ConnectionError),
+        ):
+            refresh_all_gateway_credentials()
+        self.assertEqual(len(writes), 2)
 
 
 class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
