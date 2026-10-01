@@ -59,6 +59,8 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: str = get_from_env("FEATURE_FLAG_LAST_C
 # Ending the scan window this far before now keeps the checkpoint from advancing past those
 # rows, so a row still missing at read time is picked up by the next run instead of being
 # skipped for good.
+# flag_evaluations stamps inserted_at with the Kafka message time, before ClickHouse writes the row. With that
+# source, the buffer must also cover the ClickHouse consumer lag, or rows written late fall behind the checkpoint.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
     0,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
