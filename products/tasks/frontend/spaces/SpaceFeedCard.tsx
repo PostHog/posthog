@@ -138,7 +138,11 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
                     {source && (
                         <Badge
-                            className={cn(TASK_CHIP_CLASS, 'border-transparent bg-transparent text-muted-foreground')}
+                            // No padding: the chip has no fill, so it lines up with the prompt text above it.
+                            className={cn(
+                                TASK_CHIP_CLASS,
+                                'border-transparent bg-transparent px-0 text-muted-foreground'
+                            )}
                             data-attr="today-space-feed-source"
                         >
                             <span className="flex size-3 shrink-0 [&>svg]:size-full">{source.icon}</span>
