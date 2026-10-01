@@ -5,6 +5,7 @@ import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } fr
 import { LemonSelect, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
@@ -29,6 +30,8 @@ import { getExperimentVariants } from './utils'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
+    /** Hide the "Implementation" heading, for places that already have their own */
+    showTitle?: boolean
 }
 
 const UTM_TAGS = '?utm_medium=in-product&utm_campaign=experiment'
@@ -248,7 +251,10 @@ function PromptExperimentImplementation({
     )
 }
 
-function GenericExperimentImplementation({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+function GenericExperimentImplementation({
+    experiment,
+    showTitle = true,
+}: ExperimentImplementationDetailsProps): JSX.Element {
     const defaultVariant = getExperimentVariants(experiment)[1]?.key ?? 'test'
     const [currentVariant, setCurrentVariant] = useState(defaultVariant)
     const [defaultSelectedOption] = OPTIONS
@@ -264,8 +270,8 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-semibold text-lg mb-0">Implementation</h2>
+            <div className={cn('flex flex-wrap items-center gap-2', showTitle ? 'justify-between' : 'justify-end')}>
+                {showTitle && <h2 className="font-semibold text-lg mb-0">Implementation</h2>}
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                         <span className="text-secondary text-sm">Variant group</span>
@@ -295,7 +301,10 @@ function GenericExperimentImplementation({ experiment }: ExperimentImplementatio
     )
 }
 
-export function ExperimentImplementationDetails({ experiment }: ExperimentImplementationDetailsProps): JSX.Element {
+export function ExperimentImplementationDetails({
+    experiment,
+    showTitle,
+}: ExperimentImplementationDetailsProps): JSX.Element {
     const promptMetadata = experiment?.parameters?.prompt_metadata
 
     if (promptMetadata) {
@@ -307,5 +316,5 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
         )
     }
 
-    return <GenericExperimentImplementation experiment={experiment} />
+    return <GenericExperimentImplementation experiment={experiment} showTitle={showTitle} />
 }

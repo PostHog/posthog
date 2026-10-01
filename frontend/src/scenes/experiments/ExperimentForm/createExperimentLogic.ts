@@ -96,11 +96,14 @@ export interface createExperimentLogicActions {
     createExperimentSuccess: () => {
         value: true
     }
+    openSavedExperiment: () => {
+        value: true
+    }
     resetExperiment: () => {
         value: true
     }
-    saveExperiment: () => {
-        value: true
+    saveExperiment: (openExperiment?: boolean) => {
+        openExperiment: boolean
     }
     saveExperimentFailure: () => {
         value: true
@@ -214,7 +217,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             rollout_percentage?: number
             ensure_experience_continuity?: boolean
         }) => ({ config }),
-        saveExperiment: true,
+        // `openExperiment: false` saves without leaving the page, e.g. so the wizard can show the implementation step
+        saveExperiment: (openExperiment: boolean = true) => ({ openExperiment }),
+        openSavedExperiment: true,
         saveExperimentStarted: true,
         saveExperimentSuccess: true,
         saveExperimentFailure: true,
@@ -381,7 +386,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 }
             }
         },
-        saveExperiment: async () => {
+        saveExperiment: async ({ openExperiment }) => {
             // Prevent double submission
             if (values.isExperimentSubmitting) {
                 return
@@ -546,37 +551,50 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 },
                             }
                         )
-                    } else {
+                    } else if (openExperiment) {
+                        // When the page stays open, it confirms the save itself (the wizard's implementation step),
+                        // and this toast would cover the footer's "Go to experiment" button
                         lemonToast.success('Experiment created successfully!')
                     }
-                    tryShowMCPHint('experiments.create', {
-                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
-                    })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()
 
-                    const sceneLogicInstance = experimentSceneLogic.findMounted()
-                    if (sceneLogicInstance) {
-                        sceneLogicInstance.actions.setSceneState(response.id, FORM_MODES.update)
-                        const logicRef = sceneLogicInstance.values.experimentLogicRef
-
-                        if (logicRef) {
-                            logicRef.logic.actions.loadExperimentSuccess(response)
-                        } else {
-                            experimentLogic({
-                                experimentId: response.id,
-                            }).actions.loadExperimentSuccess(response)
-                        }
-                    } else {
-                        const viewLogic = experimentLogic({ experimentId: response.id })
-                        viewLogic.actions.loadExperimentSuccess(response)
-                        router.actions.push(urls.experiment(response.id))
+                    if (openExperiment) {
+                        actions.openSavedExperiment()
                     }
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to save experiment')
                 actions.saveExperimentFailure()
+            }
+        },
+        openSavedExperiment: () => {
+            const experiment = values.experiment
+            if (experiment.id === 'new') {
+                return
+            }
+            // Shown once the experiment opens rather than at save, so on the wizard's implementation step it doesn't
+            // cover the footer's "Go to experiment" button
+            tryShowMCPHint('experiments.create', {
+                derivedPrompt: experiment.name ? `Create an A/B experiment called ${experiment.name}` : undefined,
+            })
+            const sceneLogicInstance = experimentSceneLogic.findMounted()
+            if (sceneLogicInstance) {
+                sceneLogicInstance.actions.setSceneState(experiment.id, FORM_MODES.update)
+                const logicRef = sceneLogicInstance.values.experimentLogicRef
+
+                if (logicRef) {
+                    logicRef.logic.actions.loadExperimentSuccess(experiment)
+                } else {
+                    experimentLogic({
+                        experimentId: experiment.id,
+                    }).actions.loadExperimentSuccess(experiment)
+                }
+            } else {
+                const viewLogic = experimentLogic({ experimentId: experiment.id })
+                viewLogic.actions.loadExperimentSuccess(experiment)
+                router.actions.push(urls.experiment(experiment.id))
             }
         },
     })),

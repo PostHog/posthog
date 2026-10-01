@@ -7,9 +7,14 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { humanList } from 'lib/utils/strings'
+import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
+import type { Experiment } from '~/types'
+
+import { getExperimentVariants } from '../utils'
 import { ExperimentWizardStep, experimentWizardLogic } from './experimentWizardLogic'
 
 interface GuideContent {
@@ -42,15 +47,33 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
             'You can change inclusion criteria and metrics afterwards. This impacts only the analysis, not what your user sees or data collection.',
         ],
     },
+    implementation: {
+        title: 'Implementation',
+        tips: [
+            'Your experiment is saved as a draft. Its results start counting when you launch it.',
+            'The code checks the feature flag and shows each person their variant. Pick your library to get the right snippet.',
+            'Once the code is deployed, launch the experiment from its page. The code is also there, in the Code tab.',
+        ],
+    },
+}
+
+export function implementationQuestion(experiment: Experiment): string {
+    const flagKey = experiment.feature_flag?.key ?? experiment.feature_flag_key
+    const variantKeys = getExperimentVariants(experiment).map(({ key }) => key)
+    return `How do I add the "${experiment.name}" experiment to my code? Its feature flag key is ${flagKey}, with the variants ${humanList(variantKeys)}.`
 }
 
 export function ExperimentWizardGuide(): JSX.Element {
-    const { currentStep } = useValues(experimentWizardLogic)
+    const { currentStep, experiment } = useValues(experimentWizardLogic)
+    const isImplementationStep = currentStep === 'implementation'
     const { reportExperimentWizardAskAiClicked } = useActions(eventUsageLogic)
 
     const { openMax } = useMaxTool({
         identifier: 'create_experiment',
-        initialMaxPrompt: 'Create an experiment for ',
+        // Once the draft is saved, send a question about adding its code instead of starting a new experiment
+        initialMaxPrompt: isImplementationStep
+            ? autoRunMaxPrompt(implementationQuestion(experiment))
+            : 'Create an experiment for ',
         callback: (toolOutput: { experiment_id?: string | number; error?: string }) => {
             if (toolOutput?.error || !toolOutput?.experiment_id) {
                 lemonToast.error(`Failed to create experiment: ${toolOutput?.error || 'Unknown error'}`)
@@ -79,7 +102,11 @@ export function ExperimentWizardGuide(): JSX.Element {
 
             {openMax && (
                 <div className="flex flex-col gap-2 pt-3 border-t border-dashed border-primary">
-                    <div className="text-sm text-default">Rather describe it? PostHog AI can set it up for you.</div>
+                    <div className="text-sm text-default">
+                        {isImplementationStep
+                            ? 'Need help with the code? PostHog AI can explain how to add it.'
+                            : 'Rather describe it? PostHog AI can set it up for you.'}
+                    </div>
                     <div>
                         <LemonButton
                             type="secondary"
