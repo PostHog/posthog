@@ -36,6 +36,10 @@ import {
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import {
+    captureMarketingCrossSellSourceCreated,
+    getMarketingCrossSellAttribution,
+} from 'products/web_analytics/frontend/marketing/marketingCrossSellAttribution'
 
 import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
@@ -2202,6 +2206,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            const crossSellAttribution =
+                values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true &&
+                values.selectedConnector.category === 'Advertising' &&
+                values.currentTeamId
+                    ? getMarketingCrossSellAttribution(values.currentTeamId)
+                    : null
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -2228,6 +2239,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
+
+                if (crossSellAttribution) {
+                    captureMarketingCrossSellSourceCreated(crossSellAttribution, id, values.selectedConnector.name)
+                }
 
                 tryShowMCPHint('data_warehouse_sources.create', {
                     derivedPrompt: `Connect a ${values.selectedConnector.name} source`,

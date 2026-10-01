@@ -219,6 +219,22 @@ This is positive evidence from the returned top channels, not an exhaustive cens
 Connection metadata loads only after that evidence exists, without mounting the Marketing analytics dashboard or running its report queries.
 An enabled native ad integration or an existing external source mapping leads to Marketing analytics; otherwise the link opens source setup when that interface is enabled, or the existing dashboard onboarding flow.
 Sync health remains the destination's responsibility, so a failed integration does not prompt a duplicate connection.
+The three table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
 Loading and failed metadata requests leave the suggestion hidden.
 The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
 Dismissal persists per project in the browser.
+
+### Cross-sell attribution
+
+`web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+`web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
+The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
+Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.
+A failed connection retains it for retry. Non-ad connections and flag-off users do not read or consume it.
+Storage restrictions, switching devices or tabs, and later connections can leave conversions unattributed.
+These events use the existing analytics SDK and add no eligibility queries.
+
+Join the attributed `source_id` to source sync usage and the project's billing customer to estimate its share of billed Data warehouse revenue.
+Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
+Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
+This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
