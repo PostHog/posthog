@@ -81,8 +81,8 @@ class ProbeWindow:
 SourceProbe = Callable[[list[int], ProbeWindow], dict[int, datetime]]
 
 
-def latest_per_team[M: Model](
-    queryset: QuerySet[M], field: str, team_ids: list[int], window: ProbeWindow
+def latest_per_team(
+    queryset: QuerySet[Model], field: str, team_ids: list[int], window: ProbeWindow
 ) -> dict[int, datetime]:
     """The newest `field` value per team within the window, for a probe over a Postgres timestamp column."""
     rows = (

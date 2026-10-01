@@ -18,8 +18,8 @@ def last_flag_call_at(team_ids: list[int], window: ProbeWindow) -> dict[int, dat
 
 # Flag evaluations, not flag edits: a project with flags configured but nothing calling them
 # is not receiving data. The spec also claims the event name, because otherwise the product
-# analytics residual would count it. The event definition also catches calls for keys that the
-# sync never stamps.
+# analytics residual would count it. The event definition also catches calls for keys with no
+# undeleted flag, because the sync only stamps undeleted flags it finds by key.
 DATA_SOURCES = [
     DataSourceSpec(product=ProductKey.FEATURE_FLAGS, event_names=("$feature_flag_called",), probe=last_flag_call_at)
 ]
