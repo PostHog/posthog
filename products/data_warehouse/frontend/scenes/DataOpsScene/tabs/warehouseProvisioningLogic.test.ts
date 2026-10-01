@@ -37,6 +37,25 @@ describe('warehouseProvisioningLogic', () => {
         expect(dwApi.dataWarehouseWarehouseStatusRetrieve).toHaveBeenCalled()
     })
 
+    // The warehouse reports ready before Trino does. Without polling through that gap, a Trino
+    // organization would sit on "Setting up the query engine..." until the user reloads.
+    it.each([
+        { name: 'keeps polling while Trino is provisioning', trinoState: 'provisioning', expectedAction: 'pollStatus' },
+        { name: 'keeps polling while Trino is pending', trinoState: 'pending', expectedAction: 'pollStatus' },
+        { name: 'stops polling once Trino is ready', trinoState: 'ready', expectedAction: 'stopPolling' },
+        { name: 'stops polling when Trino failed', trinoState: 'failed', expectedAction: 'stopPolling' },
+    ])('$name', async ({ trinoState, expectedAction }) => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
+            state: 'ready',
+            trino: { state: trinoState, ready_at: null, connection: null },
+        } as any)
+
+        logic = warehouseProvisioningLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadWarehouseStatusSuccess', expectedAction])
+    })
+
     it('treats a 404 status as no warehouse', async () => {
         jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockRejectedValueOnce({ status: 404 })
 
