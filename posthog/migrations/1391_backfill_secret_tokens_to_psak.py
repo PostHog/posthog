@@ -29,9 +29,9 @@ def backfill_tokens(apps, schema_editor):
 
     teams = (
         Team.objects.using(db)
-        # Row lock: a concurrent rotation retiring a token between our read and our
-        # insert would otherwise get its hash resurrected by this backfill.
-        .select_for_update()
+        # Blocks a concurrent rotation from retiring a token between our read and our
+        # insert (its UPDATE needs this lock), while no_key keeps FK writers unblocked.
+        .select_for_update(no_key=True)
         .exclude(secret_api_token__isnull=True)
         .exclude(secret_api_token="")
         .only("id", "secret_api_token", "secret_api_token_backup")
