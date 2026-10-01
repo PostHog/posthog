@@ -37,14 +37,8 @@ export function propertyKeysIn(properties: unknown): PropertyKeyRef[] {
 }
 
 /**
- * Which of these keys each project has never seen.
- *
- * A property filter travels by name, so a key that exists in one project and not another
- * silently narrows that tile to nothing. Reporting the absence is the difference between a
- * tile that reads as empty and a tile that reads as wrong.
- *
- * Checked on filter apply only. Doing it on open would cost a request per project per key on
- * every page load, for a question nobody asked.
+ * A filter travels by key name, so a key one project never recorded silently empties that tile.
+ * Checked on filter apply only, because a check on open costs a request per project and key.
  */
 export async function findMissingPropertyKeys(
     projectIds: number[],

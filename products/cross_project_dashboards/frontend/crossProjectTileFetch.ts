@@ -32,14 +32,7 @@ function releaseSlot(): void {
     waiting.shift()?.()
 }
 
-/**
- * Fetch one tile's insight from its own project.
- *
- * The cross-project dashboard response carries ids only, so the tile is fetched here rather
- * than served with the dashboard. Going through the project's own insight endpoint is what
- * keeps the reader's access, the project's quota and the cache key correct: a reader without
- * access gets a 403 from that endpoint, and never receives the insight's name or query.
- */
+/** The project's own insight endpoint applies the reader's access, quota and cache key, so a reader without access gets a 403. */
 export async function fetchCrossProjectTile(
     projectId: number,
     insightId: number,
