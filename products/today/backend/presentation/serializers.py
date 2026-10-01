@@ -57,6 +57,9 @@ class BriefingItemMetricSerializer(DataclassSerializer):
         choices=signals.REPORT_METRIC_VALUE_FORMATS, help_text="How to format the value, for example count."
     )
     unit = serializers.CharField(allow_null=True, help_text="Optional short suffix or currency code, such as USD.")
+    query = serializers.JSONField(
+        help_text="The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."
+    )
 
     class Meta:
         dataclass = BriefingItemMetric

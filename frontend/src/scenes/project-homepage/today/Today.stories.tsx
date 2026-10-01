@@ -22,7 +22,10 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
+import {
+    reportMetricQueryHandler,
+    reportMetricsFixture,
+} from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
@@ -419,6 +422,7 @@ const PERSONAL_BRIEFING: BriefingApi = {
                         series: [12, 18, 15, 22, 31, 40, 52],
                         value_format: 'count',
                         unit: 'users',
+                        query: reportMetricsFixture[0].query,
                     },
                 ],
             },
@@ -577,6 +581,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/tasks/summaries/': {
                     count: 2,
                     next: null,

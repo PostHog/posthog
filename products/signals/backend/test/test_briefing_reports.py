@@ -89,7 +89,9 @@ class TestReportsForBriefing(BaseTest):
         [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)])
 
         assert (details.status, details.priority, details.pull_request_state) == ("ready", "P0", None)
-        assert [(m.metric_id, m.value, m.series) for m in details.metrics] == [("measured", 17, [3.0, 9.0, 17.0])]
+        assert [(m.metric_id, m.value, m.series, m.query) for m in details.metrics] == [
+            ("measured", 17, [3.0, 9.0, 17.0], query)
+        ]
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")

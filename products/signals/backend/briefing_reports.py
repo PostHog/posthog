@@ -83,7 +83,7 @@ class BriefingReportDetails:
     # One of IMPLEMENTATION_PR_STATES, or None when the report has no implementation PR.
     pull_request_state: str | None
     pull_request_url: str | None
-    # Only metrics with a saved snapshot: the briefing shows figures, it never runs a query.
+    # Only metrics with a saved snapshot, so the briefing shows a figure before the live query answers.
     metrics: list[ReportMetricSnapshot]
 
 

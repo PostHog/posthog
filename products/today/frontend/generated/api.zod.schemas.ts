@@ -99,6 +99,9 @@ export const BriefingItemMetricApi = zod.object({
             'How to format the value, for example count.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
         ),
     unit: zod.string().nullable().describe('Optional short suffix or currency code, such as USD.'),
+    query: zod
+        .unknown()
+        .describe("The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."),
 })
 
 export type BriefingItemMetricApi = zod.input<typeof BriefingItemMetricApi>
@@ -165,6 +168,9 @@ export const BriefingItemReportApi = zod.object({
                         'How to format the value, for example count.\n\n\* `number` - number\n\* `count` - count\n\* `percentage` - percentage\n\* `percentage_scaled` - percentage_scaled\n\* `duration` - duration\n\* `currency` - currency'
                     ),
                 unit: zod.string().nullable().describe('Optional short suffix or currency code, such as USD.'),
+                query: zod
+                    .unknown()
+                    .describe("The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."),
             })
         )
         .describe("The report's metrics that have a saved snapshot, in the report's order."),
@@ -300,6 +306,11 @@ export const BriefingItemApi = zod.object({
                                 .string()
                                 .nullable()
                                 .describe('Optional short suffix or currency code, such as USD.'),
+                            query: zod
+                                .unknown()
+                                .describe(
+                                    "The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."
+                                ),
                         })
                     )
                     .describe("The report's metrics that have a saved snapshot, in the report's order."),
@@ -476,6 +487,11 @@ export const BriefingApi = zod.object({
                                             .string()
                                             .nullable()
                                             .describe('Optional short suffix or currency code, such as USD.'),
+                                        query: zod
+                                            .unknown()
+                                            .describe(
+                                                "The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."
+                                            ),
                                     })
                                 )
                                 .describe("The report's metrics that have a saved snapshot, in the report's order."),

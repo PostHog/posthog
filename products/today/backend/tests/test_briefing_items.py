@@ -53,6 +53,7 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
                 series=[10.0, 20.0, 42.0],
                 value_format="count",
                 unit="users",
+                query={"kind": "InsightVizNode"},
             )
         ],
     )
@@ -121,9 +122,9 @@ class TestBriefingItemStates(SimpleTestCase):
         assert ticket_statuses.call_args.kwargs["ticket_ids"] == [RESOLVED_TICKET, OPEN_TICKET]
         report = next(item.report for item in contract.items if item.key == f"report:{RESOLVED_REPORT}")
         assert report is not None
-        assert (report.priority, report.pull_request_state, [m.value for m in report.metrics]) == (
+        assert (report.priority, report.pull_request_state, [(m.value, m.query) for m in report.metrics]) == (
             "P1",
             "merged",
-            [42.0],
+            [(42.0, {"kind": "InsightVizNode"})],
         )
         assert [item.report for item in contract.items if item.group != ItemGroup.REPORT] == [None] * 6

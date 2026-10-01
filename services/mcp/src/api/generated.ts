@@ -18064,6 +18064,8 @@ export namespace Schemas {
          * @nullable
          */
       unit: string | null;
+      /** The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it. */
+      query: unknown;
     }
 
     export interface BriefingItemReport {

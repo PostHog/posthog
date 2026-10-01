@@ -706,10 +706,10 @@ def metric_batch_error(metrics: Sequence[ReportMetric]) -> str | None:
 
 
 class ReportMetricSnapshot(BaseModel):
-    """The saved figure of one report metric, without its live query.
+    """The saved figure of one report metric, with its live query as stored.
 
-    Reading a snapshot this way skips the query validation `ReportMetric` runs, so a caller that
-    only shows saved figures does not pay for checking a query it never executes.
+    Reading a snapshot this way skips the query validation `ReportMetric` runs. The query was
+    validated when the metric was saved, and the reader runs it through the regular query endpoint.
     """
 
     model_config = {"frozen": True, "extra": "ignore"}
@@ -722,6 +722,7 @@ class ReportMetricSnapshot(BaseModel):
     series: list[float] | None = None
     value_format: ReportMetricValueFormat = "number"
     unit: str | None = None
+    query: dict[str, Any] = Field(default_factory=dict)
 
 
 def saved_metric_snapshots(raw_metrics: object) -> list[ReportMetricSnapshot]:

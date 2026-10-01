@@ -1,6 +1,7 @@
 """Contract types for today: what the product returns to its API, MCP tools and other products."""
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic.dataclasses import dataclass
 
@@ -16,7 +17,7 @@ class BriefingSegment:
 
 @dataclass(frozen=True)
 class BriefingItemMetric:
-    """A report metric's saved snapshot. The same fields as the inbox list's metric, without the query."""
+    """A report metric's saved snapshot and its live query. The same fields as the inbox list's metric."""
 
     metric_id: str
     title: str
@@ -26,6 +27,7 @@ class BriefingItemMetric:
     series: list[float] | None
     value_format: str
     unit: str | None
+    query: dict[str, Any]
 
 
 @dataclass(frozen=True)
