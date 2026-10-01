@@ -104,7 +104,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 workflow.start_child_workflow(
                     "alerts-platform-deliver-preview",
                     preview,
-                    id=f"alerts-deliver-preview-{preview.alert_id}:{preview.evaluation_key}",
+                    id=f"alerts-deliver-preview-{preview.configuration_id}:{preview.evaluation_key}",
                     task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=1),

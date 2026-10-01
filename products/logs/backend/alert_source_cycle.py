@@ -306,10 +306,10 @@ def _delivery(
     )
     return recorded, AlertDeliveryPreview(
         source=SourceKind.LOGS,
-        alert_id=str(check.id),
+        configuration_id=str(check.id),
         alert_name=check.name,
         # The recorded key unchanged, so a delivery can address the row the check wrote. The
-        # workflow id that has to be unique across alerts joins this to `alert_id` itself.
+        # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
