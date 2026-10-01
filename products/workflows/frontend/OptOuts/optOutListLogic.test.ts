@@ -43,11 +43,18 @@ describe('optOutListLogic usage tracking', () => {
         expect(capture).toHaveBeenCalledWith('messaging opt-outs exported')
     })
 
-    it('captures the import with the number of recipients it opted out', async () => {
+    it.each([
+        {
+            optedOut: 2,
+            outcome: 'captures the import count',
+            expected: [['messaging opt-outs imported', { count: 2 }]],
+        },
+        { optedOut: 0, outcome: 'captures nothing', expected: [] },
+    ])('$outcome when the import opts out $optedOut recipients', async ({ optedOut, expected }) => {
         jest.spyOn(messagingApi, 'messagingPreferencesBulkAddOptOutsCreate').mockResolvedValue({
             total: 3,
-            opted_out: 2,
-            skipped: 1,
+            opted_out: optedOut,
+            skipped: 3 - optedOut,
             errors: [],
         })
         // jsdom cannot stream a File through Papa, so hand the parsed rows straight to its callback.
@@ -64,6 +71,6 @@ describe('optOutListLogic usage tracking', () => {
             logic.actions.importCsv()
         }).toDispatchActions(['importCsvSuccess'])
 
-        expect(capture).toHaveBeenCalledWith('messaging opt-outs imported', { count: 2 })
+        expect(capture.mock.calls.filter(([event]) => event === 'messaging opt-outs imported')).toEqual(expected)
     })
 })
