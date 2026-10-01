@@ -241,8 +241,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[4][6:] == (9002, 0)
 
     def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
-        # Run 901 handed its commit to Depot, which ran it, so only Depot's run of that commit counts.
-        # Run 902 handed off a commit Depot never ran, so its relayed verdict is the only record of it.
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
@@ -256,17 +254,25 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "2026-09-24 14:50:00",
                     "2026-09-24 15:05:00",
                     pr_number=pr_number,
-                    run_attempt=2 if run_id in (906, 908) else 1,
+                    run_attempt=run_attempt,
                 )
-                for run_id, sha, pr_number, conclusion in (
-                    (901, "abc123", 101991, "success"),
-                    (902, "def456", 101991, "success"),
-                    (903, "fed789", 101991, "success"),
-                    (904, "abc123", 101992, "success"),
-                    (905, "abc123", 101991, "failure"),
-                    (906, "abc123", 101991, "failure"),
-                    (907, "abc123", 101991, "success"),
-                    (908, "abc123", 101991, "success"),
+                for run_id, sha, pr_number, conclusion, run_attempt in (
+                    # Handed its commit to Depot, which ran it, so only Depot's run of that commit counts.
+                    (901, "abc123", 101991, "success", 1),
+                    # Handed off a commit Depot never ran, so its relayed verdict is the only record of it.
+                    (902, "def456", 101991, "success", 1),
+                    # Skipped the hand-off.
+                    (903, "fed789", 101991, "success", 1),
+                    # Shares the handed-off commit under another pull request.
+                    (904, "abc123", 101992, "success", 1),
+                    # The relay failed.
+                    (905, "abc123", 101991, "failure", 1),
+                    # The relay failed on its re-run.
+                    (906, "abc123", 101991, "failure", 2),
+                    # The relay's re-run has not settled.
+                    (907, "abc123", 101991, "success", 1),
+                    # The relay recovered weeks after its failed attempt.
+                    (908, "abc123", 101991, "success", 2),
                 )
             ],
         )
