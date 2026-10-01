@@ -232,23 +232,32 @@ function SortedBy({
     )
 }
 
+function useRecommendedOnlyToggle(
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
+    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    const checked = !!filters.recommended_only
+    const toggle = (checked: boolean): void => {
+        posthog.capture('session recording recommended filter changed', { enabled: checked })
+        setFilters(getRecommendedFilterChange(checked))
+    }
+    return { enabled, checked, toggle }
+}
+
 function useRecommendedOnlyMenuItem(
     filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 ): LemonMenuItem | null {
-    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
     if (!enabled) {
         return null
     }
-    const checked = !!filters.recommended_only
     return {
         label: 'High relevance only',
         icon: checked ? <IconCheck /> : <IconBlank />,
         active: checked,
-        onClick: () => {
-            posthog.capture('session recording recommended filter changed', { enabled: !checked })
-            setFilters(getRecommendedFilterChange(!checked))
-        },
+        onClick: () => toggle(!checked),
         'data-attr': 'session-recordings-recommended-only',
     }
 }
@@ -294,7 +303,7 @@ function RecommendedOnlyFilter({
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element | null {
-    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
     if (!enabled) {
         return null
     }
@@ -304,11 +313,8 @@ function RecommendedOnlyFilter({
             <span className="inline-flex items-center ml-3">
                 <LemonCheckbox
                     label="High relevance"
-                    checked={!!filters.recommended_only}
-                    onChange={(checked) => {
-                        posthog.capture('session recording recommended filter changed', { enabled: checked })
-                        setFilters(getRecommendedFilterChange(checked))
-                    }}
+                    checked={checked}
+                    onChange={toggle}
                     data-attr="session-recordings-recommended-only"
                 />
             </span>

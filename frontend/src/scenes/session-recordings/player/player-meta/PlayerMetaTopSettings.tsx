@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenuItems, Link } from '@posthog/lemon-ui'
@@ -18,6 +18,8 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
+
+import { SessionRecordingType } from '~/types'
 
 function PlayerControlsLayoutToggle(): JSX.Element {
     const { playerControlsOverlay } = useValues(sessionRecordingPlayerLogic)
@@ -87,19 +89,27 @@ export function InspectDOM(): JSX.Element {
     )
 }
 
-export function TTLWarning({ variant = 'button' }: { variant?: 'button' | 'inline' }): JSX.Element | null {
+function useLowTtlMeta(): { sessionPlayerMetaData: SessionRecordingType | null; lowTtl: boolean } {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const lowTtl =
-        sessionPlayerMetaData?.recording_ttl &&
+        !!sessionPlayerMetaData?.recording_ttl &&
         sessionPlayerMetaData.recording_ttl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS
+    return { sessionPlayerMetaData, lowTtl }
+}
 
+export function useReportLowTtlViewed(): void {
+    const { sessionPlayerMetaData, lowTtl } = useLowTtlMeta()
     useEffect(() => {
         if (lowTtl) {
             posthog.capture('recording viewed with very low TTL', sessionPlayerMetaData)
         }
     }, [sessionPlayerMetaData, lowTtl])
+}
 
-    if (!lowTtl) {
+export function TTLWarning({ variant = 'button' }: { variant?: 'button' | 'inline' }): JSX.Element | null {
+    const { sessionPlayerMetaData, lowTtl } = useLowTtlMeta()
+
+    if (!lowTtl || !sessionPlayerMetaData) {
         return null
     }
 
@@ -172,24 +182,28 @@ export function usePlayerChromeMenuItems(): LemonMenuItems {
     const { modalContext } = useValues(sessionPlayerModalLogic)
 
     const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
+    const showHeatmap = modalContext?.type !== 'heatmap-background-selection'
 
-    return [
-        showControlsLayoutToggle && {
-            label: playerControlsOverlay ? 'Pin controls below recording' : 'Float controls over recording',
-            icon: <IconBottomPanel />,
-            onClick: () => setPlayerControlsOverlay(!playerControlsOverlay),
-            'data-attr': 'toggle-player-controls-overlay',
-        },
-        modalContext?.type !== 'heatmap-background-selection' && {
-            label: 'Use as heatmap background',
-            icon: <IconHeatmap />,
-            onClick: () => {
-                setPause()
-                openHeatmap()
+    return useMemo(
+        () => [
+            showControlsLayoutToggle && {
+                label: playerControlsOverlay ? 'Pin controls below recording' : 'Float controls over recording',
+                icon: <IconBottomPanel />,
+                onClick: () => setPlayerControlsOverlay(!playerControlsOverlay),
+                'data-attr': 'toggle-player-controls-overlay',
             },
-            'data-attr': 'player-view-heatmap',
-        },
-    ]
+            showHeatmap && {
+                label: 'Use as heatmap background',
+                icon: <IconHeatmap />,
+                onClick: () => {
+                    setPause()
+                    openHeatmap()
+                },
+                'data-attr': 'player-view-heatmap',
+            },
+        ],
+        [showControlsLayoutToggle, playerControlsOverlay, showHeatmap, setPlayerControlsOverlay, setPause, openHeatmap]
+    )
 }
 
 export function PlayerMetaTopSettings(): JSX.Element {
