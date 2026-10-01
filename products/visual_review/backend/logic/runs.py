@@ -209,6 +209,21 @@ def mark_run_processing(run_id: UUID) -> Run:
     return run
 
 
+def record_completing_job(run_id: UUID, check_run_id: str) -> None:
+    """Point recompute's CI rerun at the job that completes the run.
+
+    `run create` records the job that captures the snapshots. GitHub re-runs a job
+    together with every job that depends on it, so a rerun of that job captures every
+    snapshot again and creates a new run. The completing job only reads the server
+    verdict, and the required check depends on it. It runs on every complete call, also
+    on a completed run, because a re-run of the completing job has a new job ID.
+    """
+    with transaction.atomic(using=WRITER_DB):
+        run = Run.objects.using(WRITER_DB).select_for_update().get(id=run_id)
+        run.metadata["github_check_run_id"] = check_run_id
+        run.save(using=WRITER_DB, update_fields=["metadata"])
+
+
 def complete_run(run_id: UUID) -> Run:
     """
     Complete a run: detect removals, classify snapshots, hand off to the diff task.
