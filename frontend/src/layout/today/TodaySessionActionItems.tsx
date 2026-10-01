@@ -15,8 +15,10 @@ import {
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMac } from 'lib/utils/dom'
 
 import { TodayMenuParts } from './todayMenuParts'
+import { todayArchiveShortcutLabel } from './todaySessionArchiveShortcut'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySpaceFileList } from './TodaySpaceFileList'
 import { todaySpacesLogic } from './todaySpacesLogic'
@@ -32,7 +34,7 @@ interface TodaySessionActionItemsProps {
 
 /** A session's actions, in Desktop's order: the edits, the places it can go, then archive last. */
 export function TodaySessionActionItems({
-    parts: { Item, Separator, Sub },
+    parts: { Item, Separator, Shortcut, Sub },
     target,
     surface,
     dataAttrPrefix,
@@ -113,6 +115,7 @@ export function TodaySessionActionItems({
                 <IconArchive />
                 {/* Only a running session asks first, so only its label promises a next step. */}
                 {activeRunId ? 'Archive…' : 'Archive'}
+                <Shortcut>{todayArchiveShortcutLabel(isMac())}</Shortcut>
             </Item>
         </>
     )

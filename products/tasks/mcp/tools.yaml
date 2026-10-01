@@ -391,6 +391,9 @@ tools:
     task-channels-context-generation-update:
         operation: task_channels_context_generation_update
         enabled: false
+    task-channels-contributors-retrieve:
+        operation: task_channels_contributors_retrieve
+        enabled: false
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
@@ -453,6 +456,9 @@ tools:
         enabled: false
     tasks-comments-retrieve:
         operation: tasks_comments_retrieve
+        enabled: false
+    tasks-config-agent-instructions-create:
+        operation: tasks_config_agent_instructions_create
         enabled: false
     tasks-config-create:
         operation: tasks_config_create
@@ -607,6 +613,9 @@ tools:
                 - latest_run.completed_at
                 - created_at
                 - updated_at
+    tasks-me-config-agent-instructions-create:
+        operation: tasks_me_config_agent_instructions_create
+        enabled: false
     tasks-me-config-create:
         operation: tasks_me_config_create
         enabled: true
@@ -667,6 +676,9 @@ tools:
         enabled: false
     tasks-presence-destroy:
         operation: tasks_presence_destroy
+        enabled: false
+    tasks-pull-request-titles-create:
+        operation: tasks_pull_request_titles_create
         enabled: false
     tasks-repo-routing-rules-create:
         operation: tasks_repo_routing_rules_create

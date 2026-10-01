@@ -809,7 +809,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             null as ProbabilityBucket[] | null,
             {
                 loadProbabilityDistribution: async () => {
-                    // A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
+                    // Capture can shift the timestamps of one batch apart, so the latest batch is its prediction date.
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT least(floor(p * 10), 9) AS bucket, count() AS users
@@ -820,8 +820,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                                 FROM events
                                 WHERE event = 'autoresearch_prediction'
                                   AND properties.$autoresearch_pipeline_id = ${props.id}
-                                  AND timestamp = (
-                                      SELECT max(timestamp)
+                                  AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                                  AND properties.$autoresearch_prediction_date = (
+                                      SELECT max(properties.$autoresearch_prediction_date)
                                       FROM events
                                       WHERE event = 'autoresearch_prediction'
                                         AND properties.$autoresearch_pipeline_id = ${props.id}

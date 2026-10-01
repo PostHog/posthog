@@ -18,9 +18,9 @@ import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
@@ -114,6 +114,7 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        origin_product: 'slack',
         channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
@@ -136,6 +137,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-3',
+        origin_product: 'error_tracking',
         channel: 'space-checkout',
         title: 'Speed up the invoice export',
         archived: false,
@@ -152,6 +154,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-2',
+        origin_product: 'signal_report',
         channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,
@@ -262,6 +265,44 @@ const REPORTS = [
         priority: 'P2',
         actionability: 'immediately_actionable',
         source_products: ['llm_analytics'],
+    }),
+    makeReport({
+        id: 'report-4',
+        title: 'Checkout conversion fell after the address form change',
+        summary:
+            'Fewer people finish checkout since the address form gained a required phone field.\n\n[Checkout conversion](chart:checkout-conversion)\n\nThe drop is sharpest on mobile, where the field is hard to fill.',
+        status: SignalReportStatus.READY,
+        signal_count: 4,
+        updated_at: '2026-09-28T08:00:00Z',
+        priority: 'P1',
+        actionability: 'immediately_actionable',
+        source_products: ['product_analytics'],
+        charts: [
+            {
+                chart_id: 'checkout-conversion',
+                title: 'Checkout conversion',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'checkout completed' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+            {
+                chart_id: 'mobile-dropoff',
+                title: 'Mobile drop-off at the address form',
+                query: {
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'TrendsQuery',
+                        series: [{ kind: 'EventsNode', event: 'address form abandoned' }],
+                        dateRange: { date_from: '2026-09-14', date_to: '2026-09-28' },
+                    },
+                },
+            },
+        ],
     }),
 ]
 
@@ -387,10 +428,12 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/for_you/': { results: REPORTS, count: 7 },
                 '/api/projects/:team_id/signals/reports/:id/': (req) => [
                     200,
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
+                '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
                 '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
                     200,
                     // Error tracking signals fetch their issue, which these stories do not mock.
@@ -527,7 +570,7 @@ export const SampleReportPage: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -535,7 +578,7 @@ export const HomeWithNoReports: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -546,6 +589,11 @@ export const ReportWithPullRequest: Story = {
 
 export const ReportWithSuggestedPrompts: Story = {
     parameters: { pageUrl: urls.todayReport('report-2') },
+}
+
+// One chart placed in the summary, one trailing it. Charts resolve without the Inbox detail logic.
+export const ReportWithCharts: Story = {
+    parameters: { pageUrl: urls.todayReport('report-4') },
 }
 
 export const SpacesPane: Story = {

@@ -136,7 +136,6 @@ export interface SearchItem {
     lastViewedAt?: string | null
     groupNoun?: string | null
     itemType?: string | null
-    tags?: string[]
     searchKeywords?: string[]
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
@@ -923,7 +922,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    tags: product.tags,
                     searchKeywords: productSearchKeywords[product.path],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
@@ -942,7 +940,6 @@ export const searchLogic = kea<searchLogicType>([
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
                     itemType: null,
-                    tags: undefined,
                     lastViewedAt: sceneLogViewsByRef['Activity'] ?? null,
                     record: {
                         type: 'activity',
@@ -1003,7 +1000,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    tags: item.tags,
                     searchKeywords: [
                         ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
                         ...(pathSearchKeywords[item.path] ?? []),
@@ -1076,7 +1072,6 @@ export const searchLogic = kea<searchLogicType>([
                         productCategory: item.category || null,
                         href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
-                        tags: item.tags,
                         record: {
                             type: item.type || item.iconType,
                             iconType: item.iconType,
@@ -1126,7 +1121,6 @@ export const searchLogic = kea<searchLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    tags: item.tags,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     record: {
                         type: item.type || item.iconType,

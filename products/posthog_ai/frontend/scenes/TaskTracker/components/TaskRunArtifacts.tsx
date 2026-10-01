@@ -1,47 +1,213 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import {
+    IconBolt,
+    IconCheck,
     IconChevronLeft,
     IconChevronRight,
     IconCode,
+    IconCollapse45,
+    IconCopy,
+    IconCursor,
+    IconDashboard,
     IconDatabase,
     IconDocument,
     IconDownload,
+    IconExpand45,
+    IconExternal,
+    IconFlask,
+    IconGraph,
     IconImage,
+    IconListCheck,
     IconLock,
+    IconMessage,
+    IconNotebook,
+    IconPeople,
+    IconPerson,
+    IconRewindPlay,
+    IconShare,
+    IconSparkles,
+    IconToggle,
+    IconVideoCamera,
+    IconWarning,
 } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTabs, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    Badge,
+    Button,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+    Dialog,
+    DialogContent,
+    DialogTitle,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    SkeletonText,
+    Spinner,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    Text,
+    ToggleGroup,
+    ToggleGroupItem,
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+    cn,
+} from '@posthog/quill-primitives'
 
+import { objectKindLink } from 'lib/components/AgentObjectTags/rewriteAgentObjectTags'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { cn } from 'lib/utils/css-classes'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { withStrictCsp } from '../artifactHtml'
 import {
-    ARTIFACT_KIND_LABEL,
+    ArtifactFile,
     ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
     formatArtifactSize,
+    isTextPreview,
     parseCsv,
+    LIVE_OBJECT_KINDS,
+    LIVING_ADAPTER_LABEL,
+    postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactImageViewer } from './ArtifactImageViewer'
 
 const MAX_CSV_ROWS = 500
 
-function KindIcon({ kind }: { kind: ArtifactPreviewKind }): JSX.Element {
-    if (kind === 'html') {
-        return <IconCode />
+const ArtifactObjectEmbed = lazy(() => import('./ArtifactObjectEmbed'))
+
+type PreviewMode = 'rendered' | 'source'
+
+function KindIcon({ kind, className }: { kind: ArtifactPreviewKind; className?: string }): JSX.Element {
+    const Icon =
+        kind === 'html'
+            ? IconCode
+            : kind === 'image'
+              ? IconImage
+              : kind === 'video'
+                ? IconVideoCamera
+                : kind === 'csv'
+                  ? IconDatabase
+                  : IconDocument
+    return <Icon className={className} />
+}
+
+const OBJECT_KIND_ICONS: Record<string, typeof IconGraph> = {
+    insight: IconGraph,
+    hogql: IconDatabase,
+    dashboard: IconDashboard,
+    error: IconWarning,
+    replay: IconRewindPlay,
+    flag: IconToggle,
+    experiment: IconFlask,
+    survey: IconMessage,
+    ticket: IconMessage,
+    report: IconNotebook,
+    trace: IconSparkles,
+    eval: IconListCheck,
+    event: IconBolt,
+    cohort: IconPeople,
+    action: IconCursor,
+    person: IconPerson,
+}
+
+function ArtifactIcon({ artifact, className }: { artifact: RunArtifact; className?: string }): JSX.Element {
+    const ref = postHogObjectRef(artifact)
+    if (ref) {
+        const Icon = OBJECT_KIND_ICONS[ref.objectKind] ?? IconExternal
+        return <Icon className={className} />
     }
-    if (kind === 'image') {
-        return <IconImage />
+    return <KindIcon kind={artifactPreviewKind(artifact)} className={className} />
+}
+
+/** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
+function artifactDetail(artifact: RunArtifact): string {
+    if (artifact.living) {
+        return LIVING_ADAPTER_LABEL[artifact.living.adapter] ?? 'Document'
     }
-    if (kind === 'csv') {
-        return <IconDatabase />
-    }
-    return <IconDocument />
+    const ref = postHogObjectRef(artifact)
+    return ref ? objectKindLink(ref.objectKind, ref.objectId, '').kind.kindLabel : formatArtifactSize(artifact.size)
+}
+
+function IconAction({
+    label,
+    onClick,
+    href,
+    to,
+    disabledReason,
+    children,
+    dataAttr,
+}: {
+    label: string
+    onClick?: () => void
+    /** A file to download. */
+    href?: string
+    /** An app page to open. */
+    to?: string
+    disabledReason?: string
+    children: JSX.Element
+    dataAttr: string
+}): JSX.Element {
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                delay={0}
+                render={
+                    <Button
+                        size="icon"
+                        aria-label={label}
+                        disabled={!!disabledReason}
+                        onClick={onClick}
+                        data-attr={dataAttr}
+                        // A link renders as `<a>`, so Base UI must not expect a native button.
+                        nativeButton={disabledReason ? true : !href && !to}
+                        render={
+                            disabledReason ? undefined : href ? (
+                                // eslint-disable-next-line react/forbid-elements
+                                <a href={href} download />
+                            ) : to ? (
+                                <LinkPrimitive to={to} />
+                            ) : undefined
+                        }
+                    />
+                }
+            >
+                {children}
+            </TooltipTrigger>
+            <TooltipContent>{disabledReason ?? label}</TooltipContent>
+        </Tooltip>
+    )
 }
 
 /**
@@ -67,24 +233,171 @@ function CsvPreview({ text }: { text: string }): JSX.Element {
     }, [text])
     return (
         <div className="flex flex-col gap-2 p-6">
-            <LemonTable
-                dataSource={rows.map((cells, index) => ({ index, cells }))}
-                rowKey="index"
-                size="small"
-                columns={header.map((title, column) => ({
-                    title,
-                    key: String(column),
-                    render: (_, row) => <span className="font-mono">{row.cells[column]}</span>,
-                }))}
-            />
+            <div className="overflow-hidden rounded-md border border-border bg-card text-card-foreground">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            {header.map((title, column) => (
+                                <TableHead key={column}>{title}</TableHead>
+                            ))}
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {rows.map((cells, index) => (
+                            <TableRow key={index}>
+                                {header.map((_, column) => (
+                                    <TableCell key={column} className="font-mono tabular-nums">
+                                        {cells[column]}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
             {truncated && (
-                <span className="text-xs text-secondary">{`Showing the first ${MAX_CSV_ROWS} rows. Download the file to see all of them.`}</span>
+                <Text size="xs" variant="muted">
+                    {`Showing the first ${MAX_CSV_ROWS} rows. Download the file to see all of them.`}
+                </Text>
             )}
         </div>
     )
 }
 
-function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
+function SourceView({ text }: { text: string }): JSX.Element {
+    return (
+        <pre className="m-0 min-h-full p-6 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground">
+            {text}
+        </pre>
+    )
+}
+
+function TextLoading(): JSX.Element {
+    return (
+        <div className="px-6 py-8">
+            <div className="mx-auto flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-card px-10 py-8">
+                <SkeletonText lines={1} />
+                <SkeletonText lines={5} />
+            </div>
+        </div>
+    )
+}
+
+function VideoPreview({ taskId, name }: { taskId: string; name: string }): JSX.Element {
+    const { selectedArtifact, selectedMedia, artifactMediaLoading } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { loadArtifactMedia } = useActions(taskRunArtifactsLogic({ taskId }))
+    if (!selectedMedia) {
+        return (
+            <div className="flex h-full items-center justify-center">
+                <Spinner />
+            </div>
+        )
+    }
+    if (!selectedMedia.url) {
+        return (
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>This video can't play here</EmptyTitle>
+                    <EmptyDescription>{selectedMedia.error}</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button
+                        variant="outline"
+                        loading={artifactMediaLoading}
+                        onClick={() => selectedArtifact && loadArtifactMedia(selectedArtifact)}
+                        data-attr="task-artifact-retry"
+                    >
+                        Try again
+                    </Button>
+                </EmptyContent>
+            </Empty>
+        )
+    }
+    return (
+        <div className="flex h-full items-center justify-center p-6">
+            <video
+                key={selectedMedia.artifactId}
+                src={selectedMedia.url}
+                controls
+                preload="metadata"
+                aria-label={name}
+                className="max-h-full max-w-full rounded-sm border border-border bg-black"
+            />
+        </div>
+    )
+}
+
+/** Sentence case for a button: "Insight" reads "Open insight", "LLM trace" keeps its acronym. */
+function lowerFirst(label: string): string {
+    return /^[A-Z][a-z]/.test(label) ? label[0].toLowerCase() + label.slice(1) : label
+}
+
+function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element | null {
+    const { currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
+    const ref = postHogObjectRef(artifact)
+    if (!ref || currentProjectId === null) {
+        return null
+    }
+    if (LIVE_OBJECT_KINDS.has(ref.objectKind)) {
+        return (
+            <div className="h-full overflow-y-auto">
+                <Suspense
+                    fallback={
+                        <div className="flex h-full items-center justify-center">
+                            <Spinner />
+                        </div>
+                    }
+                >
+                    <ArtifactObjectEmbed key={artifact.id} {...ref} />
+                </Suspense>
+            </div>
+        )
+    }
+    const { kind, url } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
+    return (
+        <div className="flex h-full items-center justify-center p-6">
+            <Card className="w-full max-w-sm">
+                <CardHeader>
+                    <div className="flex min-w-0 items-start gap-3">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-muted-foreground">
+                            <ArtifactIcon artifact={artifact} className="size-4" />
+                        </span>
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <CardTitle className="truncate">{artifact.name}</CardTitle>
+                            <CardDescription>
+                                {/* "Feature flag in Feature flags" repeats itself, so a kind named like its product shows the product alone. */}
+                                {kind.source.toLowerCase().startsWith(kind.kindLabel.toLowerCase())
+                                    ? kind.source
+                                    : `${kind.kindLabel} in ${kind.source}`}
+                            </CardDescription>
+                        </div>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    {url ? (
+                        <Button
+                            variant="primary"
+                            className="w-full"
+                            render={<LinkPrimitive to={url} />}
+                            nativeButton={false}
+                            onClick={() => reportObjectOpened(ref.objectKind)}
+                            data-attr="task-artifact-open-object"
+                        >
+                            {`Open ${lowerFirst(kind.kindLabel)}`}
+                        </Button>
+                    ) : (
+                        <Text size="xs" variant="muted">
+                            This object has no page to open.
+                        </Text>
+                    )}
+                </CardContent>
+            </Card>
+        </div>
+    )
+}
+
+function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element | null {
     const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId, artifactTextLoading } =
         useValues(taskRunArtifactsLogic({ taskId }))
     const { ensureSelectedText, loadArtifactText } = useActions(taskRunArtifactsLogic({ taskId }))
@@ -96,47 +409,69 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
     }
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
+        return src ? <ArtifactImageViewer key={selectedArtifact.id} src={src} alt={selectedArtifact.name} /> : null
+    }
+    if (selectedKind === 'reference') {
+        return <ReferencePreview taskId={taskId} artifact={selectedArtifact} />
+    }
+    if (selectedKind === 'video') {
+        return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
+    }
+    if (selectedArtifact.living && selectedArtifact.living.text === null) {
         return (
-            <div className="flex min-h-full items-center justify-center p-8">
-                {src && (
-                    <img
-                        src={src}
-                        alt={selectedArtifact.name}
-                        className="max-w-full rounded border border-primary bg-white"
-                    />
-                )}
-            </div>
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>No preview for this document</EmptyTitle>
+                    <EmptyDescription>
+                        {selectedArtifact.living.adapter.startsWith('slack_')
+                            ? "PostHog can't show this version here. Open the Slack thread the agent replied in to see it."
+                            : "PostHog can't show this version here. Open it where the agent saved it."}
+                    </EmptyDescription>
+                </EmptyHeader>
+            </Empty>
         )
     }
     if (selectedKind === 'none') {
         return (
-            <div className="flex min-h-full items-center justify-center p-8 text-sm text-secondary">
-                This file type has no preview. Download it to open it.
-            </div>
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>No preview for this file</EmptyTitle>
+                    <EmptyDescription>Download it to open it on your computer.</EmptyDescription>
+                </EmptyHeader>
+            </Empty>
         )
     }
     if (!selectedText) {
-        return (
-            <div className="flex min-h-full items-center justify-center p-8">
-                <Spinner className="text-2xl" />
+        return selectedKind === 'html' ? (
+            <div className="flex h-full items-center justify-center">
+                <Spinner />
             </div>
+        ) : (
+            <TextLoading />
         )
     }
     if (selectedText.text === null) {
         return (
-            <div className="flex min-h-full flex-col items-center justify-center gap-2 p-8 text-sm text-secondary">
-                <span>{selectedText.error ?? 'This file did not load.'}</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    loading={artifactTextLoading}
-                    onClick={() => loadArtifactText(selectedArtifact)}
-                    data-attr="task-artifact-retry"
-                >
-                    Try again
-                </LemonButton>
-            </div>
+            <Empty className="h-full">
+                <EmptyHeader>
+                    <EmptyTitle>This file didn't load</EmptyTitle>
+                    <EmptyDescription>{selectedText.error ?? 'Check your connection and try again.'}</EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button
+                        variant="outline"
+                        loading={artifactTextLoading}
+                        onClick={() => loadArtifactText(selectedArtifact)}
+                        data-attr="task-artifact-retry"
+                    >
+                        Try again
+                    </Button>
+                </EmptyContent>
+            </Empty>
         )
+    }
+    if (mode === 'source') {
+        return <SourceView text={selectedText.text} />
     }
     if (selectedKind === 'html') {
         return <SandboxedHtmlFrame html={selectedText.text} name={selectedArtifact.name} />
@@ -147,165 +482,484 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
     if (selectedKind === 'markdown') {
         return (
             <div className="px-6 py-8">
-                <article className="mx-auto max-w-3xl rounded-lg border border-primary bg-surface-primary px-10 py-8">
+                <article className="mx-auto max-w-3xl rounded-lg border border-border bg-card px-10 py-8 text-card-foreground">
                     <LemonMarkdown disableImages="all">{selectedText.text}</LemonMarkdown>
                 </article>
             </div>
         )
     }
-    return <pre className="m-0 p-6 font-mono text-xs whitespace-pre-wrap break-words">{selectedText.text}</pre>
+    return <SourceView text={selectedText.text} />
+}
+
+function fileMeta(file: ArtifactFile): string {
+    const age = dayjs(file.latest.uploaded_at).fromNow()
+    return file.versions.length > 1
+        ? `${file.versions.length} versions · ${age}`
+        : `${artifactDetail(file.latest)} · ${age}`
 }
 
 function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
-    const { artifacts, selectedArtifact } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedFile } = useValues(taskRunArtifactsLogic({ taskId }))
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
+    // Cited PostHog objects sit under their own label, after the files.
+    const objects = files.filter((file) => !!postHogObjectRef(file.latest))
+    const livingDocuments = files.filter((file) => !!file.latest.living)
+    const renderRow = (file: ArtifactFile): JSX.Element => {
+        const selected = file.key === selectedFile?.key
+        return (
+            <Item
+                key={file.key}
+                size="xs"
+                role="option"
+                aria-selected={selected}
+                className={cn(
+                    'w-full cursor-pointer rounded-md border-transparent text-left hover:bg-fill-hover',
+                    selected && 'bg-fill-selected hover:bg-fill-selected'
+                )}
+                // eslint-disable-next-line react/forbid-elements
+                render={<button type="button" />}
+                onClick={() => selectArtifact(file.key)}
+                data-attr="task-artifact-nav-item"
+            >
+                <ItemMedia>
+                    <ArtifactIcon artifact={file.latest} className="size-4 text-muted-foreground" />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                    <ItemTitle className="w-full truncate">{file.name}</ItemTitle>
+                    <ItemDescription className="truncate">{fileMeta(file)}</ItemDescription>
+                </ItemContent>
+            </Item>
+        )
+    }
     return (
-        <nav
-            className="hidden w-64 shrink-0 flex-col gap-px overflow-y-auto border-r border-primary p-2 @[52rem]/main-content:flex"
-            aria-label="Artifacts"
-        >
-            <span className="py-1 pl-2 text-xs font-semibold text-secondary">{`Files ${artifacts.length}`}</span>
-            {artifacts.map((artifact) => {
-                const kind = artifactPreviewKind(artifact)
-                return (
-                    <LemonButton
-                        key={artifact.id}
-                        fullWidth
-                        size="small"
-                        active={artifact.id === selectedArtifact?.id}
-                        icon={<KindIcon kind={kind} />}
-                        onClick={() => artifact.id && selectArtifact(artifact.id)}
-                        data-attr="task-artifact-nav-item"
-                    >
-                        <span className="flex min-w-0 flex-col py-0.5">
-                            <span className="truncate">{artifact.name}</span>
-                            <span className="text-xs font-normal text-secondary">
-                                {`${ARTIFACT_KIND_LABEL[kind]} · ${formatArtifactSize(artifact.size)}`}
-                            </span>
-                        </span>
-                    </LemonButton>
-                )
-            })}
-        </nav>
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-border @[52rem]/main-content:flex">
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
+                <Text size="xs" weight="medium" variant="muted" render={<span />}>
+                    Files
+                </Text>
+                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                    {files.length - objects.length - livingDocuments.length}
+                </Text>
+            </div>
+            <div
+                role="listbox"
+                aria-label="Files"
+                className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5"
+            >
+                {files.filter((file) => !postHogObjectRef(file.latest) && !file.latest.living).map(renderRow)}
+                {objects.length > 0 && (
+                    <div role="group" aria-label="In PostHog" className="flex flex-col gap-px">
+                        <Text
+                            size="xs"
+                            weight="medium"
+                            variant="muted"
+                            render={<span aria-hidden />}
+                            className="px-2 pt-3 pb-1"
+                        >
+                            In PostHog
+                        </Text>
+                        {objects.map(renderRow)}
+                    </div>
+                )}
+                {livingDocuments.length > 0 && (
+                    <div role="group" aria-label="Living documents" className="flex flex-col gap-px">
+                        <Text
+                            size="xs"
+                            weight="medium"
+                            variant="muted"
+                            render={<span aria-hidden />}
+                            className="px-2 pt-3 pb-1"
+                        >
+                            Living documents
+                        </Text>
+                        {livingDocuments.map(renderRow)}
+                    </div>
+                )}
+            </div>
+        </aside>
     )
 }
 
-function ArtifactToolbar({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element {
-    const { artifacts, selectedIndex, currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { stepArtifact, downloadArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
-    const kind = artifactPreviewKind(artifact)
-    const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
-    const single = artifacts.length < 2
+function VersionSelect({ taskId, file }: { taskId: string; file: ArtifactFile }): JSX.Element {
+    const { selectedVersion } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { selectVersion } = useActions(taskRunArtifactsLogic({ taskId }))
+    const total = file.versions.length
+    const items = file.versions.map((version, index) => ({
+        value: version.id ?? '',
+        label: `Version ${total - index}`,
+    }))
     return (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-primary px-3 py-1.5">
-            <span className="flex size-4 shrink-0 items-center text-secondary">
-                <KindIcon kind={kind} />
-            </span>
-            <span className="min-w-0 truncate font-semibold">{artifact.name}</span>
-            <span className="text-xs text-secondary">
-                {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
-            </span>
+        <Select
+            items={items}
+            value={selectedVersion?.id ?? ''}
+            // Picking the newest follows the latest, so the next upload shows without another pick.
+            onValueChange={(id: string | null) => selectVersion(!id || id === file.latest.id ? null : id)}
+        >
+            <SelectTrigger aria-label="Version" data-attr="task-artifact-version-select" className="shrink-0">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {file.versions.map((version, index) => (
+                    <SelectItem key={version.id} value={version.id ?? ''} className="pe-7">
+                        <span className="flex w-52 items-center gap-2">
+                            <span>{`Version ${total - index}`}</span>
+                            {index === 0 && <Badge variant="success">Latest</Badge>}
+                            <Text
+                                size="xs"
+                                variant="muted"
+                                render={<span />}
+                                className="ml-auto tabular-nums"
+                                title={dayjs(version.uploaded_at).format('MMM D, YYYY HH:mm')}
+                            >
+                                {dayjs(version.uploaded_at).fromNow()}
+                            </Text>
+                        </span>
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+    )
+}
+
+function OlderVersionNotice({ taskId }: { taskId: string }): JSX.Element | null {
+    const { selectedFile, selectedVersion, selectedVersionIndex } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { selectVersion } = useActions(taskRunArtifactsLogic({ taskId }))
+    if (!selectedFile || !selectedVersion || selectedVersionIndex === 0) {
+        return null
+    }
+    const total = selectedFile.versions.length
+    return (
+        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-info px-3 text-info-foreground">
+            <Text size="xs" render={<span />} className="min-w-0 truncate text-info-foreground">
+                {`You're viewing version ${total - selectedVersionIndex} of ${total}, from ${dayjs(
+                    selectedVersion.uploaded_at
+                ).fromNow()}.`}
+            </Text>
+            <Button
+                size="xs"
+                variant="outline"
+                className="ml-auto shrink-0"
+                onClick={() => selectVersion(null)}
+                data-attr="task-artifact-view-latest"
+            >
+                View latest
+            </Button>
+        </div>
+    )
+}
+
+function CopySourceAction({ text }: { text: string | null }): JSX.Element {
+    const [copied, setCopied] = useState(false)
+    useEffect(() => {
+        if (!copied) {
+            return
+        }
+        const timeout = window.setTimeout(() => setCopied(false), 2000)
+        return () => window.clearTimeout(timeout)
+    }, [copied])
+    return (
+        <IconAction
+            label={copied ? 'Copied' : 'Copy source'}
+            disabledReason={text === null ? 'The file has not loaded yet' : undefined}
+            onClick={() => {
+                if (text !== null) {
+                    void navigator.clipboard.writeText(text).then(() => setCopied(true))
+                }
+            }}
+            dataAttr="task-artifact-copy"
+        >
+            {copied ? <IconCheck className="size-4" /> : <IconCopy className="size-4" />}
+        </IconAction>
+    )
+}
+
+function CopyLinkAction({ taskId }: { taskId: string }): JSX.Element {
+    const { shareUrl } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { reportLinkCopied } = useActions(taskRunArtifactsLogic({ taskId }))
+    const [copied, setCopied] = useState(false)
+    useEffect(() => {
+        if (!copied) {
+            return
+        }
+        const timeout = window.setTimeout(() => setCopied(false), 2000)
+        return () => window.clearTimeout(timeout)
+    }, [copied])
+    return (
+        <IconAction
+            label={copied ? 'Link copied' : 'Copy link to this file'}
+            disabledReason={shareUrl ? undefined : 'The file is not ready yet'}
+            onClick={() => {
+                if (shareUrl) {
+                    void navigator.clipboard.writeText(shareUrl).then(() => {
+                        setCopied(true)
+                        reportLinkCopied()
+                    })
+                }
+            }}
+            dataAttr="task-artifact-copy-link"
+        >
+            {copied ? <IconCheck className="size-4" /> : <IconShare className="size-4" />}
+        </IconAction>
+    )
+}
+
+function ArtifactToolbar({
+    taskId,
+    artifact,
+    mode,
+    onModeChange,
+    expanded,
+    onExpandedChange,
+}: {
+    taskId: string
+    artifact: RunArtifact
+    mode: PreviewMode
+    onModeChange: (mode: PreviewMode) => void
+    expanded: boolean
+    onExpandedChange: (expanded: boolean) => void
+}): JSX.Element {
+    const { files, selectedFile, selectedIndex, selectedText, currentProjectId } = useValues(
+        taskRunArtifactsLogic({ taskId })
+    )
+    const { stepArtifact, downloadArtifact, reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
+    const kind = artifactPreviewKind(artifact)
+    const objectRef = postHogObjectRef(artifact)
+    const objectLink =
+        objectRef && currentProjectId !== null
+            ? objectKindLink(objectRef.objectKind, objectRef.objectId, `/project/${currentProjectId}`)
+            : null
+    const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
+    const single = files.length < 2
+    const versioned = !!selectedFile && selectedFile.versions.length > 1
+    // Plain text already shows its source, so only these kinds get a view switch.
+    const hasRenderedForm = kind === 'markdown' || kind === 'html' || kind === 'csv'
+    return (
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
+            <ArtifactIcon artifact={artifact} className="size-4 shrink-0 text-muted-foreground" />
+            {/* The name truncates and the meta hides on narrow panes, so the tooltip carries both in full. */}
+            <Tooltip>
+                <TooltipTrigger render={<span className="flex min-w-0 items-baseline gap-2" />}>
+                    <Text size="sm" weight="medium" render={<span />} className="min-w-0 truncate">
+                        {artifact.name}
+                    </Text>
+                    <Text
+                        size="xs"
+                        variant="muted"
+                        render={<span />}
+                        className="hidden shrink-0 tabular-nums @[40rem]/main-content:inline"
+                    >
+                        {`${artifactDetail(artifact)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                    </Text>
+                </TooltipTrigger>
+                <TooltipContent>
+                    {`${artifact.name} · ${artifactDetail(artifact)} · ${dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}`}
+                </TooltipContent>
+            </Tooltip>
+            {versioned && selectedFile && <VersionSelect taskId={taskId} file={selectedFile} />}
             {kind === 'html' && (
-                <Tooltip title="This page runs in a sandbox with scripts off. It cannot read your PostHog data, cookies or session.">
-                    <LemonTag type="muted" icon={<IconLock />}>
+                <Tooltip>
+                    <TooltipTrigger render={<Badge className="shrink-0" />}>
+                        <IconLock />
                         Sandboxed
-                    </LemonTag>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        This page runs with scripts off and no network. It can't read your PostHog data, cookies or
+                        session.
+                    </TooltipContent>
                 </Tooltip>
             )}
-            <div className="ml-auto flex items-center gap-1">
-                <span className="px-1 text-xs text-secondary tabular-nums">{`${selectedIndex + 1} of ${artifacts.length}`}</span>
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronLeft />}
-                    tooltip="Previous file"
-                    disabledReason={single ? 'This is the only file' : undefined}
-                    onClick={() => stepArtifact(-1)}
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronRight />}
-                    tooltip="Next file"
-                    disabledReason={single ? 'This is the only file' : undefined}
-                    onClick={() => stepArtifact(1)}
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconDownload />}
-                    tooltip="Download"
-                    to={downloadUrl ?? undefined}
-                    disableClientSideRouting
-                    disabledReason={downloadUrl ? undefined : 'The file is not ready yet'}
-                    onClick={() => downloadArtifact(artifact)}
-                    data-attr="task-artifact-download"
-                />
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+                {hasRenderedForm && (
+                    <ToggleGroup
+                        variant="outline"
+                        value={[mode]}
+                        onValueChange={(value: string[]) => value[0] && onModeChange(value[0] as PreviewMode)}
+                        aria-label="View"
+                        className="mr-1"
+                    >
+                        <ToggleGroupItem value="rendered" data-attr="task-artifact-view-rendered">
+                            Preview
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="source" data-attr="task-artifact-view-source">
+                            Source
+                        </ToggleGroupItem>
+                    </ToggleGroup>
+                )}
+                {isTextPreview(kind) && <CopySourceAction text={selectedText?.text ?? null} />}
+                {/* The file list replaces these once there is room for it. */}
+                <div className="flex items-center gap-1 @[52rem]/main-content:hidden">
+                    <Text size="xs" variant="muted" render={<span />} className="px-1 tabular-nums">
+                        {`${selectedIndex + 1} of ${files.length}`}
+                    </Text>
+                    <IconAction
+                        label="Previous file"
+                        disabledReason={single ? 'This is the only file' : undefined}
+                        onClick={() => stepArtifact(-1)}
+                        dataAttr="task-artifact-previous"
+                    >
+                        <IconChevronLeft className="size-4" />
+                    </IconAction>
+                    <IconAction
+                        label="Next file"
+                        disabledReason={single ? 'This is the only file' : undefined}
+                        onClick={() => stepArtifact(1)}
+                        dataAttr="task-artifact-next"
+                    >
+                        <IconChevronRight className="size-4" />
+                    </IconAction>
+                </div>
+                <CopyLinkAction taskId={taskId} />
+                {/* No endpoint serves a living document's bytes, so it has no download. */}
+                {kind !== 'reference' && !artifact.living && (
+                    <IconAction
+                        label={versioned ? 'Download this version' : 'Download'}
+                        href={downloadUrl ?? undefined}
+                        disabledReason={downloadUrl ? undefined : 'The file is not ready yet'}
+                        onClick={() => downloadArtifact(artifact)}
+                        dataAttr="task-artifact-download"
+                    >
+                        <IconDownload className="size-4" />
+                    </IconAction>
+                )}
+                {objectLink?.url && objectRef && (
+                    <IconAction
+                        label={`Open ${lowerFirst(objectLink.kind.kindLabel)} page`}
+                        to={objectLink.url}
+                        onClick={() => reportObjectOpened(objectRef.objectKind)}
+                        dataAttr="task-artifact-open-object-page"
+                    >
+                        <IconExternal className="size-4" />
+                    </IconAction>
+                )}
+                {(kind !== 'reference' || (objectRef && LIVE_OBJECT_KINDS.has(objectRef.objectKind))) && (
+                    <IconAction
+                        label={expanded ? 'Exit full page' : 'Open full page'}
+                        onClick={() => onExpandedChange(!expanded)}
+                        dataAttr={expanded ? 'task-artifact-collapse' : 'task-artifact-expand'}
+                    >
+                        {expanded ? <IconCollapse45 className="size-4" /> : <IconExpand45 className="size-4" />}
+                    </IconAction>
+                )}
             </div>
         </div>
     )
 }
 
+function PreviewSurface({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element {
+    const { selectedKind } = useValues(taskRunArtifactsLogic({ taskId }))
+    const fills =
+        mode === 'rendered' &&
+        (selectedKind === 'html' ||
+            selectedKind === 'image' ||
+            selectedKind === 'video' ||
+            selectedKind === 'reference')
+    return (
+        <div className={cn('min-h-0 flex-1 bg-surface-tertiary', fills ? 'flex flex-col' : 'overflow-y-auto')}>
+            <ArtifactPreview taskId={taskId} mode={mode} />
+        </div>
+    )
+}
+
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
-    const { artifacts, selectedArtifact, selectedKind } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedArtifact } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
-    if (artifacts.length === 0 || !selectedArtifact) {
+    const [mode, setMode] = useState<PreviewMode>('rendered')
+    const [expanded, setExpanded] = useState(false)
+    // A new file opens in its rendered form, whatever the last file showed.
+    useEffect(() => setMode('rendered'), [selectedArtifact?.id])
+
+    if (files.length === 0 || !selectedArtifact) {
         return (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-                <span className="flex size-10 items-center justify-center rounded-full bg-surface-secondary text-xl text-secondary">
-                    <IconDocument />
-                </span>
-                <h3 className="mb-0 text-base font-semibold">No artifacts yet</h3>
-                <p className="mb-2 max-w-sm text-sm text-secondary">
-                    Files that the agent writes in this task show here. Ask it for a report, a chart, a CSV or an HTML
-                    page.
-                </p>
-                <LemonButton type="secondary" size="small" onClick={() => setActiveTab('conversation')}>
-                    Go to the conversation
-                </LemonButton>
-            </div>
+            <Empty className="flex-1">
+                <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                        <IconDocument />
+                    </EmptyMedia>
+                    <EmptyTitle>No artifacts yet</EmptyTitle>
+                    <EmptyDescription>
+                        Files that the agent writes in this task show here. Ask it for a report, a chart, a CSV or an
+                        HTML page.
+                    </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                    <Button variant="outline" onClick={() => setActiveTab('conversation')}>
+                        Go to the conversation
+                    </Button>
+                </EmptyContent>
+            </Empty>
         )
     }
+    const toolbar = (
+        <ArtifactToolbar
+            taskId={taskId}
+            artifact={selectedArtifact}
+            mode={mode}
+            onModeChange={setMode}
+            expanded={expanded}
+            onExpandedChange={setExpanded}
+        />
+    )
     return (
         <div className="flex min-h-0 flex-1">
             <ArtifactNav taskId={taskId} />
             <section className="flex min-w-0 flex-1 flex-col">
-                <ArtifactToolbar taskId={taskId} artifact={selectedArtifact} />
-                <div
-                    className={cn(
-                        'min-h-0 flex-1 bg-surface-secondary',
-                        selectedKind === 'html' ? 'flex flex-col' : 'overflow-y-auto'
-                    )}
-                >
-                    <ArtifactPreview taskId={taskId} />
-                </div>
+                {toolbar}
+                {!expanded && (
+                    <>
+                        <OlderVersionNotice taskId={taskId} />
+                        <PreviewSurface taskId={taskId} mode={mode} />
+                    </>
+                )}
             </section>
+            <Dialog open={expanded} onOpenChange={setExpanded}>
+                <DialogContent size="full" showCloseButton={false} className="flex h-full flex-col gap-0 p-0">
+                    <DialogTitle className="sr-only">{selectedArtifact.name}</DialogTitle>
+                    {/* The toolbar hides parts by container width, so the dialog gets its own container. */}
+                    <div className="@container/main-content flex min-h-0 flex-1 flex-col">
+                        {toolbar}
+                        <OlderVersionNotice taskId={taskId} />
+                        <PreviewSurface taskId={taskId} mode={mode} />
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
 
 /** Conversation and Artifacts tabs for a task run. The caller renders the thread as `conversation`. */
 export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversation: JSX.Element }): JSX.Element {
-    const { activeTab, artifacts } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { activeTab, files } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
     return (
-        <>
-            <LemonTabs<TaskRunTab>
-                activeKey={activeTab}
-                onChange={setActiveTab}
-                barClassName="mb-0 px-4"
-                tabs={[
-                    { key: 'conversation', label: 'Conversation', 'data-attr': 'task-run-tab-conversation' },
-                    {
-                        key: 'artifacts',
-                        label: (
-                            <span className="flex items-center gap-1.5">
-                                <span>Artifacts</span>
-                                {artifacts.length > 0 && <span className="text-secondary">{artifacts.length}</span>}
-                            </span>
-                        ),
-                        'data-attr': 'task-run-tab-artifacts',
-                    },
-                ]}
-            />
-            {activeTab === 'conversation' ? conversation : <ArtifactsWorkspace taskId={taskId} />}
-        </>
+        <TooltipProvider>
+            <Tabs
+                value={activeTab}
+                onValueChange={(tab: TaskRunTab) => setActiveTab(tab)}
+                className="flex min-h-0 flex-1 flex-col gap-0"
+                data-quill
+            >
+                <div className="shrink-0 border-b border-border px-4">
+                    <TabsList variant="line" aria-label="Task views">
+                        <TabsTrigger value="conversation" data-attr="task-run-tab-conversation">
+                            Conversation
+                        </TabsTrigger>
+                        <TabsTrigger value="artifacts" data-attr="task-run-tab-artifacts">
+                            Artifacts
+                            {files.length > 0 && (
+                                <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
+                                    {files.length}
+                                </Text>
+                            )}
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
+                <TabsContent value="conversation" className="flex min-h-0 flex-1 flex-col">
+                    {conversation}
+                </TabsContent>
+                <TabsContent value="artifacts" className="flex min-h-0 flex-1 flex-col">
+                    <ArtifactsWorkspace taskId={taskId} />
+                </TabsContent>
+            </Tabs>
+        </TooltipProvider>
     )
 }
