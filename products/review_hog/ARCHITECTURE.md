@@ -753,6 +753,7 @@ Long-running chunking, selection, review, deduplication, and validation activiti
 Each refresh is scoped to the team, report, active status, and reviewed commit.
 These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
 Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
 
 ---
 

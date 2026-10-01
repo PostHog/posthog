@@ -592,9 +592,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         probe_limit = limit + 1
         team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
-        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        # First-turn runs have no completed turn yet; they only surface while visibly running. A crashed
+        # run stays ACTIVE, so rank by report activity: ranked by creation, newer crashed runs fill the
+        # slice and hide an older live run.
         running_first_turn = list(
-            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-updated_at")[
                 :probe_limit
             ]
         )
