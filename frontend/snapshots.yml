@@ -13342,6 +13342,10 @@ snapshots:
         hash: v1.k794b7964.3aeba40d04a6226aeae25c8200dfc1bb74f34ba545f1294dab4293a63d7896c9.ANAwCdWwZqiMOI2A2gxChSERhIOiXhGfgnkygj1g1fo
     scenes-other-billing--billing--light:
         hash: v1.k794b7964.5f8b924682d9559deaa6475ff343555090fde4c698b2fe38974b65a6e5e0057b.YuyS1jntLfGAqEfElxa_JW7bd6t9zzUrTkhZ2pJYfPg
+    scenes-other-billing--billing-managed-by-partner--dark:
+        hash: v1.k794b7964.9c4901f2fd036dde6005571c91a0614fbe86ed75692bef8c6b9eb46eaf500b93.-H-jk4ghSU02mUj-657ibApn_DE-SQibqIShQqlwtLo
+    scenes-other-billing--billing-managed-by-partner--light:
+        hash: v1.k794b7964.60287e6a945be4ebce959c34bc7806927268d678b473ec000d6ef104db3aa6c4.7yOxBzp7X6CqAfJStAvdccTo7MYJz9u9VOydRpU-iBI
     scenes-other-billing--billing-on-startup-plan--dark:
         hash: v1.k794b7964.327140e7888b473bf72795b84b3524a8effa471cdf5da775e81e9b060ae5ae5b.DyCRhAUTLZNQm4YUA_GDmPQ-FXb0z7XI0x0p8me4E8s
     scenes-other-billing--billing-on-startup-plan--light:
