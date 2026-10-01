@@ -47,6 +47,13 @@ const SPACE_FEED_LIMIT = 50
 
 export type SpaceTab = 'feed' | 'settings'
 
+export type SpaceFeedSourceStatus = 'hidden' | 'loading' | 'failed' | 'ready'
+
+export interface SpaceFeedStatus {
+    sessions: SpaceFeedSourceStatus
+    canvases: SpaceFeedSourceStatus
+}
+
 export const AUTO_ARCHIVE_PRESET_DAYS = [1, 3, 7, 14, 30]
 export const AUTO_ARCHIVE_MIN_DAYS = 1
 export const AUTO_ARCHIVE_MAX_DAYS = 365
@@ -113,6 +120,7 @@ export interface spaceSceneLogicValues {
     feedRepositories: Record<string, string | null>
     feedSections: SpaceFeedSection[]
     feedSourceOptions: string[]
+    feedStatus: SpaceFeedStatus
     filteredCanvases: CanvasApi[]
     filteredFeedItems: TodayWorkItem[]
     members: TaskUserBasicInfoApi[]
@@ -124,6 +132,7 @@ export interface spaceSceneLogicValues {
     savingSpace: boolean
     sessions: TaskListItemApi[]
     sessionsById: Record<string, TaskListItemApi>
+    sessionsLoaded: boolean
     sessionsLoading: boolean
     sessionsUnavailable: boolean
     space: ChannelDTOApi | null
@@ -310,6 +319,13 @@ export interface spaceSceneLogicMeta {
             sort: TodayRecentSort,
             grouping: SpaceFeedGrouping
         ) => SpaceFeedSection[]
+        feedStatus: (
+            types: SpaceFeedType[],
+            sessionsLoaded: boolean,
+            sessionsUnavailable: boolean,
+            canvases: CanvasApi[] | null,
+            canvasesUnavailable: boolean
+        ) => SpaceFeedStatus
         dominantRepository: (sessions: TaskListItemApi[]) => string | null
         feedRepositories: (
             sessions: TaskListItemApi[],
@@ -422,6 +438,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
     })),
     reducers({
         sessionsUnavailable: [false, { loadSessions: () => false, loadSessionsFailure: () => true }],
+        sessionsLoaded: [false, { loadSessionsSuccess: () => true }],
         canvasesUnavailable: [false, { loadCanvases: () => false, loadCanvasesFailure: () => true }],
         spaceUnavailable: [false, { loadSpace: () => false, loadSpaceFailure: () => true }],
         spaceMissing: [
@@ -579,6 +596,31 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 sort: TodayRecentSort,
                 grouping: SpaceFeedGrouping
             ): SpaceFeedSection[] => spaceFeedSections(filteredFeedItems, filteredCanvases, types, sort, grouping),
+        ],
+        feedStatus: [
+            (s) => [s.types, s.sessionsLoaded, s.sessionsUnavailable, s.canvases, s.canvasesUnavailable],
+            (
+                types: SpaceFeedType[],
+                sessionsLoaded: boolean,
+                sessionsUnavailable: boolean,
+                canvases: CanvasApi[] | null,
+                canvasesUnavailable: boolean
+            ): SpaceFeedStatus => ({
+                sessions: !types.some((type) => type !== 'canvas')
+                    ? 'hidden'
+                    : sessionsUnavailable
+                      ? 'failed'
+                      : sessionsLoaded
+                        ? 'ready'
+                        : 'loading',
+                canvases: !types.includes('canvas')
+                    ? 'hidden'
+                    : canvasesUnavailable
+                      ? 'failed'
+                      : canvases !== null
+                        ? 'ready'
+                        : 'loading',
+            }),
         ],
         // Like PostHog Desktop, a card names its repository only when it differs from the space's most used one.
         // A tie goes to the repository of the most recently active session.

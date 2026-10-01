@@ -1,18 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconCloud } from '@posthog/icons'
-import {
-    Button,
-    Empty,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-    Separator,
-    Skeleton,
-    Text,
-} from '@posthog/quill'
+import { Button, Separator, Skeleton, Text } from '@posthog/quill'
 
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
@@ -23,7 +12,7 @@ import { SPACE_FEED_TYPES, SpaceFeedType } from './spaceFeedEntries'
 import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { spaceSceneLogic } from './spaceSceneLogic'
+import { SpaceFeedSourceStatus, spaceSceneLogic } from './spaceSceneLogic'
 
 const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: 'canvases', pr: 'pull requests' }
 
@@ -36,16 +25,13 @@ function emptyNote(types: SpaceFeedType[]): string {
 
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
     const {
-        canvases,
         canvasesLoading,
-        canvasesUnavailable,
-        feedItems,
         feedSections,
         feedSourceOptions,
         feedRepositories,
+        feedStatus,
         sessionsById,
         sessionsLoading,
-        sessionsUnavailable,
     } = useValues(spaceSceneLogic({ id }))
     const { loadCanvases, loadSessions } = useActions(spaceSceneLogic({ id }))
     const { types, view, filtersActive } = useValues(spaceFeedViewLogic)
@@ -53,59 +39,33 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
     const { pinnedItems, unreadSessionIds } = useValues(todaySpacesLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const listRows = view === 'list'
-    const canvasesShown = types.includes('canvas')
-    // Canvases load once their type shows, so `null` without an error means they have not answered yet.
-    const canvasesPending = canvasesShown && canvases === null && !canvasesUnavailable
-    const canvasesFailed = canvasesShown && canvasesUnavailable
+    const typeStatus = (type: SpaceFeedType): SpaceFeedSourceStatus =>
+        type === 'canvas' ? feedStatus.canvases : feedStatus.sessions
+    const feedPending = !feedSections.length && types.some((type) => typeStatus(type) === 'loading')
+    const emptyTypes = types.filter((type) => typeStatus(type) === 'ready')
+    const feedEmpty = !feedSections.length && !feedPending && emptyTypes.length > 0
 
-    if (sessionsLoading && !feedItems.length) {
-        return (
-            <div className="flex flex-col gap-3 px-2 py-2">
-                <Skeleton className="h-4 w-1/4" />
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-4 w-1/2" />
-            </div>
-        )
-    }
-    if (sessionsUnavailable && !feedItems.length) {
-        return (
-            <div className="flex flex-col items-start gap-2 px-2 py-2">
-                <Text size="sm" variant="muted">
-                    This space’s sessions didn’t load.
-                </Text>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    loading={sessionsLoading}
-                    onClick={() => loadSessions()}
-                    data-attr="today-space-feed-retry"
-                >
-                    Try again
-                </Button>
-            </div>
-        )
-    }
-    if (!feedItems.length && !canvases?.length && !canvasesPending && !canvasesFailed) {
-        return (
-            <Empty className="py-12">
-                <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                        <IconCloud />
-                    </EmptyMedia>
-                    <EmptyTitle>No sessions yet</EmptyTitle>
-                    <EmptyDescription>
-                        Sessions that you or your agents start in this space show up here.
-                    </EmptyDescription>
-                </EmptyHeader>
-            </Empty>
-        )
-    }
     return (
         // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
         <div className="flex flex-col">
             <SpaceFeedControls sourceOptions={feedSourceOptions} />
-            {canvasesFailed && (
+            {feedStatus.sessions === 'failed' && (
+                <div className="flex flex-col items-start gap-2 px-2 pt-4">
+                    <Text size="sm" variant="muted">
+                        This space’s sessions didn’t load.
+                    </Text>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        loading={sessionsLoading}
+                        onClick={() => loadSessions()}
+                        data-attr="today-space-feed-retry"
+                    >
+                        Try again
+                    </Button>
+                </div>
+            )}
+            {feedStatus.canvases === 'failed' && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-4">
                     <Text size="sm" variant="muted">
                         This space’s canvases didn’t load.
@@ -121,16 +81,17 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                     </Button>
                 </div>
             )}
-            {!feedSections.length && canvasesPending && (
+            {feedPending && (
                 <div className="flex flex-col gap-3 px-2 pt-6">
-                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-4 w-1/4" />
+                    <Skeleton className="h-4 w-3/4" />
                     <Skeleton className="h-4 w-2/3" />
                 </div>
             )}
-            {!feedSections.length && !canvasesPending && !canvasesFailed && (
+            {feedEmpty && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-6">
                     <Text size="sm" variant="muted">
-                        {filtersActive ? 'Nothing here matches these filters.' : emptyNote(types)}
+                        {filtersActive ? 'Nothing here matches these filters.' : emptyNote(emptyTypes)}
                     </Text>
                     {filtersActive && (
                         <Button

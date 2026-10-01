@@ -15,7 +15,7 @@ import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { TaskListItemApi } from '../generated/api.schemas'
 import { DEFAULT_SPACE_FEED_FILTERS, SpaceFeedFilters, SpaceFeedType } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
-import { AutoArchiveSelection, spaceSceneLogic } from './spaceSceneLogic'
+import { AutoArchiveSelection, SpaceFeedStatus, spaceSceneLogic } from './spaceSceneLogic'
 
 describe('spaceSceneLogic', () => {
     let sessionSpace = 'space-a'
@@ -293,6 +293,35 @@ describe('spaceSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(canvasRequests).toEqual(['space-a'])
+    })
+
+    it.each<[string, number, SpaceFeedType[], SpaceFeedStatus, string[]]>([
+        ['sessions load', 200, ['task'], { sessions: 'ready', canvases: 'hidden' }, ['task-1']],
+        ['sessions fail', 500, ['task', 'pr'], { sessions: 'failed', canvases: 'hidden' }, []],
+        ['sessions fail beside canvases', 500, ['task', 'canvas'], { sessions: 'failed', canvases: 'ready' }, ['c-1']],
+        ['only canvases show', 500, ['canvas'], { sessions: 'hidden', canvases: 'ready' }, ['c-1']],
+    ])('reports each feed source apart when %s', async (_, sessionsStatus, types, expected, entryIds) => {
+        if (sessionsStatus !== 200) {
+            useMocks({ get: { '/api/projects/:team_id/tasks/': () => [sessionsStatus, { detail: 'Error' }] } })
+        }
+        spaceCanvases = [
+            { id: 'c-1', name: 'Canvas', updated_at: '2026-09-28T11:00:00Z', created_by: { id: 999 } },
+        ] as unknown as CanvasApi[]
+        spaceFeedViewLogic.mount()
+        spaceFeedViewLogic.actions.setFilters(DEFAULT_SPACE_FEED_FILTERS)
+        spaceFeedViewLogic.actions.setTypes(types)
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+
+        expect(logic.values.feedStatus.sessions).toBe(types.includes('task') ? 'loading' : 'hidden')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.feedStatus).toEqual(expected)
+        expect(
+            logic.values.feedSections.flatMap((section) =>
+                section.entries.map((entry) => (entry.kind === 'canvas' ? entry.canvas.id : entry.key))
+            )
+        ).toEqual(entryIds)
     })
 
     it('opens a started session and lists it in the feed', async () => {
