@@ -15,7 +15,10 @@ use metrics::counter;
 const MANAGED_PROXY_CLIENT_IP_HEADER: &str = "x-posthog-client-ip";
 
 pub async fn track_managed_proxy(request: Request, next: Next) -> Response {
-    let via_managed_proxy = if request.headers().contains_key(MANAGED_PROXY_CLIENT_IP_HEADER) {
+    let via_managed_proxy = if request
+        .headers()
+        .contains_key(MANAGED_PROXY_CLIENT_IP_HEADER)
+    {
         "true"
     } else {
         "false"
