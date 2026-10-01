@@ -125,10 +125,21 @@ impl RefDedupCache {
     /// Keeps the items whose key is not cached, without marking them, and returns how many it
     /// dropped. A cached key gets renewed recency, so a ref that keeps recurring stays cached.
     pub fn retain_absent<T>(&self, items: &mut Vec<T>, key_of: impl Fn(&T) -> DedupKey) -> usize {
-        let before = items.len();
-        if let Some(mut state) = self.lock() {
-            items.retain(|item| state.cache.get(&key_of(item)).is_none());
+        if self.state.is_none() {
+            return 0;
         }
+        // The event loop's claims wait on this lock, so the hashing happens before it is taken.
+        let keys: Vec<DedupKey> = items.iter().map(key_of).collect();
+        let absent: Vec<bool> = match self.lock() {
+            Some(mut state) => keys
+                .iter()
+                .map(|key| state.cache.get(key).is_none())
+                .collect(),
+            None => return 0,
+        };
+        let before = items.len();
+        let mut absent = absent.into_iter();
+        items.retain(|_| absent.next().unwrap_or(true));
         before - items.len()
     }
 
