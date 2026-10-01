@@ -31,11 +31,15 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
+import {
+    NotificationsSSETransport,
+    connectToNotificationsSSE,
+} from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
 import {
+    getNotificationsStreamRetrieveUrl,
     notificationsArchiveAllCreate,
     notificationsArchiveBulkCreate,
     notificationsArchiveCreate,
@@ -197,6 +201,7 @@ export interface sidePanelNotificationsLogicValues {
     mainListOffset: number
     manuallyToggledIds: Set<string>
     notifications: HumanizedActivityLogItem[] | InAppNotification[]
+    notificationsSSETransport: NotificationsSSETransport
     projectNameForNotification: (notification: InAppNotification) => string | null
     realTimeNotificationsEnabled: boolean
     sourcePathForNotification: (notification: InAppNotification) => string | null
@@ -386,6 +391,7 @@ export interface sidePanelNotificationsLogicActions {
 export interface sidePanelNotificationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         realTimeNotificationsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        notificationsSSETransport: (featureFlags: FeatureFlagsSet) => NotificationsSSETransport
         archivingEnabled: (featureFlags: FeatureFlagsSet) => boolean
         legacyNotifications: (importantChanges: ChangesResponse | null) => HumanizedActivityLogItem[]
         notifications: (
@@ -811,10 +817,12 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     () => {
                         const reason = cache.nextStartReason ?? 'visibility_resume'
                         cache.nextStartReason = null
+                        const transport = values.notificationsSSETransport
                         // TEMPORARY: lifecycle tracking for /notifications SSE connection.
                         // Remove together with livestream_401_debug once root cause is known.
                         posthog.capture('livestream_sse_startsse_called', {
                             reason,
+                            transport,
                             flag_enabled: values.realTimeNotificationsEnabled,
                             has_token: !!values.currentTeam?.live_events_token,
                             has_host: !!liveEventsHostOrigin(),
@@ -822,29 +830,41 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                         })
 
                         if (!values.realTimeNotificationsEnabled) {
-                            posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
+                            posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled', transport })
                             return () => {}
                         }
 
-                        const token = values.currentTeam?.live_events_token
-                        if (!token) {
-                            posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token' })
-                            return () => {}
-                        }
+                        let url: string
+                        let token: string | undefined
+                        if (transport === 'django') {
+                            // Same-origin, so the session cookie authenticates and no livestream token or host is needed.
+                            if (!values.currentProjectId) {
+                                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_project', transport })
+                                return () => {}
+                            }
+                            url = getNotificationsStreamRetrieveUrl(String(values.currentProjectId))
+                        } else {
+                            token = values.currentTeam?.live_events_token
+                            if (!token) {
+                                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_token', transport })
+                                return () => {}
+                            }
 
-                        const host = liveEventsHostOrigin()
-                        if (!host) {
-                            posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host' })
-                            return () => {}
-                        }
+                            const host = liveEventsHostOrigin()
+                            if (!host) {
+                                posthog.capture('livestream_sse_startsse_skipped', { reason: 'no_host', transport })
+                                return () => {}
+                            }
 
-                        const url = `${host}/notifications`
+                            url = `${host}/notifications`
+                        }
 
                         const abortController = new AbortController()
                         cache.sseConnection = abortController
                         cache.firstMessageLogged = false
+                        let serverRequestedReconnect = false
 
-                        posthog.capture('livestream_sse_connecting', { url, reason })
+                        posthog.capture('livestream_sse_connecting', { url, reason, transport })
 
                         void retryWithBackoff(
                             () =>
@@ -873,15 +893,19 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         onFirstMessage: () => {
                                             if (!cache.firstMessageLogged) {
                                                 cache.firstMessageLogged = true
-                                                posthog.capture('livestream_sse_first_message', { url })
+                                                posthog.capture('livestream_sse_first_message', { url, transport })
                                             }
                                         },
                                         onError: (error) => {
                                             posthog.capture('livestream_sse_error', {
                                                 url,
+                                                transport,
                                                 error_name: (error as Error | undefined)?.name,
                                                 error_message: (error as Error | undefined)?.message,
                                             })
+                                        },
+                                        onEnd: () => {
+                                            serverRequestedReconnect = true
                                         },
                                     }
                                 ),
@@ -891,34 +915,45 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
                                 signal: abortController.signal,
                             }
-                        ).catch((error) => {
-                            // retryWithBackoff rejects with AbortError on clean shutdown
-                            // (including when the disposable is paused for visibilitychange);
-                            // only re-arm when it actually gave up.
-                            if (error instanceof DOMException && error.name === 'AbortError') {
-                                return
-                            }
-                            // TEMPORARY: livestream SSE lifecycle tracking.
-                            posthog.capture('livestream_sse_max_errors', {
-                                url,
-                                max_attempts: SSE_RETRY_ATTEMPTS,
+                        )
+                            .then(() => {
+                                // The Django stream ends itself with an `end` event to rotate connections.
+                                // Reconnect only on that event: a stream that closes without it (for
+                                // example a 204 because the flag is off server side) must not loop.
+                                if (serverRequestedReconnect && !abortController.signal.aborted) {
+                                    cache.nextStartReason = 'server_rotation'
+                                    actions.startSSE()
+                                }
                             })
-                            // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
-                            // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
-                            cache.disposables.add(
-                                () => {
-                                    const onFocus = (): void => {
-                                        posthog.capture('livestream_sse_refocus_reconnect', { url })
-                                        cache.nextStartReason = 'focus_reconnect'
-                                        actions.startSSE()
-                                    }
-                                    window.addEventListener('focus', onFocus, { once: true })
-                                    return () => window.removeEventListener('focus', onFocus)
-                                },
-                                'sseFocusReconnect',
-                                { pauseOnPageHidden: false }
-                            )
-                        })
+                            .catch((error) => {
+                                // retryWithBackoff rejects with AbortError on clean shutdown
+                                // (including when the disposable is paused for visibilitychange);
+                                // only re-arm when it actually gave up.
+                                if (error instanceof DOMException && error.name === 'AbortError') {
+                                    return
+                                }
+                                // TEMPORARY: livestream SSE lifecycle tracking.
+                                posthog.capture('livestream_sse_max_errors', {
+                                    url,
+                                    transport,
+                                    max_attempts: SSE_RETRY_ATTEMPTS,
+                                })
+                                // Re-arm SSE the next time the user focuses the window. pauseOnPageHidden must be false
+                                // so the listener stays attached while the tab is backgrounded — that's exactly when we want it.
+                                cache.disposables.add(
+                                    () => {
+                                        const onFocus = (): void => {
+                                            posthog.capture('livestream_sse_refocus_reconnect', { url, transport })
+                                            cache.nextStartReason = 'focus_reconnect'
+                                            actions.startSSE()
+                                        }
+                                        window.addEventListener('focus', onFocus, { once: true })
+                                        return () => window.removeEventListener('focus', onFocus)
+                                    },
+                                    'sseFocusReconnect',
+                                    { pauseOnPageHidden: false }
+                                )
+                            })
 
                         return () => {
                             // TEMPORARY: livestream SSE lifecycle tracking. `reason` tags
@@ -929,6 +964,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                             cache.nextStopReason = null
                             posthog.capture('livestream_sse_stopped', {
                                 reason: stopReason,
+                                transport,
                                 had_connection: !!cache.sseConnection,
                             })
                             abortController.abort()
@@ -1180,6 +1216,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS],
+        ],
+        notificationsSSETransport: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): NotificationsSSETransport =>
+                featureFlags[FEATURE_FLAGS.NOTIFICATIONS_DJANGO_SSE] ? 'django' : 'livestream',
         ],
         archivingEnabled: [
             (s) => [s.featureFlags],

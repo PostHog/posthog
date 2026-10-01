@@ -1,3 +1,5 @@
+from typing import Any
+
 from django.db import transaction
 
 import structlog
@@ -17,9 +19,31 @@ from products.notifications.backend.facade.enums import (
     TargetType,
 )
 from products.notifications.backend.models import NotificationEvent
+from products.notifications.backend.pubsub import publish_notification_payload
 from products.notifications.backend.resolvers import RecipientsResolver
 
 logger = structlog.get_logger(__name__)
+
+
+def _realtime_payload(event: NotificationEvent) -> dict[str, Any]:
+    return {
+        "id": str(event.id),
+        "organization_id": str(event.organization_id),
+        "team_id": event.team_id,
+        "notification_type": event.notification_type,
+        "priority": event.priority,
+        "title": event.title,
+        "body": event.body,
+        "resource_type": event.resource_type or "",
+        # The client groups rows by (type, target, resource) — a live-pushed notification
+        # without resource_id would land in the wrong group until the next refetch.
+        "resource_id": event.resource_id or "",
+        "source_url": event.source_url,
+        "source_type": event.source_type,
+        "source_id": event.source_id,
+        "resolved_user_ids": event.resolved_user_ids,
+        "created_at": event.created_at.isoformat(),
+    }
 
 
 def _publish_to_kafka(event: NotificationEvent) -> None:
@@ -27,24 +51,7 @@ def _publish_to_kafka(event: NotificationEvent) -> None:
         producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
         producer.produce(
             topic=KAFKA_NOTIFICATION_EVENTS,
-            data={
-                "id": str(event.id),
-                "organization_id": str(event.organization_id),
-                "team_id": event.team_id,
-                "notification_type": event.notification_type,
-                "priority": event.priority,
-                "title": event.title,
-                "body": event.body,
-                "resource_type": event.resource_type or "",
-                # The client groups rows by (type, target, resource) — a live-pushed notification
-                # without resource_id would land in the wrong group until the next refetch.
-                "resource_id": event.resource_id or "",
-                "source_url": event.source_url,
-                "source_type": event.source_type,
-                "source_id": event.source_id,
-                "resolved_user_ids": event.resolved_user_ids,
-                "created_at": event.created_at.isoformat(),
-            },
+            data=_realtime_payload(event),
             key=str(event.organization_id),
         )
     except Exception:
@@ -106,8 +113,9 @@ def publish_resource_edited(
 
     Unlike create_notification this persists NO NotificationEvent row: it is editor-state sync, not an
     inbox notification — it must not appear in the popover, must not bump the unread count, and there
-    are no user mute preferences to honour. It rides the same Kafka → livestream → SSE transport; the
-    Go handler passes unknown fields through and filters delivery by resolved_user_ids.
+    are no user mute preferences to honour. It rides the same realtime transports as inbox notifications
+    (Kafka → livestream, and Redis → the Django stream); both pass unknown fields through and filter
+    delivery by resolved_user_ids.
 
     `resource_type` is the value the frontend matches on (e.g. "HogFlow"); `ac_resource_type` is the
     access-control scope used to drop recipients without viewer access (e.g. "hog_flow").
@@ -149,6 +157,7 @@ def publish_resource_edited(
             producer.produce(topic=KAFKA_NOTIFICATION_EVENTS, data=payload, key=str(organization_id))
         except Exception:
             logger.exception("notifications.resource_edited_publish_failed", resource_id=str(resource_id))
+        publish_notification_payload(organization_id, payload)
 
     transaction.on_commit(_on_commit)
 
@@ -236,6 +245,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     def _on_commit() -> None:
         _publish_to_kafka(event)
         invalidate_unread_count_for_users(resolved_user_ids, organization.id)
+        publish_notification_payload(organization.id, _realtime_payload(event))
 
     transaction.on_commit(_on_commit)
 

@@ -6957,9 +6957,14 @@ const api = {
             signal: abortController.signal,
             onopen: async (response) => {
                 // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
-                // livestream endpoints so the generic stream helper stays quiet.
+                // livestream endpoints and the Django notifications stream so the
+                // generic stream helper stays quiet.
                 // Remove together with captureLivestream401Debug once root cause is known.
-                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+                const sseTransport = /\/(notifications|events)(?:$|\?)/.test(url)
+                    ? 'livestream'
+                    : /\/notifications\/stream\/(?:$|\?)/.test(url)
+                      ? 'django'
+                      : null
 
                 if (response.status === 429) {
                     const retryAfter = response.headers.get('Retry-After')
@@ -6975,9 +6980,10 @@ const api = {
                     // Remove once root cause is known.
                     if (response.status === 401) {
                         captureLivestream401Debug(url, headers?.Authorization, errorData)
-                    } else if (isLivestreamUrl) {
+                    } else if (sseTransport) {
                         posthog.capture('livestream_sse_non_ok_non_401', {
                             url,
+                            transport: sseTransport,
                             status: response.status,
                             server_message: errorData?.message || errorData?.error,
                         })
@@ -6986,9 +6992,10 @@ const api = {
                     abortController.abort()
                 } else {
                     onOpen?.()
-                    if (isLivestreamUrl) {
+                    if (sseTransport) {
                         posthog.capture('livestream_sse_opened', {
                             url,
+                            transport: sseTransport,
                             status: response.status,
                         })
                     }
