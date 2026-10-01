@@ -43,19 +43,21 @@ class TestCommitStatusChecks:
         assert f"/visual_review/runs/{run.id}" in check["target_url"]
 
     @pytest.mark.parametrize(
-        ("quarantined_change", "description"),
+        ("quarantined_difference", "description"),
         [
-            (False, "No visual changes"),
-            (True, "No gating changes; 1 quarantined snapshot changed"),
+            (None, "No visual changes"),
+            ("changed", "No gating changes; 1 quarantined snapshot differs"),
+            ("removed", "No gating changes; 1 quarantined snapshot differs"),
         ],
     )
     def test_complete_run_posts_success_when_no_changes(
-        self, github_repo, mock_github_api, mocker, quarantined_change, description
+        self, github_repo, mock_github_api, mocker, quarantined_difference, description
     ):
         snapshots = [SnapshotManifestItem(identifier="snap", content_hash="same")]
         baseline = {"snap": "same"}
-        if quarantined_change:
-            snapshots.append(SnapshotManifestItem(identifier="flaky", content_hash="drifted"))
+        if quarantined_difference:
+            if quarantined_difference == "changed":
+                snapshots.append(SnapshotManifestItem(identifier="flaky", content_hash="drifted"))
             baseline["flaky"] = "base"
             QuarantinedIdentifier.objects.create(
                 team_id=github_repo.team_id,
@@ -83,7 +85,7 @@ class TestCommitStatusChecks:
         )
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         runs.complete_run(run.id)
-        if quarantined_change:
+        if quarantined_difference:
             runs.finish_processing(run.id)
 
         statuses = mock_github_api.status_checks

@@ -67,6 +67,23 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
         return "master"
 
 
+def default_branch_name(repo: Repo) -> str | None:
+    """The repo's default branch, or None when GitHub cannot say.
+
+    Unlike `_get_default_branch`, there is no fallback name: a caller that decides on the answer
+    must not treat a branch called master as the default during a GitHub outage. A rate limit
+    still raises, so a task can retry.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        return github.get_default_branch(repo.repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
+        logger.warning("visual_review.default_branch_fetch_failed", repo_id=str(repo.id))
+        return None
+
+
 def default_branch_head_sha(repo: Repo) -> str | None:
     """The commit the repo's default branch points at, or None when GitHub cannot say."""
     try:

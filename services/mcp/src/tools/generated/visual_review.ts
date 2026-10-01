@@ -779,6 +779,7 @@ const visualReviewRunsSnapshotsList = (): ToolBase<
                     include_quarantined: params.include_quarantined,
                     limit: params.limit,
                     offset: params.offset,
+                    quarantined_only: params.quarantined_only,
                     snapshot_id: params.snapshot_id,
                 },
             })

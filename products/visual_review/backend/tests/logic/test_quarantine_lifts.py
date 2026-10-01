@@ -61,14 +61,22 @@ def quarantine_row(repo):
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestRequestLiftOnMerge:
     @pytest.mark.parametrize(
-        ("name", "result", "review_state", "approved_hash", "expected_hash"),
+        ("name", "result", "review_state", "approved_hash", "is_quarantined", "expected_hash"),
         [
-            ("unchanged_uses_the_baseline", SnapshotResult.UNCHANGED, "", "", "base"),
-            ("approved_change_uses_the_approved_hash", SnapshotResult.CHANGED, ReviewState.APPROVED, "new", "new"),
+            ("unchanged_uses_the_baseline", SnapshotResult.UNCHANGED, "", "", True, "base"),
+            (
+                "approved_change_uses_the_approved_hash",
+                SnapshotResult.CHANGED,
+                ReviewState.APPROVED,
+                "new",
+                True,
+                "new",
+            ),
+            ("quarantined_after_the_run_finished", SnapshotResult.UNCHANGED, "", "", False, "base"),
         ],
     )
     def test_records_one_pending_request_with_the_expected_picture(
-        self, repo, quarantine_row, user, name, result, review_state, approved_hash, expected_hash
+        self, repo, quarantine_row, user, name, result, review_state, approved_hash, is_quarantined, expected_hash
     ):
         run = _run(repo, branch="fix-flake", pr_number=PR_NUMBER, commit_sha="pr-head")
         snapshot = _snapshot(
@@ -78,10 +86,11 @@ class TestRequestLiftOnMerge:
             result=result,
             review_state=review_state,
             approved_hash=approved_hash,
-            is_quarantined=True,
+            is_quarantined=is_quarantined,
         )
 
-        quarantine_lifts.request_lift_on_merge(run.id, IDENTIFIER, repo.team_id, user.id)
+        first = quarantine_lifts.request_lift_on_merge(run.id, IDENTIFIER, repo.team_id, user.id)
+        QuarantineLiftRequest.objects.filter(id=first.id).update(detail=quarantine_lifts.DETAIL_DIFFERENT_PICTURE)
         request = quarantine_lifts.request_lift_on_merge(run.id, IDENTIFIER, repo.team_id, user.id)
 
         pending = QuarantineLiftRequest.objects.filter(state=QuarantineLiftState.PENDING)
@@ -89,12 +98,13 @@ class TestRequestLiftOnMerge:
         assert request.expected_hash == expected_hash
         assert request.quarantine_id == quarantine_row.id
         assert request.pr_number == PR_NUMBER
+        assert QuarantineLiftRequest.objects.get(id=request.id).detail == quarantine_lifts.DETAIL_WAITING_FOR_MERGE
         assert RunSnapshot.objects.get(id=snapshot.id).review_state == review_state
 
     @pytest.mark.parametrize(
-        ("name", "pr_number", "stale", "is_quarantined", "result", "requested_identifier", "expected_error"),
+        ("name", "pr_number", "stale", "has_quarantine", "result", "requested_identifier", "expected_error"),
         [
-            ("not_quarantined", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
+            ("no_active_quarantine", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
             ("no_pull_request", None, False, True, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
             ("stale_run", PR_NUMBER, True, True, SnapshotResult.UNCHANGED, IDENTIFIER, errors.StaleRunError),
             ("changed_not_approved", PR_NUMBER, False, True, SnapshotResult.CHANGED, IDENTIFIER, ValueError),
@@ -117,11 +127,14 @@ class TestRequestLiftOnMerge:
         name,
         pr_number,
         stale,
-        is_quarantined,
+        has_quarantine,
         result,
         requested_identifier,
         expected_error,
     ):
+        if not has_quarantine:
+            quarantine_row.expires_at = timezone.now() - timedelta(minutes=1)
+            quarantine_row.save(update_fields=["expires_at"])
         run = _run(repo, branch="fix-flake", pr_number=pr_number, commit_sha="pr-head")
         if stale:
             run.superseded_by = _run(repo, branch="other", pr_number=PR_NUMBER, commit_sha="newer")
@@ -132,7 +145,7 @@ class TestRequestLiftOnMerge:
             baseline_hash="base" if result == SnapshotResult.CHANGED else "new",
             result=result,
             review_state=ReviewState.PENDING if result == SnapshotResult.CHANGED else "",
-            is_quarantined=is_quarantined,
+            is_quarantined=True,
         )
 
         with pytest.raises(expected_error):
@@ -193,11 +206,8 @@ class TestReconcileLiftRequests:
 
     @pytest.fixture
     def github(self, mocker):
-        mocker.patch(
-            "products.visual_review.backend.logic.baselines._run_is_on_default_branch",
-            side_effect=lambda _repo, branch: branch == "master",
-        )
         return {
+            "default_branch_name": mocker.patch.object(github_api, "default_branch_name", return_value="master"),
             "pull_request_state": mocker.patch.object(github_api, "pull_request_state", return_value=_merged()),
             "commit_contains": mocker.patch.object(github_api, "commit_contains", return_value=True),
         }
@@ -336,16 +346,18 @@ class TestReconcileLiftRequests:
         github["pull_request_state"].assert_not_called()
 
     @pytest.mark.parametrize(
-        ("name", "branch", "pr_number", "is_partial"),
+        ("name", "branch", "pr_number", "is_partial", "default_branch"),
         [
-            ("partial_default_branch_run", "master", None, True),
-            ("pull_request_run", "fix-flake", PR_NUMBER, False),
-            ("other_branch_without_pull_request", "release", None, False),
+            ("partial_default_branch_run", "master", None, True, "master"),
+            ("pull_request_run", "fix-flake", PR_NUMBER, False, "master"),
+            ("other_branch_without_pull_request", "release", None, False, "master"),
+            ("default_branch_unknown", "master", None, False, None),
         ],
     )
     def test_ignores_a_run_that_cannot_prove_a_merge(
-        self, repo, quarantine_row, pending_request, github, name, branch, pr_number, is_partial
+        self, repo, quarantine_row, pending_request, github, name, branch, pr_number, is_partial, default_branch
     ):
+        github["default_branch_name"].return_value = default_branch
         run = _run(repo, branch=branch, pr_number=pr_number, commit_sha=MASTER_SHA, is_partial=is_partial)
         _snapshot(run, current_hash="fixed", baseline_hash="fixed")
 

@@ -265,6 +265,8 @@ def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
     name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
     bind=True,
     ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
     max_retries=3,
 )
 @with_team_scope()

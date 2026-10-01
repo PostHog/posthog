@@ -158,6 +158,14 @@ const mergeQueueRun: RunApi = {
 
 const emptyList = { count: 0, next: null, previous: null, results: [] }
 
+// The scene lists the run's snapshots twice: the changes, and with `quarantined_only` the quarantined stories.
+const snapshotsMock =
+    (listed: typeof snapshots, quarantined: SnapshotApi[] = []) =>
+    ({ request }: { request: Request }): [number, unknown] =>
+        new URL(request.url).searchParams.get('quarantined_only') === 'true'
+            ? [200, { ...emptyList, count: quarantined.length, results: quarantined }]
+            : [200, listed]
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Visual review/Run',
@@ -172,7 +180,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/`]: run,
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshots,
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(snapshots),
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/tolerated-hashes/`]: emptyList,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/`]: repo,
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: emptyList,
@@ -226,7 +234,7 @@ export const RemovedSnapshot: StoryObj = {
                     ...run,
                     summary: { total: 1, changed: 0, new: 0, removed: 1, unchanged: 0 },
                 },
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: {
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock({
                     count: 1,
                     next: null,
                     previous: null,
@@ -241,7 +249,7 @@ export const RemovedSnapshot: StoryObj = {
                             baseline_artifact: artifact('base_removed'),
                         }),
                     ],
-                },
+                }),
             },
         }),
     ],
@@ -317,6 +325,33 @@ const pendingLift: QuarantineLiftEntryApi = {
     updated_at: '2026-06-10T00:02:00Z',
 }
 
+const tooltipQuarantine: QuarantinedIdentifierEntryApi = {
+    ...buttonQuarantine,
+    id: 'quarantine-tooltip',
+    identifier: 'Components/Tooltip--hover',
+    reason: 'Tooltip fades in at a random frame',
+}
+
+const quarantinedButton = {
+    ...snapshots.results[0],
+    review_state: 'approved',
+    approved_hash: 'curr_changed',
+    is_quarantined: true,
+}
+
+// The fix for the tooltip flake renders the story as its baseline, so only the clean list reaches it.
+const cleanQuarantinedTooltip = snapshot({
+    id: 'snapshot-tooltip',
+    identifier: tooltipQuarantine.identifier,
+    result: 'unchanged',
+    diff_percentage: null,
+    diff_pixel_count: null,
+    review_state: '',
+    is_quarantined: true,
+    baseline_artifact: artifact('base_tooltip'),
+    current_artifact: artifact('base_tooltip'),
+})
+
 // A pull request that fixes a quarantined story asks for the quarantine to lift once it merges.
 export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     parameters: {
@@ -326,18 +361,17 @@ export const QuarantinedSnapshotLiftsOnMerge: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: {
-                    ...snapshots,
-                    results: snapshots.results.map((s) =>
-                        s.id === 'snapshot-changed'
-                            ? { ...s, review_state: 'approved', approved_hash: 'curr_changed', is_quarantined: true }
-                            : s
-                    ),
-                },
+                [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/snapshots/`]: snapshotsMock(
+                    {
+                        ...snapshots,
+                        results: snapshots.results.map((s) => (s.id === quarantinedButton.id ? quarantinedButton : s)),
+                    },
+                    [quarantinedButton, cleanQuarantinedTooltip]
+                ),
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/quarantine/`]: {
                     ...emptyList,
-                    count: 1,
-                    results: [buttonQuarantine],
+                    count: 2,
+                    results: [buttonQuarantine, tooltipQuarantine],
                 },
                 [`/api/projects/:team_id/visual_review/runs/${RUN_ID}/quarantine_lifts/`]: [pendingLift],
             },

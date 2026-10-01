@@ -106,7 +106,10 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "indexes": [models.Index(fields=["repo", "state"], name="quarantine_lift_repo_state")],
+                "indexes": [
+                    models.Index(fields=["repo", "state"], name="quarantine_lift_repo_state"),
+                    models.Index(fields=["repo", "pr_number"], name="quarantine_lift_repo_pr"),
+                ],
                 "constraints": [
                     models.UniqueConstraint(
                         condition=models.Q(("state", "pending")),

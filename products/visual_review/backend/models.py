@@ -493,6 +493,7 @@ class QuarantineLiftRequest(ProductTeamModel):
         ]
         indexes = [
             models.Index(fields=["repo", "state"], name="quarantine_lift_repo_state"),
+            models.Index(fields=["repo", "pr_number"], name="quarantine_lift_repo_pr"),
         ]
 
     def __str__(self) -> str:

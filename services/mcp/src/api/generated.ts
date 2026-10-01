@@ -123241,6 +123241,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     */
+    quarantined_only?: boolean;
+    /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
     snapshot_id?: string;

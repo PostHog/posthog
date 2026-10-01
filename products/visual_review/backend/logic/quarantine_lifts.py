@@ -20,7 +20,7 @@ import structlog
 from ..db import WRITER_DB
 from ..facade.enums import ActorType, QuarantineLiftState, ReviewState, RunPurpose, RunStatus, SnapshotResult
 from ..models import QuarantinedIdentifier, QuarantineLiftRequest, Run, RunSnapshot
-from . import baselines, errors, github_api, run_queries
+from . import errors, github_api, run_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -89,8 +89,8 @@ def request_lift_on_merge(
     )
     if snapshot is None:
         raise errors.RunNotFoundError(f"Snapshot {identifier} not found in run {run_id}")
-    if not snapshot.is_quarantined:
-        raise ValueError("This snapshot is not quarantined in this run.")
+    # Not `snapshot.is_quarantined`: that flag is set when the run is processed, and a reviewer
+    # can quarantine the story later from the run scene. The live quarantine row decides.
     quarantine = _active_quarantine(run, snapshot.identifier, timezone.now())
     if quarantine is None:
         raise ValueError("This snapshot has no active quarantine to lift.")
@@ -133,9 +133,10 @@ def request_lift_on_merge(
             request.source_run_id = run.id
             request.requested_by_id = user_id
             request.source = source
+            request.detail = DETAIL_WAITING_FOR_MERGE
             request.save(
                 using=WRITER_DB,
-                update_fields=["expected_hash", "source_run_id", "requested_by_id", "source", "updated_at"],
+                update_fields=["expected_hash", "source_run_id", "requested_by_id", "source", "detail", "updated_at"],
             )
 
     logger.info(
@@ -348,7 +349,7 @@ def reconcile_lift_requests(run_id: UUID) -> None:
         .select_related("quarantine")
         .order_by("created_at")
     )
-    if not pending or not baselines._run_is_on_default_branch(run.repo, run.branch):
+    if not pending or github_api.default_branch_name(run.repo) != run.branch:
         return
 
     snapshots_by_identifier = {

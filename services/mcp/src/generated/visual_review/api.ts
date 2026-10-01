@@ -478,6 +478,7 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
     exclude_unchanged: zod
@@ -494,6 +495,12 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    quarantined_only: zod
+        .boolean()
+        .default(visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault)
+        .describe(
+            'Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.'
+        ),
     snapshot_id: zod
         .string()
         .optional()

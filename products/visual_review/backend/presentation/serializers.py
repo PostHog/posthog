@@ -727,6 +727,15 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
             "the run. Use it to fetch one snapshot without listing the whole run."
         ),
     )
+    quarantined_only = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to list only the snapshots whose identifier is currently quarantined. "
+            "Defaults to false. When true, `include_quarantined` is ignored and quarantined "
+            "snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined "
+            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for."
+        ),
+    )
 
 
 class TolerationPileupsQuerySerializer(serializers.Serializer):

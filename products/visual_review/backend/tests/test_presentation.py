@@ -327,25 +327,41 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("quarantined_excluded_by_default", {}, {"Card", "Dialog"}, 1),
-            ("quarantined_included_when_requested", {"include_quarantined": "true"}, {"Button", "Card", "Dialog"}, 1),
+            ("quarantined_excluded_by_default", "Button", {}, {"Card", "Dialog"}, 1),
+            (
+                "quarantined_included_when_requested",
+                "Button",
+                {"include_quarantined": "true"},
+                {"Button", "Card", "Dialog"},
+                1,
+            ),
             (
                 "unchanged_excluded",
+                "Button",
                 {"include_quarantined": "true", "exclude_unchanged": "true"},
                 {"Button", "Card"},
                 1,
             ),
-            ("unchanged_and_quarantined_excluded", {"exclude_unchanged": "true"}, {"Card"}, 1),
-            ("one_snapshot_by_id", {"include_quarantined": "true", "snapshot_id": "Dialog"}, {"Dialog"}, 0),
+            ("unchanged_and_quarantined_excluded", "Button", {"exclude_unchanged": "true"}, {"Card"}, 1),
+            ("one_snapshot_by_id", "Button", {"include_quarantined": "true", "snapshot_id": "Dialog"}, {"Dialog"}, 0),
+            (
+                "only_quarantined_with_unchanged",
+                "Dialog",
+                {"include_quarantined": "true", "quarantined_only": "true"},
+                {"Dialog"},
+                1,
+            ),
         ]
     )
-    def test_get_run_snapshots_filters(self, _name, params, expected_identifiers, expected_quarantined_count):
+    def test_get_run_snapshots_filters(
+        self, _name, quarantined_identifier, params, expected_identifiers, expected_quarantined_count
+    ):
         run_id, snapshot_ids = self._create_run_with_results(
             {"Button": SnapshotResult.CHANGED, "Card": SnapshotResult.CHANGED, "Dialog": SnapshotResult.UNCHANGED}
         )
         quarantine.quarantine_identifier(
             repo_id=self.vr_project.id,
-            identifier="Button",
+            identifier=quarantined_identifier,
             run_type=RunType.STORYBOOK,
             reason="flaky",
             user_id=self.user.id,

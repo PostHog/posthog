@@ -615,6 +615,7 @@ def get_run_snapshots(
     include_quarantined: bool = True,
     exclude_unchanged: bool = False,
     snapshot_id: UUID | None = None,
+    quarantined_only: bool = False,
     limit: int | None = None,
     offset: int = 0,
 ) -> contracts.RunSnapshots:
@@ -622,9 +623,10 @@ def get_run_snapshots(
 
     Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
     signs a download URL per artifact and a large run holds thousands of rows.
+    `quarantined_only` keeps only the quarantined snapshots and overrides `include_quarantined`.
     """
-    if not include_quarantined and team_id is None:
-        raise ValueError("team_id is required to exclude quarantined snapshots")
+    if (quarantined_only or not include_quarantined) and team_id is None:
+        raise ValueError("team_id is required to filter snapshots by quarantine")
     run = run_queries.get_run(run_id, team_id=team_id)
     snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
 
@@ -632,7 +634,9 @@ def get_run_snapshots(
     if team_id is not None:
         quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
         quarantined_count = snapshots.filter(identifier__in=quarantined).count()
-        if not include_quarantined:
+        if quarantined_only:
+            snapshots = snapshots.filter(identifier__in=quarantined)
+        elif not include_quarantined:
             snapshots = snapshots.exclude(identifier__in=quarantined)
 
     total_count = snapshots.count()

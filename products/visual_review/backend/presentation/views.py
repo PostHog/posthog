@@ -646,6 +646,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 include_quarantined=query["include_quarantined"],
                 exclude_unchanged=query["exclude_unchanged"],
                 snapshot_id=query.get("snapshot_id"),
+                quarantined_only=query["quarantined_only"],
                 limit=paginator.get_limit(request),
                 offset=paginator.get_offset(request),
             )

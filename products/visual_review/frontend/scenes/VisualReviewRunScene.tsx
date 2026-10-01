@@ -16,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -227,6 +228,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
+        cleanQuarantinedSnapshots,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -590,6 +592,14 @@ export function VisualReviewRunScene(): JSX.Element {
                                 </div>
                             )}
                         </div>
+                    )}
+
+                    {!isReportingOnly && (
+                        <CleanQuarantinedSnapshots
+                            snapshots={cleanQuarantinedSnapshots}
+                            selectedSnapshotId={selectedSnapshotId}
+                            onSelect={setSelectedSnapshotId}
+                        />
                     )}
                 </div>
 

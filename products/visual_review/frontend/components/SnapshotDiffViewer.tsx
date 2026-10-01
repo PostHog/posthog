@@ -177,6 +177,14 @@ export function SnapshotDiffViewer({
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
     // Default-branch (tracking-only) runs are never approvable — don't offer accept/reject/tolerate.
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined && !isReportingOnly
+    // A quarantined change never blocks the PR, so it needs no action. It still needs an approval
+    // before a lift on merge can name its picture, so accepting it stays available here.
+    const canAcceptQuarantined =
+        isQuarantined &&
+        (snapshot.result === 'changed' || snapshot.result === 'new') &&
+        !isApproved &&
+        !isReportingOnly &&
+        !!onApprove
 
     // A snapshot that keeps needing a toleration is flaky, and one more toleration
     // only covers this exact rendering. While the history loads, fall back to the
@@ -276,6 +284,18 @@ export function SnapshotDiffViewer({
                                 Accept change
                             </LemonButton>
                         </>
+                    )}
+                    {canAcceptQuarantined && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={onApprove}
+                            loading={isApproving}
+                            tooltip="This change does not block the PR because the story is quarantined. Accept it to make this picture the baseline when you finalize the run."
+                            data-attr="visual-review-snapshot-accept-quarantined"
+                        >
+                            Accept change
+                        </LemonButton>
                     )}
                 </div>
             </div>

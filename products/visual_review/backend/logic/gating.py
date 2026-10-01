@@ -125,13 +125,14 @@ def _success_description(snapshots: list[RunSnapshot]) -> str:
         1
         for s in snapshots
         if s.is_quarantined
-        and s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
+        and s.result in (SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
         and s.review_state != ReviewState.APPROVED
     )
     if not hidden:
         return "No visual changes"
-    noun = "snapshot" if hidden == 1 else "snapshots"
-    return f"No gating changes; {hidden} quarantined {noun} changed"
+    if hidden == 1:
+        return "No gating changes; 1 quarantined snapshot differs"
+    return f"No gating changes; {hidden} quarantined snapshots differ"
 
 
 def _post_status(run: Run, snapshots: list[RunSnapshot]) -> int:
