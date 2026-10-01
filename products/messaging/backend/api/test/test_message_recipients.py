@@ -12,6 +12,8 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL, TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
 from posthog.models.person.sql import TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL, TRUNCATE_PERSON_TABLE_SQL
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_category import MessageCategory
@@ -243,6 +245,27 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/{path}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(
+        [
+            ("list_with_both_scopes", "", ["hog_flow:read", "person:read"], status.HTTP_200_OK),
+            ("list_without_person_read", "", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("list_without_hog_flow_read", "", ["person:read"], status.HTTP_403_FORBIDDEN),
+            ("coverage_without_person_read", "coverage/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_keys_need_workflow_and_person_read(
+        self, _name: str, path: str, scopes: list[str], expected_status: int
+    ) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/messaging_recipients/{path}", HTTP_AUTHORIZATION=f"Bearer {key}"
+        )
+
+        assert response.status_code == expected_status
 
     def test_last_sent_at_comes_from_sends_in_the_last_30_days(self) -> None:
         recent = datetime.now(tz=UTC).replace(microsecond=0) - timedelta(days=2)
