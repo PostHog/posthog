@@ -725,6 +725,65 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+def string_config(value: str, default: str | None, rule_id: str | None = RULE_A) -> dict:
+    return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
+
+
+RESERVED_STRING_VALUES = [
+    ("rule_value", "$false", None, "filters.rules[0].value: Must be a non-empty string other than $false."),
+    (
+        "default_value",
+        "compact",
+        "$false",
+        "filters.default_value: Must be a non-empty string other than $false, or null.",
+    ),
+]
+
+
+class TestWriterOnlyRules(AdmittedV2TestCase):
+    """The writer reserves `$false` as a string value; the caches accept it, so a stored one stays replaceable."""
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_create_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            response = self.post_flag({"key": "new-v2", "filters": string_config(value, default, rule_id=None)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_update_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        flag = self.flag(string_config("compact", None))
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config(value, default)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 3)
+
+    def test_a_stored_reserved_value_is_not_enabled_but_can_be_replaced(self) -> None:
+        stored = string_config("$false", "$false")
+        flag = self.flag(stored, active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters: This flag's stored configuration cannot be enabled through this API."
+        )
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters, flag.version) == (False, stored, 3)
+
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config("compact", None)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 4)
+
+    def test_a_stored_reserved_value_can_be_disabled(self) -> None:
+        flag = self.flag(string_config("$false", None), active=True)
+        response = self.patch_flag(flag, {"version": 3, "active": False})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (False, 4)
+
+
 class TestV2RequestBytes(AdmittedV2TestCase):
     def post_bytes(self, flag: FeatureFlag, body: str):
         return self.client.patch(
