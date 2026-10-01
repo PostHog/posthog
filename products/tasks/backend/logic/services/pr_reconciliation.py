@@ -156,7 +156,11 @@ class PullRequestReconciler:
             if response.get("status_code") in {401, 403, 404, 422}:
                 self._log("inaccessible")
                 return
-            raise GitHubIntegrationError("Could not fetch PR for reconciliation")
+            status_code = response.get("status_code")
+            raise GitHubIntegrationError(
+                "Could not fetch PR for reconciliation",
+                status_code=status_code if isinstance(status_code, int) else None,
+            )
         snapshot = PullRequestSnapshot.from_github(response)
         if (
             snapshot is None

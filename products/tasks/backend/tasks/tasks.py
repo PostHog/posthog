@@ -1,8 +1,17 @@
 from datetime import datetime
 from uuid import UUID
 
+from django.db import OperationalError
+
 from celery import shared_task
 from celery.app.task import Task as CeleryTask
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    Timeout as RequestsTimeout,
+)
+
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
@@ -19,7 +28,21 @@ def reconcile_task_run_pull_request(self: CeleryTask, *, team_id: int, run_id: s
 
     try:
         PullRequestReconciler(team_id=team_id, run_id=run_id, pr_url=pr_url).reconcile()
-    except Exception as error:
+    except (
+        GitHubIntegrationError,
+        GitHubRateLimitError,
+        GitHubEgressBudgetExhausted,
+        RequestsConnectionError,
+        RequestsTimeout,
+        OperationalError,
+    ) as error:
+        if (
+            isinstance(error, GitHubIntegrationError)
+            and error.status_code is not None
+            and 400 <= error.status_code < 500
+            and error.status_code not in {408, 429}
+        ):
+            raise
         countdown = min(60 * 2**self.request.retries, 900)
         retry_after = getattr(error, "retry_after", None)
         if isinstance(retry_after, (int, float)):

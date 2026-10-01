@@ -7,9 +7,14 @@ from django.test import TestCase
 
 from celery.exceptions import Retry
 from parameterized import parameterized
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    Timeout as RequestsTimeout,
+)
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
@@ -244,20 +249,83 @@ class TestPullRequestReconciliation(TestCase):
         assert isinstance(self.task_run.output, dict)
         self.assertIn(self.url, self.task_run.state["verified_pr_urls"])
 
-    @parameterized.expand([("server", 503), ("rate_limit", 429)])
-    def test_retries_transient_errors(self, reason: str, status: int) -> None:
+    def _attempt(self, retries: int) -> None:
+        reconcile_task_run_pull_request.push_request(
+            retries=retries,
+            called_directly=False,
+            is_eager=False,
+            args=(),
+            kwargs={"team_id": self.team.id, "run_id": str(self.task_run.id), "pr_url": self.url},
+        )
+        try:
+            self._reconcile()
+        finally:
+            reconcile_task_run_pull_request.pop_request()
+
+    @parameterized.expand(
+        [
+            ("server", GitHubIntegrationError("server unavailable"), 0),
+            ("rate_limit", GitHubRateLimitError("rate limited", retry_after=1200), 1200),
+            ("budget", GitHubEgressBudgetExhausted("budget exhausted"), 0),
+            ("connection", RequestsConnectionError("connection unavailable"), 0),
+            ("timeout", RequestsTimeout("request timed out"), 0),
+        ]
+    )
+    def test_retries_transient_errors(self, _name: str, error: Exception, retry_after: int) -> None:
         self._write()
-        if reason == "rate_limit":
-            self.fetch.side_effect = GitHubRateLimitError("rate limited", retry_after=1200)
-        else:
-            self.fetch.return_value = {"success": False, "status_code": status}
-        with patch.object(reconcile_task_run_pull_request, "retry", side_effect=Retry()) as retry:
-            with self.assertRaises(Retry):
-                self._reconcile()
-        self.assertEqual(retry.call_args.kwargs["countdown"], 1200 if reason == "rate_limit" else 60)
+        self.fetch.side_effect = error
+        with patch.object(reconcile_task_run_pull_request, "apply_async") as publish:
+            for attempt, delay in enumerate([60, 120, 240, 480, 900]):
+                with self.assertRaises(Retry):
+                    self._attempt(attempt)
+                self.assertEqual(publish.call_count, attempt + 1)
+                self.assertEqual(publish.call_args.kwargs["countdown"], max(delay, retry_after))
+                self.assertEqual(publish.call_args.kwargs["retries"], attempt + 1)
+            with self.assertRaises(type(error)):
+                self._attempt(5)
+            self.assertEqual(publish.call_count, 5)
+        self.assertEqual(self.fetch.call_count, 6)
         self.task_run.refresh_from_db()
         assert isinstance(self.task_run.output, dict)
         self.assertNotIn("verified_pr_urls", self.task_run.state)
+
+    def test_retry_recovers_after_transient_failure(self) -> None:
+        self._write()
+        self.fetch.side_effect = [
+            {"success": False, "status_code": 503},
+            GitHubRateLimitError("rate limited", retry_after=180),
+            self.snapshot,
+        ]
+        self.link.reset_mock()
+        with patch.object(reconcile_task_run_pull_request, "apply_async") as publish:
+            for attempt, delay in enumerate([60, 180]):
+                with self.assertRaises(Retry):
+                    self._attempt(attempt)
+                self.assertEqual(publish.call_args.kwargs["countdown"], delay)
+            self._attempt(2)
+            self.assertEqual(publish.call_count, 2)
+        self.task_run.refresh_from_db()
+        self.assertIn(self.url, self.task_run.state["verified_pr_urls"])
+        self.link.assert_called_once_with(team_id=self.team.id, task_id=str(self.task.id), pr_url=self.url)
+
+    @parameterized.expand(
+        [
+            ("programming_error", TypeError("invalid snapshot")),
+            ("missing_row", TaskRun.DoesNotExist()),
+            ("bad_request", GitHubIntegrationError("bad request", status_code=400)),
+        ]
+    )
+    def test_deterministic_errors_do_not_retry(self, _name: str, error: Exception) -> None:
+        self._write()
+        if _name == "bad_request":
+            self.fetch.return_value = {"success": False, "status_code": 400}
+        else:
+            self.fetch.side_effect = error
+        with patch.object(reconcile_task_run_pull_request, "apply_async") as publish:
+            with self.assertRaises(type(error)):
+                self._attempt(0)
+            publish.assert_not_called()
+        self.fetch.assert_called_once()
 
     def test_repeated_output_does_not_enqueue(self) -> None:
         self._write()
