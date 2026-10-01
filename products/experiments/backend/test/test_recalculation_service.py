@@ -14,6 +14,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
 from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -31,7 +32,6 @@ from products.experiments.backend.recalculation import (
     get_run_results,
     request_recalculation,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
