@@ -14,7 +14,7 @@ export function TrinoQueryDetails({ query }: { query: TrinoMonitoringQuery }): J
         ['Started', query.created_at ? humanFriendlyDetailedTime(query.created_at) : 'Unknown'],
     ]
     return (
-        <div className="sticky left-0 max-w-md space-y-3 p-3">
+        <div className="sticky left-0 max-w-[100cqw] space-y-3 p-3">
             <dl className="mb-0 flex flex-wrap gap-x-6 gap-y-2">
                 {details.map(([label, value]) => (
                     <div key={label}>
