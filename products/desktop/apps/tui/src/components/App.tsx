@@ -12,13 +12,14 @@ import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import { REGIONS } from "../auth";
 import { currentRepository, type PiChats } from "../chats";
-import { ChatView } from "../chatView";
+import type { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
-import { Composer, isAppKey, isTyping } from "../composer";
+import { isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useLocalChats } from "../hooks/useLocalChats";
 import { useNotice } from "../hooks/useNotice";
+import { usePaneViews } from "../hooks/usePaneViews";
 import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
@@ -71,12 +72,7 @@ import {
   sidebarRows,
 } from "../sidebar";
 import { statusChips } from "../status";
-import {
-  type PendingShell,
-  type ShellLine,
-  shellRuns,
-  type TranscriptLine,
-} from "../transcript";
+import { type PendingShell, type ShellLine, shellRuns } from "../transcript";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { HEADER_GAP, Sidebar } from "./Sidebar";
@@ -178,8 +174,7 @@ export function App({
   const [pending, setPending] = useState<Map<string, string>>(new Map());
   // Each pane reports the agent's open action offer; the picker's cursor and dismissals live here.
   const offers = useRef(new Map<string, ActionsLine | null>());
-  // Each pane's transcript as last drawn, and the ! commands a cloud run has not logged yet, by task.
-  const paneLines = useRef(new Map<string, TranscriptLine[]>());
+  // The ! commands a cloud run has not logged yet, by task.
   const [shells, setShells] = useState<Map<string, PendingShell[]>>(new Map());
   const [pickerIndex, setPickerIndex] = useState<Map<string, number>>(
     new Map(),
@@ -221,35 +216,19 @@ export function App({
   const newChatRepository = useMemo(() => currentRepository(), []);
   const chatArea = useRef<DOMElement | null>(null);
   const area = useBoxMetrics(chatArea);
-  const chatViews = useRef(new Map<string, ChatView>());
-  // Scrolling happens inside ChatView, so a tick tells React to repaint.
-  const [, repaint] = useState(0);
-  // Keyed by pane and task, so a pane that switches task starts that chat at its latest message.
-  const chatFor = (key: string): ChatView => {
-    let chat = chatViews.current.get(key);
-    if (!chat) {
-      chat = new ChatView();
-      chatViews.current.set(key, chat);
-    }
-    return chat;
-  };
-  const composers = useRef(new Map<string, Composer>());
-  const composerFor = (paneId: string): Composer => {
-    let composer = composers.current.get(paneId);
-    if (!composer) {
-      composer = new Composer(
-        () => repaint((tick) => tick + 1),
-        (text) => handlers.current.onSubmit(paneId, text),
-      );
-      composers.current.set(paneId, composer);
-    }
-    return composer;
-  };
-  const scrollPane = (paneId: string, lines: number): void => {
-    const pane = findPane(layout, paneId);
-    chatFor(`${paneId}:${pane?.taskId ?? null}`).scrollBy(lines);
-    repaint((tick) => tick + 1);
-  };
+  const {
+    chatFor,
+    chatIn,
+    chats: allChats,
+    composerFor,
+    scrollPane,
+    linesOf,
+    setLines,
+    repaint,
+  } = usePaneViews({
+    layout,
+    onSubmit: (paneId, text) => handlers.current.onSubmit(paneId, text),
+  });
 
   useEffect(() => saveLayout(layout), [layout]);
 
@@ -503,7 +482,7 @@ export function App({
     }
     if (!run || !control) return;
     const id = `shell-${globalThis.crypto.randomUUID()}`;
-    const seen = shellRuns(paneLines.current.get(paneId) ?? [], command);
+    const seen = shellRuns(linesOf(paneId), command);
     const update = (line: ShellLine | null): void =>
       setShells((current) => {
         const next = new Map(current);
@@ -804,11 +783,11 @@ export function App({
       setLayout((current) => focusPane(current, hit[0]));
       const chatBox = chatBoxes.current.get(hit[0]);
       const box = chatBox && boxOf(chatBox);
-      const chat = chatFor(`${hit[0]}:${paneTaskId(hit[0])}`);
+      const chat = chatIn(hit[0]);
       if (!box || !hitTest(click, [["chat", box]])) return;
       const link = chat.linkAt(click.row - box.top, click.column - box.left);
       if (link) openUrl(link);
-      else if (chat.toggleAt(click.row - box.top)) repaint((tick) => tick + 1);
+      else if (chat.toggleAt(click.row - box.top)) repaint();
     }
   };
   const onMove = (move: Click): void => {
@@ -816,10 +795,9 @@ export function App({
     for (const [paneId, element] of chatBoxes.current) {
       const box = boxOf(element);
       const row = hitTest(move, [["chat", box]]) ? move.row - box.top : null;
-      if (chatFor(`${paneId}:${paneTaskId(paneId)}`).hoverAt(row))
-        changed = true;
+      if (chatIn(paneId).hoverAt(row)) changed = true;
     }
-    if (changed) repaint((tick) => tick + 1);
+    if (changed) repaint();
   };
   const onWheel = (wheel: Wheel): void => {
     const panes = [...paneBoxes.current].map(
@@ -966,21 +944,21 @@ export function App({
       column: at.column - target.box.left,
     });
     target.chat.select(local(from), local(to));
-    repaint((tick) => tick + 1);
+    repaint();
   };
   const onPress = (at: Click): void => {
     gesture.current.press(at);
-    for (const chat of chatViews.current.values()) chat.clearSelection();
+    for (const chat of allChats()) chat.clearSelection();
     selecting.current = null;
     for (const [paneId, element] of chatBoxes.current) {
       const box = boxOf(element);
       if (hitTest(at, [["chat", box]]))
         selecting.current = {
-          chat: chatFor(`${paneId}:${paneTaskId(paneId)}`),
+          chat: chatIn(paneId),
           box,
         };
     }
-    repaint((tick) => tick + 1);
+    repaint();
   };
   const onDrag = (at: Click): void => {
     const range = gesture.current.drag(at);
@@ -1081,13 +1059,13 @@ export function App({
             }
             isLocalPane={isLocal(node.taskId)}
             newChatPlace={placeFor(node.id)}
-            chat={chatFor(`${node.id}:${node.taskId}`)}
+            chat={chatFor(node.id, node.taskId)}
             composer={composerFor(node.id)}
             pending={pending.get(node.id) ?? null}
             pendingShells={
               (node.taskId ? shells.get(node.taskId) : undefined) ?? NO_SHELLS
             }
-            onLines={(lines) => paneLines.current.set(node.id, lines)}
+            onLines={(lines) => setLines(node.id, lines)}
             onOffer={(offer) => offers.current.set(node.id, offer)}
             picker={{
               index: pickerIndex.get(node.id) ?? 0,
