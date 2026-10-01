@@ -141,16 +141,33 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             assert entry.expires_at is not None
             assert before + window <= entry.expires_at <= timezone.now() + window
 
-    def test_opening_a_quarantine_still_needs_a_reason(self):
+    @parameterized.expand(
+        [
+            ("without_a_reason", {}),
+            ("with_a_past_expiry", {"reason": "flaky", "expires_at": "2020-01-01T00:00:00Z"}),
+        ]
+    )
+    def test_opening_a_quarantine_rejects_bad_input(self, _name, body):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}",
-            {"identifier": "Button"},
+            {"identifier": "Button", **body},
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert [
+            entry.identifier for entry in quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
+        ] == ["Button"]
 
 
 class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
