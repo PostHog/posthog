@@ -114,6 +114,7 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        origin_product: 'slack',
         channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
@@ -136,6 +137,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-3',
+        origin_product: 'error_tracking',
         channel: 'space-checkout',
         title: 'Speed up the invoice export',
         archived: false,
@@ -152,6 +154,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-2',
+        origin_product: 'signal_report',
         channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,

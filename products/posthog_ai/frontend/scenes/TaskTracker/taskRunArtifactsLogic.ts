@@ -23,9 +23,13 @@ import { urls } from 'scenes/urls'
 import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
+    tasksRunsLivingArtifactsList,
     tasksRunsRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunDetailDTOApi,
+    TaskRunLivingArtifactResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import type { TaskRun } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
@@ -38,6 +42,8 @@ import {
     collectRunArtifacts,
     groupArtifactVersions,
     isTextPreview,
+    livingArtifactFiles,
+    livingArtifactsFromResponse,
 } from './taskRunArtifacts'
 
 export interface TaskRunArtifactsLogicProps {
@@ -71,6 +77,9 @@ export interface taskRunArtifactsLogicValues {
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
     files: ArtifactFile[]
+    livingArtifacts: TaskRunLivingArtifactResponseApi[]
+    livingArtifactsLoading: boolean
+    livingFiles: ArtifactFile[]
     mediaById: Record<string, ArtifactMedia>
     selectedArtifact: RunArtifact | null
     selectedFile: ArtifactFile | null
@@ -146,6 +155,21 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
+    loadLivingArtifacts: (runId: string) => string
+    loadLivingArtifactsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadLivingArtifactsSuccess: (
+        livingArtifacts: TaskRunLivingArtifactResponseApi[],
+        payload?: string
+    ) => {
+        livingArtifacts: TaskRunLivingArtifactResponseApi[]
+        payload?: string
+    }
     openFromUrl: (
         fileKey: string,
         versionId: string | null
@@ -178,7 +202,8 @@ export interface taskRunArtifactsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
-        files: (artifacts: RunArtifact[]) => ArtifactFile[]
+        livingFiles: (livingArtifacts: TaskRunLivingArtifactResponseApi[]) => ArtifactFile[]
+        files: (artifacts: RunArtifact[], livingFiles: ArtifactFile[]) => ArtifactFile[]
         selectedIndex: (files: ArtifactFile[], selectedFileKey: string | null) => number
         selectedFile: (files: ArtifactFile[], selectedIndex: number) => ArtifactFile | null
         selectedVersionIndex: (selectedFile: ArtifactFile | null, selectedVersionId: string | null) => number
@@ -273,6 +298,24 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                             .map((runId) => tasksRunsRetrieve(projectId, props.taskId, runId).catch(() => null))
                     )
                     return runs.filter((run): run is TaskRunDetailDTOApi => run !== null)
+                },
+            },
+        ],
+        livingArtifacts: [
+            [] as TaskRunLivingArtifactResponseApi[],
+            {
+                // The registry is task-scoped, so any run of the task lists the documents of the whole chain.
+                loadLivingArtifacts: async (runId: string): Promise<TaskRunLivingArtifactResponseApi[]> => {
+                    if (values.currentProjectId === null) {
+                        return values.livingArtifacts
+                    }
+                    try {
+                        return livingArtifactsFromResponse(
+                            await tasksRunsLivingArtifactsList(String(values.currentProjectId), props.taskId, runId)
+                        )
+                    } catch {
+                        return values.livingArtifacts
+                    }
                 },
             },
         ],
@@ -380,7 +423,19 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]): RunArtifact[] =>
                 collectRunArtifacts([selectedRun, ...chainRuns]),
         ],
-        files: [(s) => [s.artifacts], (artifacts: RunArtifact[]): ArtifactFile[] => groupArtifactVersions(artifacts)],
+        livingFiles: [
+            (s) => [s.livingArtifacts],
+            (livingArtifacts: TaskRunLivingArtifactResponseApi[]): ArtifactFile[] =>
+                livingArtifactFiles(livingArtifacts),
+        ],
+        // Living documents come last, after the files and cited objects, so the list and the stepper share one order.
+        files: [
+            (s) => [s.artifacts, s.livingFiles],
+            (artifacts: RunArtifact[], livingFiles: ArtifactFile[]): ArtifactFile[] => [
+                ...groupArtifactVersions(artifacts),
+                ...livingFiles,
+            ],
+        ],
         selectedIndex: [
             (s) => [s.files, s.selectedFileKey],
             (files: ArtifactFile[], selectedFileKey: string | null): number =>
@@ -449,8 +504,13 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
         selectedText: [
             (s) => [s.selectedArtifact, s.textsById],
-            (selectedArtifact: RunArtifact | null, textsById: Record<string, ArtifactText>): ArtifactText | null =>
-                (selectedArtifact?.id && textsById[selectedArtifact.id]) || null,
+            (selectedArtifact: RunArtifact | null, textsById: Record<string, ArtifactText>): ArtifactText | null => {
+                // A living document version carries its text in the registry, so it needs no download.
+                if (selectedArtifact?.id && typeof selectedArtifact.living?.text === 'string') {
+                    return { artifactId: selectedArtifact.id, text: selectedArtifact.living.text, error: null }
+                }
+                return (selectedArtifact?.id && textsById[selectedArtifact.id]) || null
+            },
         ],
     }),
     listeners(({ actions, values }) => {
@@ -476,6 +536,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 kind: values.selectedKind,
                 content_type: artifact.content_type ?? null,
                 version_count: values.selectedFile?.versions.length ?? 1,
+                living_adapter: artifact.living?.adapter ?? null,
             })
         }
         return {
@@ -496,6 +557,11 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 })
             },
             ensureSelectedText: loadSelectedText,
+            loadChainRuns: (runIds) => {
+                if (runIds[0]) {
+                    actions.loadLivingArtifacts(runIds[0])
+                }
+            },
             loadTaskRunsSuccess: ({ runs }) => {
                 actions.loadChainRuns(runs.map((run) => run.id))
             },
