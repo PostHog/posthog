@@ -27598,6 +27598,13 @@
                     "description": "Used to indicate pending actions, frontend only",
                     "type": "boolean"
                 },
+                "alternativeFlags": {
+                    "description": "Other flags that also show the item. The item is shown when `flag` or any of these is on.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "category": {
                     "description": "Category label to place this under",
                     "type": "string"

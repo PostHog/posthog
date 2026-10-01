@@ -167,6 +167,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             href: urls.dataOps(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+            alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',

@@ -5,6 +5,7 @@ import { LemonLabel, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -187,7 +188,7 @@ export function SidebarMyProductsSetting(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const products = getDefaultTreeProducts()
-        .filter((product) => !product.flag || (featureFlags as Record<string, boolean | string>)[product.flag])
+        .filter((product) => isFileSystemImportFlagEnabled(product, featureFlags))
         .filter((product) => !getProductAccessDisabledReason(product))
     const productsByCategory = new Map<string, FileSystemImport[]>()
     for (const product of products) {
