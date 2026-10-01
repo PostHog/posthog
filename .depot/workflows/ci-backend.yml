@@ -13,9 +13,10 @@
 #   `Django Tests Pass` gate then relays this workflow's gate verdict. Its first step posts the
 #   `Depot run started` check that canonical's router waits for. Neither the router, the
 #   hand-off job, nor the relay has a counterpart here. A GitHub rerun does not restart this
-#   workflow, so the relay's failure log prints the `depot ci` commands that retry it, and the
-#   label that sends the PR back to GitHub Actions. It also prints each failed step and its log
-#   lines, read with `depot ci diagnose`, because Depot's own checks carry no output.
+#   workflow, so a re-run of the relay job retries this workflow's failed jobs with `depot ci retry`.
+#   The relay's failure log prints the label that sends the PR back to GitHub Actions, and each
+#   failed step and its log lines, read with `depot ci diagnose`, because Depot's own checks
+#   carry no output.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
 #   Depot CI serves an input-less actions/checkout from a fast clone that has no remote.
@@ -213,6 +214,9 @@ env:
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     UV_HTTP_TIMEOUT: 120
+    # A 4 GiB thread stack cache avoids the uv exit segfault (code 139) on glibc before 2.43.
+    # Remove when uv ships the fix: https://github.com/astral-sh/uv/issues/21428
+    GLIBC_TUNABLES: glibc.pthread.stack_cache_size=0x100000000
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
@@ -413,6 +417,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
@@ -677,6 +682,34 @@ jobs:
                         - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
+                      sdk_manifests:
+                        # Everything the SDK major-version guard reads. Lockfiles are listed
+                        # because a floor-only or `*` spec can move to a new major through
+                        # its lock alone.
+                        - '**/package.json'
+                        - 'pnpm-workspace.yaml'
+                        - 'pnpm-lock.yaml'
+                        - 'products/desktop/pnpm-workspace.yaml'
+                        - 'products/desktop/pnpm-lock.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'services/llm-gateway/pyproject.toml'
+                        - 'services/llm-gateway/uv.lock'
+                        - 'common/ingestion/acceptance_tests/requirements.txt'
+                        - 'tools/infra-scripts/clitools/requirements.txt'
+                        - 'tools/infra-scripts/clitools/constraints.txt'
+                        - 'rust/Cargo.toml'
+                        - 'rust/Cargo.lock'
+                        - 'cli/Cargo.toml'
+                        - 'cli/Cargo.lock'
+                        - 'bin/hobby-installer/go.mod'
+                        - 'bin/hobby-installer/go.sum'
+                        - '.github/scripts/check_sdk_majors.py'
+                        # The guard scans every package.json for an SDK declaration.
+                        - '**/package.json'
+                        - 'rust/Cargo.toml'
+                        - 'cli/Cargo.toml'
+                        - 'bin/hobby-installer/go.mod'
                       product_yamls:
                         - 'products/*/product.yaml'
                         - '**/owners.yaml'
@@ -1612,6 +1645,20 @@ jobs:
 
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
+    # Every PostHog SDK this repo installs must stay on its pinned major; the release
+    # bots rewrite manifests across majors, so this is the block. Stdlib only, no venv.
+    sdk-major-guard:
+        needs: [changes]
+        if: needs.changes.outputs.sdk_manifests == 'true' && github.event_name != 'push'
+        timeout-minutes: 5
+        permissions: {}
+        name: SDK major-version guard (depot-ubuntu-24.04)
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Check every SDK stays on its pinned major
+              run: python3 .github/scripts/check_sdk_majors.py
+
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
@@ -4195,6 +4242,7 @@ jobs:
                 detect-snapshot-mode,
                 handle-snapshots,
                 repo-checks,
+                sdk-major-guard,
             ]
         name: Django Tests Pass on Depot
         runs-on: depot-ubuntu-24.04
@@ -4225,6 +4273,7 @@ jobs:
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| sdk-major-guard | ${{ needs.sdk-major-guard.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
@@ -4358,6 +4407,7 @@ jobs:
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Hand-off wait" "${{ needs.wait-for-handoff.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "SDK major guard" "${{ needs.sdk-major-guard.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
@@ -4396,16 +4446,20 @@ jobs:
                       cancelled) title="Backend tests cancelled on Depot" ;;
                       *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
                   esac
-                  id=$(gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --jq .id)
-                  # The relay reads the check above for its verdict, so the output is attached afterwards
-                  # and cannot cost the check. GitHub rejects a summary over 65535 characters, and the
-                  # byte budget below stays under that however the characters are encoded.
+                  # One request carries the verdict and the output. A PATCH sent right after the POST
+                  # can answer 404, because GitHub does not always find a check it just created.
+                  # GitHub rejects a summary over 65535 characters, and the byte budget below stays
+                  # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
-                  jq -n --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
-                      '{output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
-                      | gh api "repos/$REPO/check-runs/$id" --method PATCH --input - --silent \
-                      || echo "::warning::Could not attach the gate summary to check $id"
+                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                      --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
+                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
+                        output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
+                  # The relay reads this check for its verdict, so a rejected output must not lose the check.
+                  echo "::warning::Could not post the gate check with its summary. Posting it without."
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict

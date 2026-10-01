@@ -59,6 +59,7 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
     if (listRow) {
         return (
             <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2">
+                <span aria-hidden className="size-3.5 shrink-0" />
                 {icon}
                 {name('flex-1 text-sm font-medium')}
                 {avatar}
@@ -71,6 +72,7 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
     return (
         <Card size="sm" className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3">
             <div className="flex min-w-0 items-center gap-3">
+                <span aria-hidden className="size-3.5 shrink-0" />
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                     <span className="flex translate-y-0.5">{icon}</span>
                     {name('text-sm leading-snug font-semibold')}

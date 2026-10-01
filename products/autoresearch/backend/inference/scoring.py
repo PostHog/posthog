@@ -23,6 +23,7 @@ Event shape:
         $autoresearch_prediction_date: str (YYYY-MM-DD)
         $autoresearch_features_hash:   str (SHA-256 prefix of the feature row)
         $autoresearch_person_id:       str (the person_id every row is keyed on)
+        $autoresearch_run_id:          str (UUID of the AutoresearchRun that emitted the batch)
 """
 
 import json
@@ -188,11 +189,28 @@ class _EmitResult:
     score_distribution: dict[str, Any]
 
 
+def create_inference_run(
+    *, pipeline: AutoresearchPipeline, model: AutoresearchModel, window: ScoringWindow
+) -> AutoresearchRun:
+    return AutoresearchRun.objects.create(
+        pipeline=pipeline,
+        model=model,
+        run_type=AutoresearchRun.RunType.INFERENCE,
+        status=AutoresearchRun.Status.RUNNING,
+        started_at=django_timezone.now(),
+        # Online validation discovers matured dates from these two keys instead of scanning
+        # the events table, validates against the horizon scored here rather than the
+        # pipeline's current one, and waits for a run that is still scoring the date.
+        metrics={"prediction_date": window.prediction_date.isoformat(), "horizon_days": pipeline.horizon_days},
+    )
+
+
 def run_inference_for_pipeline(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
     prediction_date: date | None = None,
     user: User | None = None,
+    run: AutoresearchRun | None = None,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
@@ -205,26 +223,26 @@ def run_inference_for_pipeline(
 
     ``user`` is who HogQL applies access control for; it defaults to the
     pipeline's creator.
+
+    ``run`` is a row the caller created before it dispatched the scoring, so the caller
+    can return it at once. A retry of the same attempt passes the same row again.
     """
     window = ScoringWindow.for_date(prediction_date)
-    run = AutoresearchRun.objects.create(
-        pipeline=pipeline,
-        model=model,
-        run_type=AutoresearchRun.RunType.INFERENCE,
-        status=AutoresearchRun.Status.RUNNING,
-        started_at=django_timezone.now(),
-        # Online validation discovers matured dates from these two keys instead of scanning
-        # the events table, validates against the horizon scored here rather than the
-        # pipeline's current one, and waits for a run that is still scoring the date.
-        metrics={"prediction_date": window.prediction_date.isoformat(), "horizon_days": pipeline.horizon_days},
-    )
+    if run is None:
+        run = create_inference_run(pipeline=pipeline, model=model, window=window)
+    else:
+        run.model = model
+        run.status = AutoresearchRun.Status.RUNNING
+        run.error = ""
+        run.completed_at = None
+        run.save(update_fields=["model", "status", "error", "completed_at"])
 
     try:
         team = pipeline.team
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
         scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
         emitted = _emit_predictions(
-            team=team, pipeline=pipeline, model=model, scored=scored, window=window, user=acting_user
+            team=team, pipeline=pipeline, model=model, run=run, scored=scored, window=window, user=acting_user
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
@@ -380,6 +398,7 @@ def _emit_predictions(
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
+    run: AutoresearchRun,
     scored: ScoredPopulation,
     window: ScoringWindow,
     user: User,
@@ -435,6 +454,7 @@ def _emit_predictions(
             "$autoresearch_prediction_date": prediction_date_str,
             "$autoresearch_features_hash": features_hash,
             "$autoresearch_person_id": person_id,
+            "$autoresearch_run_id": str(run.pk),
         }
         if attach_to_person and output_property:
             props["$set"] = {output_property: row["p_y"]}
