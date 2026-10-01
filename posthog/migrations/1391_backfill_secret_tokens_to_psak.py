@@ -21,9 +21,13 @@ def backfill_tokens(apps, schema_editor):
     """
     Team = apps.get_model("posthog", "Team")
     ProjectSecretAPIKey = apps.get_model("posthog", "ProjectSecretAPIKey")
+    # Production applies migrations on a dedicated alias; unpinned managers would write
+    # to "default", outside this migration's transaction.
+    db = schema_editor.connection.alias
 
     teams = (
-        Team.objects.exclude(secret_api_token__isnull=True)
+        Team.objects.using(db)
+        .exclude(secret_api_token__isnull=True)
         .exclude(secret_api_token="")
         .only("id", "secret_api_token", "secret_api_token_backup")
     )
@@ -34,19 +38,20 @@ def backfill_tokens(apps, schema_editor):
         if team.secret_api_token_backup:
             tokens.append((team.secret_api_token_backup, "Migrated legacy key (backup)"))
         for token, label in tokens:
-            # Keyed on the hash: idempotent under retries, and a no-op if the customer
-            # already created a PSAK from the same string somehow.
-            _, created = ProjectSecretAPIKey.objects.get_or_create(
-                secure_value=hash_key_value(token),
-                defaults={
-                    "team_id": team.id,
-                    "label": label,
-                    "mask_value": mask_key_value(token),
-                    "scopes": MIGRATED_SCOPES,
-                },
+            secure_value = hash_key_value(token)
+            if ProjectSecretAPIKey.objects.using(db).filter(secure_value=secure_value).exists():
+                continue
+            # A customer may already use this exact label; (team, label) is unique.
+            if ProjectSecretAPIKey.objects.using(db).filter(team_id=team.id, label=label).exists():
+                label = f"{label[:31]} {secure_value[:8]}"
+            ProjectSecretAPIKey.objects.using(db).create(
+                team_id=team.id,
+                label=label,
+                secure_value=secure_value,
+                mask_value=mask_key_value(token),
+                scopes=MIGRATED_SCOPES,
             )
-            if created:
-                created_total += 1
+            created_total += 1
 
     logger.info("backfilled_secret_tokens_to_psak", created_rows=created_total)
 
