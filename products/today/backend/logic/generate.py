@@ -1,0 +1,170 @@
+"""Generating a briefing: one read-only sandbox agent run that gathers the person's data over MCP and answers with the text."""
+
+from datetime import timedelta
+from typing import Protocol
+from uuid import UUID
+
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
+
+from products.signals.backend.facade import api as signals
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
+
+from ..facade.enums import BriefingStatus
+from ..feature_flags import may_get_briefing
+from ..models import DailyBriefing
+from .agent_output import BriefingOutput, problems_with, strict_schema, to_content, to_fact_sheet
+from .briefings import recent_ready_briefings, store_briefing
+from .prompt import PRERANKED_REPORTS, build_prompt
+
+logger = structlog.get_logger(__name__)
+
+MODEL = "gpt-6-luna"
+RUNTIME_ADAPTER = "codex"
+REASONING_EFFORT = "medium"
+# Answers the agent gets to fix a briefing that broke the writing rules, the first one included.
+WRITE_ATTEMPTS = 3
+# The poll budget of one agent turn. The first turn does the reading; a fix-up turn is short.
+TURN_TIMEOUT = timedelta(minutes=8)
+# The whole run: every turn at its budget plus the sandbox boot. The workflow, the stuck sweep
+# and the page's polling all derive from this.
+RUN_TIMEOUT = TURN_TIMEOUT * WRITE_ATTEMPTS + timedelta(minutes=6)
+# How many of the person's previous briefings the agent sees, so it does not repeat itself.
+RECENT_BRIEFINGS = 3
+SANDBOX_ENV_NAME = "today-briefing"
+
+
+class _HasTaskId(Protocol):
+    @property
+    def task_id(self) -> UUID: ...
+
+
+@frozen
+class _PreparedRun:
+    context: CustomPromptSandboxContext
+    prompt: str
+    title: str
+
+
+def _title(briefing: DailyBriefing) -> str:
+    return f"Today briefing, {briefing.local_day.isoformat()}"
+
+
+def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
+    """The reports PostHog already ranked for the person. A failure here costs the agent its head start, not the run."""
+    try:
+        return signals.reports_for_briefing(
+            team_id=team.id, user_id=user.id, limit_per_relation=PRERANKED_REPORTS, limit=PRERANKED_REPORTS
+        )
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return []
+
+
+def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
+    """The sandbox context and the prompt, or None when the person may not get a briefing.
+
+    Access, credits or the flag can go after the row was created, so the row is deleted then:
+    a briefing nobody can open is not worth a sandbox.
+    """
+    briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
+    team = Team.objects.select_related("organization").get(id=briefing.team_id)
+    user = User.objects.get(id=briefing.user_id)
+    if not may_get_briefing(user, team):
+        briefing.delete()
+        return None
+    briefing.status = BriefingStatus.WRITING
+    briefing.save(update_fields=["status"])
+    sandbox_environment_id = str(
+        tasks_facade.upsert_internal_sandbox_env(
+            team.id, SANDBOX_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+    )
+    context = CustomPromptSandboxContext(
+        team_id=team.id,
+        user_id=user.id,
+        sandbox_environment_id=sandbox_environment_id,
+        posthog_mcp_scopes="read_only",
+        # A headless agent that reads untrusted report text must never hold a write-capable GitHub token.
+        github_read_access=True,
+        model=MODEL,
+        runtime_adapter=RUNTIME_ADAPTER,
+        reasoning_effort=REASONING_EFFORT,
+        # Headless: the agent's read tools must run without anyone approving them.
+        initial_permission_mode="full-access",
+    )
+    prompt = build_prompt(
+        briefing, user, _preranked_reports(team, user), recent_ready_briefings(briefing, RECENT_BRIEFINGS)
+    )
+    return _PreparedRun(context=context, prompt=prompt, title=_title(briefing))
+
+
+def _fix_message(problems: list[str]) -> str:
+    return (
+        "Your briefing broke these rules. Fix all of them and answer again with the whole briefing in the same shape:\n- "
+        + "\n- ".join(problems)
+    )
+
+
+def _store(team_id: int, briefing_id: str, output: BriefingOutput) -> list[str]:
+    """Store the agent's answer, or return the rules it broke so the agent can fix them."""
+    problems = problems_with(output, team_id)
+    if not problems:
+        briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
+        store_briefing(briefing, to_fact_sheet(output), to_content(output))
+    return problems
+
+
+async def run_agent(*, team_id: int, briefing_id: str) -> None:
+    """Run the briefing agent to completion and store what it wrote.
+
+    The agent answers in `BriefingOutput`. An answer that breaks the writing rules goes back to it
+    as a follow-up turn in the same sandbox, a few times; after that the run fails.
+    """
+    prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
+    if prepared is None:
+        return
+
+    async def name_the_task(task_run: _HasTaskId) -> None:
+        # The run shows in the person's session list, so it carries a name instead of the prompt's first line.
+        await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
+            task_run.task_id, team_id, prepared.title
+        )
+
+    session, output = await MultiTurnSession.start(
+        prepared.prompt,
+        prepared.context,
+        model=BriefingOutput,
+        step_name="today_briefing",
+        origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+        ai_stage="today_briefing",
+        ai_agent_name="today-briefing",
+        on_task_run_created=name_the_task,
+        max_poll_seconds=int(TURN_TIMEOUT.total_seconds()),
+        output_schema=strict_schema(BriefingOutput),
+    )
+    try:
+        for attempt in range(1, WRITE_ATTEMPTS + 1):
+            problems = await database_sync_to_async(_store, thread_sensitive=False)(team_id, briefing_id, output)
+            if not problems:
+                break
+            if attempt == WRITE_ATTEMPTS:
+                raise RuntimeError("The agent's briefing kept breaking the rules: " + "; ".join(problems))
+            output = await session.send_followup(_fix_message(problems), BriefingOutput, label=f"fix_{attempt}")
+    except BaseException as error:
+        # Also on cancellation from the activity deadline, so the sandbox does not run on alone.
+        await session.end(status="failed", error=str(error)[:500])
+        raise
+    await session.end()
+
+
+def mark_failed(*, team_id: int, briefing_id: str, error: str) -> None:
+    briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
+    briefing.status = BriefingStatus.FAILED
+    briefing.error = error[:1000]
+    briefing.save(update_fields=["status", "error"])

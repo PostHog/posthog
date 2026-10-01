@@ -1082,7 +1082,13 @@ def materialize_features(
     sandbox_id = _resolve_run_sandbox_id(training_run)
     team = Team.objects.get(pk=team_id)
     try:
-        data = materialize_training_data(team=team, pipeline=training_run.pipeline, feature_sql=features_sql, user=user)
+        data = materialize_training_data(
+            team=team,
+            pipeline=training_run.pipeline,
+            feature_sql=features_sql,
+            user=user,
+            anchor_ts=training_run.anchor_ts,
+        )
     except (SandboxInferenceError, RecipeValidationError) as exc:
         raise AutoresearchConflict(f"Feature materialization failed: {exc}") from exc
     if not data.train_rows:

@@ -115,6 +115,19 @@ The activities live in
 Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
 Other refresh failures retry on the default cadence.
 
+A follow-up command read timeout leaves its turn open, even if an earlier turn's
+completion signal arrived during delivery. This applies to user and peer messages.
+An open turn blocks sandbox rotation. If its sandbox disappears before completion,
+a workflow-origin run fails instead of reporting unfinished work as completed.
+
+With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
+the agent reports idle, including background work after a user turn ends.
+Activity during snapshot capture or replacement startup abandons the handoff and
+keeps the live sandbox. The event relay stays active until startup finishes, and
+an abandoned handoff with new activity requests a fresh snapshot.
+Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
+and agent state. Paths outside that directory are not included.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
@@ -323,8 +336,8 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo at products/desktop
-LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
+# The agent workspace lives in this repo at packages/agent
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./packages/agent
 ```
 
 Restart the temporal worker after changing `.env`.
@@ -332,7 +345,7 @@ Restart the temporal worker after changing `.env`.
 For local Modal, set `SANDBOX_PROVIDER=MODAL_DOCKER`, build the packages, and restart the temporal worker:
 
 ```bash
-pnpm --dir products/desktop --filter @posthog/agent... build
+pnpm --dir packages/agent build
 ```
 
 ### Sandbox providers
@@ -365,6 +378,12 @@ override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), s
 in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
+
+Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
+Release evidence separates workflow status from image build and base promotion results, including skipped builds.
+Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 
@@ -430,7 +449,7 @@ Mirroring failures are logged and never break the run's log write.
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
 
 1. The selected sandbox Dockerfile is built in a temporary context
-2. External runtime dependencies from local `packages/agent`, `packages/shared`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
+2. External runtime dependencies from local `packages/agent`, `packages/agent-contracts`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
 3. Each local package's built `dist/` directory is mounted over the published package's compiled output
 4. The image runs in a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
 5. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
@@ -438,7 +457,7 @@ When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`
 After changing agent-server code, rebuild and restart the worker:
 
 ```bash
-cd products/desktop/packages/agent && pnpm build
+cd packages/agent/packages/agent && pnpm build
 ```
 
 > **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).

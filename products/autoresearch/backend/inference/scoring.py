@@ -684,6 +684,7 @@ def _fetch_training_rows(
     *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User
 ) -> list[dict[str, Any]]:
     """The recipe's feature SQL against the labeled anchors: one row per person with ``__label`` and ``__fold``."""
+    anchor_ts = int(django_timezone.now().timestamp())
     sql, values = build_training_features_sql(
         feature_sql=feature_sql,
         target_event=pipeline.target_event,
@@ -692,10 +693,11 @@ def _fetch_training_rows(
         horizon_days=pipeline.horizon_days,
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
+        anchor_ts=anchor_ts,
     )
     rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
     try:
-        expected = count_training_anchors(team=team, pipeline=pipeline, user=user)
+        expected = count_training_anchors(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
     _require_one_row_per_person(rows, source="training feature_sql", expected_count=expected)

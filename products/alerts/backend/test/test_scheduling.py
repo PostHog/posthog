@@ -275,6 +275,40 @@ class TestNextCalendarCheckTime:
         assert (result.year, result.month, result.day, result.hour, result.minute) == expected_utc
         assert result.tzinfo is not None
 
+    @parameterized.expand(
+        [
+            # Enabling an alert or changing its threshold sets next_check_at to now, so a due
+            # time later in the day than the anchor is the common case, not an edge one.
+            (
+                "due_after_the_anchor",
+                "UTC",
+                "09:35",
+                datetime(2026, 3, 19, 9, 40, tzinfo=UTC),
+                datetime(2026, 3, 20, 9, 35, tzinfo=UTC),
+            ),
+            # 02:30 does not exist on 2026-03-08 in America/New_York, so that day's check runs
+            # at 03:30 local and the due time carries the shift.
+            (
+                "due_shifted_by_spring_forward",
+                "America/New_York",
+                "02:30",
+                datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+                datetime(2026, 3, 9, 6, 30, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_a_due_time_past_the_anchor_does_not_skip_a_period(
+        self, _name: str, tz_name: str, anchor: str, due_at: datetime, expected: datetime
+    ) -> None:
+        result = next_calendar_check_time(
+            CalendarInterval.DAILY,
+            now=due_at,
+            tz_name=tz_name,
+            next_check_at=due_at,
+            schedule_start_time=anchor,
+        )
+        assert result == expected
+
     def test_daily_across_dst_spring_forward(self) -> None:
         # US spring-forward was 2026-03-08: local 1am tomorrow maps PST(-8) -> PDT(-7),
         # so the UTC anchor shifts from 09:00 to 08:00 across the transition.

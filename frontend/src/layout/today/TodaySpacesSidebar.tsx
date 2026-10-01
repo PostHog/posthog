@@ -2,19 +2,26 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconList, IconLock, IconPlus, IconSearch } from '@posthog/icons'
+import { IconChat, IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
+import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
+import { TodayListAppearanceDialog } from './TodayListAppearanceDialog'
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
+import { TodaySessionBulkBar } from './TodaySessionBulkBar'
 import { TodaySessionRow } from './TodaySessionRow'
-import { TodaySpaceActions } from './TodaySpaceActions'
+import { selectionClick } from './todaySessionSelection'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
+import { TodaySpaceContextMenu } from './TodaySpaceContextMenu'
+import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
@@ -35,23 +42,47 @@ export function TodaySpacesSidebar(): JSX.Element {
         collapsedSections,
         unreadSessionIds,
         unreadSpaceIds,
+        spacePresence,
+        spacePreviews,
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
     const { openNewSpace } = useActions(newSpaceLogic)
+    const { selectedSessionIds } = useValues(todaySessionSelectionLogic)
+    const { toggleSessionSelection, selectSessionRange, clearSelection } = useActions(todaySessionSelectionLogic)
     const { location, searchParams } = useValues(router)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const browsingSpaces = location.pathname.endsWith(urls.taskSpaces())
+    const selectedIds = new Set(selectedSessionIds)
 
-    const renderItem = (item: TodayWorkItem, dataAttr: string): JSX.Element =>
+    // Like Desktop, Cmd/Ctrl-click and Shift-click pick rows instead of opening them, and a plain click clears the pick.
+    const onSelectClick = (sessionId: string, event: React.MouseEvent<HTMLElement>): void => {
+        const click = selectionClick(event)
+        if (click === 'open') {
+            clearSelection()
+            return
+        }
+        event.preventDefault()
+        event.stopPropagation()
+        if (click === 'toggle') {
+            toggleSessionSelection(sessionId)
+        } else {
+            selectSessionRange(sessionId)
+        }
+    }
+
+    const renderItem = (item: TodayWorkItem, dataAttr: string, inPinnedSection = false): JSX.Element =>
         item.kind === 'session' ? (
             <TodaySessionRow
                 key={`${item.kind}-${item.id}`}
                 item={item}
                 pinned={pinnedIds.has(item.id)}
+                showPinBadge={!inPinnedSection}
                 dataAttr={dataAttr}
                 surface="sidebar"
                 unread={unreadSessionIds.has(item.id)}
+                selected={selectedIds.has(item.id)}
+                onSelectClick={(event) => onSelectClick(item.id, event)}
             />
         ) : (
             <TodaySpacesRow
@@ -120,10 +151,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                     <IconPlus />
                     New chat
                 </Button>
-                <div
-                    className="mt-6 mb-2 flex min-h-0 flex-1 flex-col overflow-hidden px-1"
-                    ref={layout.measureRefs.area}
-                >
+                <div className="mt-6 flex min-h-0 flex-1 flex-col overflow-hidden px-1" ref={layout.measureRefs.area}>
                     {hasPinned && (
                         <TodayPaneSection
                             label="Pinned"
@@ -132,7 +160,7 @@ export function TodaySpacesSidebar(): JSX.Element {
                             onToggle={() => toggleSection('pinned')}
                             dataAttr="today-section-pinned"
                         >
-                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session'))}
+                            {pinnedItems.map((item) => renderItem(item, 'today-pinned-session', true))}
                         </TodayPaneSection>
                     )}
                     <TodayPaneSection
@@ -151,7 +179,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                                             delay={0}
                                             render={
                                                 <Button
-                                                    size="icon-sm"
+                                                    size="icon-xs"
+                                                    className="text-muted-foreground"
                                                     aria-label="Search recent"
                                                     onClick={() => setRecentSearchOpen(true)}
                                                     data-attr="today-recent-search-open"
@@ -223,25 +252,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                                         delay={0}
                                         render={
                                             <Button
-                                                size="icon-sm"
-                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
-                                                aria-current={browsingSpaces ? 'page' : undefined}
-                                                className={cn(browsingSpaces && 'bg-fill-selected')}
-                                                aria-label="Browse spaces"
-                                                data-attr="today-spaces-browse"
-                                            />
-                                        }
-                                    >
-                                        <IconList />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Browse spaces</TooltipContent>
-                                </Tooltip>
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        delay={0}
-                                        render={
-                                            <Button
-                                                size="icon-sm"
+                                                size="icon-xs"
+                                                className="text-muted-foreground"
                                                 aria-label="New space"
                                                 onClick={openNewSpace}
                                                 data-attr="today-new-space-open-sidebar"
@@ -252,6 +264,27 @@ export function TodaySpacesSidebar(): JSX.Element {
                                     </TooltipTrigger>
                                     <TooltipContent>New space</TooltipContent>
                                 </Tooltip>
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-xs"
+                                                render={<LinkPrimitive to={urls.taskSpaces()} />}
+                                                aria-current={browsingSpaces ? 'page' : undefined}
+                                                className={cn(
+                                                    'text-muted-foreground',
+                                                    browsingSpaces && 'bg-fill-selected text-foreground'
+                                                )}
+                                                aria-label="Browse spaces"
+                                                data-attr="today-spaces-browse"
+                                            />
+                                        }
+                                    >
+                                        <IconTableOfContents />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Browse spaces</TooltipContent>
+                                </Tooltip>
                             </>
                         }
                     >
@@ -261,27 +294,32 @@ export function TodaySpacesSidebar(): JSX.Element {
                             loadError('Spaces didn’t load.', loadSpaces, 'today-spaces-retry')
                         ) : (
                             <>
-                                {visibleSpaces.map((space) => (
-                                    <TodaySpacesRow
-                                        key={space.id}
-                                        label={spaceLabel(space)}
-                                        icon={
-                                            isLockedSpace(space) ? (
-                                                <IconLock className="text-muted-foreground" />
-                                            ) : (
-                                                <span aria-hidden className="font-mono text-muted-foreground">
-                                                    #
-                                                </span>
-                                            )
-                                        }
-                                        to={urls.taskSpace(space.id)}
-                                        active={location.pathname.includes(urls.taskSpace(space.id))}
-                                        dataAttr="today-space-row"
-                                        action={<TodaySpaceActions space={space} />}
-                                        actionCount={2}
-                                        unread={unreadSpaceIds.has(space.id)}
-                                    />
-                                ))}
+                                {visibleSpaces.map((space) => {
+                                    const presence = spacePresence[space.id]
+                                    return (
+                                        <TodaySpaceContextMenu key={space.id} space={space}>
+                                            <TodayPreviewTrigger payload={spacePreviews[space.id]}>
+                                                <TodaySpacesRow
+                                                    label={spaceLabel(space)}
+                                                    icon={
+                                                        <TodaySpaceGlyph
+                                                            locked={isLockedSpace(space)}
+                                                            className="text-muted-foreground"
+                                                        />
+                                                    }
+                                                    to={urls.taskSpace(space.id)}
+                                                    active={location.pathname.includes(urls.taskSpace(space.id))}
+                                                    dataAttr="today-space-row"
+                                                    badge={
+                                                        presence ? <SpacePresenceAvatars presence={presence} /> : null
+                                                    }
+                                                    badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
+                                                    unread={unreadSpaceIds.has(space.id)}
+                                                />
+                                            </TodayPreviewTrigger>
+                                        </TodaySpaceContextMenu>
+                                    )
+                                })}
                                 {visibleSpaces.length <= 1 && (
                                     <Button
                                         variant="outline"
@@ -298,6 +336,8 @@ export function TodaySpacesSidebar(): JSX.Element {
                         )}
                     </TodayPaneSection>
                 </div>
+                <TodaySessionBulkBar />
+                <TodayListAppearanceDialog />
             </div>
         </TooltipProvider>
     )

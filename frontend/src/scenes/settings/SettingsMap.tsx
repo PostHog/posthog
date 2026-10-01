@@ -51,6 +51,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -188,6 +189,7 @@ import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { PersonalCodexIntegration } from './user/PersonalCodexIntegration'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
@@ -400,6 +402,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'The model your own runs launch with, overriding the project default. Applies in the new PostHog AI view, in Slack, and in PostHog Desktop.',
                 component: <TaskAgentMyPreferenceSettings />,
                 keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-subscriptions',
+        title: 'Subscriptions',
+        group: 'AI',
+        flag: 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD',
+        settings: [
+            {
+                id: 'ai-subscription-codex',
+                title: 'Codex',
+                description:
+                    'Connect your ChatGPT account so your Codex cloud tasks can run on your own ChatGPT plan. The connection is yours and applies in every project.',
+                component: <PersonalCodexIntegration />,
+                keywords: ['codex', 'chatgpt', 'openai', 'subscription', 'plan', 'billing', 'cloud', 'personal'],
             },
         ],
     },
@@ -1403,6 +1422,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
                 keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+            {
+                id: 'business-knowledge-github-repos',
+                title: 'GitHub repositories',
+                description:
+                    'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
+                component: <GithubReposSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
+                keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],
     },
