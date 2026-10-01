@@ -118,22 +118,22 @@ impl FeatureFlagList {
         let evaluation_metadata = wrapper.evaluation_metadata;
         // A team whose every flag is in or depends on a dependency cycle has no stage. Its
         // metadata lists every flag in `flags_with_missing_deps`.
-        if evaluation_metadata.dependency_stages.is_empty()
-            && wrapper.flags.iter().any(|flag| {
+        let flag_without_stage = if evaluation_metadata.dependency_stages.is_empty() {
+            wrapper.flags.iter().find(|flag| {
                 !evaluation_metadata
                     .flags_with_missing_deps
                     .contains(&flag.id)
             })
-        {
-            tracing::error!(
-                "evaluation_metadata.dependency_stages is empty but {} flags present for team {}",
-                wrapper.flags.len(),
-                team_id
+        } else {
+            None
+        };
+        if let Some(flag) = flag_without_stage {
+            let message = format!(
+                "evaluation_metadata.dependency_stages is empty but flag {} for team {team_id} is not in flags_with_missing_deps",
+                flag.id
             );
-            return Err(FlagError::flag_data_parsing(format!(
-                "evaluation_metadata.dependency_stages is empty but {} flags present for team {team_id}",
-                wrapper.flags.len()
-            )));
+            tracing::error!("{message}");
+            return Err(FlagError::flag_data_parsing(message));
         }
 
         Ok((wrapper.flags, evaluation_metadata, wrapper.cohorts))
@@ -1268,10 +1268,10 @@ mod tests {
     }
 
     #[test]
-    fn test_from_wrapper_accepts_empty_stages_when_every_flag_is_in_a_cycle() {
+    fn test_from_wrapper_accepts_empty_stages_when_every_flag_has_missing_deps() {
         let (flags, _, _) =
             FeatureFlagList::from_wrapper(Some(wrapper_with_empty_stages(json!([10, 20]))), 1)
-                .expect("all-cyclic metadata should parse");
+                .expect("metadata listing every flag as missing a dependency should parse");
         assert_eq!(flags.len(), 2);
     }
 
