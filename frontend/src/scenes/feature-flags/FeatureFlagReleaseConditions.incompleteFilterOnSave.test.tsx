@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -22,7 +22,7 @@ const INCOMPLETE_FILTER_MESSAGE = 'Add a value or remove this filter'
 
 // A property picked from the taxonomic list starts with a null value, and the form blocks the save
 // while that half-built row is on the flag.
-function buildFilters(): FeatureFlagType['filters'] {
+function buildFilters(planValue: string | null = null): FeatureFlagType['filters'] {
     const groups: FeatureFlagGroupType[] = [
         {
             properties: [
@@ -41,7 +41,7 @@ function buildFilters(): FeatureFlagType['filters'] {
             properties: [
                 {
                     key: 'plan',
-                    value: null,
+                    value: planValue,
                     operator: PropertyOperator.Exact,
                     type: PropertyFilterType.Person,
                 },
@@ -111,5 +111,30 @@ describe('a save blocked by a collapsed condition set', () => {
         expect(featureFlagReleaseConditionsLogic.findMounted({ id: '1234' })?.values.openConditions).toEqual([
             'condition-group-2',
         ])
+    })
+
+    it('blocks the save when a person removes the last value from a filter', async () => {
+        const filters = buildFilters('free')
+        logic.actions.setFeatureFlag({ ...NEW_FLAG, id: 1234, key: 'test-flag', filters } as FeatureFlagType)
+        render(
+            <Provider>
+                <FeatureFlagReleaseConditionsCollapsible
+                    id="1234"
+                    flagId={1234}
+                    filters={filters}
+                    onChange={logic.actions.setFeatureFlagFilters}
+                />
+            </Provider>
+        )
+
+        fireEvent.click(await screen.findByLabelText('Toggle condition 2 details'))
+        const valueChip = (await screen.findByTitle('free')).parentElement as HTMLElement
+        fireEvent.click(valueChip.querySelector('.LemonSnack__close button') as HTMLElement)
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toFinishAllListeners()
+
+        await waitFor(() => expect(document.body).toHaveTextContent(INCOMPLETE_FILTER_MESSAGE))
     })
 })
