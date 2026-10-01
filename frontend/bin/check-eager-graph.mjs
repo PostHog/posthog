@@ -122,6 +122,36 @@ const ROOTS = [
             },
         ],
     },
+    // The most visited logged-in scenes, whose bytes gate their LCP. A scene root counts every chunk
+    // the scene needs, so code it shares with the shell is in both numbers.
+    {
+        root: 'src/scenes/dashboard/Dashboard.tsx',
+        label: 'dashboard scene',
+        // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 14_130_000,
+        forbidden: [],
+    },
+    {
+        root: 'src/scenes/project-homepage/ProjectHomepage.tsx',
+        label: 'project home scene',
+        // 2026-10-01: 14.94 MiB (5579 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 17_240_000,
+        forbidden: [],
+    },
+    {
+        root: 'src/scenes/activity/explore/EventsScene.tsx',
+        label: 'events scene',
+        // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 13_250_000,
+        forbidden: [],
+    },
+    {
+        root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
+        label: 'replay detail scene',
+        // 2026-10-01: 14.29 MiB (5280 files), linked stylesheet included. ~10% headroom.
+        budgetBytes: 16_480_000,
+        forbidden: [],
+    },
 ]
 
 function fail(message) {
