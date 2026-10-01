@@ -124,8 +124,10 @@ export const broadcastAudienceCohortsLogic = kea<broadcastAudienceCohortsLogicTy
                                 importUnmatched: cohort.last_import_unmatched_count ?? null,
                             },
                         ]
-                    } catch {
-                        return [id, null]
+                    } catch (error: any) {
+                        // A failed poll keeps the last card, so a cohort that is still matching keeps polling.
+                        // A deleted cohort has nothing left to show.
+                        return [id, error?.status === 404 ? null : (values.audienceCohorts[id] ?? null)]
                     }
                 })
             )
