@@ -487,6 +487,7 @@ export interface NotificationSettings {
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
+    task_comments_slack_dm?: boolean
 }
 
 export interface WebAnalyticsDigestMetricChange {
