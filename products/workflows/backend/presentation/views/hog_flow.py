@@ -351,7 +351,7 @@ def _reject_clock_based_wait(config: dict, team: Team) -> None:
     )
 
 
-def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache"] = None) -> dict:
+def snapshot_flow_content(flow: HogFlow) -> dict:
     snapshot = {field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
     # so re-validation of a snapshot (draft publish, revision restore) doesn't choke on a
@@ -362,8 +362,9 @@ def snapshot_flow_content(flow: HogFlow, template_cache: Optional["TemplateCache
     # Defensively strip secrets: a legacy row written before encryption shipped still has plaintext
     # secret inputs in `actions`, and this snapshot feeds revision content — which must never carry
     # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
-    # snapshot, so resolve each template once rather than once per action.
-    return strip_content_secrets(snapshot, {} if template_cache is None else template_cache)
+    # snapshot inside its transaction, so the cache resolves each template once instead of once per
+    # action.
+    return strip_content_secrets(snapshot, template_cache={})
 
 
 # --- Secret function-action inputs -------------------------------------------------------------
@@ -5270,9 +5271,9 @@ class HogFlowViewSet(
 
     def _append_revisions(self, instance: HogFlow, before: HogFlow) -> None:
         # Must run inside the same transaction as the content write it snapshots. A workflow created
-        # before creates wrote revisions has no rows yet: on its first tracked write, also snapshot
-        # the outgoing live content so the state before any tracked change is always available to
-        # roll back to (there's no backfill).
+        # before the create path wrote revisions has no rows, and there is no backfill. On its first
+        # tracked write, also snapshot the outgoing live content, so the state before any tracked
+        # change stays available to roll back to.
         if not HogFlowRevision.objects.filter(hog_flow=instance).exists():
             self._append_revision(before, created_by=None)
         self._append_revision(instance, created_by=self._revision_author())
