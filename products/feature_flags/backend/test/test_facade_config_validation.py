@@ -173,6 +173,8 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
             )
         ),
     ),
+    ("uncompilable_regex", config(targeted(targeting={"properties": [person(operator="regex", value="[")]}))),
+    ("uncompilable_not_regex", config(targeted(targeting={"properties": [person(operator="not_regex", value="(")]}))),
     (
         "string_values",
         config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),

@@ -88,7 +88,7 @@ describe('navProductsTabLogic', () => {
         await expectLogic(navProductsTabLogic, () =>
             navProductsTabLogic.actions.setSearch('  self-driving  ')
         ).toMatchValues({
-            pinnedItems: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox', tags: ['beta'] })],
+            pinnedItems: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox' })],
             groupedItems: [],
         })
         const items = [

@@ -20958,6 +20958,11 @@ export namespace Schemas {
       layout?: CanvasLayout | null;
       /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
       component_lifecycles?: CanvasComponentLifecycle[];
+      /**
+         * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+         * @nullable
+         */
+      readonly sandbox_document_url: string | null;
     }
 
     export interface CapabilityReadiness {
@@ -36135,6 +36140,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -36144,6 +36150,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     /**
@@ -36206,7 +36213,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
       scanner_config: unknown;
@@ -42684,7 +42692,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42775,7 +42783,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -42858,7 +42866,7 @@ export namespace Schemas {
       readonly completed_metrics: number;
       /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
       readonly failed_metrics: number;
-      /** Map of metric_uuid to error details */
+      /** Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first */
       readonly metric_errors: unknown;
       /** When the job was created */
       readonly created_at: string;
@@ -48507,7 +48515,7 @@ export namespace Schemas {
       /** Whether this condition matched properties but was excluded due to rollout */
       rollout_excluded: boolean;
       /**
-         * Variant associated with this condition
+         * Variant associated with this condition. Empty or null when the condition has no variant override.
          * @nullable
          */
       variant: string | null;
@@ -56306,7 +56314,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
       scanner_config?: unknown;
@@ -64153,12 +64162,13 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
        *
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -66325,15 +66335,6 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
-    export interface PaginatedCanvasDraftList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: CanvasDraft[];
-    }
-
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -68329,7 +68330,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -79828,7 +79830,8 @@ export namespace Schemas {
        * * `monitor` - Monitor
        * * `classifier` - Classifier
        * * `scorer` - Scorer
-       * * `summarizer` - Summarizer */
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
       scanner_type?: ScannerTypeEnum;
       /**
          * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -80506,6 +80509,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
+         * @maxLength 64
+         */
+      suggestion_id?: string;
     }
 
     /**
@@ -92633,6 +92641,7 @@ export namespace Schemas {
       classifier: ScannerTypeStats;
       scorer: ScannerTypeStats;
       summarizer: ScannerTypeStats;
+      experiment: ScannerTypeStats;
     }
 
     /**
@@ -92643,7 +92652,7 @@ export namespace Schemas {
       total: number;
       /** Number of enabled scanners on the team. */
       enabled: number;
-      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
       by_type: ScannerStatsByType;
     }
 
@@ -103539,6 +103548,17 @@ export namespace Schemas {
     }
 
     /**
+     * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+     */
+    export interface TasksAgentInstructions {
+      /**
+         * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+         * @maxLength 20000
+         */
+      agent_instructions: string;
+    }
+
+    /**
      * * `user` - user
      * * `team` - team
      * * `none` - none
@@ -103588,6 +103608,8 @@ export namespace Schemas {
     export interface TasksTeamConfigResponse {
       /** Project-wide default AI run triple; all fields null when unset. */
       ai_run_preferences: TasksAIRunPreferences;
+      /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+      agent_instructions: string;
     }
 
     /**
@@ -103598,6 +103620,8 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+      /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+      agent_instructions: string;
     }
 
     export interface TeachingCanvas {
@@ -108390,7 +108414,7 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct values for this attribute in recent series metadata. */
+      /** Number of distinct values for this attribute in recent data. */
       value_count: number;
     }
 
@@ -112519,17 +112543,6 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
-    };
-
-    export type CanvasesDraftsRetrieveParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type CanvasesLayoutRetrieveParams = {
@@ -122997,6 +123010,7 @@ export namespace Schemas {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
@@ -123020,6 +123034,7 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+      Experiment: 'experiment',
     } as const;
 
     export type VisualReviewReposListParams = {

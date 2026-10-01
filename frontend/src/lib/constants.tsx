@@ -222,6 +222,7 @@ export const FEATURE_FLAGS = {
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
     QUERY_RUNNING_TIME: 'query_running_time', // owner: #team-analytics-platform
     REPLAY_BROWSER_SCROLL_BUG: 'replay-browser-scroll-bug', // owner: #team-replay, temporary: gates the rendered-scroll diagnostic
+    REPLAY_CONSOLIDATED_CONTROLS: 'replay-consolidated-controls', // owner: #team-replay, gates the single player header bar and the list View menu
     REPLAY_HOGQL_FILTERS: 'replay-hogql-filters', // owner: @pauldambra #team-replay
     REPLAY_PLAYER_PERSON_SESSIONS_TAB: 'replay-player-person-sessions-tab', // owner: @ksvat #team-replay
     REPLAY_SETTINGS_HELP: 'replay-settings-help', // owner: @veryayskiy #team-replay
@@ -273,6 +274,7 @@ export const FEATURE_FLAGS = {
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
     BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
     BUSINESS_KNOWLEDGE_GITHUB_REPOS: 'business-knowledge-github-repos', // owner: @veryayskiy #team-conversations
+    CANVAS_COMMENTS: 'posthog-desktop-canvas-comments', // owner: @k11kirky, shows canvas comments and selection comments on web canvases, shared with PostHog Desktop
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
@@ -495,7 +497,6 @@ export const FEATURE_FLAGS = {
     REPLAY_NEGATIVE_EVENT_FILTERS: 'replay-negative-event-filters', // owner: @arnohillen #team-replay
     REPLAY_PLAYLIST_SURFACING_SCORE: 'replay-playlist-surfacing-score', // owner: #team-replay
     REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT: 'replay-recommended-recordings-filter-experiment', // owner: @arnohillen #team-replay multivariate=control,test
-    REPLAY_TEMPLATES_IN_FILTERS_PANEL_EXPERIMENT: 'replay-templates-in-filters-panel-experiment', // owner: #team-replay multivariate=control,test (gate on === 'test')
     REPLAY_TRIGGERS_V2: 'replay-triggers-v2', // owner: #team-replay
     REPLAY_UI_REDESIGN_2026: 'replay-ui-redesign-2026', // owner: #team-replay, New UI layout for replay
     REPLAY_VISION_ANALYSIS_NUDGE: 'replay-vision-analysis-nudge', // owner: #team-replay, in-player nudge offering an AI-drafted scanner after analyzing several recordings
