@@ -335,6 +335,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
             # Backs `name__icontains` search (the cohort picker's server-side search).
             GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            # Backs the scheduler picks in posthog/tasks/calculate_cohort.py (order by last_calculation, limit N).
+            # Keep the condition implied by their WHERE clause, or the planner skips the index.
+            models.Index(
+                F("is_calculating"),
+                F("last_calculation").asc(nulls_first=True),
+                condition=Q(deleted=False, is_static=False),
+                name="cohort_dynamic_last_calc_idx",
+            ),
         ]
         db_table = "posthog_cohort"
 
