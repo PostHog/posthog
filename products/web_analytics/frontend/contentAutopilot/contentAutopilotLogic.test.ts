@@ -167,7 +167,11 @@ describe('contentAutopilotLogic', () => {
 
         mountedLogic.actions.toggleOpportunitySelection(first.id)
         mountedLogic.actions.toggleOpportunitySelection(second.id)
-        mountedLogic.actions.toggleOpportunitySelection(second.id)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([first, { ...second, status: 'queued' }])
+        )
+        await expectLogic(mountedLogic, () => mountedLogic.actions.refreshOpportunities()).toFinishAllListeners()
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
         expect(mountedLogic.values.draftDisabledReason).toBeUndefined()
 
         await expectLogic(mountedLogic, () => mountedLogic.actions.draftOpportunities()).toFinishAllListeners()

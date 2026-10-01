@@ -68,6 +68,8 @@ interface PaginatedResults<T> {
     results: T[]
 }
 
+const UNDRAFTABLE_STATUSES = new Set<ContentAutopilotOpportunityApi['status']>(['queued', 'dismissed'])
+
 const fetchAllPages = async <T>(
     loadPage: (offset: number, limit: number) => Promise<PaginatedResults<T>>
 ): Promise<T[]> => {
@@ -84,6 +86,11 @@ const fetchAllPages = async <T>(
 const fetchOpportunities = (teamId: string, profileId: string): Promise<ContentAutopilotOpportunityApi[]> =>
     fetchAllPages((offset, limit) =>
         webAnalyticsApi.webAnalyticsContentAutopilotOpportunitiesList(teamId, { limit, offset, profile_id: profileId })
+    )
+
+const draftableSelection = (selectedIds: string[], opportunities: ContentAutopilotOpportunityApi[]): string[] =>
+    selectedIds.filter((id) =>
+        opportunities.some((opportunity) => opportunity.id === id && !UNDRAFTABLE_STATUSES.has(opportunity.status))
     )
 
 const withoutWorkspaceError = (
@@ -650,6 +657,8 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         : [...state, opportunityId],
                 selectProfile: () => [],
                 draftOpportunitiesSuccess: () => [],
+                loadOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
+                refreshOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
                 dismissOpportunitySuccess: (state, { dismissedOpportunity }) =>
                     state.filter((id) => id !== dismissedOpportunity.id),
             },
