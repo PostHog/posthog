@@ -320,6 +320,12 @@ async def test_stage_delta_snapshot_raises_a_retryable_error_while_a_full_refres
     pinned_version_error: Exception,
 ) -> None:
     sink = _sink()
+    projection = [
+        AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+    ]
+    client = MagicMock()
+    client._find = AsyncMock(side_effect=FileNotFoundError)
+    client._rm = AsyncMock()
 
     def _open_delta_table(table_uri, version, storage_options):
         if version == 7:
@@ -327,27 +333,17 @@ async def test_stage_delta_snapshot_raises_a_retryable_error_while_a_full_refres
         raise deltalake.exceptions.TableNotFoundError("Generic delta kernel error: No files in log segment")
 
     with (
-        patch.object(
-            sink,
-            "_get_projection",
-            new=AsyncMock(
-                return_value=[
-                    AccountPropertySourceProjection(
-                        key_column="organization_id",
-                        columns=frozenset({"organization_id", "mrr"}),
-                    )
-                ]
-            ),
-        ),
-        patch.object(sink, "clear", new=AsyncMock()),
-        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch(f"{_MODULE}.account_property_projection_for", return_value=projection),
+        patch(f"{_MODULE}.aget_s3_client", side_effect=lambda: _S3ClientContext(client)),
+        patch(f"{_MODULE}.write_table") as write_table,
         patch(f"{_MODULE}.deltalake.DeltaTable", side_effect=_open_delta_table),
         patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
         pytest.raises(AccountPropertyStagingTableNotCommittedError),
     ):
         await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
 
-    stage_chunk.assert_not_awaited()
+    client._rm.assert_any_await(f"s3://{sink._get_path_prefix()}/", recursive=True)
+    write_table.assert_not_called()
 
 
 @pytest.mark.asyncio
