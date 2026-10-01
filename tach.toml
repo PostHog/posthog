@@ -1647,3 +1647,17 @@ expose = [
 from = [
     "products.today",
 ]
+
+[[modules]]
+path = "products.cross_project_dashboards"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.cross_project_dashboards",
+]

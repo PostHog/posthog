@@ -2985,6 +2985,54 @@
             "readOnlyHint": false
         }
     },
+    "cross-project-dashboard-tiles-list": {
+        "description": "The tiles on one dashboard. Each tile carries the project id and insight id it references, its grid position and any filters that apply to it alone.",
+        "category": "Cross-project dashboards",
+        "feature": "cross_project_dashboards",
+        "summary": "List the tiles on a cross-project dashboard",
+        "title": "List the tiles on a cross-project dashboard",
+        "required_scopes": ["cross_project_dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cross-project-dashboards",
+        "feature_flag_behavior": "enable"
+    },
+    "cross-project-dashboards-get": {
+        "description": "One dashboard with its tiles. Each tile names the project and the insight it points at, never the insight's name, query or numbers. To read a tile's numbers, switch to that project and query the insight there.",
+        "category": "Cross-project dashboards",
+        "feature": "cross_project_dashboards",
+        "summary": "Get one cross-project dashboard",
+        "title": "Get one cross-project dashboard",
+        "required_scopes": ["cross_project_dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cross-project-dashboards",
+        "feature_flag_behavior": "enable"
+    },
+    "cross-project-dashboards-list": {
+        "description": "Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes with its filters and its tiles, and each tile names the project and insight it points at. No tile carries the insight's name, query or numbers.",
+        "category": "Cross-project dashboards",
+        "feature": "cross_project_dashboards",
+        "summary": "List cross-project dashboards",
+        "title": "List cross-project dashboards",
+        "required_scopes": ["cross_project_dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "cross-project-dashboards",
+        "feature_flag_behavior": "enable"
+    },
     "custom-property-definitions-create": {
         "description": "Create a Customer Analytics custom property definition — the shape of a custom attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). `target_type` picks what the property attaches to: `account` (default; value set manually or from a materialized view), `person`, or `group` (person/group properties are populated from a warehouse table or a materialized view via a custom property source and become usable like any other person/group property in feature flags, cohorts, and insights). For `group` targets, also pass `group_type_index` (0-4) selecting the group type. Person and group targets require the `warehouse-person-properties` feature; creating a `group` target additionally requires the `group:write` scope. Definitions are team-scoped; for account targets, set the value a specific account holds via the account custom property value tools.",
         "category": "Customer analytics",

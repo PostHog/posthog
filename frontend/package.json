@@ -99,6 +99,7 @@
         "@posthog/products-cdp": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",
+        "@posthog/products-cross-project-dashboards": "workspace:*",
         "@posthog/products-customer-analytics": "workspace:*",
         "@posthog/products-dashboards": "workspace:*",
         "@posthog/products-data-catalog": "workspace:*",
