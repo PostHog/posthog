@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER, MOCK_USER_UUID } from 
 
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
@@ -112,7 +112,7 @@ describe('multi-select member pickers', () => {
         async ({ Picker, initialLabel, reopenLabel }) => {
             renderPicker(Picker, [MOCK_SECOND_BASIC_USER.id])
             await userEvent.click(await screen.findByText(initialLabel))
-            const members = await screen.findByRole('list', { name: /^Members$/ })
+            const members = await screen.findByLabelText('Members')
             await within(members).findByText('Alice')
             expectListedInOrder(members, 'Rose', 'John')
 
@@ -126,8 +126,9 @@ describe('multi-select member pickers', () => {
             )
 
             await userEvent.click(screen.getByText('Outside'))
-            await userEvent.click(screen.getByRole('button', { name: reopenLabel }))
-            const reopenedMembers = await screen.findByRole('list', { name: /^Members$/ })
+            await waitFor(() => expect(screen.queryByLabelText('Members')).not.toBeInTheDocument())
+            await userEvent.click(screen.getByText(reopenLabel))
+            const reopenedMembers = await screen.findByLabelText('Members')
             expectListedInOrder(reopenedMembers, 'Alice', 'John')
             expectListedInOrder(reopenedMembers, 'John', 'Rose')
             expect(within(reopenedMembers).getByText('Alice').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
@@ -141,7 +142,7 @@ describe('multi-select member pickers', () => {
     it('keeps three adjacent members in place while selecting them', async () => {
         renderPicker(MemberSelectMultiplePopover)
         await userEvent.click(screen.getByText('Created by'))
-        const members = await screen.findByRole('list', { name: /^Members$/ })
+        const members = await screen.findByLabelText('Members')
         await within(members).findByText('Chloe')
 
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate'] })
@@ -167,7 +168,7 @@ describe('multi-select member pickers', () => {
     it('shows a selected member only once during search', async () => {
         renderPicker(MemberSelectMultiplePopover, [MOCK_SECOND_BASIC_USER.id])
         await userEvent.click(screen.getByText('Created by (1)'))
-        const members = await screen.findByRole('list', { name: /^Members$/ })
+        const members = await screen.findByLabelText('Members')
         await within(members).findByText('Rose')
         expectListedInOrder(members, 'Rose', 'John')
 
@@ -189,18 +190,25 @@ describe('multi-select member pickers', () => {
         },
         { picker: 'MemberMultiSelect', Picker: MemberMultiSelect, selectedLabel: 'Rose', emptyLabel: 'Any user' },
     ])(
-        '$picker clears the selection from the trigger without opening the dropdown',
+        '$picker clears the selection from the trigger and from the list',
         async ({ Picker, selectedLabel, emptyLabel }) => {
             renderPicker(Picker, [MOCK_SECOND_BASIC_USER.id])
             expect(await screen.findByText(selectedLabel)).toBeInTheDocument()
 
-            const clearButton = document.querySelector<HTMLElement>('[data-attr="member-filter-clear-x"]')
-            expect(clearButton).not.toBeNull()
-            await userEvent.click(clearButton!)
-
-            expect(screen.getByText(emptyLabel)).toBeInTheDocument()
-            expect(document.querySelector('[data-attr="member-filter-clear-x"]')).toBeNull()
+            await userEvent.click(screen.getByLabelText('Clear selection'))
+            expect(screen.queryByLabelText('Clear selection')).not.toBeInTheDocument()
             expect(screen.queryByLabelText('Members')).not.toBeInTheDocument()
+            expect(screen.getByText(emptyLabel).closest('button')).toHaveFocus()
+
+            await userEvent.click(screen.getByText(emptyLabel))
+            const members = await screen.findByLabelText('Members')
+            await userEvent.click(await within(members).findByText('Rose'))
+            await userEvent.click(document.querySelector<HTMLElement>('[data-attr="member-filter-clear-selection"]')!)
+            expect(within(members).getByText('Rose').closest('[role="menuitemcheckbox"]')).toHaveAttribute(
+                'aria-checked',
+                'false'
+            )
+            expect(screen.getByLabelText('Members')).toBeInTheDocument()
         }
     )
 })

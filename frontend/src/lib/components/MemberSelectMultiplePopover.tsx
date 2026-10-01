@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonDropdown } from '@posthog/lemon-ui'
@@ -35,9 +35,20 @@ export function MemberSelectMultiplePopover({
     const { me } = useValues(membersLogic)
     const { ensureAllMembersLoaded, setSearch } = useActions(membersLogic)
     const [selectedAtOpen, setSelectedAtOpen] = useState<number[]>([])
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const focusTriggerAfterClear = useRef(false)
 
     const hasSelection = value.length > 0
     const isFilteredToCurrentUser = hasSelection && value.length === 1 && value[0] === me?.user.id
+
+    // The × unmounts when the selection becomes empty, so the focus falls to the page body.
+    // Move the focus to the trigger so that keyboard and screen reader users keep their place.
+    useEffect(() => {
+        if (!hasSelection && focusTriggerAfterClear.current) {
+            focusTriggerAfterClear.current = false
+            triggerRef.current?.focus()
+        }
+    }, [hasSelection])
 
     return (
         <LemonDropdown
@@ -55,6 +66,7 @@ export function MemberSelectMultiplePopover({
             overlay={<MemberSelectMultipleOptions value={value} onChange={onChange} selectedAtOpen={selectedAtOpen} />}
         >
             <LemonButton
+                ref={triggerRef}
                 size="small"
                 type="secondary"
                 status={borderless && !hasSelection ? 'alt' : 'default'}
@@ -68,6 +80,7 @@ export function MemberSelectMultiplePopover({
                               'data-attr': 'member-filter-clear-x',
                               onClick: (e) => {
                                   e.stopPropagation()
+                                  focusTriggerAfterClear.current = true
                                   onChange([])
                               },
                           }

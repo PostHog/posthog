@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
@@ -23,7 +23,7 @@ export type MemberMultiSelectProps = {
 export function MemberMultiSelect({
     defaultLabel = 'Any user',
     value,
-    excludedMembers = [],
+    excludedMembers,
     onChange,
     children,
     ...buttonProps
@@ -63,6 +63,17 @@ export function MemberMultiSelect({
 
     const selectedCount = value?.length || 0
     const buttonClass = selectedCount > 0 ? 'min-w-26' : 'w-26'
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const focusTriggerAfterClear = useRef(false)
+
+    // The × unmounts when the selection becomes empty, so the focus falls to the page body.
+    // Move the focus to the trigger so that keyboard and screen reader users keep their place.
+    useEffect(() => {
+        if (selectedCount === 0 && focusTriggerAfterClear.current) {
+            focusTriggerAfterClear.current = false
+            triggerRef.current?.focus()
+        }
+    }, [selectedCount])
 
     const buttonLabel = ((): string => {
         if (selectedCount === 0) {
@@ -95,6 +106,7 @@ export function MemberMultiSelect({
                 children(selectedMembersAsUsers)
             ) : (
                 <LemonButton
+                    ref={triggerRef}
                     size="small"
                     type="secondary"
                     className={buttonClass}
@@ -107,6 +119,7 @@ export function MemberMultiSelect({
                                   'data-attr': 'member-filter-clear-x',
                                   onClick: (e) => {
                                       e.stopPropagation()
+                                      focusTriggerAfterClear.current = true
                                       _onChange([])
                                   },
                               }
