@@ -288,6 +288,7 @@ export const FEATURE_FLAGS = {
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
+    CROSS_PROJECT_DASHBOARDS: 'cross-project-dashboards', // owner: #team-platform-features
     CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics

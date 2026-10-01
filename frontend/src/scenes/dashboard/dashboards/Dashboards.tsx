@@ -7,7 +7,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
@@ -26,6 +28,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { CrossProjectDashboardsList } from 'products/cross_project_dashboards/frontend/CrossProjectDashboardsList'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
 import { DashboardsTableContainer } from './DashboardsTable'
@@ -42,6 +45,8 @@ export function Dashboards(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const crossProjectEnabled = !!featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
@@ -50,6 +55,7 @@ export function Dashboards(): JSX.Element {
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
+        ...(crossProjectEnabled ? [{ key: DashboardsTab.CrossProject, label: 'Cross-project dashboards' }] : []),
     ]
 
     return (
@@ -124,7 +130,13 @@ export function Dashboards(): JSX.Element {
                 sceneInset
             />
 
-            <div>{dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}</div>
+            {currentTab === DashboardsTab.CrossProject && crossProjectEnabled ? (
+                <CrossProjectDashboardsList />
+            ) : (
+                <div>
+                    {dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}
+                </div>
+            )}
         </SceneContent>
     )
 }
