@@ -387,14 +387,24 @@ class TestCommandExecAuditPatching(TestCase):
         self.assertNotIn(blob, " ".join(entry["command"]))
         self.assertTrue(entry["has_encoded_blob"])
 
-    def test_operator_chars_in_argv_are_not_flagged(self) -> None:
-        # shell=False: operator chars inside an arg are literal, not injection — must not flag.
+    @parameterized.expand(
+        [
+            # shell=False: operator chars inside an arg are literal, not injection — must not flag.
+            ("plain_binary", ["echo", "a > b && c"], None, False),
+            # Unless the program is a shell, where the arguments reach a shell parser anyway.
+            ("shell_binary", ["sh", "-c", "true | cat"], None, True),
+            ("shell_binary_by_path", ["/bin/sh", "-c", "true | cat"], None, True),
+            ("shell_via_executable", ["ignored", "-c", "true | cat"], "/bin/sh", True),
+            ("shell_binary_without_operators", ["sh", "-c", "true"], None, False),
+        ]
+    )
+    def test_operator_chars_in_argv(self, _name: str, argv: list[str], executable: str | None, expected: bool) -> None:
         with structlog.testing.capture_logs() as logs:
-            subprocess.run(["echo", "a > b && c"], check=True)
+            subprocess.run(argv, executable=executable, check=True)
         entry = self._find(logs, "subprocess.Popen")
         assert entry is not None
         self.assertFalse(entry["shell"])
-        self.assertNotIn("has_shell_operators", entry)
+        self.assertEqual(entry.get("has_shell_operators", False), expected)
 
     def test_audit_does_not_break_command(self) -> None:
         result = subprocess.run(["true"], check=False)

@@ -94,6 +94,9 @@ _CONTROL_CHARS[0x7F] = " "
 
 # Characters that let one command string spawn or chain into another.
 _SHELL_OPERATORS = frozenset(";|&$`<>\n")
+# With shell=False the arguments still reach a shell parser when the program itself is one, so
+# `["bash", "-c", "curl x | sh"]` carries the same risk as shell=True.
+_SHELL_BINARIES = frozenset({"sh", "bash", "dash", "zsh", "ksh", "csh", "tcsh", "fish", "busybox"})
 
 # Python's own multiprocessing bootstrap children (spawn / forkserver / resource_tracker). These
 # run continuously on dagster and the Temporal workers, so alerts exclude them by label. The label
@@ -174,6 +177,13 @@ def _is_volume_suppressed(command: Any, shell: bool) -> bool:
     argv = [_to_text(token) for token in command]
     predicate = _VOLUME_SUPPRESSION_RULES.get(os.path.basename(argv[0].strip()))
     return predicate is not None and predicate(argv[1:])
+
+
+def _runs_a_shell(command: Any, binary: Optional[str]) -> bool:
+    program = binary or (command[0] if isinstance(command, (list, tuple)) and command else None)
+    if program is None:
+        return False
+    return os.path.basename(_to_text(program).strip()).lower() in _SHELL_BINARIES
 
 
 def _is_multiprocessing_bootstrap(command: Any, shell: bool) -> bool:
@@ -346,8 +356,9 @@ def _emit(
 
         # Scan the raw command, not the scrubbed copy: an operator inside a redacted token (e.g.
         # `--token=$(cat x)`) would otherwise vanish before this check. Only meaningful under a
-        # shell; in argv form (shell=False) these chars are passed literally.
-        if shell and any(char in _SHELL_OPERATORS for char in raw):
+        # shell; in argv form (shell=False) these chars are passed literally unless the program
+        # that runs is itself a shell.
+        if (shell or _runs_a_shell(command, binary)) and any(char in _SHELL_OPERATORS for char in raw):
             payload["has_shell_operators"] = True
 
         # An encoded payload is worth surfacing whether it's a smuggled secret or an evasion
