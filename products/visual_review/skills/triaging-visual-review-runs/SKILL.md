@@ -65,7 +65,7 @@ The list is paginated and does not put quarantined rows first, so follow `next` 
 - A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it.
 - A fix for the flake changes nothing VR can see in one run, so the story renders `unchanged` and the list above leaves it out.
   Look it up with `posthog:visual-review-repos-quarantine-list { id: <repo_id>, identifier }` instead.
-  Nothing records the fix, and the quarantine stays until someone lifts it.
+  Nothing records the fix, and the quarantine stays until someone lifts it or its expiry date passes, whichever comes first.
   Name the exact identifiers in the PR description, and lift only after the default branch renders them clean.
 - A change that deletes a quarantined story leaves its baseline entry behind.
   Only a full run classifies the story `removed`, and only finalize prunes the entry.
