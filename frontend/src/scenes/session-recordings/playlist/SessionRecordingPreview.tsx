@@ -23,7 +23,8 @@ import { SessionRecordingType } from '~/types'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
-import { PropertyIcons, gatherIconProperties } from './PropertyIcons'
+import { gatherIconProperties } from './gatherIconProperties'
+import { PropertyIcons } from './PropertyIcons'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,
