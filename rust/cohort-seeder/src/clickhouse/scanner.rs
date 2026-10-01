@@ -3,6 +3,7 @@
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use chrono_tz::Tz;
@@ -19,21 +20,25 @@ use tracing::{info, warn};
 
 use super::client::ClickHouseClient;
 use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
+use super::materialized::MaterializedColumns;
 use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
-use super::sql::{plan_scan, scan_sql, ScanPlan, ScanSpec};
+use super::sql::{fits_client_get, plan_scan, row_filter_sql, scan_sql, ScanPlan, ScanSpec};
 use crate::domain::{
     conditions_active_on, diff_tiles, ActiveConditions, AggregateError, BlobSource, CancelCause,
     ChunkAccumulator, ChunkDomainError, ChunkProjection, ChunkSpec, ClaimedChunk,
     ConditionAnalyses, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome,
-    RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff, UtcMillis,
+    RecordStats, ScanRowFilter, ScanVolume, ScannedChunk, SeedDomain, SeedTile, TileDiff,
+    UtcMillis,
 };
 use crate::observability::metrics::{
     team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
     CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
-    PROJECTION_KEYS, ROWS_SCANNED, SHADOW_COMPARE, SHADOW_COMPARE_DURATION_SECONDS,
-    SHADOW_COMPARE_LEGACY_SKIPPED,
+    PROJECTION_KEYS, ROWS_SCANNED, SCAN_ROW_FILTER, SHADOW_COMPARE,
+    SHADOW_COMPARE_DURATION_SECONDS, SHADOW_COMPARE_LEGACY_SKIPPED,
 };
+
+const MATERIALIZED_LOOKUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone)]
 pub struct ChunkScanner {
@@ -133,6 +138,10 @@ impl ChunkScanner {
         };
         let projection = analyses.projection(&active);
         self.record_projection(run.team_id, &projection);
+        let row_filter = analyses.row_filter(&event_names, &run.filters, &active);
+        let scan_spec = self
+            .filter_rows(run.team_id, scan_spec, &row_filter, &projection)
+            .await;
 
         let (tiles, volume, projected_fold) = self
             .scan_once(
@@ -333,6 +342,57 @@ impl ChunkScanner {
         Ok(())
     }
 
+    /// Drops the filter when the query would be too long to send, since every attempt would fail.
+    async fn filter_rows(
+        &self,
+        team_id: TeamId,
+        spec: ScanSpec,
+        row_filter: &ScanRowFilter,
+        projection: &ChunkProjection,
+    ) -> ScanSpec {
+        let (spec, outcome) = if row_filter.is_empty() {
+            (spec, RowFilterOutcome::None)
+        } else {
+            let keys = row_filter.keys();
+            let columns = match tokio::time::timeout(
+                MATERIALIZED_LOOKUP_TIMEOUT,
+                MaterializedColumns::lookup(&self.client, &keys),
+            )
+            .await
+            {
+                Ok(Ok(columns)) => columns,
+                Ok(Err(error)) => {
+                    warn!(error = ?error, "materialized column lookup failed; the row filter reads the properties blob");
+                    MaterializedColumns::default()
+                }
+                Err(_) => {
+                    warn!("materialized column lookup timed out; the row filter reads the properties blob");
+                    MaterializedColumns::default()
+                }
+            };
+            let outcome = if keys.iter().all(|key| columns.column_for(key).is_some()) {
+                RowFilterOutcome::Materialized
+            } else {
+                RowFilterOutcome::PropertiesBlob
+            };
+            let filtered = spec
+                .clone()
+                .with_row_filter(row_filter_sql(row_filter, &columns));
+            // Both renderings, because the shadow compare sends the wide one with the same filter.
+            let fits = [projection, &ChunkProjection::FullColumns]
+                .into_iter()
+                .all(|projection| fits_client_get(&scan_sql(&filtered, projection)));
+            if fits {
+                (filtered, outcome)
+            } else {
+                (spec, RowFilterOutcome::TooLong)
+            }
+        };
+        let team = team_label(&self.allowlist, team_id);
+        counter!(SCAN_ROW_FILTER, "outcome" => outcome.as_str(), "team_id" => team).increment(1);
+        spec
+    }
+
     /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
     /// before its scan cost is.
     fn record_projection(&self, team_id: TeamId, projection: &ChunkProjection) {
@@ -364,6 +424,25 @@ fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>
         BlobSource::Keys(keys) => keys.count(),
     };
     histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowFilterOutcome {
+    None,
+    Materialized,
+    PropertiesBlob,
+    TooLong,
+}
+
+impl RowFilterOutcome {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Materialized => "materialized",
+            Self::PropertiesBlob => "properties_blob",
+            Self::TooLong => "too_long",
+        }
+    }
 }
 
 /// Why a chunk's compare is not worth issuing, when it is not. Each case would spend a second
