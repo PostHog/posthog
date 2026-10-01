@@ -11,7 +11,8 @@ import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
-import { WatchFeedCard } from './WatchFeedCard'
+import { FILLER_REASON_KINDS, WatchFeedCard } from './WatchFeedCard'
+import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -43,6 +44,7 @@ export function WatchFeedTab(): JSX.Element {
         tagOptions,
         search,
         hasFeedFilters,
+        emptyReason,
     } = useValues(watchFeedLogic)
     const {
         setDateRange,
@@ -63,6 +65,9 @@ export function WatchFeedTab(): JSX.Element {
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
     const narrowedToScanners = scannerIdsFilter.length
     const scannerCount = new Set(items.map((item) => item.observation.scanner_id)).size
+    // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
+    // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
+    const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
 
     return (
         <div className="flex flex-col gap-4">
@@ -92,6 +97,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Scanners"
+                        dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
                         options={scannerOptions}
@@ -100,6 +106,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Tags"
+                        dataAttr="vision-watch-feed-tags-filter"
                         searchable
                         options={tagOptions}
                         value={tagsFilter}
@@ -107,6 +114,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<ScannerType>
                         label="Type"
+                        dataAttr="vision-watch-feed-type-filter"
                         options={TYPE_OPTIONS}
                         value={scannerTypeFilter ? [scannerTypeFilter] : []}
                         onChange={(values) => setScannerTypeFilter(values[values.length - 1] ?? null)}
@@ -148,27 +156,26 @@ export function WatchFeedTab(): JSX.Element {
                             </LemonButton>
                         </div>
                     )}
+                    {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
+                        rather than leaving the reader to infer it from three identical reason lines. */}
+                    {onlyFiller && (
+                        <p className="text-sm text-secondary m-0">
+                            Nothing stood out in this window. These are the newest clips. Try a longer date range to see
+                            more.
+                        </p>
+                    )}
                     {items.length > 0 ? (
                         items.map((item, index) => (
                             <WatchFeedCard key={item.observation.id} item={item} position={index} />
                         ))
-                    ) : !feedFailed ? (
-                        <div className="flex flex-col items-center gap-2 text-sm text-secondary border border-dashed rounded p-6 text-center">
-                            {hasFeedFilters ? (
-                                <>
-                                    <span>No clips match these filters in this window.</span>
-                                    <LemonButton type="secondary" size="small" onClick={() => clearFeedFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                </>
-                            ) : (
-                                <span>
-                                    Nothing worth watching in this window yet. Observations appear here as your scanners
-                                    run.
-                                </span>
-                            )}
-                        </div>
-                    ) : null}
+                    ) : feedFailed ? null : emptyReason ? (
+                        <WatchFeedEmptyState reason={emptyReason} />
+                    ) : (
+                        // Still resolving why the feed is empty. The scanner list defaults to empty while
+                        // it loads, so naming a reason now would show the no-scanners screen to a reader
+                        // who has scanners.
+                        <LemonSkeleton className="h-32 rounded" />
+                    )}
                 </div>
             )}
         </div>

@@ -76,6 +76,7 @@ def _make_table_ref(**kwargs):
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
         "get_delta_table": AsyncMock(return_value=None),
+        "invalidate_cached_table": Mock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
@@ -548,6 +549,36 @@ class TestMeasurePartitionBytes:
         sizes = measure_partition_bytes(deltalake.DeltaTable(str(tmp_path / "u")))
         assert list(sizes.keys()) == [None]
         assert sizes[None] > 0
+
+    def test_partitioned_null_value_groups_under_none(self, tmp_path):
+        table = pa.table(
+            {
+                PARTITION_KEY: pa.array([None, "2024-01", "2024-01"], type=pa.string()),
+                "id": pa.array([1, 2, 3], type=pa.int64()),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "n"), table, partition_by=[PARTITION_KEY])
+        sizes = measure_partition_bytes(deltalake.DeltaTable(str(tmp_path / "n")))
+        assert set(sizes.keys()) == {None, "2024-01"}
+        assert all(v > 0 for v in sizes.values())
+
+    def test_survives_get_add_actions_offset_overflow(self, tmp_path):
+        """A table with enough add-action stats can overflow Arrow's 32-bit string offsets inside
+        `get_add_actions` (`Offset overflow error`, see the error-tracking issue this guards against).
+        Measuring partition bytes must not depend on that call succeeding."""
+        delta = _write_month_partitioned(
+            str(tmp_path / "t"),
+            [
+                (1, datetime.datetime(2024, 1, 5)),
+                (2, datetime.datetime(2024, 2, 2)),
+            ],
+        )
+        with patch.object(
+            deltalake.DeltaTable, "get_add_actions", side_effect=Exception("Offset overflow error: 2229224676")
+        ):
+            sizes = measure_partition_bytes(delta)
+        assert set(sizes.keys()) == {"2024-01", "2024-02"}
+        assert all(v > 0 for v in sizes.values())
 
 
 class TestRewriteIntoTemp:
@@ -1223,6 +1254,36 @@ class TestResumeSwapWithMissingLive:
         schema.clear_repartition_pending.assert_called_once()
         assert result == {"outcome": "skipped", "reason": "no_delta_table"}
 
+    def test_recovery_finishes_swap_and_invalidates_cache(self) -> None:
+        # Live is gone but temp is intact and complete: the recovery finishes the swap from temp. The
+        # cached delta-table handle still points at the now-deleted live files, so it must be dropped
+        # or a subsequent read in the same run would keep serving the pre-swap listing.
+        table_ref = _make_table_ref()
+        schema = _schema(id="s1")
+        target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
+
+        with (
+            patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=2)),
+            patch.object(repartition_module, "_swap_temp_into_live", new=AsyncMock()) as swap,
+            patch.object(repartition_module, "_persist_resolved_scheme", new=AsyncMock()) as persist,
+        ):
+            result = asyncio.run(
+                repartition_module._resume_swap_with_missing_live(
+                    table_ref=table_ref,
+                    schema=schema,
+                    target=target,
+                    temp_uri="s3://bucket/live__repartitioned",
+                    live_uri="s3://bucket/live",
+                    storage_options={},
+                    logger=logger,
+                )
+            )
+
+        swap.assert_awaited_once()
+        persist.assert_awaited_once()
+        table_ref.invalidate_cached_table.assert_called_once()
+        assert result == {"outcome": "completed", "row_count": 2, "recovered": True}
+
 
 class TestLiveUnreadable:
     """`get_delta_table()` *raising* (a DeltaError/FileNotFoundError from an OOM-crashed merge or an
@@ -1757,6 +1818,9 @@ class TestSwapSchemeIsRecorded:
 
         assert result["outcome"] == "completed"
         assert finalize.call_args.kwargs["partition_format"] == "day"
+        # The cached delta-table handle still points at pre-swap files; a subsequent read must not
+        # reuse it, or an incremental merge scopes its predicate to a partition that no longer exists.
+        table_ref.invalidate_cached_table.assert_called_once()
 
     def test_a_swap_that_already_landed_is_finished_without_rewriting_the_table(self, tmp_path):
         # temp is gone because the swap deleted it — only the scheme write was lost. Live is on the
@@ -1782,6 +1846,7 @@ class TestSwapSchemeIsRecorded:
         rewrite.assert_not_awaited()
         swap.assert_not_awaited()
         assert finalize.call_args.kwargs["partition_format"] == "day"
+        table_ref.invalidate_cached_table.assert_called_once()
 
     def test_a_lost_scheme_write_raises_instead_of_reporting_success(self, tmp_path):
         # The swap has already landed, so a database blip here is not the noise it looks like: every

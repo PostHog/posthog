@@ -29,7 +29,7 @@ import {
     MetricsYAxisSettings,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
@@ -247,11 +247,13 @@ const serviceChipValues = (chip: UniversalFilterValue): string[] => {
     return []
 }
 
-export const resolveDate = (value: string | null | undefined): string | null => {
+// The chart query resolves its range in the project timezone on the backend, so the
+// side requests must resolve theirs the same way or they cover a shifted window.
+export const resolveDate = (value: string | null | undefined, timezone: string): string | null => {
     if (!value) {
         return null
     }
-    const dj = dateStringToDayJs(value) ?? dayjs(value)
+    const dj = dateStringToDayJs(value, timezone) ?? dayjs(value)
     return dj.isValid() ? dj.toISOString() : null
 }
 
@@ -338,6 +340,7 @@ export interface metricsViewerLogicValues {
     items: MetricNameItem[] // metricNamePickerLogic
     pickerServices: string[] // metricNamePickerLogic
     currentTeamId: number | null // teamLogic
+    timezone: string // teamLogic
     activeClause: MetricsViewerClause
     activeClauseIndex: number
     aggregation: MetricAggregation
@@ -385,7 +388,7 @@ export interface metricsViewerLogicValues {
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     queryState: MetricsViewerQueryState
-    savedInsight: QueryBasedInsightModel | null
+    savedInsight: InsightModel | null
     savedInsightLoading: boolean
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
@@ -534,10 +537,10 @@ export interface metricsViewerLogicActions {
         errorObject?: any
     }
     saveAsInsightSuccess: (
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null,
+        savedInsight: InsightModel<Node<Record<string, any>>> | null,
         payload?: any
     ) => {
-        savedInsight: QueryBasedInsightModel<Node<Record<string, any>>> | null
+        savedInsight: InsightModel<Node<Record<string, any>>> | null
         payload?: any
     }
     setActiveClauseIndex: (index: number) => {
@@ -646,7 +649,11 @@ export interface metricsViewerLogicMeta {
         queryFilters: (activeClause: MetricsViewerClause) => _MetricFilterApi[]
         selectedServices: (activeClause: MetricsViewerClause) => string[]
         correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
-        attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
+        attributeEndpointFilters: (
+            dateFrom: string | null,
+            dateTo: string | null,
+            timezone: string
+        ) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
@@ -664,7 +671,12 @@ export type metricsViewerLogicType = MakeLogicType<
 export const metricsViewerLogic = kea<metricsViewerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsViewerLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], metricNamePickerLogic, ['items', 'services as pickerServices']],
+        values: [
+            teamLogic,
+            ['currentTeamId', 'timezone'],
+            metricNamePickerLogic,
+            ['items', 'services as pickerServices'],
+        ],
         actions: [metricNamePickerLogic, ['loadItemsSuccess', 'setServices']],
     })),
     actions({
@@ -1117,8 +1129,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         return []
                     }
                     await breakpoint(300)
-                    const dateFrom = resolveDate(values.dateFrom) ?? undefined
-                    const dateTo = resolveDate(values.dateTo) ?? undefined
+                    const dateFrom = resolveDate(values.dateFrom, values.timezone) ?? undefined
+                    const dateTo = resolveDate(values.dateTo, values.timezone) ?? undefined
                     const response = await metricsAttributesRetrieve(String(values.currentTeamId), {
                         search: values.groupBySearch,
                         ...(values.metricName.trim() ? { metricName: values.metricName.trim() } : {}),
@@ -1146,12 +1158,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     if (!queryPayload) {
                         return []
                     }
-                    const dateFromISO = resolveDate(values.dateFrom)
+                    const dateFromISO = resolveDate(values.dateFrom, values.timezone)
                     if (!dateFromISO) {
                         return []
                     }
                     await breakpoint(300)
-                    const dateToISO = resolveDate(values.dateTo) ?? undefined
+                    const dateToISO = resolveDate(values.dateTo, values.timezone) ?? undefined
                     const controller = new AbortController()
                     actions.cancelInProgressQuery(controller)
                     const response = await metricsQueryCreate(
@@ -1172,7 +1184,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             },
         ],
         savedInsight: [
-            null as QueryBasedInsightModel | null,
+            null as InsightModel | null,
             {
                 saveAsInsight: async () => {
                     if (!canCreateMetricsInsight()) {
@@ -1215,11 +1227,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     if (!anomalyQuery) {
                         return null
                     }
-                    const fromISO = resolveDate(values.dateFrom)
+                    const fromISO = resolveDate(values.dateFrom, values.timezone)
                     if (!fromISO) {
                         return null
                     }
-                    const toISO = resolveDate(values.dateTo) ?? dayjs().toISOString()
+                    const toISO = resolveDate(values.dateTo, values.timezone) ?? dayjs().toISOString()
                     const spanMs = dayjs(toISO).diff(dayjs(fromISO))
                     if (spanMs <= 0) {
                         return null
@@ -1396,11 +1408,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
         // taxonomic endpoints as query params.
         attributeEndpointFilters: [
-            (s) => [s.dateFrom, s.dateTo],
-            (dateFrom: string | null, dateTo: string | null): Record<string, string> => ({
-                ...(resolveDate(dateFrom) ? { dateFrom: resolveDate(dateFrom) as string } : {}),
-                ...(resolveDate(dateTo) ? { dateTo: resolveDate(dateTo) as string } : {}),
-            }),
+            (s) => [s.dateFrom, s.dateTo, s.timezone],
+            (dateFrom: string | null, dateTo: string | null, timezone: string): Record<string, string> => {
+                const from = resolveDate(dateFrom, timezone)
+                const to = resolveDate(dateTo, timezone)
+                return { ...(from ? { dateFrom: from } : {}), ...(to ? { dateTo: to } : {}) }
+            },
         ],
         // All series rendered as chart lines (a group-by query returns one series per label combination).
         // `MetricsSeriesChart` owns naming and colors; this only bridges the API's snake_case fields.

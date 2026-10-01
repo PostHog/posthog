@@ -39,7 +39,7 @@ import { Params, Scene, SceneConfig, SceneTab } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SurveyRatingScaleValue, WEB_SAFE_FONTS } from 'scenes/surveys/constants'
 
-import type { OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
+import type { FlagEvaluationsModeEnumApi, OrganizationNotificationLockApi } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
     CoreEvent,
@@ -81,6 +81,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
@@ -240,6 +241,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
@@ -475,11 +477,13 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    ai_evaluation_disabled?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
+    data_catalog_weekly_digest?: boolean
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
@@ -618,7 +622,6 @@ export interface OrganizationType extends OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
-    default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null
@@ -910,6 +913,7 @@ export interface TeamType extends TeamBasicType {
     core_events_config: { core_events: CoreEvent[] }
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
@@ -1144,10 +1148,11 @@ export enum ExperimentsTabs {
     Settings = 'settings',
 }
 
+// Values are URL path segments under /activity; `redirects` in scenes.ts keeps old ones working.
 export enum ActivityTab {
-    ExploreEvents = 'explore',
-    ExploreSessions = 'sessions',
+    ExploreEvents = 'events',
     LiveEvents = 'live',
+    ExploreSessions = 'sessions',
 }
 
 export enum ProgressStatus {
@@ -1628,6 +1633,7 @@ export interface RecordingUniversalFilters {
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
     recommended_only?: boolean
+    event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
@@ -2085,7 +2091,6 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -2433,6 +2438,7 @@ export interface BillingProductV2AddonType {
     legacy_product?: boolean | null
 }
 export enum BillingProvider {
+    PostHog = 'posthog',
     Vercel = 'vercel',
 }
 export interface BillingType {
@@ -2571,9 +2577,9 @@ export interface Tileable {
 
 export type DashboardTileIdOrNew = number | null
 
-export interface DashboardTile<T = InsightModel> extends Tileable {
+export interface DashboardTile extends Tileable {
     id: number
-    insight?: T
+    insight?: InsightModel
     text?: TextModel
     button_tile?: ButtonTileModel
     widget?: DashboardWidgetModel
@@ -2622,6 +2628,7 @@ export interface DashboardWidgetInterface {
 
 export interface TextModel extends DashboardWidgetInterface {
     body: string
+    agent_context?: string | null
     last_modified_at: string
 }
 
@@ -2633,7 +2640,8 @@ export interface ButtonTileModel extends DashboardWidgetInterface {
     team?: number
 }
 
-export interface InsightModel extends Cacheable, WithAccessControl {
+export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>>
+    extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -2668,9 +2676,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     next?: string
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
-    filters: Partial<FilterType>
     alerts?: AlertType[]
-    query?: Node | null
+    query: R | null
     query_status?: QueryStatus
     query_scan?: QueryScanSummary
     is_cached?: boolean
@@ -2681,13 +2688,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
 }
 
 export type InsightFilterOverrideContext = InsightFilterOverrideContextApi
-
-export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>> extends Omit<
-    InsightModel,
-    'filters'
-> {
-    query: R | null
-}
 
 export interface EndpointType extends WithAccessControl {
     id: string
@@ -2776,8 +2776,8 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
-export interface DashboardType<T = InsightModel> extends DashboardBasicType {
-    tiles: DashboardTile<T>[]
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null
@@ -2817,6 +2817,7 @@ export type DashboardTemplateStoredInsightTile = {
 export type DashboardTemplateStoredTextTile = {
     type: 'TEXT'
     body: string
+    agent_context?: string | null
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
@@ -3079,9 +3080,9 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: QueryBasedInsightModel['short_id'] | null
-    insight_name?: QueryBasedInsightModel['name'] | null
-    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
+    insight_short_id?: InsightModel['short_id'] | null
+    insight_name?: InsightModel['name'] | null
+    insight_derived_name?: InsightModel['derived_name'] | null
     dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
@@ -3742,7 +3743,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<QueryBasedInsightModel> | null
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
@@ -3750,7 +3751,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** query when used as ad-hoc insight */
     query?: Q
     setQuery?: (node: Q) => void
-    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -5166,6 +5167,9 @@ export interface PropertyGroupFilterValue {
     values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
+/** One row of a filter editor. A group's values can nest, so a row is not always a leaf filter. */
+export type PropertyFilterRow = AnyPropertyFilter | PropertyGroupFilterValue
+
 export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator
@@ -5634,6 +5638,7 @@ export const INTEGRATION_KINDS = [
     's3-compatible',
     'snowflake',
     'youtube-analytics',
+    'twitter-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5867,131 +5872,9 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Single source of truth for scope objects on the frontend. Keep in sync with
-// `APIScopeObject` in posthog/scopes.py (same order). The runtime array lets
-// scopes.test.ts assert that every scope object is either offered in the PAK
-// creation modal or explicitly omitted — see `API_SCOPES_OMITTED_FROM_MODAL`.
-export const API_SCOPE_OBJECTS = [
-    'action',
-    'access_control',
-    'account',
-    'activity_log',
-    'alert',
-    'annotation',
-    'approvals',
-    'autoresearch',
-    'batch_export',
-    'batch_import',
-    'batch_import_support',
-    'billing',
-    'business_knowledge',
-    'canvas',
-    'clickhouse_test_cluster_perf',
-    'cohort',
-    'comment',
-    'conversation',
-    'context_layer_internal',
-    'customer_analytics',
-    'customer_task',
-    'customer_journey',
-    'customer_profile_config',
-    'data_catalog',
-    'data_catalog_approval',
-    'data_deletion',
-    'dashboard',
-    'event_filter',
-    'dashboard_template',
-    'dataset',
-    'early_access_feature',
-    'endpoint',
-    'engineering_analytics',
-    'error_tracking',
-    'evaluation',
-    'element',
-    'event_definition',
-    'experiment',
-    'experiment_holdout',
-    'experiment_saved_metric',
-    'export',
-    'external_data_schema',
-    'external_data_source',
-    'feature_flag',
-    'file_system',
-    'file_system_shortcut',
-    'group',
-    'health_issue',
-    'heatmap',
-    'hog_flow',
-    'hog_function',
-    'ingestion_warning',
-    'insight',
-    'insight_variable',
-    'integration',
-    'internal_run',
-    'legal_document',
-    'link',
-    'live_debugger',
-    'llm_analytics',
-    'ai_observability_clusters',
-    'llm_gateway',
-    'llm_playground',
-    'llm_prompt',
-    'llm_provider_key',
-    'llm_skill',
-    'logs',
-    'loop',
-    'marketing_analytics',
-    'mcp_builtin_agent',
-    'mcp_analytics',
-    'metrics',
-    'notebook',
-    'organization',
-    'organization_integration',
-    'organization_member',
-    'person',
-    'plugin',
-    'product_enablement',
-    'product_tour',
-    'project',
-    'property_definition',
-    'query',
-    'query_performance',
-    'replay_scanner',
-    'review_hog',
-    'revenue_analytics',
-    'session_recording',
-    'session_recording_playlist',
-    'sharing_configuration',
-    'signal_scout',
-    'signal_scout_internal',
-    'signal_scout_report',
-    'signal_scratchpad_internal',
-    'stamphog',
-    'streamlit_app',
-    'subscription',
-    'survey',
-    'tagger',
-    'ticket',
-    'task',
-    'toolbar',
-    'tracing',
-    'field_note',
-    'uploaded_media',
-    'usage_metric',
-    'user',
-    'user_interview',
-    'vision_action',
-    'vision_alert',
-    'visual_review',
-    'warehouse_objects',
-    'warehouse_table',
-    'warehouse_view',
-    'web_analytics',
-    'webhook',
-    'wizard_session',
-] as const
-
-export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// through the `resource` choice fields of the access control serializers.
+export type APIScopeObject = ScopeObjectEnumApi
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -6171,6 +6054,7 @@ export type PromptFlag = {
 export enum ActivityScope {
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
+    ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',
@@ -6273,6 +6157,8 @@ export interface DataWarehouseTable {
     /** Serialized columns; omitted when the table was listed with `include_columns=false`. */
     columns?: DatabaseSchemaField[]
     format: DataWarehouseTableTypes
+    created_by?: UserBasicType | null
+    created_at?: string | null
     url_pattern: string
     /** Null for tables without user-provided credentials, e.g. created by a managed pipeline. */
     credential: DataWarehouseCredential | null
@@ -6312,6 +6198,8 @@ export interface DataModelingNode {
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null
     lineage_issue?: LineageIssueApi | null
+    origin?: 'posthog' | 'warehouse' | null
+    warehouse_table_id?: string | null
     created_at: string
     updated_at: string
     upstream_count: number
@@ -6502,6 +6390,8 @@ export interface ExternalDataSource {
     source_type: ExternalDataSourceTypeEnumApi
     prefix: string | null
     description: string | null
+    created_by?: string | null
+    created_at?: string | null
     access_method?: 'warehouse' | 'direct'
     direct_query_enabled?: boolean
     auto_sync_new_schemas?: boolean
@@ -6555,6 +6445,8 @@ export interface WebhookInfo {
     webhook_url?: string
     schema_mapping?: Record<string, string>
     inputs?: Record<string, WebhookInputValue>
+    // Required webhook field names with no value yet. Deliveries are dropped while any is missing.
+    missing_inputs?: string[]
     external_status?: WebhookExternalStatus | null
     // Desired provider events not yet on the webhook (manual setup, or created before a new table).
     missing_events?: string[]

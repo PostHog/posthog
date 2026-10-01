@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -32,6 +32,16 @@ logger = logging.getLogger(__name__)
 _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching the schema above."
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
+
+
+def _required_model_keys(model: type[BaseModel]) -> set[str]:
+    """Names a `model` instance cannot be built without, so the extractor can spot the answer object.
+
+    A model whose fields all have defaults validates any stray object as an empty answer, so its
+    declared names mark the answer instead.
+    """
+    keys = {field.alias or name: field.is_required() for name, field in model.model_fields.items()}
+    return {key for key, required in keys.items() if required} or set(keys)
 
 
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
@@ -73,10 +83,12 @@ class MultiTurnSession:
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
+        json_retry_prompt: str | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -95,6 +107,11 @@ class MultiTurnSession:
         to persist. Single-turn callers (e.g. the Signals scout, whose summary is a
         free-text markdown close-out) use this so an unparseable end-turn no longer
         discards the entire run and its scan-position close-out.
+
+        `json_retry_prompt`, if given, is sent once as a follow-up turn on the same
+        session when the first turn does not parse/validate against `model`. The agent
+        keeps its context, so it can restate its answer as JSON without a new sandbox
+        run. `fallback_from_text` applies only if the retry turn fails too.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -114,9 +131,26 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            output_schema=output_schema,
         )
+        # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
+        salvageable = True
         try:
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            try:
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            except Exception as e:
+                if json_retry_prompt is None:
+                    raise
+                logger.warning(
+                    "multi_turn: end-turn did not validate against %s for run=%s, asking for JSON once (%s)",
+                    model.__name__,
+                    session.task_run.id,
+                    e,
+                )
+                salvageable = False
+                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                salvageable = True
+                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -124,6 +158,7 @@ class MultiTurnSession:
             # a Temporal cancellation (CancelledError), which must propagate and fail the run.
             if (
                 fallback_from_text is not None
+                and salvageable
                 and last_message is not None
                 and not isinstance(e, asyncio.CancelledError)
             ):
@@ -172,6 +207,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        output_schema: dict[str, Any] | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -202,6 +238,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            output_schema=output_schema,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
@@ -350,7 +387,7 @@ class MultiTurnSession:
     @staticmethod
     def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
         """Extract JSON from agent text and validate against a Pydantic model."""
-        json_data = extract_json_from_text(text=text, label=label)
+        json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
         return model.model_validate(json_data)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:

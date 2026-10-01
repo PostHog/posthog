@@ -15,3 +15,16 @@ Opening the heatmap menu while access is loading does not enable heatmaps. A con
 This is a toolbar UI gate. The rollout flag does not add entitlement enforcement to the heatmap data endpoints.
 
 The `HeatmapEntitlementsLoading` Storybook story keeps the entitlement request pending to cover the loading state. Its screenshot test waits for “Checking plan access…” to appear and sets `waitForLoadersToDisappear: false` so the visible spinner does not time out the test.
+
+## Saved heatmap data URLs
+
+Capture requests reject malformed data URLs, using the same URL validation as other saved heatmap writes.
+Wildcards in the URL path are supported.
+
+Saving a heatmap from the toolbar keeps the captured page URL separate from the heatmap data URL.
+The saved data URL preserves the toolbar's selected URL pattern, including wildcards, for both responsive captures and the single-width fallback.
+Capture requests without a data URL keep using the exact page URL.
+
+A heatmap editor with resource-level access can change the data URL of a toolbar capture in the page settings without replacing its screenshot.
+Changing the captured page or its rendering settings still requires a new capture from the toolbar.
+Object-level editor access alone does not allow changing either URL.

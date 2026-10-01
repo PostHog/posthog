@@ -95,16 +95,17 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
 
-        # The evaluation key names the alert and its window, so a re-run of the same occasion
-        # reuses these ids. A reused id raises, so one already-started preview must not stop
-        # the rest.
+        # The evaluation key names the window and the slot but not the alert, because a delivery
+        # addresses the history row with it. The id joins the two, so two alerts in one slot do
+        # not collide. A re-run of the same occasion reuses these ids, and a reused id raises, so
+        # one already-started preview must not stop the rest.
         results = await asyncio.gather(
             *(
                 workflow.start_child_workflow(
-                    "alerts-product-deliver-preview",
+                    "alerts-platform-deliver-preview",
                     preview,
-                    id=f"alerts-deliver-preview-{preview.evaluation_key}",
-                    task_queue=settings.ALERTS_PRODUCT_DELIVERY_TASK_QUEUE,
+                    id=f"alerts-deliver-preview-{preview.configuration_id}:{preview.evaluation_key}",
+                    task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=1),
                 )

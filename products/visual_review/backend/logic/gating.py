@@ -44,6 +44,43 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
+def count_unresolved(run: Run) -> int:
+    """How many of a run's snapshots `_is_unresolved` flags, counted in SQL.
+
+    The run detail read needs only this number, and loading every snapshot to count a handful
+    costs seconds on a large run. Observe runs are never approvable, so nothing in them is
+    unresolved. The predicate must stay identical to `_is_unresolved`; a test pins the two
+    together.
+    """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
+    return (
+        RunSnapshot.objects.filter(run_id=run.id)
+        .exclude(result=SnapshotResult.UNCHANGED)
+        .exclude(is_quarantined=True)
+        .exclude(review_state__in=(ReviewState.TOLERATED, ReviewState.APPROVED))
+        .count()
+    )
+
+
+def count_gating(run: Run) -> int:
+    """How many snapshots fail the CI job that completes the run: `_post_status`'s verdict as a count.
+
+    Approved changes fail it too until finalize commits them, because the baseline on the PR
+    branch does not hold them yet. Without this, a re-run of that job passes a run whose
+    approvals were never committed.
+    """
+    unresolved = count_unresolved(run)
+    if run.approved or run.purpose == RunPurpose.OBSERVE:
+        return unresolved
+    awaiting_commit = RunSnapshot.objects.filter(
+        run_id=run.id,
+        review_state=ReviewState.APPROVED,
+        result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED),
+    ).count()
+    return unresolved + awaiting_commit
+
+
 def _changes_summary(run: Run) -> str:
     """Change summary from the run's denormalized (quarantine-excluded) counts."""
     return comment_markdown._format_change_counts(run.changed_count, run.new_count, run.removed_count)

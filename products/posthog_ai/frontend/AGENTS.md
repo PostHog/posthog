@@ -213,6 +213,12 @@ ingestion).
   `useMemo`, wrap child callbacks in `useCallback`, and subscribe narrowly (select only what you render).
 - **Keep the projection pure.** `foldLogToThread` is pure and deterministic; item ids stay stable across
   re-folds. Listeners fire only side effects, each with a fire-once guard, suppressed on `source: 'replay'`.
+- **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
+  `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
+  `Activity`, `ThreadRow` message rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard` and
+  `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
+  component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
+  (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
 - **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
   renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other
@@ -241,6 +247,7 @@ components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); Rea
                     #   RunLogSkeleton (shared loader), Thread, Composer, perm/question surfaces, activity, tool/;
                     #   AttachedContextProvider (render-null context injection wrapper)
   composer/         #   the Composer compound; AttachedContextBar (@-picker + context chips)
+  quill/            #   the quill thread skin (ThreadSkinContext, ThreadMarker, message/group/alert/feedback skins)
   tool/             #   tool registry + renderers (built-ins, generic MCP, EditDiffRenderer, diff/exec utils)
     widgets/        #     PostHog product data-tool widgets (insight/dashboard/recordings/notebook/query)
 hooks/              # useAttachedContext, useToolStream — mount-scoped registration wrappers over the logics

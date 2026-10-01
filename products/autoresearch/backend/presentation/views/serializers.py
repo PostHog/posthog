@@ -22,6 +22,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     Run,
+    Suggestion,
     TrainingRun,
 )
 
@@ -37,6 +38,9 @@ RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 ITERATION_STATUS_CHOICES = api.ITERATION_STATUS_CHOICES
+SUGGESTION_PRIORITY_CHOICES = api.SUGGESTION_PRIORITY_CHOICES
+SUGGESTION_STATUS_CHOICES = api.SUGGESTION_STATUS_CHOICES
+SUGGESTION_SOURCE_CHOICES = api.SUGGESTION_SOURCE_CHOICES
 
 TARGET_EVENT_MAX_LENGTH = 255
 AGENT_DESCRIPTION_MAX_LENGTH = 2000
@@ -76,9 +80,13 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
-def _require_action_scope(request: Request | None) -> None:
+def has_action_scope(request: Request | None) -> bool:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+    return scopes is None or any(scope in scopes for scope in _ACTION_READ_SCOPES)
+
+
+def require_action_scope(request: Request | None) -> None:
+    if not has_action_scope(request):
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
@@ -120,7 +128,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
-        _require_action_scope(request)
+        require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -646,14 +654,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
     # loading the trained artifact, so changing them would silently answer a different question.
-    MODEL_DEFINING_FIELDS = (
-        "target_event",
-        "target_definition",
-        "horizon_days",
-        "training_lookback_days",
-        "training_population",
-        "inference_population",
-    )
+    MODEL_DEFINING_FIELDS = api.MODEL_DEFINING_FIELDS
 
     @property
     def _pipeline_id(self) -> Any:
@@ -1173,8 +1174,9 @@ class ValidationWarningSerializer(serializers.Serializer):
     # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
-            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
+            "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
+            "severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1237,7 +1239,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score."
         )
     )
     requires_acknowledgement = serializers.BooleanField(
@@ -1269,6 +1271,15 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "Why validation did not run, or null when it did. A query error in the definition itself "
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
+    )
+
+
+class StartTrainingRequestSerializer(serializers.Serializer):
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Override the pipeline iteration budget for this training run.",
     )
 
 
@@ -1353,6 +1364,28 @@ class RecordIterationSerializer(serializers.Serializer):
         except AutoresearchConflict as e:
             raise serializers.ValidationError(str(e)) from e
         return data
+
+
+class RespondToSuggestionSerializer(serializers.Serializer):
+    """Input for the agent to record how it interpreted a steering suggestion."""
+
+    status = serializers.ChoiceField(
+        choices=["picked_up", "acted_on", "dismissed"],
+        help_text=(
+            "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), "
+            "'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response)."
+        ),
+    )
+    agent_response = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a "
+            "note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty "
+            "string to clear it."
+        ),
+    )
 
 
 class CompleteTrainingRunSerializer(serializers.Serializer):
@@ -1497,6 +1530,76 @@ class ArtifactDeleteResultSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(help_text="True if a file existed and was removed; False if nothing was there.")
 
 
+# ── Suggestion serializers ─────────────────────────────────────────────────
+
+
+@extend_schema_serializer(component_name="AutoresearchSuggestion")
+class AutoresearchSuggestionSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this suggestion.")
+    pipeline = serializers.UUIDField(help_text="Pipeline this suggestion targets.")
+    prompt = serializers.CharField(help_text="Free-text hypothesis or direction for the agent to explore.")
+    priority = serializers.ChoiceField(
+        choices=SUGGESTION_PRIORITY_CHOICES,
+        required=False,
+        help_text="'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.",
+    )
+    status = serializers.ChoiceField(
+        choices=SUGGESTION_STATUS_CHOICES,
+        read_only=True,
+        help_text="Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).",
+    )
+    # Named `source` to keep the field the API already exposes; it shadows DRF's own
+    # Field.source attribute, which is a typing conflict only.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=SUGGESTION_SOURCE_CHOICES,
+        read_only=True,
+        help_text="'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.",
+    )
+    agent_response = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup.",
+    )
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="The user who submitted it; null for an agent-authored suggestion."
+    )
+    linked_iteration_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="UUIDs of iterations spawned from this suggestion.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+    class Meta:
+        dataclass = Suggestion
+        fields = [
+            "id",
+            "pipeline",
+            "prompt",
+            "priority",
+            "status",
+            "source",
+            "agent_response",
+            "created_by",
+            "linked_iteration_ids",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class CreateSuggestionSerializer(serializers.Serializer):
+    prompt = serializers.CharField(
+        max_length=2000,
+        help_text="Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.",
+    )
+    priority = serializers.ChoiceField(
+        choices=["try_next", "consider"],
+        default="consider",
+        help_text="'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.",
+    )
+
+
 # ── Template serializers ───────────────────────────────────────────────────────
 
 
@@ -1546,10 +1649,7 @@ class PopulationSpecField(serializers.JSONField):
 class ResolveTemplateRequestSerializer(serializers.Serializer):
     template_key = serializers.ChoiceField(
         choices=TEMPLATE_KEY_CHOICES,
-        help_text=(
-            "Template to resolve. Use autoresearch-templates-list to see all available templates "
-            "with descriptions. Required."
-        ),
+        help_text="Template to resolve. The templates endpoint lists each one with its description. Required.",
     )
     target_event = serializers.CharField(
         required=False,

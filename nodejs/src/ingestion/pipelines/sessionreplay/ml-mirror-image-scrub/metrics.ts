@@ -2,6 +2,7 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import type { MlWireVersion } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 
+import { type UrlImageWriteOutcome } from './image-shard-store'
 import { type ImageTransportRejectionReason } from './image-transport'
 import { ScrubWaitReason } from './scrub-client'
 
@@ -25,8 +26,8 @@ export class ImageScrubConsumerMetrics {
     })
     private static readonly deduped = new Counter({
         name: 'ml_mirror_image_scrub_consumer_deduped_total',
-        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier). Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
-        labelNames: ['scope'],
+        help: 'Messages skipped as duplicate produces of a ref, by scope: "batch" (another copy in the same poll batch) or "pod" (this pod scrubbed it earlier), and by source: "inline" or "url". URL refs dedup only by pod, because every copy in one batch stays planned. Dedup hit rate = deduped / (deduped + scrubbed + skipped); the batch/pod split says how much the retained seen-ref cache is earning over free intra-batch dedup',
+        labelNames: ['scope', 'source'],
     })
     /**
      * Intra-batch dedup can only collapse copies that arrive in the same poll batch, so its ceiling is
@@ -41,6 +42,11 @@ export class ImageScrubConsumerMetrics {
         name: 'ml_mirror_image_scrub_consumer_batch_messages',
         help: 'Messages per non-empty poll batch. Read alongside deduped{scope="batch"}: consistently small batches cap how much intra-batch dedup can collapse, whatever the duplicate rate is',
         buckets: [1, 10, 50, 100, 200, 300, 400, 500],
+    })
+    private static readonly urlImageWrites = new Counter({
+        name: 'ml_mirror_image_scrub_consumer_url_image_writes_total',
+        help: 'URL image writes to S3 by outcome. The object key names the team, month and URL and is written once, so already_exists counts a scrubbed image that S3 already held. A repeated fetch, a duplicate ref in one poll batch, and a replay after a rebalance all end this way. A write that fails is not counted. already_exists / (created + already_exists) is the share of completed URL image writes that stored nothing new',
+        labelNames: ['outcome'],
     })
     private static readonly invalidKey = new Counter({
         name: 'ml_mirror_image_scrub_consumer_invalid_key_total',
@@ -226,9 +232,13 @@ export class ImageScrubConsumerMetrics {
     public static incOffsetsDiscarded(count: number): void {
         this.offsetsDiscarded.inc(count)
     }
-    public static incDeduped(scope: 'batch' | 'pod'): void {
-        this.deduped.labels(scope).inc()
+    public static incDeduped(scope: 'batch' | 'pod', source: ImageScrubSource): void {
+        this.deduped.labels(scope, source).inc()
     }
+    public static incUrlImageWrite(outcome: UrlImageWriteOutcome): void {
+        this.urlImageWrites.labels(outcome).inc()
+    }
+
     public static incInvalidKey(): void {
         this.invalidKey.inc()
     }

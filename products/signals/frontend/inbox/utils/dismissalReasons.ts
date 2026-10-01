@@ -1,4 +1,4 @@
-// Port of desktop `packages/shared/src/dismissal-reasons.ts`. Canonical reason codes recorded when a
+// Port of `packages/agent/packages/agent-contracts/src/dismissal-reasons.ts`. Canonical reason codes recorded when a
 // report is dismissed or resolved. Values are persisted on dismissal artefacts by the backend `state`
 // action – add or reorder options here only, and keep the values in sync with desktop and with
 // `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES` in `products/signals/backend/views.py`.
@@ -74,9 +74,11 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 
 // Reason codes persisted by flows outside the two dialogs (never user-selectable there), so the
 // reason chip still renders a label instead of the raw code. `refunded` is written by the PR
-// refund action, which dismisses the report as part of the refund.
+// refund action, which dismisses the report as part of the refund. `merged` is written by the
+// report merge action, which archives each duplicate it folds into the surviving report.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
     refunded: 'Refunded',
+    merged: 'Merged into another report',
 }
 
 /** Human label for a persisted reason code, or the raw code if it's not a known option. */

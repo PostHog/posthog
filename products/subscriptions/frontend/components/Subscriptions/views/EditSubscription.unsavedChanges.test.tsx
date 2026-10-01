@@ -22,7 +22,7 @@ const DASHBOARD = {
         { id: 1, insight: { id: 11, short_id: 'ins11', name: 'Pageviews' }, layouts: { sm: { x: 0, y: 0 } } },
         { id: 2, insight: { id: 12, short_id: 'ins12', name: 'Sessions' }, layouts: { sm: { x: 0, y: 1 } } },
     ],
-} as unknown as DashboardType<any>
+} as unknown as DashboardType
 
 const SLACK_INTEGRATION = {
     id: 7,

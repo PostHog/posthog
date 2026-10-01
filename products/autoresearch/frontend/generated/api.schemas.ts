@@ -494,6 +494,145 @@ export interface PaginatedAutoresearchRunListApi {
 }
 
 /**
+ * * `try_next` - Try next
+ * * `consider` - Consider
+ */
+export type AutoresearchSuggestionPriorityEnumApi =
+    (typeof AutoresearchSuggestionPriorityEnumApi)[keyof typeof AutoresearchSuggestionPriorityEnumApi]
+
+export const AutoresearchSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `picked_up` - Picked up
+ * * `acted_on` - Acted on
+ * * `dismissed` - Dismissed
+ */
+export type AutoresearchSuggestionStatusEnumApi =
+    (typeof AutoresearchSuggestionStatusEnumApi)[keyof typeof AutoresearchSuggestionStatusEnumApi]
+
+export const AutoresearchSuggestionStatusEnumApi = {
+    Queued: 'queued',
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * * `user` - User
+ * * `agent` - Agent
+ */
+export type AutoresearchSuggestionSourceEnumApi =
+    (typeof AutoresearchSuggestionSourceEnumApi)[keyof typeof AutoresearchSuggestionSourceEnumApi]
+
+export const AutoresearchSuggestionSourceEnumApi = {
+    User: 'user',
+    Agent: 'agent',
+} as const
+
+export interface AutoresearchSuggestionApi {
+    /** Unique UUID of this suggestion. */
+    readonly id: string
+    /** Pipeline this suggestion targets. */
+    pipeline: string
+    /** Free-text hypothesis or direction for the agent to explore. */
+    prompt: string
+    /** 'try_next' instructs the agent to act on this before other iterations; 'consider' is advisory.
+     *
+     * * `try_next` - Try next
+     * * `consider` - Consider */
+    priority?: AutoresearchSuggestionPriorityEnumApi
+    /** Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).
+     *
+     * * `queued` - Queued
+     * * `picked_up` - Picked up
+     * * `acted_on` - Acted on
+     * * `dismissed` - Dismissed */
+    readonly status: AutoresearchSuggestionStatusEnumApi
+    /** 'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.
+     *
+     * * `user` - User
+     * * `agent` - Agent */
+    readonly source: AutoresearchSuggestionSourceEnumApi
+    /** Agent's note on how the suggestion was interpreted and acted upon. Populated after pickup. */
+    readonly agent_response: string
+    /** The user who submitted it; null for an agent-authored suggestion. */
+    readonly created_by: UserBasicApi | null
+    /** UUIDs of iterations spawned from this suggestion. */
+    readonly linked_iteration_ids: readonly string[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedAutoresearchSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AutoresearchSuggestionApi[]
+}
+
+/**
+ * * `try_next` - try_next
+ * * `consider` - consider
+ */
+export type CreateSuggestionPriorityEnumApi =
+    (typeof CreateSuggestionPriorityEnumApi)[keyof typeof CreateSuggestionPriorityEnumApi]
+
+export const CreateSuggestionPriorityEnumApi = {
+    TryNext: 'try_next',
+    Consider: 'consider',
+} as const
+
+export interface CreateSuggestionApi {
+    /**
+     * Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'.
+     * @maxLength 2000
+     */
+    prompt: string
+    /** 'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.
+     *
+     * * `try_next` - try_next
+     * * `consider` - consider */
+    priority?: CreateSuggestionPriorityEnumApi
+}
+
+/**
+ * * `picked_up` - picked_up
+ * * `acted_on` - acted_on
+ * * `dismissed` - dismissed
+ */
+export type RespondToSuggestionStatusEnumApi =
+    (typeof RespondToSuggestionStatusEnumApi)[keyof typeof RespondToSuggestionStatusEnumApi]
+
+export const RespondToSuggestionStatusEnumApi = {
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Input for the agent to record how it interpreted a steering suggestion.
+ */
+export interface RespondToSuggestionApi {
+    /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+     *
+     * * `picked_up` - picked_up
+     * * `acted_on` - acted_on
+     * * `dismissed` - dismissed */
+    status: RespondToSuggestionStatusEnumApi
+    /**
+     * Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.
+     * @maxLength 2000
+     */
+    agent_response?: string
+}
+
+/**
  * One iteration referenced from a run summary's ladder or dead-ends list.
  */
 export interface TrainingRunSummaryLadderItemApi {
@@ -1176,6 +1315,15 @@ export interface PatchedAutoresearchPipelineCreateApi {
     output_person_property?: string
 }
 
+export interface StartTrainingRequestApi {
+    /**
+     * Override the pipeline iteration budget for this training run.
+     * @minimum 1
+     * @maximum 500
+     */
+    iteration_budget?: number
+}
+
 /**
  * * `likely_active_soon` - Likely Active Soon
  * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -1194,7 +1342,7 @@ export const TemplateKeyEnumApi = {
 } as const
 
 export interface ResolveTemplateRequestApi {
-    /** Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.
+    /** Template to resolve. The templates endpoint lists each one with its description. Required.
      *
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
@@ -1347,7 +1495,7 @@ export const ValidationWarningSeverityEnumApi = {
 } as const
 
 export interface ValidationWarningApi {
-    /** Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+    /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
     code: string
     /** Human-readable warning description. */
     message: string
@@ -1360,7 +1508,7 @@ export interface ValidationWarningApi {
 }
 
 export interface ValidatePipelineResponseApi {
-    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
+    /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
     can_proceed: boolean
     /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
     requires_acknowledgement: boolean
@@ -1421,6 +1569,17 @@ export type AutoresearchModelsListParams = {
 }
 
 export type AutoresearchRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type AutoresearchSuggestionsListParams = {
     /**
      * Number of results to return per page.
      */

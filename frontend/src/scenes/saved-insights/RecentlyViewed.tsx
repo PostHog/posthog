@@ -4,7 +4,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
-import { QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+import { InsightModel, SavedInsightsTabs } from '~/types'
 
 import { projectHomepageLogic } from '../project-homepage/projectHomepageLogic'
 import { InsightRow } from './InsightRow'
@@ -27,7 +27,7 @@ export function RecentlyViewed(): JSX.Element {
                 buttonTo: urls.savedInsights(SavedInsightsTabs.All),
             }}
             items={recentInsights.slice(0, 5)}
-            renderRow={(insight: QueryBasedInsightModel) => (
+            renderRow={(insight: InsightModel) => (
                 <InsightRow
                     key={insight.short_id}
                     insight={insight}

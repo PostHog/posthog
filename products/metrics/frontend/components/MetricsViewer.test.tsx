@@ -1,23 +1,19 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
 import { insightsApi } from 'scenes/insights/utils/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AppContext,
-    InsightShortId,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, InsightShortId, InsightModel } from '~/types'
 
 import {
     metricsAttributesRetrieve,
+    metricsCharacterizeCreate,
     metricsQueryCreate,
     metricsNamesRetrieve,
 } from 'products/metrics/frontend/generated/api'
@@ -42,7 +38,7 @@ jest.mock('scenes/insights/utils/api', () => ({
 // picker binds to, and `id` is what a dashboard write would patch. Typed as a Partial — the
 // shape `insightsApi.create` accepts — so these two fields are checked without padding the
 // fixture with the rest of the model, which this flow never touches.
-const SAVED_INSIGHT: Partial<QueryBasedInsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
+const SAVED_INSIGHT: Partial<InsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
 
 describe('MetricsViewer', () => {
     let logic: ReturnType<typeof metricsViewerLogic.build>
@@ -61,7 +57,7 @@ describe('MetricsViewer', () => {
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
-        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
+        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as InsightModel)
         logic = metricsViewerLogic()
         logic.mount()
     })
@@ -126,5 +122,34 @@ describe('MetricsViewer', () => {
         fireEvent.click(await screen.findByText('Add to a new dashboard'))
 
         expect(await screen.findByText('Create a dashboard')).toBeInTheDocument()
+    })
+
+    // Request windows resolve in the project timezone at fetch time, so a timezone change must
+    // refetch, or the chart keeps data for the old window under labels in the new timezone.
+    it('refetches the chart and anomaly for the new window when the project timezone changes', async () => {
+        logic.actions.setMetricName('http.server.duration')
+        logic.actions.setDateFrom('2026-06-15T10:00:00')
+        logic.actions.setDateTo('2026-06-15T12:00:00')
+
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+        await waitFor(() => expect(metricsQueryCreate).toHaveBeenCalled())
+        await waitFor(() => expect(metricsCharacterizeCreate).toHaveBeenCalled())
+        jest.mocked(metricsQueryCreate).mockClear()
+        jest.mocked(metricsCharacterizeCreate).mockClear()
+
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, timezone: 'Europe/Zurich' })
+
+        await waitFor(() =>
+            expect(metricsQueryCreate).toHaveBeenCalledWith(
+                expect.anything(),
+                { query: expect.objectContaining({ dateFrom: '2026-06-15T08:00:00.000Z' }) },
+                expect.anything()
+            )
+        )
+        await waitFor(() => expect(metricsCharacterizeCreate).toHaveBeenCalled())
     })
 })

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TypedDict
 
 from django.db import transaction
@@ -458,6 +459,7 @@ def update_assignments_for_pull_request(
     repository: str,
     pr_number: int,
     pr_state: str,
+    merged_at: datetime | None = None,
 ) -> int:
     from products.signals.backend.implementation_pr import (
         fetch_implementation_prs_for_reports,
@@ -495,6 +497,10 @@ def update_assignments_for_pull_request(
                             claim_id=pr.claim_id,
                         )
             updated += update_pull_request_state(
-                team_id=team_id, repository=repository, number=pr_number, state=pr_state
+                team_id=team_id,
+                repository=repository,
+                number=pr_number,
+                state=pr_state,
+                merged_at=merged_at,
             )
     return updated

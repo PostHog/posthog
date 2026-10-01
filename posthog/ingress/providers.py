@@ -30,6 +30,7 @@ _INCARNATION_MODULES = (
     "posthog.ingress.mailgun.provider",
     "posthog.ingress.vapi.provider",
     "posthog.ingress.sns.provider",
+    "posthog.ingress.vercel.provider",
 )
 
 

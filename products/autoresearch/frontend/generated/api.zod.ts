@@ -122,6 +122,54 @@ export const AutoresearchCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreateBodyPromptMax = 2000
+
+export const autoresearchSuggestionsCreateBodyPriorityDefault = `consider`
+
+export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
+    prompt: zod
+        .string()
+        .max(autoresearchSuggestionsCreateBodyPromptMax)
+        .describe(
+            "Free-text hypothesis or direction for the agent to explore, e.g. 'try a tree-based model' or 'remove recency features, I suspect leakage'."
+        ),
+    priority: zod
+        .enum(['try_next', 'consider'])
+        .describe('\* `try_next` - try_next\n\* `consider` - consider')
+        .default(autoresearchSuggestionsCreateBodyPriorityDefault)
+        .describe(
+            "'try_next' asks the agent to act on this before other autonomous iterations; 'consider' is advisory context.\n\n\* `try_next` - try_next\n\* `consider` - consider"
+        ),
+})
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
+
+export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['picked_up', 'acted_on', 'dismissed'])
+            .describe('\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed')
+            .describe(
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed"
+            ),
+        agent_response: zod
+            .string()
+            .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
+            .optional()
+            .describe(
+                'Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.'
+            ),
+    })
+    .describe('Input for the agent to record how it interpreted a steering suggestion.')
+
+/**
  * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
  * @summary Open a training run
  */
@@ -560,6 +608,21 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreateBodyIterationBudgetMax = 500
+
+export const AutoresearchTrainCreateBody = /* @__PURE__ */ zod.object({
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchTrainCreateBodyIterationBudgetMax)
+        .optional()
+        .describe('Override the pipeline iteration budget for this training run.'),
+})
+
+/**
  * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
  * @summary Resolve a template
  */
@@ -578,7 +641,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+            'Template to resolve. The templates endpoint lists each one with its description. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         ),
     target_event: zod
         .string()
@@ -595,7 +658,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreateBodyTargetEventDefault = ``

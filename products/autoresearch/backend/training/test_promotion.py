@@ -22,6 +22,7 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, InvalidArtifactContent, PartialBundle
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
+from products.autoresearch.backend.training.stub import run_stub_training
 
 ANCHORED_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
 _DEFAULT_PARAMS = object()
@@ -296,6 +297,16 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert result["promoted"] is True
         assert self._champion().holdout_score == 0.105
 
+    def test_a_trained_candidate_below_the_stub_score_replaces_a_stub_champion(self):
+        run_stub_training(pipeline=self.pipeline)
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.6)
+
+        result = complete_training_run(run)
+
+        assert result["promoted"] is True
+        assert self._champion().holdout_score == 0.6
+
     @parameterized.expand(
         [
             # SQL without {anchors} reads the outcome window whatever the iteration recorded.
@@ -350,6 +361,19 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         second.refresh_from_db()
         # The next run reads this summary as the champion it has to beat.
         assert second.summary["champion_model_class"] == "xgboost.XGBClassifier"
+
+    def test_champion_fit_labels_at_the_run_anchor_the_agent_scored(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8)
+
+        bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
+            with patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit:
+                with self.captureOnCommitCallbacks(execute=True):
+                    complete_training_run(run)
+
+        assert run.started_at is not None
+        assert fit.call_args.kwargs["anchor_ts"] == int(run.started_at.timestamp())
 
     def test_a_failed_champion_fit_does_not_fail_a_committed_completion(self):
         run = self._run()

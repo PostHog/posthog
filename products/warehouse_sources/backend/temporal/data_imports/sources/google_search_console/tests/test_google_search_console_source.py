@@ -273,6 +273,26 @@ def test_get_oauth_accounts_reports_why_the_property_list_failed(body, expected_
     assert expected_substring in str(raised.value)
 
 
+def test_get_oauth_accounts_names_a_next_step_when_the_account_owns_no_property():
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+        IntegrationAccountListingError,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[],
+        ),
+        pytest.raises(IntegrationAccountListingError) as raised,
+    ):
+        GoogleSearchConsoleSource().get_oauth_accounts(integration_id=1, team_id=1)
+
+    assert "can't read any Search Console property" in str(raised.value)
+
+
 def test_validate_credentials_missing_integration_returns_reconnect_message():
     from posthog.models.integration import Integration
 

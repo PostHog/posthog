@@ -22,21 +22,27 @@ import type {
     AutoresearchPipelineCreateApi,
     AutoresearchRunApi,
     AutoresearchRunsListParams,
+    AutoresearchSuggestionApi,
+    AutoresearchSuggestionsListParams,
     AutoresearchTrainingRunApi,
     AutoresearchTrainingRunsHistoryRetrieveParams,
     AutoresearchTrainingRunsListParams,
     CompleteTrainingRunApi,
+    CreateSuggestionApi,
     MaterializeFeaturesRequestApi,
     MaterializeFeaturesResponseApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
     PaginatedAutoresearchRunListApi,
+    PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    RespondToSuggestionApi,
+    StartTrainingRequestApi,
     StoredArtifactApi,
     TemplateInfoApi,
     TrainingRunHistoryApi,
@@ -216,6 +222,113 @@ export const autoresearchRunsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchSuggestionsListUrl = (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * List steering suggestions for a pipeline, ordered most recent first. Check 'status' to see which have been picked up or acted on by the agent.
+ * @summary List suggestions
+ */
+export const autoresearchSuggestionsList = async (
+    projectId: string,
+    pipelineId: string,
+    params?: AutoresearchSuggestionsListParams,
+    options?: RequestInit
+): Promise<PaginatedAutoresearchSuggestionListApi> => {
+    return apiMutator<PaginatedAutoresearchSuggestionListApi>(
+        getAutoresearchSuggestionsListUrl(projectId, pipelineId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAutoresearchSuggestionsCreateUrl = (projectId: string, pipelineId: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/`
+}
+
+/**
+ * Inject a free-text hypothesis or direction into a running pipeline. The sandbox agent reads queued suggestions at the start of each iteration batch and decides: translate into a concrete iteration ('acted_on'), apply as a search constraint ('picked_up'), or reject with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted.
+ * @summary Submit a suggestion
+ */
+export const autoresearchSuggestionsCreate = async (
+    projectId: string,
+    pipelineId: string,
+    createSuggestionApi: CreateSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsCreateUrl(projectId, pipelineId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(createSuggestionApi),
+    })
+}
+
+export const getAutoresearchSuggestionsRetrieveUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/`
+}
+
+/**
+ * Get details for a specific suggestion including its status and agent_response.
+ * @summary Get suggestion
+ */
+export const autoresearchSuggestionsRetrieve = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(getAutoresearchSuggestionsRetrieveUrl(projectId, pipelineId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchSuggestionsRespondCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/respond/`
+}
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    respondToSuggestionApi: RespondToSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(
+        getAutoresearchSuggestionsRespondCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(respondToSuggestionApi),
+        }
+    )
 }
 
 export const getAutoresearchTrainingRunsListUrl = (
@@ -617,6 +730,123 @@ export const autoresearchDestroy = async (projectId: string, id: string, options
     })
 }
 
+export const getAutoresearchArchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/archive/`
+}
+
+/**
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
+ * @summary Archive a pipeline
+ */
+export const autoresearchArchiveCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchArchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchPauseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/pause/`
+}
+
+/**
+ * Pause daily scoring and training on a running pipeline. The pipeline can be resumed later. A training run already in progress finishes and can promote a new champion, but the pipeline stays paused and scores nobody until it is resumed.
+ * @summary Pause a pipeline
+ */
+export const autoresearchPauseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/resume/`
+}
+
+/**
+ * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
+ * @summary Resume a pipeline
+ */
+export const autoresearchResumeCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchPipelineApi> => {
+    return apiMutator<AutoresearchPipelineApi>(getAutoresearchResumeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchScoreCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/score/`
+}
+
+/**
+ * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
+ * @summary Run inference (score users)
+ */
+export const autoresearchScoreCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi> => {
+    return apiMutator<AutoresearchRunApi>(getAutoresearchScoreCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAutoresearchTrainCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/train/`
+}
+
+/**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreate = async (
+    projectId: string,
+    id: string,
+    startTrainingRequestApi?: StartTrainingRequestApi,
+    options?: RequestInit
+): Promise<AutoresearchTrainingRunApi> => {
+    return apiMutator<AutoresearchTrainingRunApi>(getAutoresearchTrainCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(startTrainingRequestApi),
+    })
+}
+
+export const getAutoresearchValidateOnlineCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${id}/validate_online/`
+}
+
+/**
+ * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
+ * @summary Run online validation
+ */
+export const autoresearchValidateOnlineCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AutoresearchRunApi[]> => {
+    return apiMutator<AutoresearchRunApi[]>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAutoresearchResolveTemplateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/autoresearch/resolve-template/`
 }
@@ -661,7 +891,7 @@ export const getAutoresearchValidateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreate = async (

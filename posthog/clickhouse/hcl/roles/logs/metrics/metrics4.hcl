@@ -66,7 +66,7 @@ database "posthog" {
   }
 
   table "metrics4_names" {
-    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -86,6 +86,9 @@ database "posthog" {
     }
     column "original_expiry_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
@@ -176,6 +179,14 @@ database "posthog" {
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "timestamp_min" {
+      type  = "DateTime64(6)"
+      alias = "arrayMin(timestamp_arr)"
+    }
+    column "timestamp_max" {
+      type  = "DateTime64(6)"
+      alias = "arrayMax(timestamp_arr)"
+    }
     index "idx_metric_type_set" {
       expr        = "metric_type"
       type        = "set(10)"
@@ -189,6 +200,16 @@ database "posthog" {
     index "idx_trace_id_bf" {
       expr        = "trace_id_arr"
       type        = "bloom_filter(0.01)"
+      granularity = 1
+    }
+    index "idx_timestamp_min_minmax" {
+      expr        = "timestamp_min"
+      type        = "minmax"
+      granularity = 1
+    }
+    index "idx_timestamp_max_minmax" {
+      expr        = "timestamp_max"
+      type        = "minmax"
       granularity = 1
     }
     engine "replicated_aggregating_merge_tree" {
@@ -289,5 +310,8 @@ database "posthog" {
       replica_name   = "{replica}-{shard}"
       version_column = "timestamp"
     }
+  }
+  view "metrics4_view" {
+    query = file("sql/metrics4_view.sql")
   }
 }

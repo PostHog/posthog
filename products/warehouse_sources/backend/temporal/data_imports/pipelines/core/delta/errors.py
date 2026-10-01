@@ -16,6 +16,11 @@ from posthog.temporal.common.errors import NonReportableError
 #   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
 # - "We encountered an internal error. Please try again." is S3's fixed message for its InternalError
 #   (500) response, surfaced by s3fs/aiobotocore as an OSError once its own request retries are exhausted
+# - "The difference between the request time and the current time is too large." is S3's fixed message
+#   for RequestTimeTooSkewed, raised when the worker's clock has drifted from S3's. s3fs maps every 403
+#   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
+#   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
+#   identical request succeeds moments later.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -24,6 +29,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Generic S3 error",
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
+    "The difference between the request time and the current time is too large.",
 )
 
 

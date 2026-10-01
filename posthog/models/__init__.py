@@ -26,6 +26,7 @@ from .event_filter_config import EventFilterConfig  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
+from .file_system.file_system_home_folder import FileSystemHomeFolder
 from .file_system.file_system_view_log import FileSystemViewLog
 from .file_system.user_product_list import UserProductList
 from .filters import Filter, RetentionFilter
@@ -47,6 +48,7 @@ from .organization_domain import OrganizationDomain
 from .organization_notification_lock import OrganizationMemberNotificationLock
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
+from .organization_provisioning import OrganizationProvisioning
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
 from .project_secret_api_key import ProjectSecretAPIKey
@@ -76,6 +78,7 @@ from .user_repo_preference import UserRepoPreference
 from .user_scene_personalisation import UserScenePersonalisation
 from .user_home_settings import UserHomeSettings
 from .user_facet_settings import UserFacetSettings
+from .webauthn_credential import WebauthnCredential
 from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
@@ -107,6 +110,7 @@ __all__ = [
     "EventDefinition",
     "EventProperty",
     "FileSystem",
+    "FileSystemHomeFolder",
     "FileSystemViewLog",
     "UserProductList",
     "Filter",
@@ -133,6 +137,7 @@ __all__ = [
     "OrganizationIntegration",
     "OrganizationInvite",
     "OrganizationMembership",
+    "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
     "OAuthGrant",
@@ -176,6 +181,7 @@ __all__ = [
     "UserScenePersonalisation",
     "UserHomeSettings",
     "UserFacetSettings",
+    "WebauthnCredential",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

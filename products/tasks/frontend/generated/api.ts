@@ -10,12 +10,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelContextGenerationApi,
+    ChannelContributorsDTOApi,
     ChannelDTOApi,
     ChannelFeedMessageDTOApi,
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
     ChannelMembersWriteApi,
+    ChannelSetupWriteApi,
     ChannelStarWriteApi,
     ChannelWriteApi,
     ConnectionTokenResponseApi,
@@ -72,6 +74,7 @@ import type {
     SandboxEnvironmentWriteApi,
     SandboxListParams,
     SlackThreadContextResponseApi,
+    SpaceSetupStartedDTOApi,
     StreamReadTokenResponseApi,
     TaskActivityListParams,
     TaskActivityMarkReadApi,
@@ -90,7 +93,10 @@ import type {
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
+    TaskPullRequestTitlesApi,
+    TaskPullRequestTitlesRequestApi,
     TaskRepositoriesResponseApi,
+    TaskReviewApi,
     TaskRunAnalysisActivityRequestApi,
     TaskRunAnalysisActivityResponseApi,
     TaskRunAnalyzeResponseApi,
@@ -127,6 +133,8 @@ import type {
     TaskRunRelayMessageResponseApi,
     TaskRunResponseApi,
     TaskRunStartRequestApi,
+    TaskRunSubscriptionTokenRequestApi,
+    TaskRunSubscriptionTokenResponseApi,
     TaskSearchResultApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
@@ -147,6 +155,7 @@ import type {
     TasksListParams,
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
+    TasksReviewRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
@@ -1139,6 +1148,28 @@ export const taskChannelsMembersUpdate = async (
     })
 }
 
+export const getTaskChannelsSetupCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${id}/setup/`
+}
+
+/**
+ * Starts one unattended task in the channel that resolves the metric, writes the context page and, for a goal, creates the tracking canvas and the loops. The task becomes the channel's context generation task.
+ * @summary Set a space up for a goal or a feature
+ */
+export const taskChannelsSetupCreate = async (
+    projectId: string,
+    id: string,
+    channelSetupWriteApi: ChannelSetupWriteApi,
+    options?: RequestInit
+): Promise<SpaceSetupStartedDTOApi> => {
+    return apiMutator<SpaceSetupStartedDTOApi>(getTaskChannelsSetupCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelSetupWriteApi),
+    })
+}
+
 export const getTaskChannelsStarCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/task_channels/${id}/star/`
 }
@@ -1157,6 +1188,24 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsContributorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/contributors/`
+}
+
+/**
+ * For each channel the requester can access, list the people who own at least one task or canvas in it, most recently active first. Channels with no owners are left out.
+ * @summary List who worked in each channel
+ */
+export const taskChannelsContributorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ChannelContributorsDTOApi[]> => {
+    return apiMutator<ChannelContributorsDTOApi[]>(getTaskChannelsContributorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1558,12 +1607,43 @@ export const tasksPresenceDestroy = async (projectId: string, id: string, option
     })
 }
 
+export const getTasksReviewRetrieveUrl = (projectId: string, id: string, params?: TasksReviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${id}/review/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${id}/review/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: TasksReviewRetrieveParams,
+    options?: RequestInit
+): Promise<TaskReviewApi> => {
+    return apiMutator<TaskReviewApi>(getTasksReviewRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTasksRunCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${id}/run/`
 }
 
 /**
- * Create a new task run and kick off the workflow.
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
  * @summary Run task
  */
 export const tasksRunCreate = async (
@@ -2084,7 +2164,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Permission responses return 503 agent_session_not_ready only when rejected before execution; clients may retry that code within a bounded startup wait. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Retry loop: a 503 is transient (sandbox_not_ready means the command arrived before the live run's command channel came up; agent_session_not_ready means an approval was rejected before execution while the agent starts) — retry it until the request you are answering expires. A 502 (agent server unreachable) or 504 (agent server timed out) means delivery is unknown; retry only when the command method is safe to retry. A 409 run_ended is final: the run is over and its sandbox is gone. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -2303,7 +2383,7 @@ export const getTasksRunsSetSummaryPartialUpdateUrl = (projectId: string, taskId
 }
 
 /**
- * Replace the running summary for a task run.
+ * Replace the running summary for a task run, and optionally its slug tags.
  * @summary Set task run summary
  */
 export const tasksRunsSetSummaryPartialUpdate = async (
@@ -2427,6 +2507,32 @@ export const tasksRunsStreamTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsSubscriptionTokenCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/subscription_token/`
+}
+
+/**
+ * Give the run's agent-server a short-lived ChatGPT access token from the run owner's connected account. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Codex rejected so the server refreshes it early, once.
+ * @summary Issue a ChatGPT access token for a Codex run
+ */
+export const tasksRunsSubscriptionTokenCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunSubscriptionTokenRequestApi?: TaskRunSubscriptionTokenRequestApi,
+    options?: RequestInit
+): Promise<TaskRunSubscriptionTokenResponseApi> => {
+    return apiMutator<TaskRunSubscriptionTokenResponseApi>(
+        getTasksRunsSubscriptionTokenCreateUrl(projectId, taskId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunSubscriptionTokenRequestApi),
+        }
+    )
 }
 
 export const getTasksRunsTaskSessionRetrieveUrl = (projectId: string, taskId: string, id: string) => {
@@ -2852,6 +2958,27 @@ export const tasksPinnedRetrieve = async (
     return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksPullRequestTitlesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/pull_request_titles/`
+}
+
+/**
+ * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * @summary Fetch pull request titles for tasks
+ */
+export const tasksPullRequestTitlesCreate = async (
+    projectId: string,
+    taskPullRequestTitlesRequestApi: TaskPullRequestTitlesRequestApi,
+    options?: RequestInit
+): Promise<TaskPullRequestTitlesApi> => {
+    return apiMutator<TaskPullRequestTitlesApi>(getTasksPullRequestTitlesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPullRequestTitlesRequestApi),
     })
 }
 

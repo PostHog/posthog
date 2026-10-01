@@ -10,6 +10,7 @@ from unittest.mock import Mock, PropertyMock, patch
 
 from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import OperationalError
 from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
@@ -414,6 +415,23 @@ class TestWebhookView(SimpleTestCase):
         self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
         self.dispatcher.dispatch.assert_not_called()
 
+    def test_a_database_failure_reading_the_secret_is_503_rather_than_an_unhandled_500(self) -> None:
+        body = json.dumps({"action": "opened"}).encode()
+        request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "issues"})
+
+        with (
+            patch(
+                "posthog.ingress.github.provider.get_instance_setting",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+            patch("posthog.ingress.views.observe_delivery") as observe,
+        ):
+            response = build_webhook_view(build_github_provider("posthog"))(request)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual([call.kwargs["outcome"] for call in observe.call_args_list], ["verify_unavailable"])
+        self.dispatcher.dispatch.assert_not_called()
+
     def test_a_body_deliveries_refuses_is_400_and_reaches_no_consumer(self) -> None:
         body = b'{"action":"opened"}'
         request = self._post(body, {"X-Hub-Signature-256": _github_signature(body), "X-GitHub-Event": "push"})
@@ -741,9 +759,11 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.assertEqual(response.status_code, 202)
         logger.warning.assert_not_called()
 
-    def test_every_provider_on_the_package_receives_in_the_primary_region(self) -> None:
+    def test_only_the_named_provider_receives_in_the_other_region(self) -> None:
         # The forward direction is shared machinery, so a provider that quietly overrides it
-        # redirects signed deliveries for an endpoint whose owners never asked for that.
+        # redirects signed deliveries for an endpoint whose owners never asked for that. A name
+        # on this list is a deliberate redirect, and every other provider forwards EU to US.
+        expected = ["posthog.ingress.vercel.provider.VercelProvider"]
         overriding: list[str] = []
         for module_name in _INCARNATION_MODULES:
             module = importlib.import_module(module_name)
@@ -753,7 +773,7 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
                 if candidate.receiving_region_domain is not WebhookProvider.receiving_region_domain:
                     overriding.append(f"{module_name}.{candidate.__name__}")
 
-        self.assertEqual(overriding, [])
+        self.assertEqual(overriding, expected)
 
     def test_a_provider_registered_against_the_secondary_region_forwards_the_other_way(self) -> None:
         view = self._view(
