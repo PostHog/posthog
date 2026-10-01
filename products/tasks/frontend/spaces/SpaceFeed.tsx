@@ -31,6 +31,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         feedSourceOptions,
         feedRepositories,
         feedStatus,
+        pullRequestTitles,
         sessionsById,
         sessionsLoading,
     } = useValues(spaceSceneLogic({ id }))
@@ -153,6 +154,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                                     <SpaceFeedPullRequestRow
                                         key={entry.key}
                                         pullRequest={entry.pullRequest}
+                                        pullRequestTitle={pullRequestTitles[entry.pullRequest.url]}
                                         session={entry.item}
                                         author={task.created_by ?? null}
                                         listRow={listRows}

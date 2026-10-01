@@ -101827,6 +101827,24 @@ export namespace Schemas {
       device_id: string;
     }
 
+    /**
+     * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+     */
+    export type TaskPullRequestTitlesTitles = {[key: string]: string};
+
+    export interface TaskPullRequestTitles {
+      /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+      titles: TaskPullRequestTitlesTitles;
+    }
+
+    export interface TaskPullRequestTitlesRequest {
+      /**
+         * Task IDs whose latest run's pull request titles to fetch (max 30).
+         * @maxItems 30
+         */
+      ids: string[];
+    }
+
     export interface TaskRepositoriesResponse {
       /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
       repositories: string[];
