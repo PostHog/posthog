@@ -311,8 +311,10 @@ const rankingArtefacts = [
     },
 ]
 
-const openOtherModels: Story['play'] = async ({ canvasElement }) => {
-    canvasElement.querySelector('details')?.setAttribute('open', '')
+const openOtherModels: Story['play'] = async ({ canvas }) => {
+    // The list renders after play starts, so wait for the disclosure or the snapshot catches it closed.
+    const summary = await canvas.findByText(/Other models/)
+    summary.closest('details')?.setAttribute('open', '')
 }
 
 export const RankingScore: Story = {
