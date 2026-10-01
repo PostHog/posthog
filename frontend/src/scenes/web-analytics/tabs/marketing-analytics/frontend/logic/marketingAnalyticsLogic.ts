@@ -1579,9 +1579,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
             }
-            if (values.dateFilter.dateTo) {
-                searchParams.set('date_to', values.dateFilter.dateTo)
-            }
+            searchParams.set('date_to', values.dateFilter.dateTo ?? '')
             if (values.dateFilter.interval) {
                 searchParams.set('interval', values.dateFilter.interval)
             }

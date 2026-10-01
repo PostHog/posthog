@@ -222,6 +222,7 @@ Sync health remains the destination's responsibility, so a failed integration do
 These table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
 Loading and failed metadata requests leave the suggestion hidden.
 The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
+An explicit open end date clears any end date saved during a previous Marketing analytics visit.
 Dismissal persists per project in the browser.
 
 ### Cross-sell attribution

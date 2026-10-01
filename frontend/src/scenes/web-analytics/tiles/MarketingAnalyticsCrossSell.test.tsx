@@ -90,14 +90,16 @@ describe('Marketing analytics cross sell', () => {
     ])('offers source connection with setup flag=%s on %s', async (setup, breakdown) => {
         enable(setup)
         render(<MarketingAnalyticsCrossSell breakdown={breakdown} />)
-        const link = await screen.findByRole('link', { name: 'Connect ad sources' })
+        const link = (await screen.findByText('Connect ad sources')).closest('a')!
+        const destination = new URL(link.href)
+        expect(destination.searchParams.get('date_from')).toBe('-7d')
+        expect(destination.searchParams.get('date_to')).toBe('')
         expect(link.getAttribute('href')).toContain('/marketing?')
         expect(link.getAttribute('href')?.includes('tab=setup')).toBe(setup)
-        expect(new URL(link.getAttribute('href')!, 'http://localhost').searchParams.get('date_to')).toBe('')
         expect(queries).toHaveBeenCalledTimes(1)
         expect(sources).toHaveBeenCalledTimes(1)
-        fireEvent.click(screen.getByRole('button', { name: 'Dismiss Marketing analytics suggestion' }))
-        expect(screen.queryByRole('link', { name: 'Connect ad sources' })).toBeNull()
+        fireEvent.click(screen.getByLabelText('Dismiss Marketing analytics suggestion'))
+        expect(screen.queryByText('Connect ad sources')).toBeNull()
         expect(webAnalyticsLogic.values.marketingCrossSellDismissed).toBe(true)
     })
 
@@ -108,7 +110,7 @@ describe('Marketing analytics cross sell', () => {
         try {
             await waitFor(() => expect(node.values.response).not.toBeNull())
             render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialChannelType} />)
-            await screen.findByRole('link', { name: 'Connect ad sources' })
+            await screen.findByText('Connect ad sources')
             expect(queries).toHaveBeenCalledTimes(1)
         } finally {
             unmountNode()
@@ -121,7 +123,10 @@ describe('Marketing analytics cross sell', () => {
             .mockReturnValueOnce([200, { results: [{ source_type: 'Stripe' }], next: 'next', count: 2 }])
             .mockReturnValueOnce([200, { results: [{ source_type: 'GoogleAds' }], next: null, count: 2 }])
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSourceMediumCampaign} />)
-        await screen.findByRole('link', { name: 'Analyze in Marketing analytics' })
+        const link = (await screen.findByText('Analyze in Marketing analytics')).closest('a')!
+        const destination = new URL(link.href)
+        expect(destination.searchParams.get('date_from')).toBe('-7d')
+        expect(destination.searchParams.get('date_to')).toBe('')
         expect(sources).toHaveBeenCalledTimes(2)
     })
 
@@ -152,7 +157,7 @@ describe('Marketing analytics cross sell', () => {
     it('refreshes channel evidence when the date changes on a UTM tab', async () => {
         enable()
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSource} />)
-        await screen.findByRole('link', { name: 'Connect ad sources' })
+        await screen.findByText('Connect ad sources')
         const node = getChannelsNode()
         channel = 'Organic Search'
         act(() => webAnalyticsLogic.actions.setDates('-14d', null))
@@ -160,7 +165,7 @@ describe('Marketing analytics cross sell', () => {
             expect(node.values.responseLoading).toBe(false)
             expect(node.values.response).toMatchObject({ results: [['Organic Search', [10, null]]] })
         })
-        expect(screen.queryByRole('link', { name: 'Connect ad sources' })).toBeNull()
+        expect(screen.queryByText('Connect ad sources')).toBeNull()
         expect(queries).toHaveBeenCalledTimes(2)
         expect(sources).toHaveBeenCalledTimes(1)
     })
