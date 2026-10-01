@@ -562,6 +562,20 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
     assert stored_rows(cluster) == Counter()
 
 
+BELOW_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
+]
+ABOVE_MOVE_LINE = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=4750, total_bytes=8000),
+]
+UNDER_THE_FLOOR = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=100, total_bytes=8000),
+]
+
+
 @pytest.mark.parametrize(
     "disks, usable_bytes, below_move_line",
     [
@@ -574,15 +588,7 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
             False,
             id="hot_volume_keeps_its_move_reserve",
         ),
-        pytest.param(
-            [
-                PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
-                PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
-            ],
-            4950,
-            True,
-            id="hot_volume_below_its_move_line",
-        ),
+        pytest.param(BELOW_MOVE_LINE, 4950, True, id="hot_volume_below_its_move_line"),
         pytest.param(
             [PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000)],
             50,
@@ -599,73 +605,37 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
     assert (headroom.usable_bytes, headroom.below_move_line) == (usable_bytes, below_move_line)
 
 
-BELOW_MOVE_LINE = [
-    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
-    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
-]
-ABOVE_MOVE_LINE = [
-    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
-    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=4750, total_bytes=8000),
-]
-
-
+# The job reads the disks on each poll of the disk wait, and once more after the wait for squash and deletes runs.
 @pytest.mark.parametrize(
     "readings, overrides, sleeps, failure",
     [
-        pytest.param([BELOW_MOVE_LINE, ABOVE_MOVE_LINE], {}, 1, None, id="mover_frees_the_disk"),
-        pytest.param(
-            [BELOW_MOVE_LINE], {"disk_check_max_wait_seconds": 0}, 0, "still moving parts", id="mover_too_slow"
-        ),
+        pytest.param([BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE], {}, 1, None, id="mover_frees_the_disk"),
         pytest.param([BELOW_MOVE_LINE], {"min_free_bytes": 10_000}, 0, "under the floor", id="under_the_floor"),
-    ],
-)
-def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
-    readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
-) -> None:
-    backfill = shard_backfill(FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, **overrides}))
-    host = MagicMock()
-    host.connection_info.host = "replica-1"
-    backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
-
-    with patch("posthog.dags.flag_evaluations_backfill.time.sleep") as sleep:
-        if failure is None:
-            backfill.wait_for_disk_headroom()
-        else:
-            with pytest.raises(dagster.Failure, match=failure):
-                backfill.wait_for_disk_headroom()
-
-    assert sleep.call_count == sleeps
-
-
-UNDER_THE_FLOOR = [
-    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
-    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=100, total_bytes=8000),
-]
-
-
-# The second reading comes after the wait for squash and deletes runs returns.
-@pytest.mark.parametrize(
-    "readings, overrides, failure",
-    [
         pytest.param(
             [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE],
             {},
+            0,
             None,
             id="mover_frees_the_disk_after_the_blocking_wait",
         ),
         pytest.param(
             [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
             {"disk_check_max_wait_seconds": 0},
+            0,
             "still moving parts",
             id="disk_still_full_after_the_blocking_wait",
         ),
         pytest.param(
-            [ABOVE_MOVE_LINE, UNDER_THE_FLOOR], {}, "under the floor", id="disk_under_the_floor_after_the_blocking_wait"
+            [ABOVE_MOVE_LINE, UNDER_THE_FLOOR],
+            {},
+            0,
+            "under the floor",
+            id="disk_under_the_floor_after_the_blocking_wait",
         ),
     ],
 )
-def test_backfill_checks_the_disk_again_after_waiting_for_blocking_runs(
-    readings: list[list[PolicyDisk]], overrides: dict[str, Any], failure: str | None
+def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
 ) -> None:
     backfill = shard_backfill(
         FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides})
@@ -673,19 +643,20 @@ def test_backfill_checks_the_disk_again_after_waiting_for_blocking_runs(
     host = MagicMock()
     host.connection_info.host = "replica-1"
     backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
 
     with (
-        patch("posthog.dags.flag_evaluations_backfill.time.sleep"),
+        patch("posthog.dags.flag_evaluations_backfill.time.sleep") as sleep,
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
     ):
         if failure is None:
-            backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
+            backfill.run([yesterday])
         else:
             with pytest.raises(dagster.Failure, match=failure):
-                backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
+                backfill.run([yesterday])
 
-    assert copy_day.called is (failure is None)
+    assert (sleep.call_count, copy_day.called) == (sleeps, failure is None)
 
 
 @pytest.mark.parametrize(

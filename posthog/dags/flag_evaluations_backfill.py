@@ -146,7 +146,8 @@ class FlagEvaluationsBackfillConfig(dagster.Config):
         default=2 * 60 * 60,
         description=(
             "Wait before each day while a replica has less free space than its move_factor reserve, which ClickHouse "
-            "restores by moving parts to the next volume. Stop the shard after waiting this long."
+            "restores by moving parts to the next volume. Stop the shard when one such wait lasts this long. The "
+            "limit starts again after each wait for a squash, deletes or data deletion run."
         ),
     )
     disk_check_poll_frequency_seconds: int = 60
@@ -435,19 +436,20 @@ class ShardBackfill:
             hosts_moving_parts = self._hosts_moving_parts()
             if not hosts_moving_parts:
                 return
+            hosts = ", ".join(hosts_moving_parts)
             if time.monotonic() >= deadline:
                 raise dagster.Failure(
                     description=f"Stopping shard {self.shard_num}: ClickHouse is still moving parts off a disk "
-                    f"below its move_factor reserve on {', '.join(hosts_moving_parts)} after "
-                    f"{self.config.disk_check_max_wait_seconds}s."
+                    f"below its move_factor reserve on {hosts} after {self.config.disk_check_max_wait_seconds}s."
                 )
-            self.log.info(
-                f"Waiting for ClickHouse to move parts off a disk below its move_factor reserve on "
-                f"{', '.join(hosts_moving_parts)}"
-            )
+            self.log.info(f"Waiting for ClickHouse to move parts off a disk below its move_factor reserve on {hosts}")
             time.sleep(self.config.disk_check_poll_frequency_seconds)
 
     def _hosts_moving_parts(self) -> list[str]:
+        """Return the replicas below their move_factor reserve.
+
+        Raise when a replica is under the min_free_bytes floor or reports no disks.
+        """
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.
         disks_by_host = self.cluster.map_hosts_in_shard_by_role(
             self.shard_num, self._tagged(_read_policy_disks), node_role=self.node_role
