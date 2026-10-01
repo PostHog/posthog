@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { fireEvent, within } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
 
@@ -504,9 +504,15 @@ function rightClick(target: Element): void {
     fireEvent.contextMenu(target, { clientX: left + 8, clientY: top + 8 })
 }
 
-async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: string): Promise<Element | undefined> {
-    const labels = await within(canvasElement).findAllByText(label)
-    return labels.find((element) => element.closest(`[data-attr="${rowAttr}"]`))
+async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: string): Promise<Element> {
+    return await waitFor(() => {
+        const labels = within(canvasElement).getAllByText(label)
+        const row = labels.find((element) => element.closest(`[data-attr="${rowAttr}"]`))
+        if (!row) {
+            throw new Error(`No "${label}" text inside a [data-attr="${rowAttr}"] row`)
+        }
+        return row
+    })
 }
 
 // Right-clicking a session row opens the same actions as its hover card.
@@ -514,10 +520,8 @@ export const SpacesPaneSessionContextMenu: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
-        if (row) {
-            rightClick(row)
-            await within(document.body).findByText('Open in new tab')
-        }
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
     },
 }
 
@@ -526,10 +530,8 @@ export const SpacesPaneSpaceContextMenu: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
         const row = await sidebarRow(canvasElement, 'checkout', 'today-space-row')
-        if (row) {
-            rightClick(row)
-            await within(document.body).findByText('New session')
-        }
+        rightClick(row)
+        await within(document.body).findByText('New session')
     },
 }
 
@@ -540,10 +542,8 @@ export const SpacesPaneSelectedSessionsContextMenu: Story = {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
-        if (row) {
-            rightClick(row)
-            await within(document.body).findByText('Pin 2 sessions')
-        }
+        rightClick(row)
+        await within(document.body).findByText('Pin 2 sessions')
     },
 }
 
@@ -552,10 +552,8 @@ export const SpaceFeedCardContextMenu: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
     play: async ({ canvasElement }) => {
         const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-space-feed-card')
-        if (row) {
-            rightClick(row)
-            await within(document.body).findByText('Open in new tab')
-        }
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
     },
 }
 
