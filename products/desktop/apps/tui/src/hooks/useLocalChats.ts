@@ -8,7 +8,7 @@ import {
 } from "react";
 import { currentRepository, type PiChats } from "../chats";
 import { type LayoutState, panes, renameTask } from "../layout";
-import type { LocalSession } from "../local";
+import { type LocalSession, runningLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import type { AgentPrompt } from "../prompts";
 
@@ -34,7 +34,7 @@ export interface LocalChatsState {
   setPromptCursor: (promptId: string, index: number) => void;
 }
 
-// Local chats: each is a task with a pi session file on this machine and an agent process started on first use.
+// Local chats: each is a task with a pi session file on this machine and an agent process started on first use and stopped when the app quits.
 export function useLocalChats({
   startLocal,
   chats,
@@ -60,8 +60,6 @@ export function useLocalChats({
   const isLocal = (taskId: string | null): taskId is string =>
     taskId !== null &&
     (localActive.has(taskId) || taskId.startsWith(LEGACY_PREFIX));
-  // Running local chats, started on first use and stopped when the app closes.
-  const locals = useRef(new Map<string, Promise<LocalSession>>());
   const [localSessions, setLocalSessions] = useState<Map<string, LocalSession>>(
     new Map(),
   );
@@ -69,8 +67,10 @@ export function useLocalChats({
   const [promptCursors, setPromptCursors] = useState<Map<string, number>>(
     new Map(),
   );
+  // Agents this copy of the hook shows. After a hot swap the agents still run, so the new copy watches them again.
+  const watched = useRef(new Set<string>()).current;
   const localFor = (id: string): Promise<LocalSession> => {
-    let started = locals.current.get(id);
+    let started = runningLocals.get(id);
     if (!started) {
       if (!startLocal)
         return Promise.reject(new Error("Sign in first: type /login"));
@@ -80,7 +80,10 @@ export function useLocalChats({
           new Error("Local chats are still loading. Try again in a moment"),
         );
       started = startLocal(id);
-      locals.current.set(id, started);
+      runningLocals.set(id, started);
+    }
+    if (!watched.has(id)) {
+      watched.add(id);
       started.then(
         (local) => {
           setLocalSessions((current) => new Map(current).set(id, local));
@@ -89,21 +92,14 @@ export function useLocalChats({
           );
         },
         (error: unknown) => {
-          locals.current.delete(id);
+          runningLocals.delete(id);
+          watched.delete(id);
           flashNotice(`Couldn't start the local agent: ${messageOf(error)}`);
         },
       );
     }
     return started;
   };
-  useEffect(
-    () => () => {
-      for (const started of locals.current.values()) {
-        void started.then((local) => local.stop()).catch(() => {});
-      }
-    },
-    [],
-  );
 
   // One pass per sign-in, so a re-run effect never makes a second task for the same chat.
   const linkedFor = useRef<PiChats | null>(null);

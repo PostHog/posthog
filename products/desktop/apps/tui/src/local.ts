@@ -143,3 +143,19 @@ export class LocalSession {
     for (const listener of this.listeners) listener(view);
   }
 }
+
+// Started local agents by task id. Kept on globalThis because a hot swap of src/ re-runs this module,
+// and an agent that edits the TUI's own code must not stop itself.
+const hotSwapSafe = globalThis as {
+  __posthogTuiLocals?: Map<string, Promise<LocalSession>>;
+};
+hotSwapSafe.__posthogTuiLocals ??= new Map();
+export const runningLocals = hotSwapSafe.__posthogTuiLocals;
+
+export const stopLocals = async (): Promise<void> => {
+  await Promise.allSettled(
+    [...runningLocals.values()].map((started) =>
+      started.then((local) => local.stop()),
+    ),
+  );
+};

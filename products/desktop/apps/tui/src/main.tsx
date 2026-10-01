@@ -2,6 +2,7 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { render } from "ink";
 import { TuiAuth } from "./auth";
 import { Root } from "./components/Root";
+import { stopLocals } from "./local";
 import { MouseInput } from "./mouse";
 import { detectTheme } from "./theme";
 
@@ -36,8 +37,10 @@ if (import.meta.hot) {
   import.meta.hot.on("vite:beforeFullReload", teardown);
 }
 
-await instance.waitUntilExit();
-if (!reloading) {
+// Not awaited: a full reload waits for this module to finish, and Vite holds every later reload behind it.
+void instance.waitUntilExit().then(async () => {
+  if (reloading) return;
   mouse.dispose();
+  await stopLocals();
   process.exit(0);
-}
+});
