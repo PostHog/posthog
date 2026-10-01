@@ -232,7 +232,7 @@ def _resolve_model(model_configuration: dict[str, Any] | None, team_id: int) -> 
 def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
-    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    event_data = hydrate_event_reference(inputs.event_data)
 
     tagger_config = tagger.get("tagger_config", {})
     prompt = tagger_config.get("prompt")
@@ -511,7 +511,7 @@ class EmitTaggerEventInputs:
 async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     """Emit $ai_tag event via capture_internal."""
     tagger = inputs.tagger
-    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    event_data = hydrate_event_reference(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
