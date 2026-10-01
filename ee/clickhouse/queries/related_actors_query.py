@@ -18,12 +18,11 @@ from posthog.hogql_queries.serialized_actors import (
     get_groups,
     get_serialized_people,
 )
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
-from posthog.models.person.util import get_distinct_ids_for_person, get_person_by_uuid
+from posthog.models.person.util import get_distinct_ids_for_person, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import GroupTypeIndex
-from posthog.personhog_client import consistency_to_read_options
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 
@@ -117,21 +116,25 @@ class RelatedActorsQuery:
         return [row[0] for row in response.results]
 
     @cached_property
-    def _person(self) -> Person | None:
+    def _person_id(self) -> int | None:
         with personhog_caller_tag("persons/related-actors"):
-            return get_person_by_uuid(self.team.pk, self.id, distinct_id_limit=0)
+            persons = get_person_ids_and_uuids_by_uuids(self.team.pk, [self.id])
+        if not persons:
+            return None
+        person_id, _ = persons[0]
+        return person_id
 
     def _person_distinct_ids(self) -> list[str]:
-        if self._person is None:
+        if self._person_id is None:
             return []
 
         # ClickHouse merge updates can arrive before the personhog read replica catches up.
         with personhog_caller_tag("persons/related-actors"):
             distinct_ids = get_distinct_ids_for_person(
                 self.team.pk,
-                self._person.pk,
+                self._person_id,
                 limit=MAX_LIMIT_DISTINCT_IDS,
-                read_options=consistency_to_read_options("strong"),
+                consistency="strong",
             )
 
         # Personhog caps limited lookups at MAX_LIMIT_DISTINCT_IDS, so a full batch may be

@@ -31,6 +31,7 @@ from posthog.models.person.sql import (
     INSERT_PERSON_SQL,
 )
 from posthog.models.utils import UUIDT
+from posthog.personhog_client import ReadConsistency, consistency_to_read_options
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
@@ -528,11 +529,13 @@ def get_distinct_ids_for_person(
     person_id: int,
     *,
     limit: int | None = None,
-    read_options: ReadOptions | None = None,
+    consistency: ReadConsistency = "eventual",
 ) -> list[str]:
     return personhog_call(
         "get_distinct_ids_for_person",
-        lambda: _distinct_ids_for_person(_get_client(), team_id, person_id, limit, read_options),
+        lambda: _distinct_ids_for_person(
+            _get_client(), team_id, person_id, limit, consistency_to_read_options(consistency)
+        ),
     )
 
 
