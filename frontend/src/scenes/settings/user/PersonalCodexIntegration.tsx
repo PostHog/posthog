@@ -101,10 +101,7 @@ export function PersonalCodexIntegration(): JSX.Element {
                 {notConnected ? (
                     <div className="px-4 py-6 text-center text-sm text-secondary">
                         <IconTerminal className="text-3xl mb-2 opacity-40" />
-                        <p className="mb-1">No Codex account connected</p>
-                        <p className="text-xs text-muted text-balance">
-                            Connect your ChatGPT account so your Codex cloud tasks use your own ChatGPT plan.
-                        </p>
+                        <p className="mb-0">No Codex account connected</p>
                     </div>
                 ) : (
                     <CodexAccountRow integration={codexIntegration} />
