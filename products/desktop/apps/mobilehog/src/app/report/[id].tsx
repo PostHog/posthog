@@ -3,7 +3,7 @@ import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { CardButton, ReportDetail } from "@/components/ReportCard";
@@ -51,6 +51,9 @@ export default function ReportScreen() {
     isTaskLookupPending: liveTask.isPending || liveTask.isError,
   });
   const taskCheckFailed = liveTask.isError && canCreateImplementationPr(report);
+  // A report with an open PR cannot start another task, so the PR takes that
+  // slot.
+  const prUrl = canStart ? null : report.implementation_pr_url;
 
   const onDismiss = (): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
@@ -69,7 +72,7 @@ export default function ReportScreen() {
   return (
     <View style={styles.root}>
       <ReportDetail report={report} />
-      {canDismiss || canStart || taskCheckFailed ? (
+      {canDismiss || canStart || taskCheckFailed || prUrl ? (
         <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
           {dismiss.isError ? (
             <Text style={styles.error}>Could not dismiss. Try again.</Text>
@@ -90,6 +93,13 @@ export default function ReportScreen() {
                 label="Dismiss"
                 disabled={dismiss.isPending}
                 onPress={onDismiss}
+              />
+            ) : null}
+            {prUrl ? (
+              <CardButton
+                label="Open pull request"
+                primary
+                onPress={() => Linking.openURL(prUrl).catch(() => {})}
               />
             ) : null}
             {canStart ? (
