@@ -1,17 +1,10 @@
 import re
 import json
-from collections import Counter
 from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
-from products.context_layer.backend.selection_types import (
-    MAX_CONTEXT_CHARS,
-    MAX_ITEMS,
-    RELEVANCE_THRESHOLD,
-    SOURCE_LIMITS,
-    Candidate,
-)
+from products.context_layer.backend.selection_types import MAX_CONTEXT_CHARS, MAX_ITEMS, RELEVANCE_THRESHOLD, Candidate
 
 STOP_WORDS = frozenset(
     "a an and are as at be by do for from how i in is it of on or our the this to we what with you".split()
@@ -21,25 +14,6 @@ TOKEN = re.compile(r"\w+")
 
 def tokens(text: str) -> list[str]:
     return [word for word in TOKEN.findall(text.lower()) if len(word) > 1 and word not in STOP_WORDS]
-
-
-def retrieve(prompt: str, records: Sequence[Candidate]) -> list[Candidate]:
-    query = set(tokens(prompt)[:60])
-    ranked: list[tuple[float, Candidate]] = []
-    for record in records:
-        title = Counter(tokens(record.title))
-        body = Counter(tokens(record.text))
-        score = sum(5 * min(title[word], 3) + min(body[word], 3) for word in query)
-        if score:
-            ranked.append((score, record))
-    ranked.sort(key=lambda entry: (-entry[0], entry[1].id))
-    counts: Counter[str] = Counter()
-    result = []
-    for _, record in ranked:
-        if counts[record.kind] < SOURCE_LIMITS[record.kind]:
-            result.append(record)
-            counts[record.kind] += 1
-    return result
 
 
 @frozen

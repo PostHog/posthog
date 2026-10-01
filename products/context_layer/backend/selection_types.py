@@ -7,7 +7,7 @@ from posthog.dataclasses import frozen
 
 SourceKind = Literal["skill", "metric", "certification", "relationship", "business_knowledge"]
 Mode = Literal["shadow", "control", "treatment"]
-CONFIG_VERSION = "context-selection-v1"
+CONFIG_VERSION = "context-selection-v2"
 MAX_PROMPT_CHARS = 20_000
 MAX_HISTORY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 8_000

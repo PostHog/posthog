@@ -1,3 +1,5 @@
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -98,3 +100,30 @@ class ContextSelectionProjection(TeamScopedRootMixin):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "version"], name="context_projection_team_version")]
+
+
+class ContextSelectionSearchState(TeamScopedRootMixin):
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    version = models.CharField(max_length=64)
+    archive_id = models.UUIDField()
+    built_at = models.DateTimeField()
+    refresh_seconds = models.FloatField()
+
+
+class ContextSelectionSearchDocument(TeamScopedRootMixin):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    source_kind = models.CharField(max_length=32)
+    source_id = models.CharField(max_length=64)
+    title = models.TextField()
+    text = models.TextField()
+    revision = models.CharField(max_length=128)
+    status = models.CharField(max_length=64)
+    reference = models.TextField()
+    tables = models.JSONField(default=list)
+    search_vector = SearchVectorField(null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "source_kind", "source_id"], name="context_search_source")
+        ]
+        indexes = [GinIndex(fields=["search_vector"], name="context_search_vector_gin")]

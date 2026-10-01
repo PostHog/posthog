@@ -15,10 +15,10 @@ from posthog.ph_client import get_feature_flag_or_none
 
 from products.context_layer.backend.models import ContextSelectionAssignment, ContextSelectionAttempt
 from products.context_layer.backend.selection_model import GATE, RELEVANCE, SelectionJudge, request_descriptor
-from products.context_layer.backend.selection_search import render, retrieve
+from products.context_layer.backend.selection_search import render
 from products.context_layer.backend.selection_sources import (
-    load_projection,
     search_business_knowledge,
+    search_projection,
     validate_candidates,
 )
 from products.context_layer.backend.selection_types import (
@@ -182,16 +182,7 @@ def _select(
     evidence = attempt.evidence
     deadline = started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
     check_deadline(deadline)
-    phase_started = time.monotonic()
-    projection = load_projection(run.team_id)
-    evidence["timings"] = {"projection_seconds": time.monotonic() - phase_started}
-    check_deadline(deadline)
-    if projection is None:
-        attempt.status = "cache_miss"
-        return
-    evidence["projection"] = {
-        key: projection[key] for key in ("version", "created_at", "capped_sources", "archive_id", "refresh_seconds")
-    }
+    evidence["timings"] = {}
     judge = SelectionJudge(str(attempt.id), str(actor.distinct_id), deadline)
     evidence["planned_requests"] = [request_descriptor(selection.prompt, selection.history)]
     attempt.save(update_fields=["evidence"])
@@ -203,22 +194,25 @@ def _select(
     if gate.probability <= GATE_THRESHOLD:
         attempt.status = "gate_skipped"
         return
-    records = [Candidate(**{**record, "tables": tuple(record.get("tables", []))}) for record in projection["records"]]
     allowed_kinds = set()
     if "llm_skill:read" in scopes:
         allowed_kinds.add("skill")
     if "data_catalog:read" in scopes:
         allowed_kinds.update(("metric", "certification", "relationship"))
     phase_started = time.monotonic()
-    shortlisted = retrieve(selection.prompt + "\n" + selection.history, [r for r in records if r.kind in allowed_kinds])
+    projection, shortlisted = search_projection(run.team_id, selection.prompt + "\n" + selection.history, allowed_kinds)
     evidence["timings"]["retrieval_seconds"] = time.monotonic() - phase_started
+    if projection is None:
+        evidence["omitted_sources"]["projection"] = "not_built"
+    else:
+        evidence["projection"] = projection
     phase_started = time.monotonic()
     check_deadline(deadline)
     candidates = validate_candidates(run.team, actor, shortlisted)
     check_deadline(deadline)
     evidence["timings"]["validation_seconds"] = time.monotonic() - phase_started
     evidence["retrieval"] = {
-        "algorithm": "weighted_tokens_v1",
+        "algorithm": "postgres_fts_v1",
         "shortlist_ids": [c.id for c in shortlisted],
         "candidates": [c.as_json() for c in candidates],
         "filtered_ids": [c.id for c in shortlisted if c.id not in {v.id for v in candidates}],

@@ -6,8 +6,10 @@ from threading import BoundedSemaphore, Event
 from types import SimpleNamespace
 from uuid import uuid4
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.contrib.postgres.search import SearchVector
 from django.test import SimpleTestCase, override_settings
 
 import httpx
@@ -17,10 +19,15 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.models.organization import Organization
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.context_layer.backend.models import ContextSelectionAttempt
+from products.context_layer.backend.models import (
+    ContextSelectionAttempt,
+    ContextSelectionSearchDocument,
+    ContextSelectionSearchState,
+)
 from products.context_layer.backend.selection_execution import SelectionUnavailable, bounded_request
 from products.context_layer.backend.selection_export import selection_gaps
 from products.context_layer.backend.selection_model import (
@@ -32,8 +39,9 @@ from products.context_layer.backend.selection_model import (
     request_descriptor,
 )
 from products.context_layer.backend.selection_receipts import merge_receipt, validate_exposure
-from products.context_layer.backend.selection_search import render, retrieve
+from products.context_layer.backend.selection_search import render
 from products.context_layer.backend.selection_service import _select, prepare, selection_mode
+from products.context_layer.backend.selection_sources import refresh_projection, search_projection
 from products.context_layer.backend.selection_types import (
     MAX_CONTEXT_CHARS,
     Candidate,
@@ -42,6 +50,7 @@ from products.context_layer.backend.selection_types import (
     digest,
 )
 from products.context_layer.backend.selection_views import ContextSelectionViewSet, PrepareSerializer, ReceiptSerializer
+from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -59,16 +68,6 @@ def candidate(id: str, kind: SourceKind = "skill", **kwargs) -> Candidate:
 
 
 class TestSelectionSearch(SimpleTestCase):
-    def test_source_pools_do_not_crowd_out_metrics(self) -> None:
-        skills = [candidate(str(i)) for i in range(30)]
-        metric = candidate("metric", "metric")
-        result = retrieve("activation", [*skills, metric])
-        self.assertEqual(len(result), 19)
-        self.assertIn(metric, result)
-
-    def test_empty_query_does_not_select_arbitrary_sources(self) -> None:
-        self.assertEqual(retrieve("the and it", [candidate("1")]), [])
-
     def test_render_deduplicates_documents_and_enforces_budget(self) -> None:
         records = [candidate(str(i), "business_knowledge", document_id="same") for i in range(3)]
         result = render([(c, 0.9) for c in records])
@@ -111,6 +110,60 @@ class TestSelectionSearch(SimpleTestCase):
         self.assertEqual(selection_gaps(attempt), ["missing_turn_trace", "missing_usage"])
 
 
+class TestProjectionSearch(BaseTest):
+    def test_refresh_replaces_changed_search_content(self) -> None:
+        skill = LLMSkill.objects.create(team=self.team, name="guide", description="activation process", body="guide")
+        with team_scope(self.team.id):
+            first = refresh_projection(self.team.id)
+            _, matches = search_projection(self.team.id, "activation", {"skill"})
+            self.assertEqual([candidate.id for candidate in matches], [str(skill.id)])
+
+            skill.description = "retention process"
+            skill.save(update_fields=["description"])
+            second = refresh_projection(self.team.id)
+            _, old_matches = search_projection(self.team.id, "activation", {"skill"})
+            _, new_matches = search_projection(self.team.id, "retention", {"skill"})
+
+        self.assertNotEqual(first["version"], second["version"])
+        self.assertEqual(old_matches, [])
+        self.assertEqual([candidate.id for candidate in new_matches], [str(skill.id)])
+
+    def test_search_returns_only_matching_source_kinds(self) -> None:
+        with team_scope(self.team.id):
+            ContextSelectionSearchState.objects.create(
+                team=self.team,
+                version="v1",
+                archive_id=uuid4(),
+                built_at=self.team.created_at,
+                refresh_seconds=1,
+            )
+            ContextSelectionSearchDocument.objects.bulk_create(
+                [
+                    ContextSelectionSearchDocument(
+                        team=self.team,
+                        source_kind=kind,
+                        source_id=source_id,
+                        title=title,
+                        text="A user activates their account",
+                        revision="v1",
+                        status="source",
+                        reference="source",
+                    )
+                    for kind, source_id, title in (
+                        ("skill", "skill-1", "Activation procedure"),
+                        ("metric", "metric-1", "Activation rate"),
+                    )
+                ]
+            )
+            ContextSelectionSearchDocument.objects.update(
+                search_vector=SearchVector("title", weight="A", config="english")
+                + SearchVector("text", weight="B", config="english")
+            )
+            metadata, candidates = search_projection(self.team.id, "activation", {"metric"})
+        self.assertEqual(metadata["version"], "v1")
+        self.assertEqual([candidate.id for candidate in candidates], ["metric-1"])
+
+
 @override_settings(CONTEXT_SELECTION_ALLOWED_TEAM_IDS=[42], CONTEXT_SELECTION_TIMEOUT_SECONDS=3)
 class TestSelectionOrchestration(SimpleTestCase):
     def setUp(self) -> None:
@@ -148,9 +201,11 @@ class TestSelectionOrchestration(SimpleTestCase):
         self.assertEqual(selection_mode(self.task_run, self.actor), "disabled")
 
     @patch("products.context_layer.backend.selection_service.SelectionJudge")
-    @patch("products.context_layer.backend.selection_service.load_projection", return_value=None)
-    def test_cache_miss_does_not_call_model(self, projection, judge) -> None:
-        attempt = ContextSelectionAttempt(evidence={}, context="", status="preparing")
+    @patch("products.context_layer.backend.selection_service.ContextSelectionAttempt.save")
+    @patch("products.context_layer.backend.selection_service.search_projection", return_value=(None, []))
+    def test_unbuilt_search_index_omits_catalog(self, search, save, judge) -> None:
+        judge.return_value.judge.return_value = Judgment(probability=0.9, evidence={})
+        attempt = ContextSelectionAttempt(evidence={"calls": [], "omitted_sources": {}}, context="", status="preparing")
         _select(
             attempt,
             self.task_run,
@@ -159,23 +214,20 @@ class TestSelectionOrchestration(SimpleTestCase):
             {"llm_skill:read"},
             time.monotonic(),
         )
-        self.assertEqual(attempt.status, "cache_miss")
-        judge.assert_not_called()
+        self.assertEqual(attempt.status, "empty")
+        self.assertEqual(attempt.evidence["omitted_sources"]["projection"], "not_built")
+        self.assertEqual(judge.return_value.judge.call_count, 1)
 
     @patch("products.context_layer.backend.selection_service.SelectionJudge")
     @patch("products.context_layer.backend.selection_service.validate_candidates")
     @patch("products.context_layer.backend.selection_service.ContextSelectionAttempt.save")
-    @patch("products.context_layer.backend.selection_service.load_projection")
-    def test_revoked_source_is_dropped_after_scoring(self, projection, save, validate, judge) -> None:
+    @patch("products.context_layer.backend.selection_service.search_projection")
+    def test_revoked_source_is_dropped_after_scoring(self, search, save, validate, judge) -> None:
         record = candidate("1")
-        projection.return_value = {
-            "version": "v1",
-            "created_at": 1,
-            "capped_sources": [],
-            "archive_id": "archive",
-            "refresh_seconds": 0,
-            "records": [record.as_json()],
-        }
+        search.return_value = (
+            {"version": "v1", "created_at": 1, "capped_sources": [], "archive_id": "archive", "refresh_seconds": 0},
+            [record],
+        )
         validate.side_effect = [[record], []]
         judge.return_value.judge.return_value = Judgment(probability=0.9, evidence={"response": "test"})
         attempt = ContextSelectionAttempt(evidence={"calls": [], "omitted_sources": {}}, context="", status="preparing")

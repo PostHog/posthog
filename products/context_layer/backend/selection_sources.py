@@ -5,8 +5,9 @@ from datetime import timedelta
 from typing import cast
 from uuid import UUID
 
-from django.core.cache import cache
-from django.db.models import CharField, Exists, OuterRef
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
+from django.db import transaction
+from django.db.models import CharField, Exists, F, OuterRef
 from django.db.models.functions import Cast
 from django.utils import timezone
 
@@ -24,19 +25,17 @@ from products.business_knowledge.backend.logic import (
     get_chunks_by_ids,
     search_knowledge_for_team,
 )
-from products.context_layer.backend.models import ContextSelectionProjection
-from products.context_layer.backend.selection_types import Candidate, SourceKind, digest
+from products.context_layer.backend.models import (
+    ContextSelectionProjection,
+    ContextSelectionSearchDocument,
+    ContextSelectionSearchState,
+)
+from products.context_layer.backend.selection_search import tokens
+from products.context_layer.backend.selection_types import SOURCE_LIMITS, Candidate, SourceKind, digest
 from products.data_catalog.backend.facade import api as catalog
 from products.skills.backend.models.skills import LLMSkill
 
-PROJECTION_TTL = 600
-REFRESH_AFTER = 120
-MAX_RECORDS_PER_KIND = 2_000
 MAX_SOURCE_TEXT = 2_800
-
-
-def projection_key(team_id: int) -> str:
-    return f"context_selection:projection:v1:{team_id}"
 
 
 def make_record(kind: SourceKind, row: object) -> Candidate:
@@ -85,68 +84,125 @@ def make_record(kind: SourceKind, row: object) -> Candidate:
 def refresh_projection(team_id: int) -> dict:
     started = time.monotonic()
     team = Team.objects.get(id=team_id)
-    groups = {
-        "skill": LLMSkill.objects.filter(team=team, deleted=False, is_latest=True, category="").only(
-            "id", "name", "description", "version"
-        ),
-        "metric": catalog.metrics_for_team(team),
-        "certification": catalog.certifications_for_team(team).select_related("table", "saved_query"),
-        "relationship": catalog.relationships_for_team(team),
-    }
-    # Only project-shared source metadata belongs in an archive exported for this experiment.
-    restrictions = AccessControl.objects.filter(team=team)
-    if restrictions.filter(resource="llm_skill", resource_id__isnull=True).exists():
-        groups["skill"] = groups["skill"].none()
-    else:
-        groups["skill"] = (
-            groups["skill"]
-            .alias(
-                restricted=Exists(
-                    restrictions.filter(resource="llm_skill", resource_id=Cast(OuterRef("id"), CharField()))
-                )
-            )
-            .filter(restricted=False)
+    with transaction.atomic():
+        ContextSelectionSearchState.objects.get_or_create(
+            team=team,
+            defaults={"version": "", "archive_id": UUID(int=0), "built_at": timezone.now(), "refresh_seconds": 0},
         )
-    if restrictions.filter(
-        resource__in=["data_catalog", "warehouse_table", "external_data_source", "insight"]
-    ).exists():
-        for kind in ("metric", "certification", "relationship"):
-            groups[kind] = groups[kind].none()
-    records: list[dict] = []
-    capped = []
-    for kind, queryset in groups.items():
-        rows = list(queryset.order_by("id")[: MAX_RECORDS_PER_KIND + 1])
-        if len(rows) > MAX_RECORDS_PER_KIND:
-            capped.append(kind)
-        records.extend(make_record(cast(SourceKind, kind), row).as_json() for row in rows[:MAX_RECORDS_PER_KIND])
-    projection = {"version": digest(records), "created_at": time.time(), "records": records, "capped_sources": capped}
-    projection["refresh_seconds"] = time.monotonic() - started
-    archive, created = ContextSelectionProjection.objects.get_or_create(
-        team=team,
-        version=projection["version"],
-        defaults={"payload": projection, "expires_at": timezone.now() + timedelta(days=91)},
-    )
-    if not created:
-        ContextSelectionProjection.objects.filter(id=archive.id).update(expires_at=timezone.now() + timedelta(days=91))
-    projection["archive_id"] = str(archive.id)
-    cache.set(projection_key(team_id), projection, timeout=PROJECTION_TTL)
-    return projection
+        state = ContextSelectionSearchState.objects.select_for_update().get(team=team)
+        groups = {
+            "skill": LLMSkill.objects.filter(team=team, deleted=False, is_latest=True, category="").only(
+                "id", "name", "description", "version"
+            ),
+            "metric": catalog.metrics_for_team(team),
+            "certification": catalog.certifications_for_team(team).select_related("table", "saved_query"),
+            "relationship": catalog.relationships_for_team(team),
+        }
+        restrictions = AccessControl.objects.filter(team=team)
+        if restrictions.filter(resource="llm_skill", resource_id__isnull=True).exists():
+            groups["skill"] = groups["skill"].none()
+        else:
+            groups["skill"] = (
+                groups["skill"]
+                .alias(
+                    restricted=Exists(
+                        restrictions.filter(resource="llm_skill", resource_id=Cast(OuterRef("id"), CharField()))
+                    )
+                )
+                .filter(restricted=False)
+            )
+        if restrictions.filter(
+            resource__in=["data_catalog", "warehouse_table", "external_data_source", "insight"]
+        ).exists():
+            for kind in ("metric", "certification", "relationship"):
+                groups[kind] = groups[kind].none()
+        records: list[dict] = []
+        for kind, queryset in groups.items():
+            records.extend(make_record(cast(SourceKind, kind), row).as_json() for row in queryset.order_by("id"))
+        projection = {
+            "version": digest(records),
+            "created_at": time.time(),
+            "records": records,
+            "refresh_seconds": time.monotonic() - started,
+        }
+        archive, created = ContextSelectionProjection.objects.get_or_create(
+            team=team,
+            version=projection["version"],
+            defaults={"payload": projection, "expires_at": timezone.now() + timedelta(days=91)},
+        )
+        if not created:
+            ContextSelectionProjection.objects.filter(id=archive.id).update(
+                expires_at=timezone.now() + timedelta(days=91)
+            )
+        if state.version != projection["version"]:
+            ContextSelectionSearchDocument.objects.filter(team=team).delete()
+            ContextSelectionSearchDocument.objects.bulk_create(
+                [
+                    ContextSelectionSearchDocument(
+                        team=team,
+                        source_kind=record["kind"],
+                        source_id=record["id"],
+                        title=record["title"],
+                        text=record["text"],
+                        revision=record["revision"],
+                        status=record["status"],
+                        reference=record["reference"],
+                        tables=record["tables"],
+                    )
+                    for record in records
+                ],
+                batch_size=500,
+            )
+            ContextSelectionSearchDocument.objects.filter(team=team).update(
+                search_vector=SearchVector("title", weight="A", config="english")
+                + SearchVector("text", weight="B", config="english")
+            )
+        state.version = projection["version"]
+        state.archive_id = archive.id
+        state.built_at = timezone.now()
+        state.refresh_seconds = time.monotonic() - started
+        state.save(update_fields=["version", "archive_id", "built_at", "refresh_seconds"])
+        projection["archive_id"] = str(archive.id)
+        return projection
 
 
-def load_projection(team_id: int) -> dict | None:
-    projection = cache.get(projection_key(team_id))
-    if projection is None or time.time() - projection["created_at"] >= REFRESH_AFTER:
-        # Import only when dispatching to avoid the Celery task importing itself during discovery.
-        from products.context_layer.backend.tasks import refresh_context_selection_projection  # noqa: PLC0415
-
-        key = f"{projection_key(team_id)}:refresh"
-        if cache.add(key, True, timeout=60):
-            try:
-                refresh_context_selection_projection.delay(team_id)
-            except Exception:
-                cache.delete(key)
-                raise
-    return projection
+def search_projection(team_id: int, prompt: str, allowed_kinds: set[str]) -> tuple[dict | None, list[Candidate]]:
+    state = ContextSelectionSearchState.objects.filter(team_id=team_id).first()
+    if state is None:
+        return None, []
+    metadata = {
+        "version": state.version,
+        "created_at": state.built_at.timestamp(),
+        "archive_id": str(state.archive_id),
+        "refresh_seconds": state.refresh_seconds,
+    }
+    terms = tokens(prompt)[:60]
+    if not terms:
+        return metadata, []
+    query = SearchQuery(" | ".join(terms), config="english", search_type="raw")
+    candidates = []
+    for kind in ("skill", "metric", "certification", "relationship"):
+        if kind not in allowed_kinds:
+            continue
+        rows = (
+            ContextSelectionSearchDocument.objects.filter(team_id=team_id, source_kind=kind, search_vector=query)
+            .annotate(rank=SearchRank(F("search_vector"), query))
+            .order_by("-rank", "source_id")[: SOURCE_LIMITS[cast(SourceKind, kind)]]
+        )
+        candidates.extend(
+            Candidate(
+                id=row.source_id,
+                kind=cast(SourceKind, kind),
+                title=row.title,
+                text=row.text,
+                revision=row.revision,
+                status=row.status,
+                reference=row.reference,
+                tables=tuple(row.tables),
+            )
+            for row in rows
+        )
+    return metadata, candidates
 
 
 def validate_candidates(team: Team, user: User, candidates: list[Candidate]) -> list[Candidate]:
