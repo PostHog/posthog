@@ -37,7 +37,7 @@ export interface personalCodexIntegrationLogicValues {
     codexIntegrationLoadFailed: boolean
     codexIntegrationLoading: boolean
     connectError: string | null
-    connectModalOpen: boolean
+    connectModalOpener: string | null
     connecting: boolean
     loginPlatform: CodexLoginPlatform
 }
@@ -95,8 +95,8 @@ export interface personalCodexIntegrationLogicActions {
         codexIntegration: UserCodexIntegrationApi
         payload?: any
     }
-    openConnectModal: () => {
-        value: true
+    openConnectModal: (opener: string) => {
+        opener: string
     }
     pasteAuthFile: (authFileText: string) => {
         authFileText: string
@@ -124,7 +124,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
     path(['scenes', 'settings', 'user', 'personalCodexIntegrationLogic']),
 
     actions({
-        openConnectModal: true,
+        openConnectModal: (opener: string) => ({ opener }),
         closeConnectModal: true,
         setLoginPlatform: (loginPlatform: CodexLoginPlatform) => ({ loginPlatform }),
         commandCopied: true,
@@ -150,12 +150,12 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
     })),
 
     reducers({
-        connectModalOpen: [
-            false,
+        connectModalOpener: [
+            null as string | null,
             {
-                openConnectModal: () => true,
-                closeConnectModal: () => false,
-                connectCodexSuccess: () => false,
+                openConnectModal: (_, { opener }) => opener,
+                closeConnectModal: () => null,
+                connectCodexSuccess: () => null,
             },
         ],
         loginPlatform: [
@@ -199,8 +199,11 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
     }),
 
     listeners(({ actions, values }) => ({
-        openConnectModal: () => {
-            posthog.capture('personal integration connect clicked', { integration_kind: 'codex' })
+        openConnectModal: ({ opener }) => {
+            posthog.capture('personal integration connect clicked', {
+                integration_kind: 'codex',
+                surface: opener.split(':')[0],
+            })
         },
         commandCopied: () => {
             posthog.capture('codex connect command copied', { operating_system: values.loginPlatform })

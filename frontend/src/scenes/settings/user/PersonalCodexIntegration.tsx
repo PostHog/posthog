@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import { CodexIntegrationStatusEnumApi, type UserCodexIntegrationApi } from '~/generated/core/api.schemas'
 
-import { CodexConnectModal } from './CodexConnectModal'
+import { CodexConnectModal, SETTINGS_CODEX_CONNECT_OPENER } from './CodexConnectModal'
 import { personalCodexIntegrationLogic } from './personalCodexIntegrationLogic'
 
 function CodexAccountRow({ integration }: { integration: UserCodexIntegrationApi }): JSX.Element {
@@ -112,7 +112,7 @@ export function PersonalCodexIntegration(): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconPlus />}
-                            onClick={openConnectModal}
+                            onClick={() => openConnectModal(SETTINGS_CODEX_CONNECT_OPENER)}
                             disabledReason={connecting ? 'Connecting…' : undefined}
                             data-attr="codex-connect"
                         >
@@ -122,7 +122,7 @@ export function PersonalCodexIntegration(): JSX.Element {
                     </div>
                 ) : null}
             </div>
-            <CodexConnectModal />
+            <CodexConnectModal opener={SETTINGS_CODEX_CONNECT_OPENER} />
         </>
     )
 }

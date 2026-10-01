@@ -53,6 +53,7 @@ import type { PendingAttachment } from '../utils/attachments'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
+import { codexModelAccessForRun } from './codexBillingLogic'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
@@ -89,6 +90,8 @@ export interface RunInteractionLogicProps {
     currentMode?: string | null
     /** The harness the run booted on. Authoritative — a live run can't be moved to another one. */
     currentRuntimeAdapter?: string | null
+    /** Who pays for the run's Codex model use, from the run state. A live run keeps it. */
+    currentCodexModelAccess?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
@@ -1535,6 +1538,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
+                    const codexModelAccess = codexModelAccessForRun(
+                        getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
+                    )
                     const createRequest = buildRunCreateRequest(
                         values.catalogue,
                         values.selectedModel,
@@ -1543,6 +1549,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         {
                             resume_from_run_id: props.runId,
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                            ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
                         }
                     )
                     // The task already exists here, so staged artifacts hold the files whether this request

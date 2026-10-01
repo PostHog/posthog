@@ -15,8 +15,15 @@ const PLATFORM_HINTS = {
     windows: 'Run it in PowerShell.',
 }
 
-export function CodexConnectModal(): JSX.Element {
-    const { connectModalOpen, authFileText, connectError, connecting, loginPlatform } =
+export const SETTINGS_CODEX_CONNECT_OPENER = 'settings'
+
+export interface CodexConnectModalProps {
+    /** Several surfaces can show the dialog at once. Each opens only for the opener that asked for it. */
+    opener: string
+}
+
+export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Element {
+    const { connectModalOpener, authFileText, connectError, connecting, loginPlatform } =
         useValues(personalCodexIntegrationLogic)
     const { closeConnectModal, setLoginPlatform, commandCopied, pasteAuthFile, pasteFromClipboard, submitAuthFile } =
         useActions(personalCodexIntegrationLogic)
@@ -24,7 +31,7 @@ export function CodexConnectModal(): JSX.Element {
 
     return (
         <LemonModal
-            isOpen={connectModalOpen}
+            isOpen={connectModalOpener === opener}
             onClose={closeConnectModal}
             title="Connect Codex"
             description="Sign in to ChatGPT with a device code in your terminal. Then paste the sign-in here."
