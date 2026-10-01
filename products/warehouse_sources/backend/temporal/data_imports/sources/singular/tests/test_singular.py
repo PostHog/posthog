@@ -268,6 +268,19 @@ class TestDailyReport:
             assert str(raised.value).startswith(QUOTA_ERROR)
             assert vendor_message in str(raised.value)
 
+    def test_success_status_with_a_non_json_body_is_retryable(self, mock_session, _sleep):
+        page = _response()
+        page.json.side_effect = ValueError("not JSON")
+        mock_session.return_value.post.side_effect = None
+        mock_session.return_value.post.return_value = page
+
+        with pytest.raises(SingularRetryableError) as raised:
+            _report_batches(last_value="2026-06-30")
+
+        source = SingularSource()
+        assert error_message_matches(str(raised.value), source.get_retryable_errors())
+        assert not error_message_matches(str(raised.value), source.get_non_retryable_errors())
+
     def test_report_request_recovers_from_a_short_throttle(self, mock_session, _sleep):
         created = _wire(mock_session, create_responses=[_response(429, "Too many requests."), _response(500)])
 

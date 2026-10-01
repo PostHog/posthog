@@ -147,7 +147,14 @@ def _response_value(response: requests.Response) -> dict[str, Any]:
             f"source settings, or remove the ones it cannot view. Singular said: {_error_detail(response)}"
         )
 
-    value = response.json().get("value") if response.ok else None
+    value = None
+    if response.ok:
+        try:
+            body = response.json()
+        except ValueError:
+            # A proxy page with a success status is not Singular's answer, so the call is worth repeating.
+            raise SingularRetryableError(f"status={status} with a body that is not JSON") from None
+        value = body.get("value") if isinstance(body, dict) else None
     if not isinstance(value, dict):
         raise SingularNonRetryableError(
             f"{REQUEST_ERROR}. Check the dimensions, metrics, and cohort settings of this source. "
