@@ -3784,14 +3784,14 @@ Diffed against: <https://developers.gorgias.com/llms.txt>
 
 ## Grafana — gaps
 
-Today (8): `alert_rules`, `annotations`, `dashboards`, `datasources`, `folders`, `service_accounts`, `teams`, `users`
+Today (11): `alert_rules`, `annotations`, `dashboard_versions`, `dashboards`, `datasources`, `folders`, `orgs`, `service_accounts`, `team_members`, `teams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/grafana/grafana/main/public/openapi3.json>
 
-- [ ] `teams/{team_id}/members` — team membership join - we sync teams and users but nothing connecting them (high)
-- [ ] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high)
-- [ ] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
-- [ ] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
+- [x] `teams/{team_id}/members` — team membership join - we sync teams and users but nothing connecting them (high)
+- [x] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high) — already synced as `users` (`/api/org/users`); `orgs/{org_id}/users` only repeats it per org for server admins
+- [x] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
+- [x] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
 - [ ] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
 - [ ] `query-history` — records of explored queries, the usage-analytics table for Explore adoption (medium)
 - [ ] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium)

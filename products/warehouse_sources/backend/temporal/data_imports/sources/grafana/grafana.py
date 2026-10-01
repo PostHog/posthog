@@ -3,10 +3,10 @@ import json
 import time
 import base64
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import (
     ANNOTATIONS_LIMIT,
+    DASHBOARD_VERSIONS_PAGE_SIZE,
     DEFAULT_PAGE_SIZE,
     GRAFANA_ENDPOINTS,
     GrafanaEndpointConfig,
@@ -112,8 +113,12 @@ class GrafanaAuth:
 
 @dataclasses.dataclass
 class GrafanaResumeConfig:
-    # Next page to fetch for page-number endpoints. None for the other pagination styles.
+    # Next page to fetch for page-number endpoints (the parent page for fan-out endpoints). None
+    # for the other pagination styles.
     next_page: int | None = None
+    # Fan-out endpoints only: index within the `next_page` parent page of the next parent to fetch
+    # children for.
+    next_parent_index: int | None = None
     # Lower bound (epoch ms) of the next annotations window to fetch. Windows are processed in
     # ascending order, so everything before this boundary has already been yielded.
     annotations_from_ms: int | None = None
@@ -299,6 +304,22 @@ def _permission_error_from_response(response: requests.Response) -> str:
     return "Your Grafana credentials lack the permissions needed to access this data."
 
 
+@dataclasses.dataclass(frozen=False)
+class _WalkBudget:
+    """Request and wall-clock budget shared by a fan-out walk's parent and child requests."""
+
+    max_requests: int
+    deadline: float
+    requests: int = 0
+
+    def spend(self) -> None:
+        self.requests += 1
+
+    @property
+    def exhausted(self) -> bool:
+        return self.requests >= self.max_requests or time.monotonic() > self.deadline
+
+
 def _to_epoch_ms(value: Any) -> int:
     """Coerce an incremental cursor value into epoch milliseconds."""
     if isinstance(value, bool):
@@ -454,6 +475,9 @@ def get_endpoint_permissions(
         if config is None:
             results[endpoint] = None
             continue
+        if config.fan_out is not None:
+            # The child path needs a real parent id, and a child is unreachable without its parent.
+            config = GRAFANA_ENDPOINTS[config.fan_out.parent]
         url = f"{base_url}{config.path}?{urlencode(_probe_params(config))}"
         try:
             # stream=True so a hostile host can't buffer an unbounded probe body; only a 403's scope
@@ -588,6 +612,110 @@ def _get_annotation_rows(
             resumable_source_manager.save_state(GrafanaResumeConfig(annotations_from_ms=window_to))
 
 
+def _get_child_rows(
+    fetch: Any,
+    base_url: str,
+    config: GrafanaEndpointConfig,
+    parent_id: Any,
+    budget: _WalkBudget,
+    logger: FilteringBoundLogger,
+) -> Generator[list[dict[str, Any]], None, bool]:
+    """Yield one parent's child rows. Returns False when the budget cut the walk short."""
+    assert config.fan_out is not None
+    child_field = config.fan_out.child_field
+    url = f"{base_url}{config.path.format(parent_id=quote(str(parent_id), safe=''))}"
+    continue_token = ""
+    start = 0
+    while True:
+        if budget.exhausted:
+            return False
+        params: dict[str, Any] = {**config.params}
+        if config.pagination == "continue_token":
+            params["limit"] = DASHBOARD_VERSIONS_PAGE_SIZE
+            if continue_token:
+                params["continueToken"] = continue_token
+            elif start:
+                params["start"] = start
+        budget.spend()
+        try:
+            data = fetch(f"{url}?{urlencode(params)}" if params else url)
+        except requests.HTTPError as e:
+            # The parent was deleted between listing it and fetching its children.
+            if e.response is not None and e.response.status_code == 404:
+                logger.debug(f"Grafana: {config.name} parent {parent_id} not found, skipping")
+                return True
+            raise
+
+        if config.pagination != "continue_token":
+            items = _extract_items(data, config.data_key)
+            has_more = False
+        elif isinstance(data, list):
+            # Grafana releases before unified storage return a bare array and page by `start` offset.
+            items = _extract_items(data, None)
+            has_more = len(items) >= DASHBOARD_VERSIONS_PAGE_SIZE
+        else:
+            items = _extract_items(data, config.data_key)
+            continue_token = str(data.get("continueToken") or "") if isinstance(data, dict) else ""
+            has_more = bool(continue_token)
+
+        if items:
+            yield [{child_field: parent_id, **row} for row in items]
+        if not items or not has_more:
+            return True
+        start += len(items)
+
+
+def _get_fan_out_rows(
+    fetch: Any,
+    base_url: str,
+    config: GrafanaEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[GrafanaResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.fan_out is not None
+    fan_out = config.fan_out
+    parent = GRAFANA_ENDPOINTS[fan_out.parent]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page = resume.next_page if resume is not None and resume.next_page is not None else 1
+    start_index = resume.next_parent_index if resume is not None and resume.next_parent_index is not None else 0
+    if page > 1 or start_index > 0:
+        logger.debug(f"Grafana: resuming {config.name} from {fan_out.parent} page {page}, index {start_index}")
+
+    # Shared across parent and child requests: a host returning endless parent pages or child
+    # continue tokens would otherwise occupy this worker without end. The resume state saved
+    # after each parent lets the next sync continue from there.
+    budget = _WalkBudget(max_requests=MAX_PAGES_PER_RUN, deadline=time.monotonic() + MAX_WALK_SECONDS)
+    while not budget.exhausted:
+        params = {**parent.params, parent.page_size_param: DEFAULT_PAGE_SIZE, "page": page}
+        budget.spend()
+        parents = _extract_items(fetch(f"{base_url}{parent.path}?{urlencode(params)}"), parent.data_key)
+
+        cut_short = False
+        for index in range(start_index, len(parents)):
+            parent_id = parents[index].get(fan_out.parent_field)
+            if parent_id is not None:
+                completed = yield from _get_child_rows(fetch, base_url, config, parent_id, budget, logger)
+                if not completed:
+                    # Leave the cursor on this parent so the next sync re-fetches its children
+                    # (merge dedupes on the primary key) instead of skipping the rest.
+                    resumable_source_manager.save_state(GrafanaResumeConfig(next_page=page, next_parent_index=index))
+                    cut_short = True
+                    break
+            resumable_source_manager.save_state(GrafanaResumeConfig(next_page=page, next_parent_index=index + 1))
+            # Many parents have no children (an empty team), so rows can be far apart.
+            resumable_source_manager.safe_point()
+        if cut_short:
+            break
+        if len(parents) < DEFAULT_PAGE_SIZE:
+            return
+        page += 1
+        start_index = 0
+        resumable_source_manager.save_state(GrafanaResumeConfig(next_page=page, next_parent_index=0))
+
+    logger.warning(f"Grafana: {config.name} hit the per-run request or wall-clock budget; resuming on the next sync")
+
+
 def get_rows(
     host: str,
     auth: GrafanaAuth,
@@ -610,7 +738,9 @@ def get_rows(
     session = make_tracked_session(retry=NO_ADAPTER_RETRY, redact_values=_redact_values(auth))
     fetch = _make_fetch(session, headers, logger)
 
-    if config.pagination == "page":
+    if config.fan_out is not None:
+        yield from _get_fan_out_rows(fetch, base_url, config, resumable_source_manager, logger)
+    elif config.pagination == "page":
         yield from _get_paged_rows(fetch, base_url, config, resumable_source_manager, logger)
     elif config.pagination == "time_window":
         yield from _get_annotation_rows(
