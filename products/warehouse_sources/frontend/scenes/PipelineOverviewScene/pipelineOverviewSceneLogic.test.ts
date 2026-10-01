@@ -9,6 +9,7 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     dataWarehouseTotalRowsStatsRetrieve: jest.fn(),
     dataWarehouseDataHealthIssuesRetrieve: jest.fn(),
     dataWarehouseCompletedActivityRetrieve: jest.fn(),
+    dataWarehouseRunningActivityRetrieve: jest.fn(),
 }))
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
@@ -44,6 +45,7 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseTotalRowsStatsRetrieve.mockResolvedValue({ total_rows: 0 })
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({ results: [], count: 0 })
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
+        api.dataWarehouseRunningActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
         wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
         wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
         metrics.loadAppMetricsTimeSeries.mockResolvedValue({ labels: [], interval: 'day', timezone: 'UTC', series: [] })
@@ -136,20 +138,34 @@ describe('pipelineOverviewSceneLogic', () => {
             ],
         })
 
-        await expectLogic(logic, () => logic.actions.loadRecentFailures()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.loadRecentRuns()).toFinishAllListeners()
 
-        expect(logic.values.failedRuns.map((r: any) => r.id)).toEqual(['r2'])
+        expect(logic.values.recentRunRows.map((r: any) => r.id)).toEqual(['r2'])
     })
 
-    it('asks for failed runs, not completed ones', async () => {
-        // Without the outcome parameter this endpoint returns successes, so the failures section
-        // would quietly list runs that worked.
-        await expectLogic(logic, () => logic.actions.loadRecentFailures()).toFinishAllListeners()
+    it('asks for every finished run, plus the ones in flight', async () => {
+        // The section lists all runs now, not only failures, and a sync that started seconds ago
+        // has not finished — so it only appears if the running endpoint is asked too.
+        api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({
+            results: [{ id: 'done', type: 'Stripe', name: 'charges', status: 'Completed' }],
+            next: null,
+            previous: null,
+        })
+        api.dataWarehouseRunningActivityRetrieve.mockResolvedValue({
+            results: [{ id: 'live', type: 'Stripe', name: 'invoices', status: 'Running' }],
+            next: null,
+            previous: null,
+        })
+
+        await expectLogic(logic, () => logic.actions.loadRecentRuns()).toFinishAllListeners()
 
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalledWith(
             expect.anything(),
-            expect.objectContaining({ outcome: 'failed' })
+            expect.objectContaining({ outcome: 'all' })
         )
+        expect(api.dataWarehouseRunningActivityRetrieve).toHaveBeenCalled()
+        // Running first, so what is happening now is at the top of the table.
+        expect(logic.values.recentRunRows.map((r: any) => r.id)).toEqual(['live', 'done'])
     })
 
     it('leaves the billing-period row total alone when the window changes', async () => {
@@ -204,7 +220,10 @@ describe('pipelineOverviewSceneLogic', () => {
 
         const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
         expect(asked.map((r: any) => r.instanceId).sort()).toEqual(['dest-1', 'dest-2'])
-        expect(asked.every((r: any) => r.breakdownBy === undefined)).toBe(true)
+        // The query interpolates `breakdownBy` with no fallback, so omitting it emits
+        // `undefined AS breakdown` and the whole chart fails to load. This asserted the
+        // omission before, which is how that shipped.
+        expect(asked.every((r: any) => r.breakdownBy === 'instance_id')).toBe(true)
         // Both bounds go straight into `toDateTime(...)`, so a relative string or a missing
         // `dateTo` makes the query throw instead of returning rows.
         asked.forEach((r: any) => {
@@ -241,7 +260,7 @@ describe('pipelineOverviewSceneLogic', () => {
 
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalledWith(
             expect.anything(),
-            expect.objectContaining({ outcome: 'failed', kind: 'import' })
+            expect.objectContaining({ outcome: 'all', kind: 'import' })
         )
     })
 

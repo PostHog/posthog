@@ -39,10 +39,14 @@ class PipelineActivityQuerySerializer(serializers.Serializer):
 
 class CompletedActivityQuerySerializer(PipelineActivityQuerySerializer):
     outcome = serializers.ChoiceField(
-        choices=["completed", "failed"],
+        choices=["completed", "failed", "all"],
         required=False,
         default="completed",
-        help_text="Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.",
+        help_text=(
+            "Which outcome to return: 'completed', 'failed', or 'all' for every run that "
+            "finished either way. Defaults to 'completed'. Running jobs come from "
+            "`running_activity` instead."
+        ),
     )
     kind = serializers.ChoiceField(
         choices=["all", "import", "model"],
@@ -121,6 +125,11 @@ class PipelineActivityRowSerializer(serializers.Serializer):
     latest_error = serializers.CharField(allow_null=True, help_text="Error the run ended with, if any.")
     workflow_run_id = serializers.CharField(allow_null=True, help_text="Temporal run id, for finding the run's logs.")
     origin = serializers.CharField(allow_null=True, help_text="Where a materialized view came from. Null for syncs.")
+    source_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the source the run belongs to, for linking to it. Null for model runs.",
+    )
 
 
 class PipelineActivityResponseSerializer(serializers.Serializer):

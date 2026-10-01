@@ -175,6 +175,7 @@ FAILED_EXTERNAL_JOB_STATUSES = [
 # this is one parameter rather than a second near-copy of the union query.
 ACTIVITY_OUTCOME_COMPLETED = "completed"
 ACTIVITY_OUTCOME_FAILED = "failed"
+ACTIVITY_OUTCOME_ALL = "all"
 
 ACTIVITY_KIND_ALL = "all"
 ACTIVITY_KIND_IMPORT = "import"
@@ -189,6 +190,12 @@ ACTIVITY_OUTCOME_STATUSES: dict[str, tuple[list[str], list[str]]] = {
     ACTIVITY_OUTCOME_FAILED: (
         list(FAILED_EXTERNAL_JOB_STATUSES),
         [DataModelingJob.Status.FAILED],
+    ),
+    # Every run that finished, however it finished. Running jobs are not here; they come
+    # from `running_activity`.
+    ACTIVITY_OUTCOME_ALL: (
+        [ExternalDataJobStatus.COMPLETED, *FAILED_EXTERNAL_JOB_STATUSES],
+        [DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED],
     ),
 }
 
@@ -498,7 +505,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, eds.source_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -510,7 +517,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin as origin
+                               dwsq.origin as origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = 'Running' AND dmj.created_at >= %s
@@ -621,7 +628,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin
+                               null as origin, eds.source_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -633,7 +640,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
                                COALESCE(dmj.rows_materialized, 0) as rows, dmj.created_at,
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id,
-                               dwsq.origin
+                               dwsq.origin, null::uuid as source_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
                         WHERE dmj.team_id = %s AND dmj.status = ANY(%s) AND dmj.created_at >= %s
