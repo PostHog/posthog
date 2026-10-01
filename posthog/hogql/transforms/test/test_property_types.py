@@ -2236,7 +2236,7 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         # A row past 2262 overflows any later comparison against a 9-decimal bound, whatever the team.
         self.addCleanup(
             sync_execute,
-            f"ALTER TABLE {events_table} DELETE WHERE timestamp >= '2262-01-01' SETTINGS mutations_sync = 2",
+            f"ALTER TABLE {events_table} DELETE WHERE team_id = {self.team.pk} AND timestamp >= '2262-01-01' SETTINGS mutations_sync = 2",
         )
         for timestamp in (
             datetime(2024, 2, 29, 14, 30, 0),
