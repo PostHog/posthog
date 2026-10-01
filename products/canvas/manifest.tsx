@@ -14,7 +14,7 @@ export const manifest: ProductManifest = {
             name: 'Canvas',
             import: () => import('./frontend/scene/CanvasScene'),
             projectBased: true,
-            layout: 'app-full-scene-height',
+            layout: 'app-raw',
         },
     },
     routes: {

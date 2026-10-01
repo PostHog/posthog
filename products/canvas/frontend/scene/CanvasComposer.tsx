@@ -8,7 +8,7 @@ import {
     InputGroupTextarea,
     Item,
     ItemContent,
-    ItemGroup,
+    ItemDescription,
     ItemMedia,
     ItemTitle,
     Text,
@@ -29,9 +29,18 @@ export interface CanvasComposerProps {
     disabledReason: string | null
     /** Controls at the start of the composer's footer, such as the space picker. */
     footerStart?: JSX.Element
+    placeholder?: string
+    ariaLabel?: string
+    submitLabel?: string
+    rows?: number
+    /** Starter prompts below the box. A composer that continues a run leaves them out. */
+    showSuggestions?: boolean
+    autoFocus?: boolean
+    /** Prefix for the `-input` and `-submit` data-attr values. */
+    dataAttr?: string
 }
 
-/** Describe a canvas and send it to the agent that builds it, with starter prompts below. */
+/** Describe a canvas or a change to it and send it to the agent. Enter sends, Shift+Enter adds a line. */
 export function CanvasComposer({
     instruction,
     onInstructionChange,
@@ -39,6 +48,13 @@ export function CanvasComposer({
     submitting,
     disabledReason,
     footerStart,
+    placeholder = 'A chart of daily signups for the last 30 days, with the total at the top',
+    ariaLabel = 'Describe the canvas',
+    submitLabel = 'Build canvas',
+    rows = 4,
+    showSuggestions = true,
+    autoFocus = true,
+    dataAttr = 'canvas-generate',
 }: CanvasComposerProps): JSX.Element {
     // quill's textarea does not forward refs, so focus goes through its form.
     const formRef = useRef<HTMLFormElement>(null)
@@ -60,10 +76,10 @@ export function CanvasComposer({
             >
                 <InputGroup>
                     <InputGroupTextarea
-                        autoFocus
-                        aria-label="Describe the canvas"
-                        placeholder="A chart of daily signups for the last 30 days, with the total at the top"
-                        rows={4}
+                        autoFocus={autoFocus}
+                        aria-label={ariaLabel}
+                        placeholder={placeholder}
+                        rows={rows}
                         value={instruction}
                         disabled={submitting}
                         onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
@@ -75,7 +91,7 @@ export function CanvasComposer({
                                 submit()
                             }
                         }}
-                        data-attr="canvas-generate-input"
+                        data-attr={`${dataAttr}-input`}
                     />
                     <InputGroupAddon align="block-end" className="flex-wrap">
                         {footerStart}
@@ -88,53 +104,56 @@ export function CanvasComposer({
                                         variant="primary"
                                         size="icon-sm"
                                         className="ml-auto"
-                                        aria-label="Build canvas"
+                                        aria-label={submitLabel}
                                         loading={submitting}
                                         disabled={!!disabledReason}
-                                        data-attr="canvas-generate-submit"
+                                        data-attr={`${dataAttr}-submit`}
                                     />
                                 }
                             >
                                 <IconSend />
                             </TooltipTrigger>
-                            <TooltipContent>{disabledReason ?? 'Build canvas'}</TooltipContent>
+                            <TooltipContent>{disabledReason ?? submitLabel}</TooltipContent>
                         </Tooltip>
                     </InputGroupAddon>
                 </InputGroup>
             </form>
-            <section aria-labelledby="canvas-suggestions-label" className="flex flex-col gap-2">
-                <Text id="canvas-suggestions-label" size="xs" variant="muted" weight="medium" render={<h2 />}>
-                    Start from an example
-                </Text>
-                <ItemGroup combined>
-                    {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
-                        <Item
-                            key={suggestion.label}
-                            variant="outline"
-                            size="xs"
-                            className="text-left hover:bg-fill-button-tertiary-hover"
-                            render={
-                                <button
-                                    type="button"
-                                    disabled={submitting}
-                                    onClick={() => {
-                                        onInstructionChange(suggestion.prompt, true)
-                                        focusComposer()
-                                    }}
-                                    data-attr="canvas-generate-suggestion"
-                                />
-                            }
-                        >
-                            <ItemMedia aria-hidden>
-                                <suggestion.icon />
-                            </ItemMedia>
-                            <ItemContent className="min-w-0">
-                                <ItemTitle className="truncate">{suggestion.label}</ItemTitle>
-                            </ItemContent>
-                        </Item>
-                    ))}
-                </ItemGroup>
-            </section>
+            {showSuggestions && (
+                <section aria-labelledby="canvas-suggestions-label" className="@container flex flex-col gap-2">
+                    <Text id="canvas-suggestions-label" size="xs" variant="muted" weight="medium" render={<h2 />}>
+                        Suggestions
+                    </Text>
+                    <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2">
+                        {CANVAS_GENERATE_SUGGESTIONS.map((suggestion) => (
+                            <Item
+                                key={suggestion.label}
+                                variant="outline"
+                                size="sm"
+                                className="flex-nowrap bg-card text-left hover:bg-fill-hover"
+                                render={
+                                    <button
+                                        type="button"
+                                        disabled={submitting}
+                                        onClick={() => {
+                                            onInstructionChange(suggestion.prompt, true)
+                                            focusComposer()
+                                        }}
+                                        data-attr="canvas-generate-suggestion"
+                                    />
+                                }
+                            >
+                                <ItemMedia aria-hidden>
+                                    <suggestion.icon />
+                                </ItemMedia>
+                                <ItemContent className="min-w-0">
+                                    <ItemTitle className="truncate">{suggestion.label}</ItemTitle>
+                                    <ItemDescription className="truncate">{suggestion.description}</ItemDescription>
+                                </ItemContent>
+                            </Item>
+                        ))}
+                    </div>
+                </section>
+            )}
         </div>
     )
 }

@@ -1160,7 +1160,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
         responses={200: CanvasDraftSerializer(many=True)},
         request=None,
     )
-    @action(methods=["GET"], detail=True)
+    # The response is a bare list capped at VERSIONS_WINDOW, so the schema must not describe a page.
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def drafts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The canvas's staged draft versions, newest first, each with its latest build status.
 

@@ -63,5 +63,27 @@ describe('canvasSceneLogic', () => {
         releaseTaskRequest()
         await expectLogic(logic).toDispatchActions(['generationFinished'])
         expect(logic.values.bodyState).toEqual('empty')
+        // The side panel and the composer say why, rather than only a toast that disappears.
+        expect(logic.values.generationError).toEqual('Agent-started task runs are not available for this project')
+    })
+
+    it('stops generating when the agent turn ends while the cloud run stays open', async () => {
+        const logic = canvasSceneLogic({ id: CANVAS_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadViewSuccess'])
+        logic.actions.canvasUpdated({ ...logic.values.canvas!, generation_task_id: 'task-1' })
+        logic.actions.loadGenerationTaskSuccess({
+            id: 'task-1',
+            title: 'Daily signups',
+            latest_run: { id: 'run-1', status: 'in_progress' },
+        })
+        expect(logic.values.isGenerating).toBe(true)
+
+        logic.actions.setAgentTurn('run-1', false)
+        expect(logic.values.isGenerating).toBe(false)
+        expect(logic.values.generationPhase).toBeNull()
+
+        logic.actions.setAgentTurn('run-1', true)
+        expect(logic.values.isGenerating).toBe(true)
     })
 })

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { CanvasApi, CanvasViewResponseApi } from '../generated/api.schemas'
+import type { CanvasApi, CanvasBuildApi, CanvasVersionApi, CanvasViewResponseApi } from '../generated/api.schemas'
 
 const CANVAS_ID = '0190aaaa-0000-7000-8000-000000000001'
 const SPACE_ID = '0190aaaa-0000-7000-8000-0000000000aa'
@@ -43,20 +43,62 @@ function viewResponse(overrides: Partial<CanvasApi> = {}): CanvasViewResponseApi
     }
 }
 
+const versions: CanvasVersionApi[] = [
+    {
+        id: 'version-2',
+        parent_version_id: 'version-1',
+        prompt: 'Split the chart by plan',
+        task_id: TASK_ID,
+        draft: false,
+        created_by: canvas.created_by,
+        created_at: '2026-01-02T00:00:00Z',
+    },
+    {
+        id: 'version-1',
+        parent_version_id: null,
+        prompt: 'A chart of weekly active users',
+        task_id: TASK_ID,
+        draft: false,
+        created_by: canvas.created_by,
+        created_at: '2026-01-01T00:00:00Z',
+    },
+]
+
+const liveBuild: CanvasBuildApi = {
+    id: 'build-2',
+    source_version_id: 'version-2',
+    build_status: 'ready',
+    diagnostics: [],
+    integrity: null,
+    artifact_url: 'about:blank',
+    pinned: false,
+    created_at: '2026-01-02T00:00:00Z',
+    finished_at: '2026-01-02T00:01:00Z',
+}
+
 function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
+    const built = !!view.published_build
     return mswDecorator({
         get: {
             '/api/projects/:team_id/canvases/:id/view/': view,
             '/api/projects/:team_id/canvases/:id/builds/': {
-                published_build_id: null,
-                current_version_id: null,
-                builds: [],
+                published_build_id: view.published_build?.id ?? null,
+                current_version_id: view.current_version_id,
+                builds: built ? [liveBuild] : [],
             },
             '/api/projects/:team_id/task_channels/:id/': { id: SPACE_ID, name: 'me', system_role: 'personal' },
+            '/api/projects/:team_id/canvases/:id/versions/': {
+                count: built ? versions.length : 0,
+                next: null,
+                previous: null,
+                results: built ? versions : [],
+            },
+            '/api/projects/:team_id/canvases/:id/drafts/': [],
+            '/api/projects/:team_id/comments/': { next: null, previous: null, results: [] },
             '/api/projects/:team_id/tasks/:id/': {
                 id: TASK_ID,
                 title: 'Weekly active users',
-                latest_run: { status: 'in_progress' },
+                latest_run: { id: 'run-1', status: built ? 'completed' : 'in_progress' },
             },
         },
     })
@@ -90,6 +132,26 @@ export const Generating: Story = {
         },
     },
     decorators: [mocks(viewResponse({ name: 'Weekly active users', generation_task_id: TASK_ID }))],
+}
+
+export const Built: Story = {
+    decorators: [
+        mocks({
+            ...viewResponse({
+                name: 'Weekly active users',
+                generation_task_id: TASK_ID,
+                current_version_id: 'version-2',
+                published_build_id: liveBuild.id,
+            }),
+            published_build: liveBuild,
+            current_version_id: 'version-2',
+        }),
+    ],
+}
+
+export const BuiltWithTimeline: Story = {
+    ...Built,
+    parameters: { pageUrl: `${urls.canvasDetail(CANVAS_ID)}#panel=canvas-timeline` },
 }
 
 export const NewCanvas: Story = {

@@ -1,9 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
+import { translateCanvasTextSelection } from '../sidePanel/comments/canvasCommentThreads'
 import { assertCanvasCapability } from './canvasCapabilities'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
-import { CANVAS_CHANNEL, CanvasTheme, HostToCanvasMessage, canvasToHostMessageSchema } from './canvasProtocol'
+import {
+    CANVAS_CHANNEL,
+    CanvasCommentHighlight,
+    CanvasTheme,
+    HostToCanvasMessage,
+    canvasToHostMessageSchema,
+} from './canvasProtocol'
 
 export interface BuiltCanvasProps extends CanvasHostCallbacks {
     /** The signed URL of the build's entry HTML, on the artifact origin. */
@@ -13,6 +20,10 @@ export interface BuiltCanvasProps extends CanvasHostCallbacks {
     theme: CanvasTheme
     hasUserActivation: () => boolean
     onOpenExternal: (url: string) => void
+    /** Comment anchors to draw in the frame. */
+    commentHighlights: CanvasCommentHighlight[]
+    /** Bumped to clear the viewer's text selection in the frame, for example after they comment on it. */
+    clearTextSelectionKey: number
 }
 
 /** The artifact URL with the theme in its fragment, which never reaches the server. */
@@ -34,6 +45,8 @@ export function BuiltCanvas({
     theme,
     hasUserActivation,
     onOpenExternal,
+    commentHighlights,
+    clearTextSelectionKey,
     ...callbacks
 }: BuiltCanvasProps): JSX.Element {
     const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -42,8 +55,8 @@ export function BuiltCanvas({
     // port, so a theme toggle does not reload the artifact.
     const initialTheme = useRef(theme).current
     const src = useMemo(() => themedArtifactUrl(artifactUrl, initialTheme), [artifactUrl, initialTheme])
-    const latest = useRef({ capabilities, callbacks, theme, onOpenExternal, hasUserActivation })
-    latest.current = { capabilities, callbacks, theme, onOpenExternal, hasUserActivation }
+    const latest = useRef({ capabilities, callbacks, theme, onOpenExternal, hasUserActivation, commentHighlights })
+    latest.current = { capabilities, callbacks, theme, onOpenExternal, hasUserActivation, commentHighlights }
 
     useLayoutEffect(() => {
         const iframe = iframeRef.current
@@ -58,6 +71,10 @@ export function BuiltCanvas({
                     assertCanvasCapability(latest.current.capabilities, method, payload)
                     return latest.current.callbacks.onDataRequest(method, payload)
                 },
+                onTextSelection: (selection) =>
+                    latest.current.callbacks.onTextSelection?.(
+                        translateCanvasTextSelection(selection, iframe?.getBoundingClientRect() ?? null)
+                    ),
             }),
             hasUserActivation: () => latest.current.hasUserActivation(),
             openExternal: (url) => latest.current.onOpenExternal(url),
@@ -87,6 +104,11 @@ export function BuiltCanvas({
             // nosemgrep: wildcard-postmessage-configuration -- Opaque sandbox origin; only the first load gets a port, which closes on navigation.
             iframe?.contentWindow?.postMessage({ channel: CANVAS_CHANNEL, type: 'connect' }, '*', [bridge.port2])
             post({ channel: CANVAS_CHANNEL, type: 'set-theme', theme: latest.current.theme })
+            post({
+                channel: CANVAS_CHANNEL,
+                type: 'set-comment-highlights',
+                highlights: latest.current.commentHighlights,
+            })
         }
         iframe?.addEventListener('load', onLoad)
         return () => {
@@ -98,6 +120,20 @@ export function BuiltCanvas({
     useEffect(() => {
         portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'set-theme', theme })
     }, [theme])
+
+    useEffect(() => {
+        portRef.current?.postMessage({
+            channel: CANVAS_CHANNEL,
+            type: 'set-comment-highlights',
+            highlights: commentHighlights,
+        })
+    }, [commentHighlights])
+
+    useEffect(() => {
+        if (clearTextSelectionKey > 0) {
+            portRef.current?.postMessage({ channel: CANVAS_CHANNEL, type: 'clear-text-selection' })
+        }
+    }, [clearTextSelectionKey])
 
     return (
         <iframe

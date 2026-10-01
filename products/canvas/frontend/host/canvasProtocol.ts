@@ -109,6 +109,15 @@ const canvasTextSelectionSchema = z
         }),
     })
     .refine(({ start, end }) => end > start)
+/** A selection the canvas reported, in the frame's own coordinates. */
+export type CanvasTextSelection = z.infer<typeof canvasTextSelectionSchema>
+
+/** A text range the host asks the canvas to highlight for a comment thread. */
+export interface CanvasCommentHighlight {
+    id: string
+    active: boolean
+    anchor: { kind: 'text'; quote: string; prefix: string; suffix: string; start: number; end: number }
+}
 
 const channel = z.literal(CANVAS_CHANNEL)
 
@@ -157,10 +166,10 @@ export type HostToCanvasMessage =
           files: Record<string, string>
           entry: string
           theme?: CanvasTheme
-          highlights?: unknown[]
+          highlights?: CanvasCommentHighlight[]
       }
     | { channel: typeof CANVAS_CHANNEL; type: 'set-theme'; theme: CanvasTheme }
-    | { channel: typeof CANVAS_CHANNEL; type: 'set-comment-highlights'; highlights: unknown[] }
+    | { channel: typeof CANVAS_CHANNEL; type: 'set-comment-highlights'; highlights: CanvasCommentHighlight[] }
     | { channel: typeof CANVAS_CHANNEL; type: 'clear-text-selection' }
     | {
           channel: typeof CANVAS_CHANNEL

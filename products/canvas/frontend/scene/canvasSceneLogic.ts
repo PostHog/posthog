@@ -4,6 +4,7 @@ import {
     afterMount,
     beforeUnmount,
     connect,
+    getContext,
     kea,
     key,
     listeners,
@@ -22,26 +23,42 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { todayViewsLogic } from '~/layout/today/todayViewsLogic'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, SidePanelTab } from '~/types'
 
-import { CANVAS_EVENTS } from '../canvasAnalytics'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
+
+import { CANVAS_EVENTS, CanvasSurface, captureCanvasAction } from '../canvasAnalytics'
 import {
     CanvasGenerationTask,
     CanvasSpace,
     canvasSpaceLabel,
+    isStartingRunStatus,
     isTerminalRunStatus,
     loadCanvasGenerationTask,
     loadCanvasSpace,
 } from '../canvasTasksApi'
-import { canvasesBuildsRetrieve, canvasesPartialUpdate, canvasesViewRetrieve } from '../generated/api'
+import {
+    canvasesBuildActionCreate,
+    canvasesBuildsRetrieve,
+    canvasesPartialUpdate,
+    canvasesRequestFixCreate,
+    canvasesViewRetrieve,
+} from '../generated/api'
 import type {
     CanvasApi,
+    CanvasSourceProjectApi,
+    CanvasBuildActionActionEnumApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasFixRequestResultApi,
     CanvasViewResponseApi,
 } from '../generated/api.schemas'
 import { CanvasStartHandoff, canvasNewLogic } from '../newCanvas/canvasNewLogic'
+import { canvasPanelTab } from '../sidePanel/canvasPanelTabs'
+import { canvasSidePanelLogic } from '../sidePanel/canvasSidePanelLogic'
 import { startCanvasGeneration } from '../startCanvasGeneration'
 import { deleteCanvasWithUndo } from './deleteCanvasWithUndo'
 
@@ -66,6 +83,41 @@ export type CanvasBodyState =
     | 'draft-unavailable'
 
 export type CanvasBuildStatus = 'none' | 'building' | 'failed' | 'live'
+
+/** Where a generation run is: its task exists but the agent has not begun, or the agent is working. */
+export type CanvasGenerationPhase = 'starting' | 'running'
+
+/** What a canvas frame renders: a build when one is ready, else single-file source in the draft sandbox. */
+export interface CanvasRenderSource {
+    /** The source version the running code came from. */
+    sourceVersionId: string | null
+    build: CanvasBuildApi | null
+    draftSource: CanvasSourceProjectApi | null
+}
+
+/** Whether the agent is working a turn of a run, as its session stream last said. */
+export interface CanvasAgentTurn {
+    runId: string
+    /** Null while the stream cannot tell, so the run status decides. */
+    active: boolean | null
+}
+
+/** Tabs the canvas scene does not show. Support and exports still open over the canvas tabs when asked for. */
+function replacedByCanvasTabs(tab: SidePanelTab): boolean {
+    return !canvasPanelTab(tab) && tab !== SidePanelTab.Support && tab !== SidePanelTab.Exports
+}
+
+/** A cloud run stays open after the agent's turn, so its stream, not its status, says when the agent stops. */
+function readAgentTurn(stream: ReturnType<typeof runStreamLogic.build>): boolean | null {
+    const { historyComplete, sseStatus, isThinking } = stream.values
+    return historyComplete && sseStatus !== 'error' ? isThinking : null
+}
+
+export interface CanvasFixRequest {
+    buildId: string
+    /** The runtime error's class name. Omitted for a failed build, whose diagnostics the server reads. */
+    errorType?: string
+}
 
 export function canvasBuildStatus(
     builds: CanvasBuildsResponseApi | null,
@@ -93,14 +145,22 @@ export function canvasBuildStatus(
 export interface canvasSceneLogicValues {
     startHandoff: CanvasStartHandoff | null // canvasNewLogic
     currentProjectId: number | null // projectLogic
+    selectedTab: SidePanelTab | null // sidePanelStateLogic
+    sidePanelOpen: boolean // sidePanelStateLogic
+    agentTurn: CanvasAgentTurn | null
     bodyState: CanvasBodyState
     breadcrumbs: Breadcrumb[]
+    buildActionPending: boolean
     buildStatus: CanvasBuildStatus
     builds: CanvasBuildsResponseApi | null
     buildsLoading: boolean
     busy: boolean
     canvas: CanvasApi | null
     draftCode: string | null
+    fixRequestPending: boolean
+    fixTaskId: string | null
+    generationError: string | null
+    generationPhase: CanvasGenerationPhase | null
     generationStarting: boolean
     generationTask: CanvasGenerationTask | null
     generationTaskLoading: boolean
@@ -108,9 +168,12 @@ export interface canvasSceneLogicValues {
     instructionFromSuggestion: boolean
     isGenerating: boolean
     liveBuild: CanvasBuildApi | null
+    liveRenderSource: CanvasRenderSource
+    runtimeError: string | null
     sandboxDocumentUrl: string | null
     shouldPoll: boolean
-    sidePanelOpen: boolean
+    sidePanelAvailable: boolean
+    sidePanelContext: SidePanelSceneContext
     space: CanvasSpace | null
     spaceLoading: boolean
     view: CanvasViewResponseApi | null
@@ -124,6 +187,13 @@ export interface canvasSceneLogicActions {
     clearStartHandoff: () => {
         value: true
     } // canvasNewLogic
+    openTab: (
+        tab: import('../sidePanel/canvasPanelTabs').CanvasPanelTab,
+        canvasId: string
+    ) => {
+        canvasId: string
+        tab: import('../sidePanel/canvasPanelTabs').CanvasPanelTab
+    } // canvasSidePanelLogic
     setOpenCanvasBuilding: (
         canvasId: string,
         building: boolean | null
@@ -131,6 +201,16 @@ export interface canvasSceneLogicActions {
         building: boolean | null
         canvasId: string
     } // todayViewsLogic
+    buildAction: (
+        action: CanvasBuildActionActionEnumApi,
+        buildId: string
+    ) => {
+        action: CanvasBuildActionActionEnumApi
+        buildId: string
+    }
+    buildActionFinished: () => {
+        value: true
+    }
     canvasUpdated: (canvas: CanvasApi) => {
         canvas: CanvasApi
     }
@@ -142,10 +222,15 @@ export interface canvasSceneLogicActions {
     }
     generateCanvas: (
         instruction: string,
-        fromSuggestion: boolean
+        fromSuggestion: boolean,
+        surface?: CanvasSurface
     ) => {
         fromSuggestion: boolean
         instruction: string
+        surface: CanvasSurface
+    }
+    generationFailed: (message: string) => {
+        message: string
     }
     generationFinished: () => {
         value: true
@@ -222,6 +307,19 @@ export interface canvasSceneLogicActions {
     reportBusy: () => {
         value: true
     }
+    requestFix: (request: CanvasFixRequest) => {
+        request: CanvasFixRequest
+    }
+    requestFixFinished: (result: CanvasFixRequestResultApi | null) => {
+        result: CanvasFixRequestResultApi | null
+    }
+    setAgentTurn: (
+        runId: string,
+        active: boolean | null
+    ) => {
+        active: boolean | null
+        runId: string
+    }
     setInstruction: (
         instruction: string,
         fromSuggestion: boolean
@@ -229,13 +327,19 @@ export interface canvasSceneLogicActions {
         fromSuggestion: boolean
         instruction: string
     }
-    setSidePanelOpen: (open: boolean) => {
-        open: boolean
+    setRuntimeError: (message: string | null) => {
+        message: string | null
     }
     startPolling: () => {
         value: true
     }
     stopPolling: () => {
+        value: true
+    }
+    syncGenerationStream: () => {
+        value: true
+    }
+    syncSidePanel: () => {
         value: true
     }
 }
@@ -249,11 +353,13 @@ export interface canvasSceneLogicMeta {
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
         draftCode: (view: CanvasViewResponseApi | null) => string | null
+        liveRenderSource: (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null) => CanvasRenderSource
         buildStatus: (builds: CanvasBuildsResponseApi | null, view: CanvasViewResponseApi | null) => CanvasBuildStatus
         isGenerating: (
             view: CanvasViewResponseApi | null,
             generationTask: CanvasGenerationTask | null,
-            generationTaskLoading: boolean
+            generationTaskLoading: boolean,
+            agentTurn: CanvasAgentTurn | null
         ) => boolean
         bodyState: (
             view: CanvasViewResponseApi | null,
@@ -265,6 +371,13 @@ export interface canvasSceneLogicMeta {
             sandboxDocumentUrl: string | null,
             isGenerating: boolean
         ) => CanvasBodyState
+        generationPhase: (
+            isGenerating: boolean,
+            generationTask: CanvasGenerationTask | null,
+            view: CanvasViewResponseApi | null
+        ) => CanvasGenerationPhase | null
+        sidePanelAvailable: (bodyState: CanvasBodyState) => boolean
+        sidePanelContext: (arg: string) => SidePanelSceneContext
         shouldPoll: (
             view: CanvasViewResponseApi | null,
             isGenerating: boolean,
@@ -287,9 +400,23 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
     path((key) => ['products', 'canvas', 'frontend', 'scene', 'canvasSceneLogic', key]),
     connect(() => ({
         // The start page hands over a prompt whose canvas exists but whose build did not start.
-        values: [projectLogic, ['currentProjectId'], canvasNewLogic, ['startHandoff']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            canvasNewLogic,
+            ['startHandoff'],
+            sidePanelStateLogic,
+            ['selectedTab', 'sidePanelOpen'],
+        ],
         // Connecting keeps the Views sidebar's logic mounted, so it knows this canvas's state when it opens.
-        actions: [canvasNewLogic, ['clearStartHandoff'], todayViewsLogic, ['setOpenCanvasBuilding']],
+        actions: [
+            canvasNewLogic,
+            ['clearStartHandoff'],
+            canvasSidePanelLogic,
+            ['openTab'],
+            todayViewsLogic,
+            ['setOpenCanvasBuilding'],
+        ],
     })),
     actions({
         renameCanvas: (name: string) => ({ name }),
@@ -297,15 +424,33 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         copyLink: true,
         deleteCanvas: true,
         setInstruction: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
-        generateCanvas: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
+        generateCanvas: (
+            instruction: string,
+            fromSuggestion: boolean,
+            surface: CanvasSurface = 'web_canvas_scene'
+        ) => ({
+            instruction,
+            fromSuggestion,
+            surface,
+        }),
         generationStarted: true,
         /** Tells the Views sidebar whether this canvas is busy, when that changed. */
         reportBusy: true,
         generationFinished: true,
-        setSidePanelOpen: (open: boolean) => ({ open }),
+        generationFailed: (message: string) => ({ message }),
+        setRuntimeError: (message: string | null) => ({ message }),
+        buildAction: (action: CanvasBuildActionActionEnumApi, buildId: string) => ({ action, buildId }),
+        buildActionFinished: true,
+        requestFix: (request: CanvasFixRequest) => ({ request }),
+        requestFixFinished: (result: CanvasFixRequestResultApi | null) => ({ result }),
         startPolling: true,
         stopPolling: true,
         poll: true,
+        setAgentTurn: (runId: string, active: boolean | null) => ({ runId, active }),
+        /** Follows the agent's turn on the run writing the canvas, through that run's session stream. */
+        syncGenerationStream: true,
+        /** Shows the canvas tabs in the app side panel where the canvas needs them. */
+        syncSidePanel: true,
     }),
     loaders(({ props, values }) => ({
         view: [
@@ -388,11 +533,48 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 generationFinished: () => false,
             },
         ],
-        // The right-hand panel (chat, timeline, versions) mounts into this slot.
-        sidePanelOpen: [
+        // Why the last run didn't start, kept on screen so the side panel can say so.
+        generationError: [
+            null as string | null,
+            {
+                generateCanvas: () => null,
+                generationFailed: (_, { message }) => message,
+                requestFix: () => null,
+            },
+        ],
+        // The last error the rendered canvas threw. Cleared when it renders again.
+        runtimeError: [
+            null as string | null,
+            {
+                setRuntimeError: (_, { message }) => message,
+                loadViewSuccess: (state, { view }) => (view ? state : null),
+            },
+        ],
+        buildActionPending: [
             false,
             {
-                setSidePanelOpen: (_, { open }) => open,
+                buildAction: () => true,
+                buildActionFinished: () => false,
+            },
+        ],
+        fixRequestPending: [
+            false,
+            {
+                requestFix: () => true,
+                requestFixFinished: () => false,
+            },
+        ],
+        agentTurn: [
+            null as CanvasAgentTurn | null,
+            {
+                setAgentTurn: (_, { runId, active }) => ({ runId, active }),
+            },
+        ],
+        // The run a fix request routed to. The chat panel follows it until the canvas record catches up.
+        fixTaskId: [
+            null as string | null,
+            {
+                requestFixFinished: (state, { result }) => result?.task_id ?? state,
             },
         ],
     }),
@@ -419,6 +601,14 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             (s) => [s.view],
             (view: CanvasViewResponseApi | null): string | null => view?.source?.files[CANVAS_COMPONENT_PATH] ?? null,
         ],
+        liveRenderSource: [
+            (s) => [s.liveBuild, s.view],
+            (liveBuild: CanvasBuildApi | null, view: CanvasViewResponseApi | null): CanvasRenderSource => ({
+                sourceVersionId: liveBuild ? liveBuild.source_version_id : (view?.current_version_id ?? null),
+                build: liveBuild,
+                draftSource: view?.source ?? null,
+            }),
+        ],
         buildStatus: [
             (s) => [s.builds, s.view],
             (builds: CanvasBuildsResponseApi | null, view: CanvasViewResponseApi | null): CanvasBuildStatus =>
@@ -427,8 +617,13 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         isGenerating: [
             // A run that is still starting is not generating yet: the composer stays up, so a
             // failed start keeps what the person typed.
-            (s) => [s.view, s.generationTask, s.generationTaskLoading],
-            (view: CanvasViewResponseApi | null, task: CanvasGenerationTask | null, taskLoading: boolean): boolean => {
+            (s) => [s.view, s.generationTask, s.generationTaskLoading, s.agentTurn],
+            (
+                view: CanvasViewResponseApi | null,
+                task: CanvasGenerationTask | null,
+                taskLoading: boolean,
+                agentTurn: CanvasAgentTurn | null
+            ): boolean => {
                 const taskId = view?.canvas.generation_task_id
                 if (!taskId) {
                     return false
@@ -437,7 +632,14 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 if (!task || task.id !== taskId) {
                     return taskLoading || !task
                 }
-                return !!task.latest_run && !isTerminalRunStatus(task.latest_run.status)
+                const run = task.latest_run
+                if (!run || isTerminalRunStatus(run.status)) {
+                    return false
+                }
+                if (isStartingRunStatus(run.status) || agentTurn?.runId !== run.id || agentTurn.active === null) {
+                    return true
+                }
+                return agentTurn.active
             },
         ],
         bodyState: [
@@ -482,6 +684,29 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 return 'empty'
             },
         ],
+        generationPhase: [
+            (s) => [s.isGenerating, s.generationTask, s.view],
+            (
+                isGenerating: boolean,
+                task: CanvasGenerationTask | null,
+                view: CanvasViewResponseApi | null
+            ): CanvasGenerationPhase | null => {
+                if (!isGenerating) {
+                    return null
+                }
+                const run = task && task.id === view?.canvas.generation_task_id ? task.latest_run : null
+                return !run || isStartingRunStatus(run.status) ? 'starting' : 'running'
+            },
+        ],
+        // The panel has nothing to add to a canvas that has not loaded, or to an empty one whose composer fills the body.
+        sidePanelAvailable: [
+            (s) => [s.bodyState],
+            (bodyState: CanvasBodyState): boolean => !['loading', 'error', 'missing', 'empty'].includes(bodyState),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props: CanvasSceneLogicProps) => props.id],
+            (canvasId: string): SidePanelSceneContext => ({ canvas_id: canvasId }),
+        ],
         shouldPoll: [
             (s) => [s.view, s.isGenerating, s.buildStatus],
             (view: CanvasViewResponseApi | null, isGenerating: boolean, buildStatus: CanvasBuildStatus): boolean =>
@@ -504,7 +729,6 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.setOpenCanvasBuilding(props.id, values.busy)
             }
         },
-        canvasUpdated: () => actions.reportBusy(),
         loadViewSuccess: ({ view }) => {
             actions.reportBusy()
             if (!view) {
@@ -528,6 +752,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             if (values.shouldPoll) {
                 actions.startPolling()
             }
+            actions.syncGenerationStream()
+            actions.syncSidePanel()
         },
         loadGenerationTaskSuccess: () => {
             actions.reportBusy()
@@ -535,6 +761,78 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 actions.startPolling()
             } else {
                 actions.stopPolling()
+            }
+            actions.syncGenerationStream()
+            actions.syncSidePanel()
+        },
+        canvasUpdated: () => {
+            actions.syncGenerationStream()
+            actions.reportBusy()
+        },
+        setAgentTurn: () => {
+            actions.reportBusy()
+            // A follow-up on the same run reopens the turn, so polling follows the turn both ways.
+            if (values.shouldPoll) {
+                actions.startPolling()
+            } else {
+                actions.stopPolling()
+            }
+        },
+        syncGenerationStream: () => {
+            const taskId = values.view?.canvas.generation_task_id ?? null
+            const task = values.generationTask
+            const run = task && task.id === taskId ? task.latest_run : null
+            const runId = run && !isStartingRunStatus(run.status) && !isTerminalRunStatus(run.status) ? run.id : null
+            if (runId === (cache.generationStreamRunId ?? null)) {
+                return
+            }
+            cache.generationStreamRunId = runId
+            if (!taskId || !runId) {
+                cache.disposables.dispose('generationStream')
+                return
+            }
+            cache.disposables.add(() => {
+                // The chat tab's live thread uses the same stream, so the run connects once.
+                const stream = runStreamLogic({ streamKey: runId })
+                const unmount = stream.mount()
+                if (stream.values.bootstrappedRunId !== runId) {
+                    stream.actions.bootstrapRun({ taskId, runId })
+                }
+                let reported: boolean | null | undefined
+                const report = (): void => {
+                    const active = readAgentTurn(stream)
+                    if (active !== reported) {
+                        reported = active
+                        actions.setAgentTurn(runId, active)
+                    }
+                }
+                const unsubscribe = getContext().store.subscribe(report)
+                report()
+                return () => {
+                    unsubscribe()
+                    unmount()
+                }
+            }, 'generationStream')
+        },
+        [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab }) => {
+            // The canvas tabs replace the general ones, so the context panel button and shortcut open the chat.
+            if (replacedByCanvasTabs(tab)) {
+                actions.openTab('chat', props.id)
+            }
+        },
+        syncSidePanel: () => {
+            // A general tab left open from another page has nothing to show here, so the panel moves to the chat.
+            if (values.sidePanelOpen && values.selectedTab && replacedByCanvasTabs(values.selectedTab)) {
+                actions.openTab('chat', props.id)
+                return
+            }
+            if (values.sidePanelOpen) {
+                return
+            }
+            // While the agent writes a canvas with nothing to show yet, its chat is the only content. It opens once per visit.
+            if (values.bodyState === 'generating' && !cache.generatingPanelOpened) {
+                cache.generatingPanelOpened = true
+                actions.openTab('chat', props.id)
             }
         },
         loadBuildsSuccess: ({ builds }) => {
@@ -610,7 +908,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             })
             router.actions.push(urls.taskSpace(canvas.channel))
         },
-        generateCanvas: async ({ instruction, fromSuggestion }) => {
+        generateCanvas: async ({ instruction, fromSuggestion, surface }) => {
             const canvas = values.canvas
             if (!values.currentProjectId || !canvas || !instruction.trim()) {
                 actions.generationFinished()
@@ -623,19 +921,88 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                     spaceName: values.space?.name ?? null,
                     instruction,
                     fromSuggestion,
-                    surface: 'web_canvas_scene',
+                    surface,
                 })
                 actions.canvasUpdated(started.canvas)
                 actions.loadGenerationTaskSuccess(started.task)
                 actions.generationStarted()
                 actions.startPolling()
+                actions.openTab('chat', canvas.id)
+            } catch (error) {
+                const message = error instanceof Error ? error.message : 'Try again in a moment.'
+                actions.generationFailed(message)
+                toast.error({ title: "Couldn't start building the canvas", description: message })
+            } finally {
+                actions.generationFinished()
+            }
+        },
+        buildAction: async ({ action, buildId }) => {
+            const canvas = values.canvas
+            if (!values.currentProjectId || !canvas) {
+                actions.buildActionFinished()
+                return
+            }
+            let success = false
+            try {
+                await canvasesBuildActionCreate(String(values.currentProjectId), canvas.id, {
+                    action,
+                    build_id: buildId,
+                })
+                success = true
+                actions.loadBuilds()
+                if (action === 'retry') {
+                    actions.startPolling()
+                }
             } catch (error) {
                 toast.error({
-                    title: "Couldn't start building the canvas",
+                    title: "Couldn't update the build",
                     description: error instanceof Error ? error.message : 'Try again in a moment.',
                 })
             } finally {
-                actions.generationFinished()
+                captureCanvasAction(`build_${action}`, { dashboard_id: canvas.id, channel_id: canvas.channel, success })
+                actions.buildActionFinished()
+            }
+        },
+        requestFix: async ({ request }) => {
+            const canvas = values.canvas
+            if (!values.currentProjectId || !canvas) {
+                actions.requestFixFinished(null)
+                return
+            }
+            const origin = request.errorType ? 'runtime' : 'build'
+            try {
+                const result = await canvasesRequestFixCreate(String(values.currentProjectId), canvas.id, {
+                    build_id: request.buildId,
+                    ...(request.errorType ? { error_type: request.errorType } : {}),
+                })
+                captureCanvasAction('fix_request', {
+                    dashboard_id: canvas.id,
+                    channel_id: canvas.channel,
+                    origin,
+                    outcome: result.dispatch_outcome,
+                    success: true,
+                })
+                toast.success({
+                    title:
+                        result.dispatch_outcome === 'signaled'
+                            ? 'Sent the fix request to the running agent.'
+                            : result.dispatch_outcome === 'already_queued'
+                              ? 'A fix run is already starting.'
+                              : 'The agent is working on a fix. It stages the fix as a draft for you to review.',
+                })
+                actions.requestFixFinished(result)
+                actions.openTab('chat', canvas.id)
+                actions.loadView()
+            } catch (error) {
+                captureCanvasAction('fix_request', {
+                    dashboard_id: canvas.id,
+                    channel_id: canvas.channel,
+                    origin,
+                    success: false,
+                })
+                const message = error instanceof Error ? error.message : 'Try again in a moment.'
+                toast.error({ title: "Couldn't ask the agent to fix this", description: message })
+                actions.requestFixFinished(null)
             }
         },
     })),
@@ -647,6 +1014,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         }
         actions.loadView()
         actions.loadBuilds()
+        actions.syncSidePanel()
     }),
     beforeUnmount(({ actions, props }) => {
         actions.setOpenCanvasBuilding(props.id, null)
