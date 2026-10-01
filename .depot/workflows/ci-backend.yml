@@ -213,6 +213,9 @@ env:
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
     OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
     UV_HTTP_TIMEOUT: 120
+    # A 4 GiB thread stack cache avoids the uv exit segfault (code 139) on glibc before 2.43.
+    # Remove when uv ships the fix: https://github.com/astral-sh/uv/issues/21428
+    GLIBC_TUNABLES: glibc.pthread.stack_cache_size=0x100000000
     # tests would intermittently fail in GH actions
     # with exit code 134 _after passing_ all tests
     # this appears to fix it
