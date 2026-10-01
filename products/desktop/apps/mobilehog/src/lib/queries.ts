@@ -1,5 +1,5 @@
 import type { GatewayModel } from "@posthog/shared";
-import type { Task, TaskRun } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   useInfiniteQuery,
   useMutation,
@@ -12,7 +12,6 @@ import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
-import { ciRefetchInterval } from "@/lib/review";
 
 const TERMINAL: ReadonlySet<string> = new Set([
   "completed",
@@ -26,9 +25,6 @@ export const keys = {
   models: ["models"] as const,
   repository: ["repository"] as const,
   repositories: ["repositories"] as const,
-  // Outside "tasks" so large patches never reach the offline cache.
-  review: (id: string) => ["review", id] as const,
-  run: (taskId: string, runId: string) => ["run", taskId, runId] as const,
 };
 
 const PAGE_SIZE = 50;
@@ -113,38 +109,6 @@ export function useTask(taskId: string) {
     enabled: !!session && !!taskId,
     refetchInterval: (query) => {
       const status = (query.state.data as Task | undefined)?.latest_run?.status;
-      return status && !TERMINAL.has(status) ? 5000 : false;
-    },
-  });
-}
-
-// The task's pull request with its changed files, 30 files per page.
-export function useTaskReview(taskId: string) {
-  const session = useAuth((s) => s.session);
-  return useInfiniteQuery({
-    queryKey: keys.review(taskId),
-    initialPageParam: 1,
-    queryFn: ({ pageParam }) => getClient().getTaskReview(taskId, pageParam),
-    getNextPageParam: (page, _pages, pageParam) =>
-      page.has_more ? pageParam + 1 : undefined,
-    enabled: !!session && !!taskId,
-    refetchInterval: (query) => ciRefetchInterval(query.state.data?.pages[0]),
-  });
-}
-
-// One run with its own output, without the PR the task response copies in.
-export function useTaskRun(
-  taskId: string | undefined,
-  runId: string | undefined,
-  enabled = true,
-) {
-  const session = useAuth((s) => s.session);
-  return useQuery({
-    queryKey: keys.run(taskId ?? "", runId ?? ""),
-    queryFn: () => getClient().getTaskRun(taskId ?? "", runId ?? ""),
-    enabled: !!session && !!taskId && !!runId && enabled,
-    refetchInterval: (query) => {
-      const status = (query.state.data as TaskRun | undefined)?.status;
       return status && !TERMINAL.has(status) ? 5000 : false;
     },
   });
