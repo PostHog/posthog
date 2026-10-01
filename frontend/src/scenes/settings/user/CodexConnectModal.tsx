@@ -1,24 +1,33 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { platformCommandControlKey } from 'lib/utils/dom'
 
+import { CODEX_LOGIN_PLATFORM_OPTIONS, codexLoginCommand } from './codexLoginCommands'
 import { personalCodexIntegrationLogic } from './personalCodexIntegrationLogic'
 
-const LOGIN_COMMAND = 'mkdir -p ~/.codex-posthog && CODEX_HOME=~/.codex-posthog codex login --device-auth'
-const COPY_COMMAND = 'cat ~/.codex-posthog/auth.json'
+const PLATFORM_HINTS = {
+    macos: 'Run it in Terminal.',
+    linux: 'Run it in a terminal. It needs wl-clipboard, xclip, or xsel to copy to the clipboard.',
+    windows: 'Run it in PowerShell.',
+}
 
 export function CodexConnectModal(): JSX.Element {
-    const { connectModalOpen, authFileText, connectError, connecting } = useValues(personalCodexIntegrationLogic)
-    const { closeConnectModal, setAuthFileText, submitAuthFile } = useActions(personalCodexIntegrationLogic)
+    const { connectModalOpen, authFileText, connectError, connecting, loginPlatform } =
+        useValues(personalCodexIntegrationLogic)
+    const { closeConnectModal, setLoginPlatform, commandCopied, pasteAuthFile, pasteFromClipboard, submitAuthFile } =
+        useActions(personalCodexIntegrationLogic)
+    const pasted = authFileText.length > 0
 
     return (
         <LemonModal
             isOpen={connectModalOpen}
             onClose={closeConnectModal}
             title="Connect Codex"
-            description="Sign in to Codex with a device code on your computer. Then paste the sign-in file here."
+            description="Sign in to ChatGPT with a device code in your terminal. Then paste the sign-in here."
             width={560}
             footer={
                 <>
@@ -33,7 +42,7 @@ export function CodexConnectModal(): JSX.Element {
                         type="primary"
                         onClick={submitAuthFile}
                         loading={connecting}
-                        disabledReason={!authFileText.trim() ? 'Paste the contents of auth.json first' : undefined}
+                        disabledReason={!pasted ? 'Paste the sign-in first' : undefined}
                         data-attr="codex-connect-submit"
                     >
                         Connect
@@ -43,41 +52,69 @@ export function CodexConnectModal(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                    <h4 className="mb-0">1. Sign in with a device code</h4>
-                    <CodeSnippet language={Language.Bash} compact wrap thing="command">
-                        {LOGIN_COMMAND}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h4 className="mb-0">1. Run this command</h4>
+                        <LemonSegmentedButton
+                            size="small"
+                            value={loginPlatform}
+                            onChange={setLoginPlatform}
+                            options={CODEX_LOGIN_PLATFORM_OPTIONS}
+                            data-attr="codex-login-platform"
+                        />
+                    </div>
+                    <CodeSnippet
+                        language={loginPlatform === 'windows' ? Language.Text : Language.Bash}
+                        compact
+                        wrap
+                        thing="command"
+                        onCopy={commandCopied}
+                    >
+                        {codexLoginCommand(loginPlatform)}
                     </CodeSnippet>
+                    <p className="mb-0 text-xs text-secondary">
+                        {PLATFORM_HINTS[loginPlatform]} Open the link that it shows, sign in, and enter the one-time
+                        code. The command copies your sign-in to the clipboard and deletes its temporary folder, so
+                        nothing stays on your computer.
+                    </p>
                     <p className="mb-0 text-xs text-secondary">
                         Turn on device code login in your ChatGPT security settings first. In a ChatGPT workspace, an
                         admin turns it on in the workspace permissions.
                     </p>
-                    <p className="mb-0 text-xs text-secondary">
-                        Open the link that the command shows, sign in, and enter the one-time code. The command uses a
-                        separate folder, so your local Codex sign-in keeps working.
-                    </p>
                 </div>
                 <div className="flex flex-col gap-2">
-                    <h4 className="mb-0">2. Copy the sign-in file</h4>
-                    <CodeSnippet language={Language.Bash} compact wrap thing="command">
-                        {COPY_COMMAND}
-                    </CodeSnippet>
-                </div>
-                <div className="flex flex-col gap-2">
-                    <h4 className="mb-0">3. Paste the file here</h4>
-                    <LemonTextArea
-                        value={authFileText}
-                        onChange={setAuthFileText}
-                        placeholder='{ "tokens": { … } }'
-                        minRows={4}
-                        maxRows={8}
-                        className="font-mono text-xs"
-                        data-attr="codex-auth-file-input"
-                    />
+                    <h4 className="mb-0">2. Paste the sign-in</h4>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LemonInput
+                            className="min-w-48 flex-1"
+                            value=""
+                            onChange={() => undefined}
+                            onPaste={(event) => {
+                                event.preventDefault()
+                                pasteAuthFile(event.clipboardData.getData('text'))
+                            }}
+                            placeholder={
+                                pasted ? 'Sign-in received' : `Click here and press ${platformCommandControlKey('V')}`
+                            }
+                            suffix={pasted ? <IconCheck className="text-success" /> : undefined}
+                            autoComplete="off"
+                            spellCheck={false}
+                            disabled={connecting}
+                            data-attr="codex-auth-file-input"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            onClick={pasteFromClipboard}
+                            disabledReason={connecting ? 'Connecting…' : undefined}
+                            data-attr="codex-paste-from-clipboard"
+                        >
+                            Paste from clipboard
+                        </LemonButton>
+                    </div>
                 </div>
                 {connectError ? <LemonBanner type="error">{connectError}</LemonBanner> : null}
                 <LemonBanner type="info">
-                    This file gives access to your ChatGPT account. PostHog stores it encrypted and uses it only for
-                    your Codex cloud tasks. You can disconnect at any time.
+                    PostHog never shows your sign-in and clears your clipboard after you paste. It stores the sign-in
+                    encrypted and uses it only for your Codex cloud tasks. You can disconnect at any time.
                 </LemonBanner>
             </div>
         </LemonModal>

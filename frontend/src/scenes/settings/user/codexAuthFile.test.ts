@@ -24,7 +24,7 @@ describe('parseCodexAuthFile', () => {
     })
 
     it.each([
-        ['text that is not JSON', 'codex login', 'not valid JSON'],
+        ['text that is not JSON', 'codex login', 'does not hold a Codex sign-in'],
         ['an API key login', JSON.stringify({ OPENAI_API_KEY: 'sk-fake', tokens: null }), 'not with an API key'],
         ['a JSON array', '[]', 'not with an API key'],
         ['a file without a refresh token', JSON.stringify({ tokens: { access_token: 'fake' } }), 'missing its tokens'],
