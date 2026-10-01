@@ -86,8 +86,8 @@ const ReadOnlyVariantsStep = ({ flag }: { flag: FeatureFlagType }): JSX.Element 
 }
 
 export function VariantsStep(): JSX.Element {
-    const { experiment, linkedFeatureFlag } = useValues(experimentWizardLogic)
-    const { setFeatureFlagConfig } = useActions(experimentWizardLogic)
+    const { experiment, linkedFeatureFlag, persistQuestionError } = useValues(experimentWizardLogic)
+    const { setFeatureFlagConfig, markPersistQuestionShown } = useActions(experimentWizardLogic)
 
     return (
         <div className="space-y-6">
@@ -101,6 +101,8 @@ export function VariantsStep(): JSX.Element {
                     experiment={experiment}
                     onChange={setFeatureFlagConfig}
                     layout="vertical"
+                    persistQuestionError={persistQuestionError}
+                    onPersistQuestionShown={markPersistQuestionShown}
                 />
             )}
         </div>

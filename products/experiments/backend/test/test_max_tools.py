@@ -167,6 +167,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "experiment_id": ANY,
             "experiment_name": "Tracked Experiment",
             "feature_flag_key": "tracked-experiment-flag",
+            "persist_across_authentication": False,
             "type": "product",
             "status": "draft",
             "metrics_count": 0,

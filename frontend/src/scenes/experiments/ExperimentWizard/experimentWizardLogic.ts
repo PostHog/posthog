@@ -1,8 +1,9 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
-import type { Experiment, FeatureFlagType } from '~/types'
+import type { Experiment, FeatureFlagType, TeamType } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { selectExistingFeatureFlagModalLogic } from 'products/experiments/frontend/modals/SelectExistingFeatureFlagModal/selectExistingFeatureFlagModalLogic'
@@ -13,6 +14,7 @@ import type {
     ExperimentMetricUnion,
 } from '../../../queries/schema/schema-general'
 import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types'
+import type { TeamPublicType } from '../../../types'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
@@ -24,6 +26,8 @@ const SHOW_GUIDE_STORAGE_KEY = 'experiment-wizard-show-guide'
 const SHOW_GUIDE_DEFAULT = true
 
 const WIZARD_STEPS: ExperimentWizardStep[] = ['about', 'variants', 'analytics']
+
+export const PERSIST_QUESTION_ERROR = 'Choose whether people see this experiment before and after they log in'
 
 export function stepStorageKey(): string {
     return 'experiment-wizard-step'
@@ -62,6 +66,7 @@ export interface experimentWizardLogicValues {
         primary: ExperimentMetric[]
         secondary: ExperimentMetric[]
     } // createExperimentLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentStep: ExperimentWizardStep
     currentStepHasErrors: boolean
     departedSteps: Record<string, boolean>
@@ -70,6 +75,8 @@ export interface experimentWizardLogicValues {
     isFirstStep: boolean
     isLastStep: boolean
     linkedFeatureFlag: FeatureFlagType | null
+    persistQuestionError: string | undefined
+    persistQuestionShown: boolean
     showGuide: boolean
     stepNumber: number
     stepValidationErrors: Record<ExperimentWizardStep, string[]>
@@ -153,6 +160,9 @@ export interface experimentWizardLogicActions {
     _applyStep: (step: ExperimentWizardStep) => {
         step: ExperimentWizardStep
     }
+    markPersistQuestionShown: () => {
+        value: true
+    }
     markStepDeparted: (step: ExperimentWizardStep) => {
         step: ExperimentWizardStep
     }
@@ -183,13 +193,23 @@ export interface experimentWizardLogicMeta {
         stepNumber: (currentStep: ExperimentWizardStep) => number
         isLastStep: (currentStep: ExperimentWizardStep) => boolean
         isFirstStep: (currentStep: ExperimentWizardStep) => boolean
+        persistQuestionError: (
+            persistQuestionShown: boolean,
+            linkedFeatureFlag: FeatureFlagType | null,
+            experiment: Experiment & {
+                feature_flag_filters?: FeatureFlagFilters
+            },
+            currentTeam: TeamPublicType | TeamType | null,
+            departedSteps: Record<string, boolean>
+        ) => string | undefined
         stepValidationErrors: (
             experiment: Experiment & {
                 feature_flag_filters?: FeatureFlagFilters
             },
             featureFlagKeyValidation: FeatureFlagKeyValidation | null,
             linkedFeatureFlag: FeatureFlagType | null,
-            departedSteps: Record<string, boolean>
+            departedSteps: Record<string, boolean>,
+            persistQuestionError: string | undefined
         ) => Record<ExperimentWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<ExperimentWizardStep, string[]>,
@@ -224,6 +244,8 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 'featureFlagKeyValidationLoading',
                 'createReplayVisionScanner',
             ],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             createExperimentLogic(),
@@ -258,6 +280,7 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
         resetWizard: true,
         toggleGuide: true,
         setLinkedFeatureFlag: (flag: FeatureFlagType | null) => ({ flag }),
+        markPersistQuestionShown: true,
     }),
 
     reducers(() => ({
@@ -301,6 +324,14 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                 saveExperimentSuccess: () => null,
             },
         ],
+        persistQuestionShown: [
+            false,
+            {
+                markPersistQuestionShown: () => true,
+                resetWizard: () => false,
+                saveExperimentSuccess: () => false,
+            },
+        ],
         departedSteps: [
             {} as Record<string, boolean>,
             {
@@ -321,13 +352,37 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
             (s) => [s.currentStep],
             (currentStep: ExperimentWizardStep): boolean => currentStep === WIZARD_STEPS[0],
         ],
+        persistQuestionError: [
+            (s) => [s.persistQuestionShown, s.linkedFeatureFlag, s.experiment, s.currentTeam, s.departedSteps],
+            (
+                persistQuestionShown: boolean,
+                linkedFeatureFlag: FeatureFlagType | null,
+                experiment: Experiment,
+                currentTeam: TeamPublicType | TeamType | null,
+                departedSteps: Record<string, boolean>
+            ): string | undefined => {
+                const answered =
+                    experiment.feature_flag_config?.ensure_experience_continuity != null ||
+                    !!currentTeam?.flags_persistence_default
+                return persistQuestionShown && !linkedFeatureFlag && !answered && departedSteps.variants
+                    ? PERSIST_QUESTION_ERROR
+                    : undefined
+            },
+        ],
         stepValidationErrors: [
-            (s) => [s.experiment, s.featureFlagKeyValidation, s.linkedFeatureFlag, s.departedSteps],
+            (s) => [
+                s.experiment,
+                s.featureFlagKeyValidation,
+                s.linkedFeatureFlag,
+                s.departedSteps,
+                s.persistQuestionError,
+            ],
             (
                 experiment: Experiment,
                 featureFlagKeyValidation: FeatureFlagKeyValidation | null,
                 linkedFeatureFlag: FeatureFlagType | null,
-                departedSteps: Record<string, boolean>
+                departedSteps: Record<string, boolean>,
+                persistQuestionError: string | undefined
             ): Record<ExperimentWizardStep, string[]> => {
                 const errors: Record<ExperimentWizardStep, string[]> = {
                     about: [],
@@ -373,6 +428,10 @@ export const experimentWizardLogic = kea<experimentWizardLogicType>([
                     if (variants.length >= 2 && totalRollout !== 100) {
                         errors.variants.push('Variant percentages must sum to 100%')
                     }
+                }
+
+                if (persistQuestionError) {
+                    errors.variants.push(persistQuestionError)
                 }
 
                 return errors

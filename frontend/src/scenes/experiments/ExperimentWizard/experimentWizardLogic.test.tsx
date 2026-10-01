@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -8,6 +8,7 @@ import { BindLogic } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -18,7 +19,7 @@ import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { experimentsLogic } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { variantsPanelLogic } from '../ExperimentForm/variantsPanelLogic'
-import { experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
+import { PERSIST_QUESTION_ERROR, experimentWizardLogic, stepStorageKey } from './experimentWizardLogic'
 import { AboutStep } from './steps/AboutStep'
 import { AnalyticsStep } from './steps/AnalyticsStep'
 import { VariantsStep } from './steps/VariantsStep'
@@ -612,6 +613,34 @@ describe('experimentWizardLogic', () => {
                     about: ['A feature flag with this key already exists.'],
                 }),
             })
+        })
+
+        it('requires an answer to the persist question once it was shown and the step was left', async () => {
+            logic.actions.markPersistQuestionShown()
+            expect(logic.values.stepValidationErrors.variants).toEqual([])
+
+            logic.actions.markStepDeparted('variants')
+            await expectLogic(logic).toMatchValues({
+                stepValidationErrors: partial({ variants: [PERSIST_QUESTION_ERROR] }),
+                hasFormErrors: true,
+            })
+
+            createLogic.actions.setFeatureFlagConfig({ ensure_experience_continuity: false })
+            await expectLogic(logic).toMatchValues({ stepValidationErrors: partial({ variants: [] }) })
+        })
+
+        it('needs no persist answer when the question was never shown', async () => {
+            logic.actions.markStepDeparted('variants')
+
+            await expectLogic(logic).toMatchValues({ stepValidationErrors: partial({ variants: [] }) })
+        })
+
+        it("needs no persist answer when the team's persistence default is on, as Yes is already selected", async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flags_persistence_default: true })
+            logic.actions.markPersistQuestionShown()
+            logic.actions.markStepDeparted('variants')
+
+            await expectLogic(logic).toMatchValues({ stepValidationErrors: partial({ variants: [] }) })
         })
 
         it('saveExperiment marks all steps as departed, revealing all errors', async () => {
