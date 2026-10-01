@@ -173,10 +173,10 @@ export interface spaceSceneLogicActions {
         errorObject?: any
     }
     loadCanvasesSuccess: (
-        canvases: CanvasApi[] | null,
+        canvases: CanvasApi[],
         payload?: any
     ) => {
-        canvases: CanvasApi[] | null
+        canvases: CanvasApi[]
         payload?: any
     }
     loadMembers: () => any
