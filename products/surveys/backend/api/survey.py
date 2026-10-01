@@ -1198,6 +1198,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         data["conditions"] = get_survey_conditions_with_actions(instance)
         return data
 

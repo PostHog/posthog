@@ -4398,7 +4398,15 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "onerror" not in response.json()["questions"][0]["description"]
 
-    def test_read_replaces_the_legacy_appearance_position(self) -> None:
+    @parameterized.expand(
+        [
+            ("read", "get", {}),
+            ("update", "patch", {"data": {"name": "Renamed survey"}, "format": "json"}),
+        ]
+    )
+    def test_the_api_replaces_the_legacy_appearance_position(
+        self, _name: str, method: str, request_kwargs: dict[str, Any]
+    ) -> None:
         survey = Survey.objects.create(
             team=self.team,
             created_by=self.user,
@@ -4408,7 +4416,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             appearance={"position": "bottom-right"},
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/surveys/{survey.id}/", **request_kwargs)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         appearance = response.json()["appearance"]
