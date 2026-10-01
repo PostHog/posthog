@@ -3,6 +3,7 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 import collections.abc
 from zoneinfo import ZoneInfo
@@ -58,12 +59,27 @@ LOGGER = get_write_only_logger(__name__)
 # we proceed with the backfill without a record-count estimate.
 BACKFILL_INFO_QUERY_TIMEOUT_SECONDS = 300
 
+# A backfill that has not started a run yet fails after this many attempts, so that
+# it does not stay in Running without an error. After the first run starts, retries
+# have no limit, because worker restarts can interrupt long backfills many times.
+BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS = 20
+
+# A backfill fails if no worker starts the backfill_schedule activity within this time.
+BACKFILL_SCHEDULE_TO_START_TIMEOUT = dt.timedelta(hours=1)
+
 
 class TemporalScheduleNotFoundError(Exception):
     """Exception raised when a Temporal Schedule is not found."""
 
     def __init__(self, schedule_id: str):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
+
+
+class BackfillScheduleNoProgressError(Exception):
+    """Exception raised when a backfill cannot start its first run after many attempts."""
+
+    def __init__(self, attempts: int, error: Exception):
+        super().__init__(f"The backfill failed to start a batch export run after {attempts} attempts: {error}")
 
 
 class HeartbeatDetailsParseError(Exception):
@@ -638,6 +654,22 @@ def get_utcnow():
     return dt.datetime.now(dt.UTC)
 
 
+@contextlib.asynccontextmanager
+async def fail_backfill_without_progress(heartbeater: Heartbeater) -> collections.abc.AsyncIterator[None]:
+    """Raise a non-retryable error when a backfill fails too often before it starts a run."""
+    try:
+        yield
+    except (TemporalScheduleNotFoundError, HeartbeatDetailsParseError):
+        raise
+    except Exception as e:
+        info = temporalio.activity.info()
+        made_progress = bool(heartbeater.details or info.heartbeat_details)
+
+        if not made_progress and info.attempt >= BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS:
+            raise BackfillScheduleNoProgressError(info.attempt, e) from e
+        raise
+
+
 @temporalio.activity.defn
 async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     """Temporal Activity to backfill a Temporal Schedule.
@@ -658,7 +690,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
     )
     logger.info("Starting backfill")
 
-    async with Heartbeater() as heartbeater:
+    async with Heartbeater() as heartbeater, fail_backfill_without_progress(heartbeater):
         client = await connect(
             settings.TEMPORAL_HOST,
             settings.TEMPORAL_PORT,
@@ -1017,9 +1049,14 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=10),
                     maximum_interval=dt.timedelta(seconds=60),
-                    non_retryable_error_types=["TemporalScheduleNotFoundError", "HeartbeatDetailsParseError"],
+                    non_retryable_error_types=[
+                        "TemporalScheduleNotFoundError",
+                        "HeartbeatDetailsParseError",
+                        "BackfillScheduleNoProgressError",
+                    ],
                 ),
                 start_to_close_timeout=start_to_close_timeout,
+                schedule_to_start_timeout=BACKFILL_SCHEDULE_TO_START_TIMEOUT,
                 heartbeat_timeout=dt.timedelta(seconds=30),
             )
 
@@ -1029,7 +1066,15 @@ class BackfillBatchExportWorkflow(PostHogWorkflow):
             else:
                 update_inputs.status = BatchExportBackfill.Status.FAILED
 
-            update_inputs.latest_error = str(e.cause)
+            if (
+                isinstance(e.cause, temporalio.exceptions.TimeoutError)
+                and e.cause.type == temporalio.exceptions.TimeoutType.SCHEDULE_TO_START
+            ):
+                update_inputs.latest_error = (
+                    "The backfill did not start because no worker was available. Try to run the backfill again."
+                )
+            else:
+                update_inputs.latest_error = str(e.cause)
             raise
 
         except Exception:
