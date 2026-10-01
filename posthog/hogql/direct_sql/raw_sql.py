@@ -1,6 +1,6 @@
 import sqlparse
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import QueryError
 
 
 def ensure_single_direct_statement(sql: str) -> str:
@@ -15,5 +15,5 @@ def ensure_single_direct_statement(sql: str) -> str:
     """
     statements = [statement for statement in sqlparse.split(sql) if statement.strip(" \t\r\n;")]
     if len(statements) > 1:
-        raise ExposedHogQLError("Raw queries must contain a single statement.")
+        raise QueryError("Raw queries must contain a single statement.")
     return sql

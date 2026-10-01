@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
+from django.test import override_settings
 
 import psycopg
 from parameterized import parameterized
@@ -38,6 +39,8 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -443,6 +446,58 @@ class TestMCPToolsAPI(APIBaseTest):
                 "content": "The tool raised an internal error. Do not immediately retry the tool call.",
             },
         )
+
+
+class TestMCPRawSQLValidation(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            (
+                "multiple_statements",
+                ExternalDataSourceType.POSTGRES,
+                "SELECT 1; SELECT 2",
+                "Tool failed: MaxToolRetryableError: Raw queries must contain a single statement.. You may retry with adjusted inputs.",
+            ),
+            (
+                "clickhouse_write",
+                ExternalDataSourceType.CLICKHOUSE,
+                "DELETE FROM events",
+                "Tool failed: MaxToolRetryableError: Raw ClickHouse queries must be read-only SELECT statements.. You may retry with adjusted inputs.",
+            ),
+            (
+                "snowflake_write",
+                ExternalDataSourceType.SNOWFLAKE,
+                "DELETE FROM events",
+                "Tool failed: MaxToolRetryableError: Raw Snowflake queries must be read-only SELECT statements.. You may retry with adjusted inputs.",
+            ),
+            (
+                "motherduck_write",
+                ExternalDataSourceType.MOTHERDUCK,
+                "DELETE FROM events",
+                "Tool failed: MaxToolRetryableError: Raw MotherDuck queries must be read-only SELECT statements.. You may retry with adjusted inputs.",
+            ),
+        ]
+    )
+    @override_settings(TEST=False)
+    @patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_rejects_invalid_raw_sql_before_async_dispatch(
+        self, _name: str, source_type: str, query: str, content: str, mock_enqueue: Mock
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_type=source_type, access_method=ExternalDataSource.AccessMethod.DIRECT
+        )
+        mock_enqueue.side_effect = AssertionError("Invalid raw SQL reached the background queue")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
+            {"args": {"query": query, "connectionId": str(source.id), "sendRawQuery": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "validation"})
+        mock_enqueue.assert_not_called()
 
 
 class TestDocsSearchAction(APIBaseTest):
