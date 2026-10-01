@@ -13,7 +13,10 @@ import {
     InputGroupAddon,
     InputGroupInput,
     InputGroupText,
+    Item,
+    ItemContent,
     ItemGroup,
+    ItemMedia,
     Skeleton,
     Text,
     ToggleGroup,
@@ -81,11 +84,19 @@ function ViewsContent(): JSX.Element {
                     </EmptyContent>
                 </Empty>
             ) : (
-                <div className="flex flex-col gap-2" aria-busy>
+                <ItemGroup combined aria-busy aria-label="Loading your views">
                     {Array.from({ length: 6 }, (_, index) => (
-                        <Skeleton key={index} className="h-12 w-full" />
+                        <Item key={index} variant="outline" size="sm">
+                            <ItemMedia variant="icon">
+                                <Skeleton className="size-4" />
+                            </ItemMedia>
+                            <ItemContent className="gap-1.5">
+                                <Skeleton className="h-3.5 w-48 max-w-full" />
+                                <Skeleton className="h-3 w-32 max-w-full" />
+                            </ItemContent>
+                        </Item>
                     ))}
-                </div>
+                </ItemGroup>
             )
         }
         if (!visibleViews.length) {

@@ -8,7 +8,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 import { NewViewMenu } from 'scenes/views/NewViewMenu'
-import { VIEW_TYPES } from 'scenes/views/viewsUtils'
+import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
 import { TodayPaneRow } from './TodayPaneRow'
@@ -16,14 +16,26 @@ import { TodayPaneSection } from './TodayPaneSection'
 import { todayViewsLogic } from './todayViewsLogic'
 import { shortTimeAgo } from './todayWorkItems'
 
-/** The Views sub-nav: a "New" menu, the full list, and the most recent canvases, notebooks and dashboards. */
+/** The Views sub-nav: a "New" menu, the full list, and the most recent views of every type, newest first. */
 export function TodayViewsSidebar(): JSX.Element {
-    const { recentViews, recentByType, recentViewsLoading, recentUnavailable, collapsedSections } =
+    const { recentViews, recentItems, recentViewsLoading, recentUnavailable, recentCollapsed } =
         useValues(todayViewsLogic)
-    const { loadRecentViews, toggleSection } = useActions(todayViewsLogic)
+    const { loadRecentViews, toggleRecent } = useActions(todayViewsLogic)
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const failedTypes = recentViews?.failedTypes ?? []
+
+    const retryButton = (size: 'small' | 'xsmall'): JSX.Element => (
+        <LemonButton
+            size={size}
+            type="secondary"
+            loading={recentViewsLoading}
+            onClick={() => loadRecentViews()}
+            data-attr="today-views-retry"
+        >
+            Try again
+        </LemonButton>
+    )
 
     return (
         <div className="TodayPane">
@@ -39,53 +51,54 @@ export function TodayViewsSidebar(): JSX.Element {
                     active={path === urls.views()}
                     dataAttr="today-views-all"
                 />
-                {VIEW_TYPES.map((info, index) => {
-                    const items = recentByType[info.type]
-                    return (
-                        <TodayPaneSection
-                            key={info.type}
-                            label={info.pluralLabel}
-                            open={!collapsedSections.includes(info.type)}
-                            count={items.length}
-                            onToggle={() => toggleSection(info.type)}
-                            divider={index > 0}
-                            dataAttr={`today-views-section-${info.type}`}
-                        >
-                            {!recentViews && recentViewsLoading ? (
+                <TodayPaneSection
+                    label="Recent"
+                    open={!recentCollapsed}
+                    count={recentItems.length}
+                    onToggle={toggleRecent}
+                    dataAttr="today-views-section-recent"
+                >
+                    {!recentViews ? (
+                        recentUnavailable ? (
+                            <div className="TodayPane__state">
+                                <span>Your views didn’t load.</span>
+                                {retryButton('small')}
+                            </div>
+                        ) : (
+                            <div className="TodayPane__state" aria-busy>
+                                <Spinner />
+                            </div>
+                        )
+                    ) : !recentItems.length && !failedTypes.length ? (
+                        <div className="TodayPane__state">
+                            Canvases, notebooks and dashboards you create show up here.
+                        </div>
+                    ) : (
+                        <>
+                            {(recentUnavailable || failedTypes.length > 0) && (
                                 <div className="TodayPane__state">
-                                    <Spinner />
+                                    <span>
+                                        {recentUnavailable
+                                            ? 'Your views didn’t refresh.'
+                                            : `${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
+                                    </span>
+                                    {retryButton('xsmall')}
                                 </div>
-                            ) : recentUnavailable || failedTypes.includes(info.type) ? (
-                                <div className="TodayPane__state">
-                                    <span>{info.pluralLabel} didn’t load.</span>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        loading={recentViewsLoading}
-                                        onClick={() => loadRecentViews()}
-                                        data-attr="today-views-retry"
-                                    >
-                                        Try again
-                                    </LemonButton>
-                                </div>
-                            ) : !items.length ? (
-                                <div className="TodayPane__state">{`${info.pluralLabel} you create show up here.`}</div>
-                            ) : (
-                                items.map((item) => (
-                                    <TodayPaneRow
-                                        key={item.id}
-                                        label={item.name}
-                                        icon={<ViewTypeIcon type={item.type} />}
-                                        meta={shortTimeAgo(item.timestamp)}
-                                        to={item.href}
-                                        active={path === removeProjectIdIfPresent(item.href)}
-                                        dataAttr={`today-views-recent-${item.type}`}
-                                    />
-                                ))
                             )}
-                        </TodayPaneSection>
-                    )
-                })}
+                            {recentItems.map((item) => (
+                                <TodayPaneRow
+                                    key={`${item.type}-${item.id}`}
+                                    label={item.name}
+                                    icon={<ViewTypeIcon type={item.type} />}
+                                    meta={shortTimeAgo(item.timestamp)}
+                                    to={item.href}
+                                    active={path === removeProjectIdIfPresent(item.href)}
+                                    dataAttr={`today-views-recent-${item.type}`}
+                                />
+                            ))}
+                        </>
+                    )}
+                </TodayPaneSection>
             </div>
         </div>
     )

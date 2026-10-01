@@ -28,6 +28,7 @@ describe('todayShellLogic', () => {
         ['/project/1/sql', 'tools'],
         ['/project/1/views', 'views'],
         ['/project/1/canvases/abc', 'views'],
+        ['/project/1/canvases/new', 'views'],
         ['/project/1/notebooks/abc', 'views'],
         ['/project/1/dashboard/12', 'views'],
         ['/project/1/airplane', null],

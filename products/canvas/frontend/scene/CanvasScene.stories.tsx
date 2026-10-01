@@ -84,3 +84,17 @@ export const Empty: Story = {
 export const Generating: Story = {
     decorators: [mocks(viewResponse({ name: 'Weekly active users', generation_task_id: TASK_ID }))],
 }
+
+export const NewCanvas: Story = {
+    parameters: { pageUrl: urls.canvasNew(SPACE_ID) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/task_channels/': [
+                    { id: 'space-personal', name: 'me', system_role: 'personal' },
+                    { id: SPACE_ID, name: 'growth', system_role: null },
+                ],
+            },
+        }),
+    ],
+}

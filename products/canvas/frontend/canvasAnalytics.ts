@@ -8,7 +8,7 @@ export const CANVAS_EVENTS = {
 } as const
 
 // pinned: `surface` values, shared with PostHog Desktop
-export type CanvasSurface = 'web_new_canvas_dialog' | 'web_canvas_scene'
+export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene'
 
 /** The error's class name, never its message: canvas errors can carry source, data, or secrets. */
 export function canvasErrorType(message: string): string {

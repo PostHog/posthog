@@ -11,8 +11,6 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { cn } from 'lib/utils/css-classes'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
-import { NewCanvasDialog } from 'products/canvas/frontend/newCanvas/NewCanvasDialog'
-
 import { NewSpaceDialog } from 'products/tasks/frontend/spaces/NewSpaceDialog'
 
 import { TodayLibrarySidebar } from './TodayLibrarySidebar'
@@ -132,7 +130,6 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 )}
                 {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
                 <NewSpaceDialog />
-                <NewCanvasDialog />
             </div>
         </ToastProvider>
     )

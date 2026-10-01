@@ -53,7 +53,9 @@ export interface ViewItem {
     /** When the view last changed, or was last viewed or created when that is all the API knows. */
     timestamp: string | null
     timestampLabel: 'Edited' | 'Viewed' | 'Created'
-    /** The space a canvas belongs to. Null for other types, or when the space is unknown. */
+    /** The space a canvas belongs to. Null for other types. */
+    spaceId: string | null
+    /** The space's name. Null for other types, or when the space is unknown. */
     spaceName: string | null
 }
 
@@ -65,6 +67,7 @@ export function canvasToView(canvas: CanvasApi, spaceNames: Record<string, strin
         href: urls.canvasDetail(canvas.id),
         timestamp: canvas.updated_at,
         timestampLabel: 'Edited',
+        spaceId: canvas.channel,
         spaceName: spaceNames[canvas.channel] ?? null,
     }
 }
@@ -77,6 +80,7 @@ export function notebookToView(notebook: NotebookMinimalApi): ViewItem {
         href: urls.notebook(notebook.short_id),
         timestamp: notebook.last_modified_at,
         timestampLabel: 'Edited',
+        spaceId: null,
         spaceName: null,
     }
 }
@@ -90,6 +94,7 @@ export function dashboardToView(dashboard: DashboardBasicApi): ViewItem {
         // Dashboards have no edit time in the list API, so the last view stands in for it.
         timestamp: dashboard.last_viewed_at ?? dashboard.created_at,
         timestampLabel: dashboard.last_viewed_at ? 'Viewed' : 'Created',
+        spaceId: null,
         spaceName: null,
     }
 }
@@ -116,4 +121,17 @@ export function mergeViews({ canvases, notebooks, dashboards, spaceNames }: View
 
 export function filterViews(items: ViewItem[], filter: ViewTypeFilter): ViewItem[] {
     return filter === 'all' ? items : items.filter((item) => item.type === filter)
+}
+
+/**
+ * The space a new canvas defaults to from the page the person is on: the open space, or the open
+ * canvas's space. Null when the page names no space, so the start page falls back to the personal space.
+ */
+export function newCanvasSpaceIdForPath(path: string, views: ViewItem[]): string | null {
+    const space = /^\/spaces\/([^/]+)/.exec(path)
+    if (space) {
+        return space[1]
+    }
+    const canvas = /^\/canvases\/([^/]+)$/.exec(path)
+    return canvas ? (views.find((view) => view.type === 'canvas' && view.id === canvas[1])?.spaceId ?? null) : null
 }

@@ -16,7 +16,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { CanvasGenerateHero } from './CanvasGenerateHero'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+
+import { CanvasEmptyBody } from './CanvasEmptyBody'
 import { CanvasGeneratingState } from './CanvasGeneratingState'
 import { CanvasRenderer } from './CanvasRenderer'
 import { CanvasSceneHeader } from './CanvasSceneHeader'
@@ -35,8 +37,8 @@ function CanvasBody(): JSX.Element {
     switch (bodyState) {
         case 'loading':
             return (
-                <div className="flex h-full flex-col gap-3 p-6">
-                    <Skeleton className="h-8 w-1/3" />
+                <div className="flex h-full flex-col gap-3 py-2">
+                    <Skeleton className="h-4 w-1/3" />
                     <Skeleton className="h-full w-full" />
                 </div>
             )
@@ -63,10 +65,10 @@ function CanvasBody(): JSX.Element {
                 </Empty>
             )
         case 'empty':
-            return <CanvasGenerateHero />
+            return <CanvasEmptyBody />
         case 'generation-ended':
             return (
-                <CanvasGenerateHero notice="The last run finished without a canvas to show. Describe it again to start a new run." />
+                <CanvasEmptyBody notice="The last run finished without a canvas to show. Describe it again to start a new run." />
             )
         case 'generating':
             return <CanvasGeneratingState />
@@ -102,9 +104,9 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
     }
     return (
         <BindLogic logic={canvasSceneLogic} props={{ id }}>
-            <div data-quill className="@container/canvas-scene flex h-full min-h-0 flex-col bg-background">
+            <SceneContent className="h-full min-h-0 gap-y-2">
                 <CanvasSceneHeader />
-                <div className="flex min-h-0 flex-1">
+                <div data-quill className="@container/canvas-scene flex min-h-0 flex-1">
                     <main className="min-w-0 flex-1">
                         <CanvasBody />
                     </main>
@@ -113,7 +115,7 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
                         <aside className="w-96 shrink-0 border-l border-border" data-attr="canvas-side-panel" />
                     )}
                 </div>
-            </div>
+            </SceneContent>
         </BindLogic>
     )
 }

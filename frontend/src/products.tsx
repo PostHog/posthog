@@ -116,6 +116,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases/new': ['CanvasNew', 'canvasNew'],
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -688,6 +689,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'KnowledgeSource',
         iconType: 'business_knowledge',
     },
+    CanvasNew: { name: 'New canvas', projectBased: true },
     CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-full-scene-height' },
     Transformations: {
         projectBased: true,
@@ -1313,6 +1315,8 @@ export const productUrls = {
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvasNew: (spaceId?: string | null): string =>
+        spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
     canvasDetail: (id: string): string => `/canvases/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
