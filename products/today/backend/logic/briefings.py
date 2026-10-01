@@ -1,7 +1,9 @@
 """Reading and starting briefings for the API and the MCP tools."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import date, datetime, timedelta
+from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
@@ -15,6 +17,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend.facade import api as conversations
+from products.error_tracking.backend.facade import api as error_tracking
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
@@ -29,7 +33,9 @@ VIEW_STAMP_EVERY = timedelta(hours=1)
 
 logger = structlog.get_logger(__name__)
 
-_DONE_REPORT_STATUSES = {"resolved", "suppressed", "deleted"}
+_REPORT_STATES = {"resolved": ItemState.DONE, "suppressed": ItemState.DISMISSED, "deleted": ItemState.DISMISSED}
+_TICKET_STATES = {"resolved": ItemState.DONE}
+_ISSUE_STATES = {"resolved": ItemState.DONE, "pending_release": ItemState.DONE, "suppressed": ItemState.DISMISSED}
 
 
 def start_generation(briefing: DailyBriefing) -> None:
@@ -190,16 +196,88 @@ def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCo
     return InboxCounts(more_for_you=counts.for_person, open_in_project=counts.in_project)
 
 
-def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]:
-    report_ids = [item.key.split(":", 1)[1] for item in items if item.key.startswith("report:")]
-    states: dict[str, ItemState] = {}
+def _keys_by_id(items: list[FactSheetItem], kind: str) -> dict[UUID, str]:
+    """The id in each `<kind>:<uuid>` item key, mapped back to its key. A malformed id is left out."""
+    keys: dict[UUID, str] = {}
+    for item in items:
+        prefix, _, raw_id = item.key.partition(":")
+        if prefix != kind:
+            continue
+        try:
+            keys[UUID(raw_id)] = item.key
+        except ValueError:
+            continue
+    return keys
+
+
+def _report_details(team: Team, items: list[FactSheetItem]) -> dict[str, signals.BriefingReportDetails]:
+    keys = {str(report_id): key for report_id, key in _keys_by_id(items, "report").items()}
     try:
-        for state in signals.report_states(team_id=team.id, report_ids=report_ids):
-            if state.status in _DONE_REPORT_STATUSES:
-                states[f"report:{state.report_id}"] = ItemState.DONE
+        details = signals.report_details(team_id=team.id, report_ids=list(keys))
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
-    return states
+        return {}
+    return {keys[detail.report_id]: detail for detail in details if detail.report_id in keys}
+
+
+def _states_from(
+    team: Team,
+    keys: dict[UUID, str],
+    lookup: Callable[[int, list[UUID]], dict[UUID, str]],
+    states: dict[str, ItemState],
+) -> dict[str, ItemState]:
+    if not keys:
+        return {}
+    try:
+        statuses = lookup(team.id, list(keys))
+    except Exception as error:
+        # A product that fails to answer leaves its items open; it never hides the briefing.
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return {}
+    return {keys[item_id]: states[status] for item_id, status in statuses.items() if status in states}
+
+
+def _live_states(
+    team: Team, items: list[FactSheetItem], reports: dict[str, signals.BriefingReportDetails]
+) -> dict[str, ItemState]:
+    """Which items were finished or dismissed since the briefing was written. Pull requests are not checked."""
+    live = {key: _REPORT_STATES[detail.status] for key, detail in reports.items() if detail.status in _REPORT_STATES}
+    live |= _states_from(
+        team,
+        _keys_by_id(items, "ticket"),
+        lambda team_id, ids: conversations.ticket_statuses(team_id=team_id, ticket_ids=ids),
+        _TICKET_STATES,
+    )
+    live |= _states_from(
+        team,
+        _keys_by_id(items, "issue"),
+        lambda team_id, ids: error_tracking.issue_statuses(team_id=team_id, issue_ids=ids),
+        _ISSUE_STATES,
+    )
+    return live
+
+
+def _report_contract(detail: signals.BriefingReportDetails) -> contracts.BriefingItemReport:
+    return contracts.BriefingItemReport(
+        priority=detail.priority,
+        summary=detail.summary,
+        pull_request_state=detail.pull_request_state,
+        pull_request_url=detail.pull_request_url,
+        metrics=[
+            contracts.BriefingItemMetric(
+                metric_id=metric.metric_id,
+                title=metric.title,
+                kind=metric.kind,
+                role=metric.role,
+                value=metric.value,
+                value_at=metric.value_at,
+                series=metric.series,
+                value_format=metric.value_format,
+                unit=metric.unit,
+            )
+            for metric in detail.metrics
+        ],
+    )
 
 
 def to_contract(
@@ -213,7 +291,8 @@ def to_contract(
     fact_sheet = stored_fact_sheet(briefing)
     shown = fact_sheet.items if fact_sheet else []
     content = BriefingContent.model_validate(briefing.content or {})
-    states = _live_states(team, shown)
+    reports = _report_details(team, shown)
+    states = _live_states(team, shown, reports)
     counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(
         id=str(briefing.id),
@@ -241,6 +320,7 @@ def to_contract(
                 rank=item.rank,
                 state=states.get(item.key, ItemState.OPEN),
                 source_product=item.source_product,
+                report=_report_contract(reports[item.key]) if item.key in reports else None,
             )
             for item in shown
         ],

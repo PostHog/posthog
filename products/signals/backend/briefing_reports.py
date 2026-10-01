@@ -7,6 +7,7 @@ person, and how". It does not order across relations; the caller does that.
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from django.db.models import Count, Q, QuerySet
 
@@ -18,9 +19,18 @@ from posthog.models import Team, User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingScore, priority_from_judgment
-from products.signals.backend.implementation_pr import implementation_pr_report_filter
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_state_for_reports,
+    implementation_pr_report_filter,
+)
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_metrics import (
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricRole,
+    ReportMetricValueFormat,
+)
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
@@ -62,10 +72,36 @@ class BriefingReport:
     pr_merged_probability: float | None
 
 
+PullRequestState = Literal["draft", "open", "closed", "merged"]
+
+
 @frozen
-class ReportState:
+class BriefingReportMetric:
+    """A report metric's saved snapshot, in the shape the inbox list shows it. Never the live query."""
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    role: ReportMetricRole
+    value: float
+    value_at: datetime | None
+    series: list[float] | None
+    value_format: ReportMetricValueFormat
+    unit: str | None
+
+
+@frozen
+class BriefingReportDetails:
+    """The current state of a report a briefing names, read live so a briefing written earlier stays true."""
+
     report_id: str
     status: str
+    priority: str | None
+    summary: str
+    pull_request_state: PullRequestState | None
+    pull_request_url: str | None
+    # Only metrics with a saved snapshot: the briefing shows figures, it never runs a query.
+    metrics: list[BriefingReportMetric]
 
 
 def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
@@ -265,9 +301,71 @@ def open_report_counts(*, team_id: int, user: User, exclude_report_ids: Sequence
     return OpenReportCounts(for_person=row["for_person"], in_project=row["in_project"])
 
 
-def report_states(*, team_id: int, report_ids: Sequence[str]) -> list[ReportState]:
-    """Current status of the given reports, so a briefing written earlier can show which are done."""
+def _snapshot_metrics(raw_metrics: object) -> list[BriefingReportMetric]:
+    if not isinstance(raw_metrics, list):
+        return []
+    metrics: list[BriefingReportMetric] = []
+    for raw in raw_metrics:
+        try:
+            metric = ReportMetric.model_validate(raw)
+        except pydantic.ValidationError:
+            continue
+        if metric.value is None:
+            continue
+        metrics.append(
+            BriefingReportMetric(
+                metric_id=metric.metric_id,
+                title=metric.title,
+                kind=metric.kind,
+                role=metric.role,
+                value=metric.value,
+                value_at=metric.value_at,
+                series=metric.series,
+                value_format=metric.value_format,
+                unit=metric.unit,
+            )
+        )
+    return metrics
+
+
+def _pull_request_state(state: str, merged: bool) -> PullRequestState | None:
+    if merged:
+        return "merged"
+    match state:
+        case "draft" | "open" | "closed" | "merged":
+            return state
+        case _:
+            return None
+
+
+def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingReportDetails]:
+    """Current status, priority, summary, implementation PR and metric snapshots of the given reports.
+
+    A briefing written earlier reads these live, so it shows which reports are done and what changed.
+    """
     if not report_ids:
         return []
-    rows = SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).values_list("id", "status")
-    return [ReportState(report_id=str(report_id), status=status) for report_id, status in rows]
+    reports = list(
+        SignalReport.objects.filter(team_id=team_id, id__in=list(report_ids)).only("id", "status", "summary", "metrics")
+    )
+    found_ids = [str(report.id) for report in reports]
+    priorities = _priorities(found_ids)
+    pull_requests = fetch_implementation_pr_state_for_reports(found_ids, team_id=team_id)
+    details = []
+    for report in reports:
+        report_id = str(report.id)
+        pull_request = pull_requests.get(report_id)
+        details.append(
+            BriefingReportDetails(
+                report_id=report_id,
+                status=report.status,
+                priority=priorities.get(report_id),
+                summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
+                pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
+                if pull_request
+                else None,
+                pull_request_url=pull_request.url if pull_request else None,
+                metrics=_snapshot_metrics(report.metrics),
+            )
+        )
+    return details

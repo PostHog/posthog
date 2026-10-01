@@ -17951,6 +17951,151 @@ export namespace Schemas {
     }
 
     /**
+     * * `draft` - draft
+     * * `open` - open
+     * * `closed` - closed
+     * * `merged` - merged
+     */
+    export type PullRequestStateEnum = typeof PullRequestStateEnum[keyof typeof PullRequestStateEnum];
+
+
+    export const PullRequestStateEnum = {
+      Draft: 'draft',
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `primary` - primary
+     * * `supporting` - supporting
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Primary: 'primary',
+      Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    export interface BriefingItemMetric {
+      /** Stable slug of the metric within its report. */
+      metric_id: string;
+      /** Short label of what the metric measures. */
+      title: string;
+      /** What the value measures, for example affected_users.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role: RoleEnum;
+      /** The latest saved snapshot of the metric. */
+      value: number;
+      /**
+         * When the snapshot was measured.
+         * @nullable
+         */
+      value_at: string | null;
+      /**
+         * Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.
+         * @nullable
+         */
+      series: number[] | null;
+      /** How to format the value, for example count.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as USD.
+         * @nullable
+         */
+      unit: string | null;
+    }
+
+    export interface BriefingItemReport {
+      /**
+         * The report's priority, P0 to P4, or null if unset.
+         * @nullable
+         */
+      priority: string | null;
+      /** The report's summary, shortened to a few sentences. */
+      summary: string;
+      /** State of the report's implementation pull request, or null when it has none.
+       *
+       * * `draft` - draft
+       * * `open` - open
+       * * `closed` - closed
+       * * `merged` - merged */
+      pull_request_state: PullRequestStateEnum | null;
+      /**
+         * URL of the report's implementation pull request, or null when it has none.
+         * @nullable
+         */
+      pull_request_url: string | null;
+      /** The report's metrics that have a saved snapshot, in the report's order. */
+      metrics: BriefingItemMetric[];
+    }
+
+    /**
      * * `report` - REPORT
      * * `dashboard` - DASHBOARD
      * * `other` - OTHER
@@ -18021,6 +18166,7 @@ export namespace Schemas {
     /**
      * * `open` - OPEN
      * * `done` - DONE
+     * * `dismissed` - DISMISSED
      */
     export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
 
@@ -18028,6 +18174,7 @@ export namespace Schemas {
     export const BriefingItemStateEnum = {
       Open: 'open',
       Done: 'done',
+      Dismissed: 'dismissed',
     } as const;
 
     export interface BriefingItem {
@@ -18048,9 +18195,16 @@ export namespace Schemas {
          * @nullable
          */
       source_product: string | null;
+      /** For a report, its priority, summary, implementation pull request and metric snapshots. Null for every other item. */
+      report: BriefingItemReport | null;
       group: TodayItemGroupEnum;
       source: TodayItemSourceEnum;
       reason: TodayItemReasonEnum;
+      /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`.
+       *
+       * * `open` - OPEN
+       * * `done` - DONE
+       * * `dismissed` - DISMISSED */
       state: BriefingItemStateEnum;
     }
 
@@ -36634,62 +36788,6 @@ export namespace Schemas {
        * * `large` - large */
       size?: SizeEnum | null;
     }
-
-    /**
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom
-     */
-    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
-
-
-    export const ReportMetricKindEnum = {
-      AffectedUsers: 'affected_users',
-      AffectedSessions: 'affected_sessions',
-      Occurrences: 'occurrences',
-      ConversionRate: 'conversion_rate',
-      ErrorRate: 'error_rate',
-      Duration: 'duration',
-      Revenue: 'revenue',
-      Custom: 'custom',
-    } as const;
-
-    /**
-     * * `primary` - primary
-     * * `supporting` - supporting
-     */
-    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
-
-
-    export const RoleEnum = {
-      Primary: 'primary',
-      Supporting: 'supporting',
-    } as const;
-
-    /**
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency
-     */
-    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
-
-
-    export const ValueFormatEnum = {
-      Number: 'number',
-      Count: 'count',
-      Percentage: 'percentage',
-      PercentageScaled: 'percentage_scaled',
-      Duration: 'duration',
-      Currency: 'currency',
-    } as const;
 
     /**
      * * `at_most` - at_most

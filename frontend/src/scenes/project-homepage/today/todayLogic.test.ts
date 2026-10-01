@@ -31,6 +31,7 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
                 reason: 'waiting_for_you',
                 state: 'open',
                 source_product: null,
+                report: null,
             },
         ],
         more_reports_count: 0,
@@ -136,6 +137,22 @@ describe('todayLogic', () => {
 
         await jest.advanceTimersByTimeAsync(30_000)
         expect(briefingCalls).toBe(2)
+    })
+
+    test.each([
+        ['nothing is off the list yet', ['open', 'open'], null],
+        ['a resolved and a dismissed item both count', ['done', 'dismissed', 'open'], { done: 2, total: 3 }],
+    ] as const)('counts briefing progress when %s', async (_name, states, expected) => {
+        const [item] = makeBriefing().items
+        briefingResponses = [
+            [200, makeBriefing({ items: states.map((state, index) => ({ ...item, key: `report:${index}`, state })) })],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadPersonalBriefingSuccess'])
+            .toMatchValues({ briefingProgress: expected })
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {

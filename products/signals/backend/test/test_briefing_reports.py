@@ -13,9 +13,11 @@ from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
     _briefing_order,
     open_report_counts,
+    report_details,
     reports_for_briefing,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
 class TestReportsForBriefing(BaseTest):
@@ -60,6 +62,34 @@ class TestReportsForBriefing(BaseTest):
             ).model_dump_json(),
         )
         SignalReportArtefact.objects.filter(pk=artefact.pk).update(created_at=timezone.now() - age)
+
+    def test_report_details_keep_only_metrics_with_a_saved_snapshot(self) -> None:
+        report = self._urgent_report("Checkout fails")
+        query = trends_metric_query(
+            series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
+        )
+
+        def metric(metric_id: str, value: float | None) -> dict:
+            return {
+                "metric_id": metric_id,
+                "title": "Affected users",
+                "kind": "affected_users",
+                "role": "primary",
+                "value": value,
+                "value_at": "2026-09-30T12:00:00Z" if value is not None else None,
+                "series": [3.0, 9.0, 17.0] if value is not None else None,
+                "value_format": "count",
+                "unit": "users",
+                "query": query,
+            }
+
+        report.metrics = [metric("measured", 17), metric("not-measured", None), {"metric_id": "broken"}]
+        report.save(update_fields=["metrics"])
+
+        [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)])
+
+        assert (details.status, details.priority, details.pull_request_state) == ("ready", "P0", None)
+        assert [(m.metric_id, m.value, m.series) for m in details.metrics] == [("measured", 17, [3.0, 9.0, 17.0])]
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")

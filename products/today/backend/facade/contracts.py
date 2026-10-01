@@ -15,6 +15,32 @@ class BriefingSegment:
 
 
 @dataclass(frozen=True)
+class BriefingItemMetric:
+    """A report metric's saved snapshot. The same fields as the inbox list's metric, without the query."""
+
+    metric_id: str
+    title: str
+    kind: str
+    role: str
+    value: float
+    value_at: datetime | None
+    series: list[float] | None
+    value_format: str
+    unit: str | None
+
+
+@dataclass(frozen=True)
+class BriefingItemReport:
+    """What the left bar's hover card shows for a report, read live with the item's state."""
+
+    priority: str | None
+    summary: str
+    pull_request_state: str | None
+    pull_request_url: str | None
+    metrics: list[BriefingItemMetric]
+
+
+@dataclass(frozen=True)
 class BriefingItem:
     key: str
     group: ItemGroup
@@ -28,6 +54,8 @@ class BriefingItem:
     state: ItemState
     # For a report, the product its signals came from (error_tracking, session_replay, ...), else None.
     source_product: str | None
+    # For a report that still exists, its live details, else None.
+    report: BriefingItemReport | None
 
 
 @dataclass(frozen=True)

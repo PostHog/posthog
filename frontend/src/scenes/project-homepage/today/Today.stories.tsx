@@ -7,6 +7,7 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { TodayBriefingItemHoverCard } from 'scenes/project-homepage/today/TodayBriefingItemHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -367,6 +368,7 @@ function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi
         reason: 'waiting_for_you',
         state: 'open',
         source_product: null,
+        report: null,
         ...overrides,
     }
 }
@@ -400,6 +402,27 @@ const PERSONAL_BRIEFING: BriefingApi = {
             signal: 'P1, fix ready for review',
             rank: 1,
             source_product: 'error_tracking',
+            title: 'Signup form rejects plus-addressed emails',
+            report: {
+                priority: 'P1',
+                summary:
+                    'Since the release on Friday, the signup form rejects emails with a plus sign. People who try again with another address finish signup, the rest drop off at the email step.',
+                pull_request_state: 'open',
+                pull_request_url: 'https://github.com/example-org/web/pull/4821',
+                metrics: [
+                    {
+                        metric_id: 'affected-users',
+                        title: 'Affected users',
+                        kind: 'affected_users',
+                        role: 'primary',
+                        value: 52,
+                        value_at: '2026-09-28T05:40:00Z',
+                        series: [12, 18, 15, 22, 31, 40, 52],
+                        value_format: 'count',
+                        unit: 'users',
+                    },
+                ],
+            },
         }),
         briefingItem({
             key: 'report:report-3',
@@ -593,6 +616,26 @@ export const Home: Story = {}
 
 export const HomeWithPersonalBriefing: Story = {
     decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+// One report was dismissed and the ticket was resolved after the briefing was written.
+export const HomeWithResolvedAndDismissedItems: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    items: PERSONAL_BRIEFING.items.map((item) =>
+                        item.key === 'report:report-3'
+                            ? { ...item, state: 'dismissed' }
+                            : item.key === 'ticket:t-1'
+                              ? { ...item, state: 'done' }
+                              : item
+                    ),
+                },
+            },
+        }),
+    ],
 }
 
 export const HomeWithNothingForYou: Story = {
@@ -885,6 +928,24 @@ export const SpaceHoverCard: Story = {
                     '2026-09-28T18:28:00Z'
                 )}
                 onAction={noop}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const BriefingItemHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayBriefingItemHoverCard preview={{ kind: 'briefing_item', item: PERSONAL_BRIEFING.items[0] }} />
+        </HoverCardFrame>
+    ),
+}
+
+export const BriefingItemHoverCardResolved: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodayBriefingItemHoverCard
+                preview={{ kind: 'briefing_item', item: { ...PERSONAL_BRIEFING.items[4], state: 'done' } }}
             />
         </HoverCardFrame>
     ),

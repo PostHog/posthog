@@ -193,6 +193,11 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
     )
 
 
+def issue_statuses(*, team_id: int, issue_ids: list[UUID]) -> dict[UUID, str]:
+    """Current status of each given issue that exists in the team, keyed by issue id."""
+    return logic.issue_statuses(team_id=team_id, issue_ids=issue_ids)
+
+
 def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:
     return resolve_fingerprints_for_issues(team_id=team_id, issue_ids=issue_ids)
 

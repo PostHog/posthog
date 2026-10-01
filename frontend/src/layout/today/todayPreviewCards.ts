@@ -2,6 +2,7 @@ import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSourc
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
+import type { BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
@@ -58,7 +59,13 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview
+/** What a Today briefing item's hover card says. The item carries everything the card shows, so it opens without a request. */
+export interface TodayBriefingItemPreview {
+    kind: 'briefing_item'
+    item: BriefingItemApi
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayBriefingItemPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {

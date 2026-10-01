@@ -29,17 +29,24 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.briefing_reports import (
     # Re-exported for the Today briefing, which ranks these reports next to other products' items.
     BriefingReport as BriefingReport,
+    BriefingReportDetails as BriefingReportDetails,
+    BriefingReportMetric as BriefingReportMetric,
     BriefingReportRelation as BriefingReportRelation,
     OpenReportCounts as OpenReportCounts,
-    ReportState as ReportState,
     open_report_counts as open_report_counts,
-    report_states as report_states,
+    report_details as report_details,
     reports_for_briefing as reports_for_briefing,
 )
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.report_metrics import (
+    # Re-exported so the Today briefing can serialize metric snapshots with the inbox's vocabulary.
+    REPORT_METRIC_KINDS as REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES as REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching

@@ -26,7 +26,7 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             subtle
             className="TodayReportLink"
             data-active={hoveredItemKey === item.key}
-            data-done={item.state === 'done'}
+            data-state={item.state}
             data-attr="today-briefing-item"
             onClick={() => itemOpened(item, 'briefing')}
             onMouseEnter={() => setHoveredItemKey(item.key)}
@@ -61,7 +61,7 @@ function PersonalBriefingChips(): JSX.Element | null {
 }
 
 export function TodayPersonalBriefing(): JSX.Element | null {
-    const { personalBriefing, inboxMore } = useValues(todayLogic)
+    const { personalBriefing, inboxMore, briefingProgress } = useValues(todayLogic)
     const { askAi } = useActions(todayLogic)
 
     if (!personalBriefing) {
@@ -90,6 +90,11 @@ export function TodayPersonalBriefing(): JSX.Element | null {
                 <span>{personalBriefing.headline}</span>
                 <PersonalBriefingChips />
             </p>
+            {briefingProgress && (
+                <p className="TodayHome__progress" data-attr="today-briefing-progress">
+                    {`${briefingProgress.done} of ${briefingProgress.total} done`}
+                </p>
+            )}
             {personalBriefing.paragraphs.map((paragraph, index) => (
                 <p key={index}>
                     {paragraph.map((segment, segmentIndex) => (

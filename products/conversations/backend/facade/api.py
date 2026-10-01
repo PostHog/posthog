@@ -983,3 +983,9 @@ def list_account_email_thread_messages(
         ],
         count,
     )
+
+
+def ticket_statuses(*, team_id: int, ticket_ids: list[UUID]) -> dict[UUID, str]:
+    """Current status of each given ticket that exists in the team, keyed by ticket id."""
+    rows = Ticket.objects.filter(team_id=team_id, id__in=ticket_ids).values_list("id", "status")
+    return dict(rows)
