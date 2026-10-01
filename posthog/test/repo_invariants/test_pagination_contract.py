@@ -38,7 +38,6 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "ee.clickhouse.views.groups.GroupsViewSet",
     "ee.clickhouse.views.person.EnterprisePersonViewSet",
     "ee.clickhouse.views.person.LegacyEnterprisePersonViewSet",
-    "posthog.admin.admins.radar_bypass_admin.RadarBypassViewSet",
     "posthog.api.advanced_activity_logs.viewset.ActivityLogViewSet",
     "posthog.api.advanced_activity_logs.viewset.AdvancedActivityLogsViewSet",
     "posthog.api.advanced_activity_logs.viewset.OrganizationAdvancedActivityLogsViewSet",
