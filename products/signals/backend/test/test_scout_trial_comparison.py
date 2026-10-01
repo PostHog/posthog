@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,8 +33,36 @@ from products.signals.backend.temporal.agentic.scout_trial_comparison import (
     prepare_scout_trial_comparison_evaluation_activity,
     start_trial_comparison,
 )
+from products.signals.backend.trial_execution import TrialCoordinator
 
 MODULE = "products.signals.backend.temporal.agentic.scout_trial_comparison"
+
+
+class TestTrialCoordinator(SimpleTestCase):
+    def test_retries_preserve_execution_ids_and_wait_for_runner_completion(self) -> None:
+        execution_ids = [uuid4(), uuid4()]
+        started: list[UUID] = []
+        finished: set[UUID] = set()
+
+        class Runner:
+            def prepare(self) -> list[UUID]:
+                return execution_ids
+
+            def start(self, execution_id: UUID) -> None:
+                started.append(execution_id)
+
+            def finished(self, execution_id: UUID) -> bool:
+                return execution_id in finished
+
+        coordinator = TrialCoordinator(Runner())
+        coordinator.start()
+        coordinator.start()
+        assert started == execution_ids * 2
+        assert not coordinator.finished(execution_ids)
+        finished.add(execution_ids[0])
+        assert not coordinator.finished(execution_ids)
+        finished.add(execution_ids[1])
+        assert coordinator.finished(execution_ids)
 
 
 class TestScoutTrialComparisonWorkflow(SimpleTestCase):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -55,6 +55,12 @@ from products.signals.backend.scout_harness.trial_launch import (
 )
 from products.signals.backend.scout_harness.trial_result import get_trial_workflow_status
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader, ScoutRubricReadError
+from products.signals.backend.trial_execution import TrialCoordinator
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from temporalio.client import Client
 
 
 def comparison_plan_key(team_id: int, comparison_id: UUID) -> str:
@@ -362,23 +368,41 @@ type LiteralComparisonStatus = Literal[
 ]
 
 
+class _ScoutTrialRunner:
+    def __init__(self, service: ScoutTrialComparisons, comparison_id: UUID) -> None:
+        self.service = service
+        self.comparison_id = comparison_id
+        self.client: Client | None = None
+
+    def prepare(self) -> Sequence[UUID]:
+        self.service.assert_can_start()
+        plan = self.service.read(self.comparison_id)
+        save_comparison_progress(plan.team_id, self.comparison_id, TrialComparisonProgress(status="running"))
+        self.client = sync_connect()
+        return [launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
+
+    def start(self, execution_id: UUID) -> None:
+        from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 -- avoid the workflow registry import cycle
+            start_trial_signals_scout_run,
+        )
+
+        if self.client is None:
+            raise RuntimeError("Prepare trial executions before starting them.")
+        team_id = self.service.config.team_id
+        launch = read_trial_launch(team_id, execution_id)
+        start_trial_signals_scout_run(
+            self.client, team_id=team_id, skill_name=launch.skill_name, launch_id=str(execution_id)
+        )
+
+    def finished(self, execution_id: UUID) -> bool:
+        state = get_trial_workflow_status(team_id=self.service.config.team_id, launch_id=execution_id)
+        return state.status in {"completed", "failed", "cancelled", "skipped"}
+
+
 @private_capture_context()
 def dispatch_trial_comparison(team_id: int, comparison_id: UUID) -> None:
-    from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 -- avoid the workflow registry import cycle
-        start_trial_signals_scout_run,
-    )
-
     service = ScoutTrialComparisons.for_worker(team_id, comparison_id)
-    service.assert_can_start()
-    plan = service.read(comparison_id)
-    save_comparison_progress(team_id, comparison_id, TrialComparisonProgress(status="running"))
-    client = sync_connect()
-    for variant in plan.request.variants:
-        for launch_id in variant.launch_ids:
-            launch = read_trial_launch(team_id, launch_id)
-            start_trial_signals_scout_run(
-                client, team_id=team_id, skill_name=launch.skill_name, launch_id=str(launch_id)
-            )
+    TrialCoordinator(_ScoutTrialRunner(service, comparison_id)).start()
 
 
 @private_capture_context()
@@ -391,11 +415,9 @@ def prepare_comparison_evaluation(team_id: int, comparison_id: UUID) -> bool:
     plan = service.read(comparison_id)
     snapshot = service.evaluation(plan)
     if snapshot is None:
-        for variant in plan.request.variants:
-            for launch_id in variant.launch_ids:
-                state = get_trial_workflow_status(team_id=team_id, launch_id=launch_id)
-                if state.status not in {"completed", "failed", "cancelled", "skipped"}:
-                    return False
+        runner = TrialCoordinator(_ScoutTrialRunner(service, comparison_id))
+        if not runner.finished(launch_id for variant in plan.request.variants for launch_id in variant.launch_ids):
+            return False
         try:
             snapshot = prepare_trial_evaluation(
                 config=service.config,

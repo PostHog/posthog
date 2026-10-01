@@ -18,6 +18,7 @@ from openai import RateLimitError, omit
 from openai.types.chat import ChatCompletion
 from parameterized import parameterized
 
+from products.signals.backend import trial_judging
 from products.signals.backend.facade.rubrics import ScoutRubricReferenceContext
 from products.signals.backend.scout_harness.trial_evaluation_types import (
     TrialEvaluationCriterion,
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
 
 MODULE = "products.signals.backend.scout_harness.trial_judge"
+CORE_MODULE = "products.signals.backend.trial_judging"
 
 
 def _reference_context(
@@ -202,6 +204,46 @@ def _opaque_trace_table() -> str:
             ),
         ]
     )
+
+
+class TestTrialJudgingCore(SimpleTestCase):
+    async def test_task_run_evidence_needs_no_scout_source_and_releases_credentials(self) -> None:
+        judging = trial_judging.TrialJudgeInput(
+            criteria=[_criterion()],
+            rubric_reference_context={"instructions": "Inspect the checkout result."},
+            judge_model="gpt-6-astra",
+            judge_prompt_version=JUDGE_PROMPT_VERSION,
+        )
+        evidence = TrialRunEvidence(
+            launch_id=uuid4(),
+            variant_id=uuid4(),
+            run_id=None,
+            task_id=uuid4(),
+            task_run_id=uuid4(),
+            execution_status="completed",
+            runtime_adapter="codex",
+            model="candidate-model",
+            reasoning_effort="high",
+            skill_body_sha256="synthetic-instructions-hash",
+            sources=[TrialEvidenceSource(id="report:1", kind="report", text="The invented check failed twice.")],
+        )
+        client = _request_client()
+        client.chat.completions.create = AsyncMock(side_effect=lambda **kwargs: _completion(kwargs["messages"]))
+        gateway = MagicMock(spec=trial_judging.TrialJudgeGateway)
+        gateway.mint = AsyncMock(return_value="phe_synthetic_private_token")
+        gateway.open_client.return_value = client
+        gateway.revoke = AsyncMock()
+
+        result = await trial_judging.judge_trial_run(judging, evidence, gateway)
+
+        assert result.status == "judged"
+        assert result.launch_id == evidence.launch_id
+        assert result.criteria[0].criterion_id == "default-evidence"
+        assert result.criteria[0].verdict == "pass"
+        assert result.criteria[0].evidence[0].quote == evidence.sources[0].text
+        gateway.mint.assert_awaited_once()
+        gateway.open_client.assert_called_once_with("phe_synthetic_private_token", timeout=240.0)
+        gateway.revoke.assert_awaited_once_with("phe_synthetic_private_token")
 
 
 class TestScoutTrialJudgeValidation(SimpleTestCase):
@@ -854,7 +896,7 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         client.chat.completions.create = AsyncMock(side_effect=complete)
         with (
             patch.object(loop, "time", side_effect=lambda: now),
-            patch(f"{MODULE}._GROUPED_JUDGE_TIMEOUT_SECONDS", 240.0),
+            patch(f"{CORE_MODULE}._GROUPED_JUDGE_TIMEOUT_SECONDS", 240.0),
         ):
             result = await self._judge_with_client(snapshot, client)
         expected_calls = (criterion_count + 2) // 3 if prompt_version in {"10", "11", "12", "13", "14", "15"} else 1
@@ -954,8 +996,8 @@ class TestScoutTrialJudgeRequest(SimpleTestCase):
         client.chat.completions.create = AsyncMock(side_effect=complete)
         with (
             patch.object(loop, "time", side_effect=lambda: now),
-            patch(f"{MODULE}.MAX_JUDGE_OUTPUT_CHARACTERS", output_limit),
-            patch(f"{MODULE}._GROUPED_JUDGE_TIMEOUT_SECONDS", 240.0),
+            patch(f"{CORE_MODULE}.MAX_JUDGE_OUTPUT_CHARACTERS", output_limit),
+            patch(f"{CORE_MODULE}._GROUPED_JUDGE_TIMEOUT_SECONDS", 240.0),
         ):
             result = await self._judge_with_client(snapshot, client)
         assert calls == (1 if scenario == "deadline" else 2)
