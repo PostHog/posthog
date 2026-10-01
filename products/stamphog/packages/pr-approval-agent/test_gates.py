@@ -108,6 +108,30 @@ from policy import OwnershipSource
             ["common/esbuilder/tsconfig.json"],
             id="tsconfig-not-deps",
         ),
+        pytest.param(
+            ["frontend/src/lib/api.ts"],
+            id="busy-api-client-not-guardrail",
+        ),
+        pytest.param(
+            ["tach.toml"],
+            id="busy-tach-config-not-guardrail",
+        ),
+        pytest.param(
+            ["products/model_crossing_uses_baseline.txt"],
+            id="busy-crossings-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/setup_receivers_baseline.txt"],
+            id="busy-receivers-baseline-not-guardrail",
+        ),
+        pytest.param(
+            ["posthog/egress/slack/client.py"],
+            id="egress-domain-not-guardrail",
+        ),
+        pytest.param(
+            ["tools/release/feature-product.yaml"],
+            id="product-yaml-suffix-not-manifest",
+        ),
     ],
 )
 def test_no_false_positive(files: list[str]) -> None:
@@ -234,6 +258,36 @@ def test_no_false_positive(files: list[str]) -> None:
             ["frontend/package.json", "pnpm-lock.yaml"],
             "deps_toolchain",
             id="manifest-with-lockfile",
+        ),
+        pytest.param(
+            [".semgrep/rules/devex/url-naming.yaml"],
+            "devex_guardrails",
+            id="devex-semgrep-rule",
+        ),
+        pytest.param(
+            ["frontend/src/lib/api-ratchet-baseline.txt"],
+            "devex_guardrails",
+            id="api-ratchet-baseline",
+        ),
+        pytest.param(
+            ["posthog/egress/AGENTS.md"],
+            "devex_guardrails",
+            id="egress-agents-md-matches-lowercased",
+        ),
+        pytest.param(
+            ["posthog/ingress/verify/hmac.py"],
+            "devex_guardrails",
+            id="ingress-shared-verify",
+        ),
+        pytest.param(
+            ["posthog/test/repo_invariants/test_startup_import_budget.py"],
+            "devex_guardrails",
+            id="startup-budget-invariant-test",
+        ),
+        pytest.param(
+            ["tools/hogli-commands/hogli_commands/product/isolation.py"],
+            "devex_guardrails",
+            id="isolation-lint",
         ),
     ],
 )

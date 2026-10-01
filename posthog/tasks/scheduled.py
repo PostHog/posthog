@@ -311,7 +311,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Team metadata cache sync - hourly
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="13"),
         refresh_expiring_team_metadata_cache_entries.s(),
         name="team metadata cache sync",
     )
@@ -349,7 +349,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="workflows email sending tier recomputation",
     )
 
-    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :00
+    # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13
     sender.add_periodic_task(
         crontab(hour="*", minute="5"),
         refresh_expiring_llm_gateway_policy_cache_entries.s(),
@@ -382,7 +382,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # Stale QUEUED task run cleanup - hourly
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="0"),
+        crontab(minute="19"),
         kill_stale_queued_task_runs.s(),
         name="kill stale queued task runs",
     )
@@ -836,7 +836,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="PG table cache hit rate",
     )
     sender.add_periodic_task(
-        crontab(minute="0", hour="*"),
+        crontab(minute="23", hour="*"),
         pg_plugin_server_query_timing.s(),
         name="PG plugin server query timing",
     )
@@ -928,7 +928,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*/12", minute="0"),
+        crontab(hour="*/12", minute="41"),
         refresh_activity_log_fields_cache.s(),
         name="refresh activity log fields cache for large orgs",
     )
@@ -994,7 +994,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         add_periodic_task_with_expiry(
             sender,
-            crontab(minute="0"),
+            crontab(minute="43"),
             cleanup_old_scim_request_logs.s(),
             name="clean up old SCIM request logs",
         )
@@ -1047,7 +1047,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="3"),
         validate_pending_change_requests.s(),
         name="validate pending change requests",
     )

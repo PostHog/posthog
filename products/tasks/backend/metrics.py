@@ -749,6 +749,7 @@ _SANDBOX_DEADLINE_REASONS = {
     "no_sandbox",
     "flag_disabled",
     "agent_active",
+    "turn_open",
     "followup_in_flight",
     "run_completed",
     "snapshot_missing",

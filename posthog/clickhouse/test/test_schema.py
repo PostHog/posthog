@@ -13,7 +13,7 @@ from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLIC
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
-from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.logs import KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT, LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -135,6 +135,36 @@ def test_logs_volume_bucket_retention_covers_raw_expiry(
         assert bucket_start + timedelta(days=max(42, rows[0][0])) >= observed_timestamp + timedelta(
             days=max(retentions)
         )
+
+
+@pytest.mark.usefixtures("clickhouse_database")
+def test_logs_kafka_metrics_counts_rows_toward_source_partition() -> None:
+    select = KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM metrics_input"
+    )
+    rows = sync_execute(
+        """
+        WITH metrics_input AS (
+            SELECT
+                source_row.1 AS _topic,
+                toUInt32(source_row.2) AS _partition,
+                toUInt64(source_row.3) AS _offset,
+                source_row.4 AS _source_topic,
+                toUInt32(source_row.5) AS _source_partition,
+                toDateTime64('2026-01-02 12:00:00', 6, 'UTC') AS observed_timestamp,
+                observed_timestamp AS timestamp
+            FROM (
+                SELECT arrayJoin([
+                    ('clickhouse_logs', 3, 10, 'logs_ingestion', 7),
+                    ('clickhouse_logs', 5, 11, '', 0)
+                ]) AS source_row
+            )
+        )
+        SELECT _topic, _partition, max_offset FROM ("""
+        + select
+        + ") ORDER BY _topic, _partition",
+    )
+    assert rows == [("clickhouse_logs", 3, 10), ("clickhouse_logs", 5, 11), ("logs_ingestion", 7, 0)]
 
 
 def _column_definition_lines(block: str) -> Iterator[str]:

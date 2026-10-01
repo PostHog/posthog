@@ -10,6 +10,9 @@ import {
     TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
+import { taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
+
+import { TodayListItemDetail, TodayListItemField, listItemDetails } from './todayListAppearance'
 
 export type TodayWorkItemKind = 'session' | 'chat'
 
@@ -29,6 +32,8 @@ export interface TodayWorkItem {
     /** What filed it: a session's origin product, or PostHog AI for a chat. */
     source: string | null
     repository: string | null
+    /** The latest run's branch. */
+    branch: string | null
     pullRequests: TaskPullRequest[]
     /** The closing prose a cloud run saves when it finishes. */
     finalMessage: string | null
@@ -39,6 +44,22 @@ export interface TodayWorkGroup {
     label: string
     items: TodayWorkItem[]
 }
+
+export type TodaySessionBadge =
+    | { kind: 'source'; source: string }
+    | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
+    | { kind: 'local' }
+
+const BADGE_SOURCES = new Set([
+    'slack',
+    'signal_report',
+    'signals_scout',
+    'support_queue',
+    'session_summaries',
+    'error_tracking',
+    'eval_clusters',
+    'task_analysis',
+])
 
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
@@ -63,6 +84,36 @@ export function activeCloudRunId(item: TodayWorkItem): string | null {
         : null
 }
 
+/** What a session's menus and its hover card act on. */
+export interface TodaySessionMenuTarget {
+    /** The row or card that owns the follow-up dialogs, so they outlive the menu that opened them. */
+    menuId: string
+    sessionId: string
+    title: string
+    pinned: boolean
+    spaceId: string | null
+    canHandOff: boolean
+    analysisRunId: string | null
+    /** The latest run while it is an active cloud run: it can be stopped, and archiving asks first. */
+    activeRunId: string | null
+}
+
+export function sessionMenuTarget(
+    item: TodayWorkItem,
+    { menuId, pinned, userId }: { menuId: string; pinned: boolean; userId: number | null | undefined }
+): TodaySessionMenuTarget {
+    return {
+        menuId,
+        sessionId: item.id,
+        title: item.title,
+        pinned,
+        spaceId: item.channel,
+        canHandOff: canHandOff(item, userId),
+        analysisRunId: analysisRunId(item),
+        activeRunId: activeCloudRunId(item),
+    }
+}
+
 function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {
     const message = output?.final_message
     return typeof message === 'string' && message.trim() ? message.trim() : null
@@ -84,6 +135,7 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
+        branch: task.latest_run?.branch || null,
         pullRequests: taskPullRequests(task.latest_run?.output),
         finalMessage: finalMessage(task.latest_run?.output),
     }
@@ -105,9 +157,59 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
+        branch: null,
         pullRequests: [],
         finalMessage: null,
     }
+}
+
+export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
+    const badges: TodaySessionBadge[] = []
+    if (item.originProduct && BADGE_SOURCES.has(item.originProduct)) {
+        badges.push({ kind: 'source', source: item.originProduct })
+    }
+    const [pullRequest] = item.pullRequests
+    if (pullRequest) {
+        badges.push({ kind: 'pullRequest', pullRequest })
+    }
+    if (badges.length === 0 && item.runEnvironment === 'local') {
+        badges.push({ kind: 'local' })
+    }
+    return badges
+}
+
+/** "2h ago", with the exact time for the tooltip. The same scale as PostHog Desktop's row details. */
+export function activityDetail(
+    timestamp: string | null,
+    now: Dayjs = dayjs()
+): Omit<TodayListItemDetail, 'field'> | null {
+    if (!timestamp) {
+        return null
+    }
+    const age = shortTimeAgo(timestamp, now)
+    return { text: age === 'now' ? 'just now' : `${age} ago`, title: dayjs(timestamp).format('LLL') }
+}
+
+/** The second line under a session row's title, in the order the person chose. */
+export function sessionDetails(
+    item: TodayWorkItem,
+    fields: readonly TodayListItemField[],
+    spaceNames: Record<string, string>,
+    now: Dayjs = dayjs()
+): TodayListItemDetail[] {
+    if (!fields.length) {
+        return []
+    }
+    return listItemDetails(
+        {
+            space: item.channel ? spaceNames[item.channel] : null,
+            repository: item.repository,
+            branch: item.branch,
+            creator: item.author ? taskUserName(item.author) : null,
+            activity: activityDetail(item.timestamp, now),
+        },
+        fields
+    )
 }
 
 export function buildRecentItems(
