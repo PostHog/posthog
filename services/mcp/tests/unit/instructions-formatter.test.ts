@@ -508,6 +508,17 @@ describe('InstructionsFormatter', () => {
             expect(cellsOn).toContain('### Python in an analysis')
             expect(cellsOn).toContain("cell_type: 'python'")
 
+            // A connection can carry the cell tools without execute-sql, which needs another scope.
+            const sqlSection = (text: string): string =>
+                text.slice(text.indexOf('### SQL in an analysis'), text.indexOf('### Python in an analysis'))
+            expect(sqlSection(cellsOn)).toContain('`execute-sql`')
+            const withoutExecuteSql = render(formatter, {
+                ...fullCtx,
+                notebookCellsEnabled: true,
+                tools: fullCtx.tools?.filter(({ name }) => name !== 'execute-sql'),
+            })
+            expect(sqlSection(withoutExecuteSql)).not.toContain('execute-sql')
+
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
             expect(cellsOff).not.toContain('### SQL in an analysis')
             expect(cellsOff).not.toContain('### Python in an analysis')

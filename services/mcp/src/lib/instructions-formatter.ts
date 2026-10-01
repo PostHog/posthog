@@ -89,6 +89,9 @@ function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
     const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
     const runAll = available('notebooks-run') ? ', or all at once with `notebooks-run`' : ''
     return {
+        throwaway_checks: available('execute-sql')
+            ? " Use `execute-sql` only for throwaway checks the notebook does not rely on, like confirming a table's columns."
+            : '',
         fix_in_place:
             available('notebooks-update-cell') && available('notebooks-delete-cell')
                 ? '- Fix a failing or wrong query in the same cell with `notebooks-update-cell`, and remove dead ends with `notebooks-delete-cell`, so the notebook keeps only the steps the conclusion rests on.'
