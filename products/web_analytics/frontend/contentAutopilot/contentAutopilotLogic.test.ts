@@ -136,18 +136,29 @@ describe('contentAutopilotLogic', () => {
         return logic
     }
 
-    it('drafts only the selected opportunities for the current site and clears the selection', async () => {
-        const mountedLogic = await mountWorkspace()
-        const [first, second] = EXAMPLE_OPPORTUNITIES
+    it('shows saved opportunities while the refresh runs and keeps rows the refresh response leaves out', async () => {
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const pendingRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        mockOpportunitiesRefresh.mockReturnValue(pendingRefresh.promise)
+        logic = contentAutopilotLogic()
+        logic.mount()
 
-        expect(jest.mocked(webAnalyticsContentAutopilotOpportunitiesList)).toHaveBeenCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            { limit: 100, offset: 0, profile_id: EXAMPLE_PROFILE.id }
-        )
+        await expectLogic(logic).toDispatchActions(['loadOpportunitiesSuccess', 'refreshOpportunities'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
         expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
         expect(mockOpportunitiesRefresh).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             profile_id: EXAMPLE_PROFILE.id,
         })
+
+        pendingRefresh.resolve([first])
+        await expectLogic(logic).toDispatchActions(['refreshOpportunitiesSuccess'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
+    })
+
+    it('drafts only the selected opportunities for the current site and clears the selection', async () => {
+        const mountedLogic = await mountWorkspace()
+        const [first, second] = EXAMPLE_OPPORTUNITIES
+
         expect(mountedLogic.values.draftDisabledReason).toEqual('Select at least one opportunity')
 
         mountedLogic.actions.setOpportunitySearch(first.title.toUpperCase())

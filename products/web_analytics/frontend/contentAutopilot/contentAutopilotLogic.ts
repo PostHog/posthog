@@ -81,6 +81,11 @@ const fetchAllPages = async <T>(
     }
 }
 
+const fetchOpportunities = (teamId: string, profileId: string): Promise<ContentAutopilotOpportunityApi[]> =>
+    fetchAllPages((offset, limit) =>
+        webAnalyticsApi.webAnalyticsContentAutopilotOpportunitiesList(teamId, { limit, offset, profile_id: profileId })
+    )
+
 const withoutWorkspaceError = (
     errors: ContentAutopilotWorkspaceErrors,
     resource: ContentAutopilotWorkspaceResource
@@ -772,12 +777,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     if (!profile) {
                         return []
                     }
-                    const opportunities = await fetchAllPages((offset, limit) =>
-                        webAnalyticsApi.webAnalyticsContentAutopilotOpportunitiesList(
-                            String(values.currentTeamIdStrict),
-                            { limit, offset, profile_id: profile.id }
-                        )
-                    )
+                    const opportunities = await fetchOpportunities(String(values.currentTeamIdStrict), profile.id)
                     breakpoint()
                     return opportunities
                 },
@@ -786,10 +786,12 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     if (!profile) {
                         return []
                     }
-                    const opportunities = await webAnalyticsApi.webAnalyticsContentAutopilotOpportunitiesRefresh(
-                        String(values.currentTeamIdStrict),
-                        { profile_id: profile.id }
-                    )
+                    const teamId = String(values.currentTeamIdStrict)
+                    await webAnalyticsApi.webAnalyticsContentAutopilotOpportunitiesRefresh(teamId, {
+                        profile_id: profile.id,
+                    })
+                    breakpoint()
+                    const opportunities = await fetchOpportunities(teamId, profile.id)
                     breakpoint()
                     return opportunities
                 },
