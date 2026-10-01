@@ -327,7 +327,7 @@ export async function getInsightWithRetry(
     dashboardId: number,
     queryId: string,
     refresh: 'force_blocking' | 'blocking',
-    methodOptions?: ApiMethodOptions,
+    options?: ApiMethodOptions & { onCapacityWaitChange?: (waiting: boolean) => void },
     filtersOverride?: DashboardFilter,
     variablesOverride?: Record<string, HogQLVariable>,
     tileFiltersOverride?: TileFilters,
@@ -335,6 +335,7 @@ export async function getInsightWithRetry(
     initialDelay: number = 1200,
     maxRetryTimeMs: number = 90_000
 ): Promise<InsightModel | null> {
+    const { onCapacityWaitChange, ...methodOptions } = options ?? {}
     // Check if user has access to this insight before making API calls
     const canViewInsight = insight.user_access_level
         ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
@@ -349,7 +350,7 @@ export async function getInsightWithRetry(
     let rateLimitedAttempts = 0
     const retryDeadline = performance.now() + maxRetryTimeMs
 
-    const waitForRetry = async (retryAfterSeconds?: number): Promise<boolean> => {
+    const waitForRetry = async (retryAfterSeconds?: number, atCapacity = false): Promise<boolean> => {
         if (methodOptions?.signal?.aborted) {
             throw new DOMException('Aborted', 'AbortError')
         }
@@ -360,7 +361,16 @@ export async function getInsightWithRetry(
         if (performance.now() + waitMs >= retryDeadline) {
             return false
         }
-        await delay(waitMs, methodOptions?.signal)
+        if (atCapacity) {
+            onCapacityWaitChange?.(true)
+        }
+        try {
+            await delay(waitMs, methodOptions?.signal)
+        } finally {
+            if (atCapacity) {
+                onCapacityWaitChange?.(false)
+            }
+        }
         // A background tab can resume after the scheduled timer and the retry window have passed.
         return performance.now() < retryDeadline
     }
@@ -402,7 +412,7 @@ export async function getInsightWithRetry(
                 rateLimitedAttempts++
 
                 // Async fallback also starts a query, so it must respect the same cooldown.
-                if (!(await waitForRetry(result.query_status.retry_after))) {
+                if (!(await waitForRetry(result.query_status.retry_after, true))) {
                     return result
                 }
 
@@ -491,7 +501,8 @@ export async function getInsightWithRetry(
             }
 
             attempt++
-            if (attempt >= maxAttempts || !(await waitForRetry(getRetryAfterSeconds(e)))) {
+            const atCapacity = e instanceof ApiError && (e.status === 429 || e.status === 503)
+            if (attempt >= maxAttempts || !(await waitForRetry(getRetryAfterSeconds(e), atCapacity))) {
                 throw e // Re-throw the error after max attempts
             }
         }

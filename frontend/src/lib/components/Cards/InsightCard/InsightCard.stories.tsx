@@ -2,7 +2,14 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { TileFilters } from '~/queries/schema/schema-general'
-import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, InsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    DashboardPlacement,
+    DashboardTile,
+    InsightColor,
+    InsightShortId,
+    InsightModel,
+} from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -215,6 +222,30 @@ export const InsightCard: Story = {
             </div>
         )
     },
+}
+
+export const WaitingForCapacity: Story = {
+    args: { loading: true, loadingQueued: true, waitingForCapacity: true },
+    render: (args) => (
+        <div className="flex flex-wrap items-start gap-4">
+            {[true, false].map((hasCachedResult) => (
+                <div key={String(hasCachedResult)} className="w-96 max-w-full h-[30rem]">
+                    <InsightCardComponent
+                        {...args}
+                        insight={
+                            {
+                                ...EXAMPLE_TRENDS,
+                                short_id: hasCachedResult ? 'cached-retry' : 'first-load-retry',
+                                name: hasCachedResult ? 'Pageviews' : 'Pageviews (first load)',
+                                result: hasCachedResult ? EXAMPLE_TRENDS.result : null,
+                            } as unknown as InsightModel
+                        }
+                        placement={DashboardPlacement.Dashboard}
+                    />
+                </div>
+            ))}
+        </div>
+    ),
 }
 
 export const ErrorStates: Story = {

@@ -309,6 +309,7 @@ describe('getInsightWithRetry', () => {
         'honors retry guidance from %s before requesting again',
         async (source) => {
             jest.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+            const onCapacityWaitChange = jest.fn()
             const getResponse = jest.spyOn(api, 'getResponse')
             const headers = new Headers({
                 'Retry-After': source === '503 with HTTP date' ? 'Thu, 01 Jan 2026 00:00:47 GMT' : '47',
@@ -316,12 +317,14 @@ describe('getInsightWithRetry', () => {
             getResponse.mockRejectedValueOnce(new ApiError('Busy', source === '429' ? 429 : 503, headers))
             getResponse.mockResolvedValue(insightResponse({ ...insight, result: [] }))
 
-            const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking')
+            const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', { onCapacityWaitChange })
             await jest.advanceTimersByTimeAsync(46_999)
             expect(getResponse).toHaveBeenCalledTimes(1)
+            expect(onCapacityWaitChange.mock.calls).toEqual([[true]])
             await jest.advanceTimersByTimeAsync(1)
             expect((await request)?.result).toEqual([])
             expect(getResponse).toHaveBeenCalledTimes(2)
+            expect(onCapacityWaitChange.mock.calls).toEqual([[true], [false]])
         }
     )
 
@@ -398,16 +401,21 @@ describe('getInsightWithRetry', () => {
     })
 
     it('submits the async fallback after one tile cooldown, without another blocking attempt', async () => {
+        const onCapacityWaitChange = jest.fn()
         jest.spyOn(lemonToast, 'error').mockImplementation()
         const getResponse = jest
             .spyOn(api, 'getResponse')
             .mockResolvedValue(
                 insightResponse({ ...insight, result: null, query_status: { ...capacityStatus, retry_after: 30 } })
             )
-        const get = jest.spyOn(api, 'get').mockResolvedValue({})
-        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking')
+        const get = jest.spyOn(api, 'get').mockImplementation(async () => {
+            expect(onCapacityWaitChange).toHaveBeenLastCalledWith(false)
+            return {}
+        })
+        const request = getInsightWithRetry(1, insight, 60, 'q', 'blocking', { onCapacityWaitChange })
         await jest.advanceTimersByTimeAsync(29_999)
         expect(get).not.toHaveBeenCalled()
+        expect(onCapacityWaitChange.mock.calls).toEqual([[true]])
         await jest.advanceTimersByTimeAsync(1)
         await request
         expect(get).toHaveBeenCalledTimes(1)
@@ -419,6 +427,7 @@ describe('getInsightWithRetry', () => {
         { name: 'a 503 hint longer than the budget', status: 503, retryAfter: '120', expectedRequests: 1 },
         { name: 'repeated 503 hints', status: 503, retryAfter: '30', expectedRequests: 2 },
     ])('stops HTTP retries within the retry budget for $name', async ({ status, retryAfter, expectedRequests }) => {
+        const onCapacityWaitChange = jest.fn()
         const error = new ApiError('Busy', status, new Headers({ 'Retry-After': retryAfter }))
         const getResponse = jest.spyOn(api, 'getResponse').mockRejectedValue(error)
         const request = getInsightWithRetry(
@@ -427,7 +436,7 @@ describe('getInsightWithRetry', () => {
             60,
             'q',
             'blocking',
-            undefined,
+            { onCapacityWaitChange },
             undefined,
             undefined,
             undefined,
@@ -437,6 +446,7 @@ describe('getInsightWithRetry', () => {
         )
         await Promise.all([expect(request).rejects.toBe(error), jest.runAllTimersAsync()])
         expect(getResponse).toHaveBeenCalledTimes(expectedRequests)
+        expect(onCapacityWaitChange.mock.calls).toEqual(expectedRequests === 1 ? [] : [[true], [false]])
     })
 
     it('does not retry when a suspended tab resumes after the retry deadline', async () => {
@@ -490,6 +500,7 @@ describe('getInsightWithRetry', () => {
         'cancels %s without sending another request',
         async (stage) => {
             const controller = new AbortController()
+            const onCapacityWaitChange = jest.fn()
             const getResponse = jest
                 .spyOn(api, 'getResponse')
                 .mockResolvedValue(
@@ -505,7 +516,7 @@ describe('getInsightWithRetry', () => {
                 60,
                 'q',
                 'blocking',
-                { signal: controller.signal },
+                { signal: controller.signal, onCapacityWaitChange },
                 undefined,
                 undefined,
                 undefined,
@@ -518,6 +529,7 @@ describe('getInsightWithRetry', () => {
             await jest.runAllTimersAsync()
             expect(getResponse).toHaveBeenCalledTimes(stage === 'before first request' ? 0 : 1)
             expect(get).not.toHaveBeenCalled()
+            expect(onCapacityWaitChange.mock.calls).toEqual(stage === 'before first request' ? [] : [[true], [false]])
         }
     )
 
@@ -527,6 +539,7 @@ describe('getInsightWithRetry', () => {
         ['a 500 (transient server error)', MAX_ATTEMPTS, 500],
         ['a network failure without a status', MAX_ATTEMPTS, undefined],
     ])('on %s, requests %i time(s) before throwing', async (_, expectedAttempts, status) => {
+        const onCapacityWaitChange = jest.fn()
         const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('some error', status))
 
         const request = getInsightWithRetry(
@@ -535,7 +548,7 @@ describe('getInsightWithRetry', () => {
             60,
             'query-id',
             'blocking',
-            undefined,
+            { onCapacityWaitChange },
             undefined,
             undefined,
             undefined,
@@ -544,6 +557,7 @@ describe('getInsightWithRetry', () => {
         )
         await Promise.all([expect(request).rejects.toThrow('some error'), jest.runAllTimersAsync()])
         expect(getResponseSpy).toHaveBeenCalledTimes(expectedAttempts)
+        expect(onCapacityWaitChange.mock.calls).toEqual(status === 429 ? [[true], [false], [true], [false]] : [])
     })
 
     it.each([
