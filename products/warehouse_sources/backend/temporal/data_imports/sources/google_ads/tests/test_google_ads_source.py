@@ -983,6 +983,10 @@ class TestTransientGrpcErrorDetection:
             # A bare UNKNOWN status carrying Google's own auth-backend hiccup message is a confirmed
             # transient backend incident, not a rejected credential — ride it out in-process.
             (google_api_exceptions.Unknown("Authentication backend unknown error."), True),
+            # A bare UNKNOWN status carrying "Stream removed" is a peer-initiated HTTP/2 stream reset
+            # (e.g. a load balancer recycling the connection), not an application failure — ride it
+            # out in-process the same way.
+            (google_api_exceptions.Unknown("Stream removed"), True),
             # Any other UNKNOWN-status error must not be retried blindly — the status alone is too
             # broad a signal, so only the specific known message is treated as transient.
             (google_api_exceptions.Unknown("Some other unrelated backend failure."), False),

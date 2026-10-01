@@ -26,7 +26,13 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
 )
-from products.replay_vision.backend.temporal.scanners.summarizer import summary_embedding_text
+from products.replay_vision.backend.temporal.scanners.summarizer import (
+    IdleBreak,
+    SummaryChapter,
+    SummaryChapterResponse,
+    chapter_target,
+    summary_embedding_text,
+)
 from products.replay_vision.backend.temporal.types import EventTable, ScannerCallOutput
 
 
@@ -734,7 +740,12 @@ class TestSummarizerScanner:
         assert "3-5 paragraphs" in long.core_steps()[0].instruction
 
     def test_output_round_trip(self) -> None:
-        out = SummarizerOutput(title="User onboarded", summary="They walked through the demo.", confidence=0.9)
+        out = SummarizerOutput(
+            title="User onboarded",
+            summary="They walked through the demo.",
+            confidence=0.9,
+            chapters=[SummaryChapter(start_ms=0, end_ms=12_000, title="Opens the demo", thumbnail_ms=6_000)],
+        )
         round_tripped = SummarizerOutput.model_validate_json(out.model_dump_json())
         assert round_tripped == out
 
@@ -764,6 +775,23 @@ class TestSummarizerScannerSteps:
         )
         assert "naming convention" in scanner.core_steps()[0].instruction
 
+    @pytest.mark.parametrize("video_s,expected", [(60, 3), (864, 10), (7200, 20)])
+    def test_chapter_target_scales_with_the_video_length(self, video_s: float, expected: int) -> None:
+        assert chapter_target(video_s) == expected
+        scanner = SummarizerScanner(prompt="p", chapter_target=chapter_target(video_s))
+        assert f"Aim for about {expected} chapters" in scanner.core_steps()[0].instruction
+
+    def test_summary_step_names_the_long_idle_breaks_the_video_cut(self) -> None:
+        scanner = SummarizerScanner(prompt="p")
+        assert "idle for a long time" not in scanner.core_steps()[0].instruction
+
+        with_breaks = scanner.model_copy(
+            update={"long_idle_breaks": (IdleBreak(video_s=92, idle_s=240), IdleBreak(video_s=300, idle_s=70))}
+        )
+        instruction = with_breaks.core_steps()[0].instruction
+        assert "video second 92, after about 4 minutes idle" in instruction
+        assert "video second 300, after about 1 minute idle" in instruction
+
     def test_summary_step_opts_into_citations(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
@@ -775,11 +803,31 @@ class TestSummarizerScannerSteps:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
-        summary = SummarizerSummaryResponse(title="Onboarding", summary="Walked through demo", confidence=0.8)
+        summary = SummarizerSummaryResponse(
+            title="Onboarding",
+            summary="Walked through demo",
+            confidence=0.8,
+            chapters=[SummaryChapterResponse(start_t=0, title="Opens the demo", thumbnail_t=3)],
+        )
         out, signals = scanner.assemble({"core": summary})
         assert isinstance(out, SummarizerOutput)
         assert (out.title, out.summary, out.confidence) == ("Onboarding", "Walked through demo", 0.8)
+        assert out.chapters == []
         assert signals == []
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("Checkout fails (t 42)", "Checkout fails"),
+            ("Browses the pricing page.", "Browses the pricing page"),
+            (
+                "Walks through every single step of the onboarding flow today",
+                "Walks through every single step of the onboarding",
+            ),
+        ],
+    )
+    def test_chapter_title_is_a_short_plain_heading(self, raw: str, expected: str) -> None:
+        assert SummaryChapterResponse(start_t=0, title=raw).title == expected
 
     def test_output_round_trip_ignores_legacy_facet_fields(self) -> None:
         # Rows written by the old facet turn still load; the extra keys are dropped rather than rejected.
@@ -808,13 +856,14 @@ class TestSummaryEmbeddingText:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        # Notability rides onto the event too, so it is queryable in insights alongside the verdict.
+        # Notability and the key moment ride onto the event too, so they are queryable in insights alongside the verdict.
         out = MonitorOutput(
             verdict="yes",
             reasoning="found it",
             confidence=0.9,
             notability=0.8,
             notability_reason="the export failed twice",
+            key_moment_ms=42_000,
         )
         props = out.to_event_properties()
         assert props == {
@@ -824,6 +873,7 @@ class TestToEventProperties:
             "scanner_output_confidence": 0.9,
             "scanner_output_notability": 0.8,
             "scanner_output_notability_reason": "the export failed twice",
+            "scanner_output_key_moment_ms": 42_000,
         }
 
     def test_unjudged_notability_flattens_as_null_not_zero(self) -> None:
@@ -832,6 +882,20 @@ class TestToEventProperties:
         props = out.to_event_properties()
         assert props["scanner_output_notability"] is None
         assert props["scanner_output_notability_reason"] is None
+
+    def test_summary_chapters_flatten_to_a_count(self) -> None:
+        out = SummarizerOutput(
+            title="t",
+            summary="s",
+            confidence=0.9,
+            chapters=[
+                SummaryChapter(start_ms=0, end_ms=5_000, title="Opens app", thumbnail_ms=2_000),
+                SummaryChapter(start_ms=5_000, end_ms=9_000, title="Leaves", thumbnail_ms=7_000),
+            ],
+        )
+        props = out.to_event_properties()
+        assert props["scanner_output_chapter_count"] == 2
+        assert "scanner_output_chapters" not in props
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.

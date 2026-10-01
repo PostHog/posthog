@@ -32,7 +32,7 @@ class TestGetRunSnapshots:
             team_id=repo.team_id,
         )
 
-        snapshots = run_queries.get_run_snapshots(run.id)
+        snapshots = list(run_queries.run_snapshots(run))
 
         assert len(snapshots) == 3
         # Should be ordered by identifier

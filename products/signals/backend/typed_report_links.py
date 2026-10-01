@@ -25,7 +25,7 @@ from posthog.event_usage import groups
 from posthog.models import Team
 
 from products.signals.backend.artefact_schemas import ReportLink
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 
 logger = structlog.get_logger(__name__)
@@ -200,7 +200,14 @@ def has_open_or_merged_pull_request(*, team_id: int, report_ids: Collection[str]
     return {report_id for report_id, prs in prs_by_report.items() if any(pr.state in live_states for pr in prs)}
 
 
-def capture_report_linked(*, team_id: int, edge: ReportEdge, actor_kind: str | None, actor_agent: str | None) -> None:
+def capture_report_linked(
+    *,
+    team_id: int,
+    edge: ReportEdge,
+    actor_kind: str | None,
+    actor_agent: str | None,
+    write_path: ReportLinkWritePath | None,
+) -> None:
     """`signals_report_linked` — one event per stored link, so the share of reports that carry each
     kind of edge becomes readable.
 
@@ -225,6 +232,7 @@ def capture_report_linked(*, team_id: int, edge: ReportEdge, actor_kind: str | N
                 "has_reason": bool(edge.reason),
                 "actor_kind": actor_kind,
                 "actor_agent": actor_agent,
+                "write_path": write_path.value if write_path is not None else None,
             },
             groups=groups(team.organization, team),
         )

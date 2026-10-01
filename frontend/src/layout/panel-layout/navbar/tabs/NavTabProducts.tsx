@@ -9,6 +9,7 @@ import { getSidebarProduct } from '../../ProjectTree/defaultTree'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
+import { sidebarProductMeta } from '../../sidebarProductMeta'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
@@ -16,7 +17,7 @@ import { NavProductTooltip } from './NavProductTooltip'
 
 export function NavTabProducts(): JSX.Element {
     const { pinnedItems, groupedItems, allProductsVisible, allProductsCollapsible } = useValues(navProductsTabLogic)
-    const { setAllProductsOpen } = useActions(navProductsTabLogic)
+    const { setAllProductsOpen, revealAllProductsForFind } = useActions(navProductsTabLogic)
     // Fade only on a toggle the user makes, not on the first render after starred items load. A height
     // slide over the whole product list moves too far to read, so the panel opens in place.
     const [animatePanel, setAnimatePanel] = useState(false)
@@ -60,6 +61,10 @@ export function NavTabProducts(): JSX.Element {
                                     const product = getSidebarProduct(treeItem.record?.href)
                                     return product ? <NavProductTooltip item={product} /> : undefined
                                 }}
+                                renderItemTooltipDocLink={(treeItem) => {
+                                    const product = getSidebarProduct(treeItem.record?.href)
+                                    return product ? sidebarProductMeta(product).docsHref : undefined
+                                }}
                             />
                         </div>
                     </section>
@@ -67,7 +72,12 @@ export function NavTabProducts(): JSX.Element {
                 {groupedItems.length > 0 ? (
                     <Collapsible
                         open={allProductsVisible}
-                        onOpenChange={(open) => {
+                        onOpenChange={(open, eventDetails) => {
+                            // A find-in-page match opens the list for this visit only.
+                            if (open && eventDetails.event?.type === 'beforematch') {
+                                revealAllProductsForFind()
+                                return
+                            }
                             setAnimatePanel(true)
                             setAllProductsOpen(open)
                         }}
@@ -83,6 +93,7 @@ export function NavTabProducts(): JSX.Element {
                             </Collapsible.Trigger>
                         )}
                         <Collapsible.Panel
+                            hiddenUntilFound
                             className={cn(
                                 'gap-3 transition-opacity duration-150 ease-out data-[starting-style]:opacity-0 data-[ending-style]:opacity-0',
                                 !animatePanel && 'transition-none',

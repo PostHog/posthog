@@ -50,6 +50,14 @@ export const DashboardTileCreateSchema = z.object({
         .describe(
             'Markdown body. For image, provide exactly one Markdown image. For text, provide Markdown content that is not an image-only body.'
         ),
+    agent_context: z
+        .string()
+        .max(10000)
+        .nullable()
+        .optional()
+        .describe(
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
+        ),
     layouts: z
         .object({
             sm: DashboardTileLayoutSchema.optional(),

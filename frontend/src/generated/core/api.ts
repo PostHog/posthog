@@ -28,6 +28,8 @@ import type {
     EventIngestionRestrictionApi,
     EventMatchRequestApi,
     EventMatchResponseApi,
+    EventPropertyValuesResponseApi,
+    EventsValuesRetrieveParams,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -36,6 +38,7 @@ import type {
     FileSystemHomeFolderApi,
     FileSystemListParams,
     FileSystemShortcutApi,
+    FileSystemShortcutBulkUpdateApi,
     FileSystemShortcutListParams,
     FileSystemShortcutReorderApi,
     GitHubBranchesResponseApi,
@@ -1597,6 +1600,45 @@ export const emojiSearchSuggestRetrieve = async (
     })
 }
 
+export const getEventsValuesRetrieveUrl = (projectId: string, params: EventsValuesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        const explodeParameters = ['event_name']
+
+        if (Array.isArray(value) && explodeParameters.includes(key)) {
+            value.forEach((v) => {
+                normalizedParams.append(key, v === null ? 'null' : String(v))
+            })
+            return
+        }
+
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events/values/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events/values/`
+}
+
+/**
+ * List values of an event property from recent events.
+ */
+export const eventsValuesRetrieve = async (
+    projectId: string,
+    params: EventsValuesRetrieveParams,
+    options?: RequestInit
+): Promise<EventPropertyValuesResponseApi> => {
+    return apiMutator<EventPropertyValuesResponseApi>(getEventsValuesRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2044,6 +2086,26 @@ export const fileSystemShortcutDestroy = async (
     return apiMutator<void>(getFileSystemShortcutDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getFileSystemShortcutBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/file_system_shortcut/bulk_update/`
+}
+
+/**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreate = async (
+    projectId: string,
+    fileSystemShortcutBulkUpdateApi?: FileSystemShortcutBulkUpdateApi,
+    options?: RequestInit
+): Promise<FileSystemShortcutApi[]> => {
+    return apiMutator<FileSystemShortcutApi[]>(getFileSystemShortcutBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(fileSystemShortcutBulkUpdateApi),
     })
 }
 
