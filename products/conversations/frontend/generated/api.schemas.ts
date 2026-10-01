@@ -481,7 +481,7 @@ export const TicketMessageTypeEnumApi = {
 export interface TicketMessageApi {
     /** Message (comment) UUID. */
     readonly id: string
-    /** What the message is, and whether the customer received it. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.
+    /** What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.
      *
      * * `customer_message` - Customer message
      * * `sent_reply` - Sent reply
