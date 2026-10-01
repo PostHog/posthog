@@ -527,7 +527,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,
@@ -560,7 +560,7 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,

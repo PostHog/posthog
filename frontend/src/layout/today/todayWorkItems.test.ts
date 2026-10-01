@@ -19,6 +19,7 @@ import {
     canHandOff,
     chatItem,
     groupByDay,
+    sessionBadges,
     sessionDetails,
     sessionItem,
     shortTimeAgo,
@@ -208,6 +209,37 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(activeCloudRunId(item)).toBe(runId)
+    })
+
+    it.each<[string, string, string, Record<string, unknown>, string[]]>([
+        [
+            'the Slack source before the pull request',
+            'slack',
+            'cloud',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            ['source:slack', 'pullRequest'],
+        ],
+        ['the source of another product', 'error_tracking', 'cloud', {}, ['source:error_tracking']],
+        ['nothing for a session someone started', 'user_created', 'cloud', {}, []],
+        ['Local when nothing else shows', 'user_created', 'local', {}, ['local']],
+        [
+            'only the pull request for a local run that has one',
+            'user_created',
+            'local',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            ['pullRequest'],
+        ],
+    ])('shows %s as session badges', (_name, origin, environment, output, expected) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            origin_product: origin,
+            latest_run: { environment, output },
+        } as unknown as TaskListItemApi)
+
+        expect(
+            sessionBadges(item).map((badge) => (badge.kind === 'source' ? `source:${badge.source}` : badge.kind))
+        ).toEqual(expected)
     })
 
     it.each([

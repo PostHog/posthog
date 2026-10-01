@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-attention-pull-requests:
+        operation: engineering_analytics_attention_pull_requests
+        enabled: false
     engineering-analytics-author-friction:
         operation: engineering_analytics_author_friction
         enabled: false
@@ -362,8 +365,8 @@ tools:
             ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR
             verifiably never drafted. Null means "not observed" (the issue-events window is bounded), never zero. CI
             counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook
-            settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput
-            questions.
+            settles a late completion. Cost and billable minutes can lag new CI by up to 5 minutes. Bots and drafts are
+            present; exclude them (author.is_bot, is_draft) for throughput questions.
         param_overrides:
             date_from:
                 description: >
