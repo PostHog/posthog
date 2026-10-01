@@ -1270,8 +1270,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
 
-    The events and flag_evaluations sources share one checkpoint.
-
     This task:
     1. Uses Redis locking to prevent concurrent executions
     2. Gets the last sync timestamp from Redis checkpoint
@@ -1302,6 +1300,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+    # Both sources share this checkpoint, so a source switch resumes where the old source stopped.
+    # last_called_at only moves forward, so a call that both sources read at the switch changes nothing.
     FEATURE_FLAG_LAST_CALLED_SYNC_KEY = "posthog:feature_flag_last_called_sync:last_timestamp"
     LOCK_KEY = "posthog:feature_flag_last_called_sync:lock"
     LOCK_TIMEOUT = 1800  # 30 minutes = schedule interval (prevents concurrent execution)

@@ -53,6 +53,8 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
 )
 # Use "flag_evaluations" only where ingestion forks every team's flag calls into that table. The historical
 # and async ingestion lanes never fork, so calls ingested on them do not move last_called_at with this source.
+# Disabling the fork also stops last_called_at with this source, and the checkpoint keeps moving past the missed
+# calls. Switch this back to "events" before disabling the fork.
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: str = get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE", "events")
 # Both source tables are Distributed reads that either replica of a shard can answer, so rows
 # inserted moments ago may be missing from whichever one serves a given query.
