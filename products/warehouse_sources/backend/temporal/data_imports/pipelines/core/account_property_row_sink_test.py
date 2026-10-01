@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
     ABANDONED_STAGED_PREFIX_TTL,
     AccountPropertyRowSink,
+    AccountPropertyStagingTableNotCommittedError,
     _is_missing_object_error,
 )
 
@@ -302,6 +303,51 @@ async def test_stage_delta_snapshot_falls_back_to_latest_version_after_a_full_re
     stage_chunk.assert_awaited_once()
     assert stage_chunk.await_args is not None
     assert stage_chunk.await_args.args[1].to_pydict() == fresh_table.to_pydict()
+
+
+@pytest.mark.parametrize(
+    "pinned_version_error",
+    [
+        deltalake.exceptions.TableNotFoundError("Generic delta kernel error: No files in log segment"),
+        deltalake.exceptions.DeltaError(
+            "Kernel error: Generic delta kernel error: LogSegment end version 0 not the same "
+            "as the specified end version 7"
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stage_delta_snapshot_raises_a_retryable_error_while_a_full_refresh_empties_the_log(
+    pinned_version_error: Exception,
+) -> None:
+    sink = _sink()
+
+    def _open_delta_table(table_uri, version, storage_options):
+        if version == 7:
+            raise pinned_version_error
+        raise deltalake.exceptions.TableNotFoundError("Generic delta kernel error: No files in log segment")
+
+    with (
+        patch.object(
+            sink,
+            "_get_projection",
+            new=AsyncMock(
+                return_value=[
+                    AccountPropertySourceProjection(
+                        key_column="organization_id",
+                        columns=frozenset({"organization_id", "mrr"}),
+                    )
+                ]
+            ),
+        ),
+        patch.object(sink, "clear", new=AsyncMock()),
+        patch.object(sink, "stage_chunk", new=AsyncMock()) as stage_chunk,
+        patch(f"{_MODULE}.deltalake.DeltaTable", side_effect=_open_delta_table),
+        patch(f"{_MODULE}.delta_storage_options", return_value={"region_name": "us-east-1"}),
+        pytest.raises(AccountPropertyStagingTableNotCommittedError),
+    ):
+        await sink.stage_delta_snapshot("s3://data-warehouse/dlt/table", 7)
+
+    stage_chunk.assert_not_awaited()
 
 
 @pytest.mark.asyncio
