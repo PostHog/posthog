@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -35,7 +35,17 @@ import { OnboardingReplayButton } from '../../../components/onboarding/Onboardin
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
-export function TaskComposer(): JSX.Element {
+export interface TaskComposerProps {
+    /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
+    variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
+}
+
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
+    const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
     const {
@@ -74,6 +84,12 @@ export function TaskComposer(): JSX.Element {
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const frameRef = useRef<HTMLLabelElement>(null)
 
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
+
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
         if (item.requiresUserInput) {
@@ -82,13 +98,23 @@ export function TaskComposer(): JSX.Element {
     }
 
     return (
-        <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
-            <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
-                    {/* Temporary migration affordance — delete with the rest of the onboarding takeover
-                        once everyone is on the new PostHog AI. */}
-                    {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
-                </Welcome>
+        <div
+            className={
+                inline
+                    ? 'flex flex-col'
+                    : 'flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4'
+            }
+        >
+            <div
+                className={inline ? 'w-full flex flex-col gap-4' : 'w-full max-w-2xl flex flex-col items-center gap-4'}
+            >
+                {!inline && (
+                    <Welcome headline={displayHeadline} subheadline={composerOverride?.subheadline}>
+                        {/* Temporary migration affordance — delete with the rest of the onboarding takeover
+                            once everyone is on the new PostHog AI. */}
+                        {!composerOverride?.hideOnboardingReplay && <OnboardingReplayButton panelId={panelId} />}
+                    </Welcome>
+                )}
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}
@@ -127,7 +153,11 @@ export function TaskComposer(): JSX.Element {
                                     <Composer.Placeholder>
                                         {composerOverride?.placeholder ?? 'Describe the task in detail…'}
                                     </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus onPaste={onPaste} data-attr="task-composer-input" />
+                                    <Composer.Textarea
+                                        autoFocus={autoFocus}
+                                        onPaste={onPaste}
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker
