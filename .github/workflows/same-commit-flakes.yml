@@ -1,0 +1,61 @@
+name: Same-commit flake detection
+
+# A test that fails in one master run and passes in another run of the same job on the same commit
+# is flaky by definition, whatever Trunk's failure-rate classifier says. Several master runs share a
+# commit whenever master is quiet across the hourly lanes, or a push and an hourly run land on one
+# commit. This compares their JUnit artifacts and reports each disagreement as a warning
+# annotation and in the step summary. It changes nothing: quarantining stays a human decision.
+
+on:
+    workflow_run:
+        workflows: ['Frontend CI']
+        types: [completed]
+        branches: [master]
+
+permissions:
+    contents: read
+
+jobs:
+    detect:
+        name: Compare master runs on one commit
+        # A fork PR from a branch named master also passes the branches filter, so the head
+        # repository and event are checked too.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            github.event.workflow_run.head_repository.full_name == github.repository &&
+            (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') &&
+            github.event.workflow_run.conclusion != 'cancelled'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        permissions:
+            actions: read
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/same_commit_flakes.py
+                      .test_quarantine.json
+                      tools/hogli-commands/hogli_commands/__init__.py
+                      tools/hogli-commands/hogli_commands/quarantine/
+                      packages/owners-yaml
+                      owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
+
+            - name: Install uv
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Find same-commit disagreements
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_PATH: ${{ github.event.workflow_run.path }}
+              run: |
+                  uv run --script .github/scripts/same_commit_flakes.py \
+                      --workflow-path "$WORKFLOW_PATH" \
+                      --head-sha "$HEAD_SHA" \
+                      --repository "$GITHUB_REPOSITORY"
