@@ -1684,6 +1684,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "taskSpaceLoops": {
+        "template": "/spaces/{id}/loops",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskSpaceSettings": {
         "template": "/spaces/{id}/settings",
         "params": ["id"],

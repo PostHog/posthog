@@ -32,6 +32,7 @@ import { spaceLabel } from '~/layout/today/todaySpacesLogic'
 import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { SpaceFeed } from './SpaceFeed'
+import { SpaceLoops } from './SpaceLoops'
 import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 
@@ -43,6 +44,12 @@ const SPACE_COMPOSER_OVERRIDE = {
 }
 
 // The repository picker and the input frame at their loaded sizes, so the feed does not jump when the chunk lands.
+const TAB_URLS: Record<SpaceTab, (id: string) => string> = {
+    feed: urls.taskSpace,
+    loops: urls.taskSpaceLoops,
+    settings: urls.taskSpaceSettings,
+}
+
 const COMPOSER_SKELETON = (
     <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-36" />
@@ -58,6 +65,7 @@ export const scene: SceneExport<SpaceSceneLogicProps> = {
 
 export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const loopsEnabled = useFeatureFlag('LOOPS')
     const {
         space,
         spaceLoading,
@@ -132,10 +140,8 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 />
                 {/* Pulled up to the title and ruled off full width, like PostHog Desktop's space tabs. */}
                 <Tabs
-                    value={activeTab}
-                    onValueChange={(tab: SpaceTab) =>
-                        router.actions.push(tab === 'settings' ? urls.taskSpaceSettings(id) : urls.taskSpace(id))
-                    }
+                    value={activeTab === 'loops' && !loopsEnabled ? 'feed' : activeTab}
+                    onValueChange={(tab: SpaceTab) => router.actions.push(TAB_URLS[tab](id))}
                     className="-mt-4"
                     data-quill
                 >
@@ -144,6 +150,11 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             <TabsTrigger value="feed" data-attr="today-space-tab-feed">
                                 Activity
                             </TabsTrigger>
+                            {loopsEnabled && (
+                                <TabsTrigger value="loops" data-attr="today-space-tab-loops">
+                                    Loops
+                                </TabsTrigger>
+                            )}
                             <TabsTrigger value="settings" data-attr="today-space-tab-settings">
                                 Settings
                             </TabsTrigger>
@@ -171,6 +182,11 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                             <SpaceFeed id={id} />
                         </div>
                     </TabsContent>
+                    {loopsEnabled && (
+                        <TabsContent value="loops">
+                            <SpaceLoops id={id} />
+                        </TabsContent>
+                    )}
                     <TabsContent value="settings">
                         <SpaceSettings key={space?.id} id={id} />
                     </TabsContent>

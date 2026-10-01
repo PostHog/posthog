@@ -47,7 +47,7 @@ import { sessionIdsWithPullRequests, spacePullRequests } from './taskPullRequest
 
 const SPACE_FEED_LIMIT = 50
 
-export type SpaceTab = 'feed' | 'settings'
+export type SpaceTab = 'feed' | 'loops' | 'settings'
 
 export type SpaceFeedSourceStatus = 'hidden' | 'loading' | 'failed' | 'ready'
 
@@ -620,7 +620,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         activeTab: [
             () => [router.selectors.location],
             (location: { pathname: string }): SpaceTab =>
-                location.pathname.endsWith('/settings') ? 'settings' : 'feed',
+                location.pathname.endsWith('/settings')
+                    ? 'settings'
+                    : location.pathname.endsWith('/loops')
+                      ? 'loops'
+                      : 'feed',
         ],
         feedItems: [
             (s) => [s.sessions],

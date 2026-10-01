@@ -380,6 +380,8 @@ export const FEATURE_FLAGS = {
     LOGS_IMPACT_STRIP: 'logs-impact-strip', // owner: #team-logs
     LOGS_IN_ERROR_TRACKING: 'logs-in-error-tracking', // owner: @jonmcwest #team-logs
     LOGS_JSON_ATTRIBUTE_PARSING: 'logs-json-attribute-parsing', // owner: #team-logs
+    LOOPS: 'loops', // owner: #team-desktop, shows Loops in PostHog Desktop and the Loops tab of a space on web
+    LOOPS_HOG_FLOWS: 'loops-hog-flows', // owner: #team-desktop, stores Loops as workflows instead of rows in the loops API
     LOGS_SERVICES_VIEW: 'logs-services-view', // owner: #team-logs
     LOGS_SERVICES_VIEW_V2: 'logs-services-view-v2', // owner: #team-logs
     LOGS_SESSION_ERROR_BADGES: 'logs-session-error-badges', // owner: #team-logs
