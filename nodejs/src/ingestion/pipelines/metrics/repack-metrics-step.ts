@@ -59,7 +59,9 @@ function packInputs<T extends RepackMetricsInput>(values: T[], config: RepackMet
             packets.push(current)
         }
         current.members.push({ index, value })
-        current.records.push(...value.records)
+        for (const record of value.records) {
+            current.records.push(record)
+        }
         current.bytesUncompressed += value.bytesUncompressed
     })
 
