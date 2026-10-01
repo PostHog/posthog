@@ -10,18 +10,13 @@ import products.posthog_ai.backend.models.assistant
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("posthog_ai", "0001_initial"),
-        ("posthog_ai", "0002_migrate_posthog_ai_models"),
-        ("posthog_ai", "0003_conversation_topic"),
-        ("posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0117_task_set_null_cascade_indexes"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

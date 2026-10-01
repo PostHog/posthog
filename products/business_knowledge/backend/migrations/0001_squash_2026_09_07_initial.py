@@ -10,26 +10,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("business_knowledge", "0001_initial"),
-        ("business_knowledge", "0002_knowledgedocument_stable_id_max_length"),
-        ("business_knowledge", "0003_knowledgedocument_safety_reason_and_more"),
-        ("business_knowledge", "0004_bk_doc_pending_classify_index"),
-        ("business_knowledge", "0005_bk_doc_tombstoned_index"),
-        ("business_knowledge", "0006_bk_source_refresh_due_index"),
-        ("business_knowledge", "0007_knowledgedocument_classification_attempts"),
-        ("business_knowledge", "0008_knowledgechunk_content_search_vector"),
-        ("business_knowledge", "0009_bk_chunk_content_tsv_index"),
-        ("business_knowledge", "0010_knowledgedocument_embeddings_emitted_at"),
-        ("business_knowledge", "0011_bk_doc_embed_state_index"),
-        ("business_knowledge", "0012_knowledgesource_always_include"),
-        ("business_knowledge", "0013_bk_source_always_include_index"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

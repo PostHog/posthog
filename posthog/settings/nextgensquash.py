@@ -10,9 +10,6 @@ NEXTGENSQUASH = {
     # Created in the stub: bin/migrate runs migrate_clickhouse in parallel with
     # `manage.py migrate`, and it reads posthog_instancesetting.
     "EARLY_MODELS": {"posthog": ["instancesetting"]},
-    # The stub claims posthog's root so check_consistent_history stamps it on
-    # live databases (swappable deps resolve to ("posthog", "__first__")).
-    "STUB_CLAIMS": {"posthog": [["posthog", "0001_initial_squashed_0284_improved_caching_state_idx"]]},
     # The generated finalize files import these idempotent operations at
     # migrate time, so they stay in this repo instead of the package.
     "OPERATIONS_MODULE": "posthog.migration_helpers.squash_idempotent",

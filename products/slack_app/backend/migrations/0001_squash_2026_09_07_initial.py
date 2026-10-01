@@ -8,26 +8,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("slack_app", "0001_initial"),
-        ("slack_app", "0002_slackuserprofilecache_is_admin_and_more"),
-        ("slack_app", "0003_slacksettings"),
-        ("slack_app", "0004_slackuserprofilecache_refreshed_at"),
-        ("slack_app", "0005_slackchannel"),
-        ("slack_app", "0006_slackthreadtaskmapping_latest_actor_slack_user_id"),
-        ("slack_app", "0007_slackuserprofilecache_is_bot"),
-        ("slack_app", "0008_slackthreadtaskmapping_last_forwarded_ts"),
-        ("slack_app", "0009_slacksettings_ai_settings"),
-        ("slack_app", "0010_slacksettings_default_integration_nullable"),
-        ("slack_app", "0011_slacksettings_permission_modes"),
-        ("slack_app", "0012_slackthreadtaskmapping_workspace_created_idx"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0117_task_set_null_cascade_indexes"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -12,34 +12,12 @@ import products.logs.backend.models
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("logs", "0001_initial"),
-        ("logs", "0002_logsview"),
-        ("logs", "0003_alter_logsalertconfiguration_state"),
-        ("logs", "0004_logsalertevent"),
-        ("logs", "0005_logsalertevent_kind"),
-        ("logs", "0006_alter_logsalertconfiguration_check_interval_minutes"),
-        ("logs", "0007_backfill_check_interval_minutes"),
-        ("logs", "0008_logsalertevent_logs_alert_event_alert_ts_idx"),
-        ("logs", "0009_logsexclusionrule"),
-        ("logs", "0010_logsalertconfiguration_first_enabled_at"),
-        ("logs", "0011_backfill_first_enabled_at"),
-        ("logs", "0012_alter_logsalertevent_kind"),
-        ("logs", "0013_alter_logsalertconfiguration_threshold_count"),
-        ("logs", "0014_teamlogsconfig"),
-        ("logs", "0015_teamlogsconfig_logs_session_id_attribute_keys"),
-        ("logs", "0016_logsview_columns"),
-        ("logs", "0017_logsmetricrule"),
-        ("logs", "0018_teamlogsconfig_logs_distinct_id_attribute_keys"),
-        ("logs", "0019_backfill_logs_distinct_id_attribute_keys"),
-        ("logs", "0020_logsretentionrule"),
-        ("logs", "0021_logsalertconfiguration_schedule_restriction"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -12,7 +12,9 @@ class Migration(migrations.Migration):
 
     atomic = False
 
-    dependencies = [("stamphog", "0004_backfill_digest_run_destinations")]
+    dependencies = [
+        ("stamphog", "0001_squash_2026_09_07_initial"),
+    ]
 
     operations = [
         SafeAddIndexConcurrently(

@@ -8,42 +8,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("review_hog", "0001_initial"),
-        ("review_hog", "0002_alter_reviewreportartefact_type"),
-        ("review_hog", "0003_alter_reviewreportartefact_type"),
-        ("review_hog", "0004_alter_reviewreportartefact_type"),
-        ("review_hog", "0005_reviewreport_published_head_sha"),
-        ("review_hog", "0006_reviewskillconfig"),
-        ("review_hog", "0007_alter_reviewreportartefact_type"),
-        ("review_hog", "0008_reviewusersettings"),
-        ("review_hog", "0009_reviewreport_acting_user"),
-        ("review_hog", "0010_remove_reviewreport_unique_review_report_per_pr_and_more"),
-        ("review_hog", "0011_reviewreport_reviewhog_rpt_recent_idx"),
-        ("review_hog", "0012_alter_reviewreportartefact_type"),
-        ("review_hog", "0013_reviewreportartefact_head_sha"),
-        ("review_hog", "0014_reviewreport_completed_head_sha"),
-        ("review_hog", "0015_reviewreport_status_comment_edited_at_and_more"),
-        ("review_hog", "0016_reviewreport_reviewhog_rpt_team_recent_idx"),
-        ("review_hog", "0017_alter_reviewusersettings_urgency_threshold"),
-        ("review_hog", "0018_backfill_urgency_threshold_to_consider"),
-        ("review_hog", "0019_reviewreport_author_login_and_more"),
-        ("review_hog", "0020_alter_reviewreportartefact_type"),
-        ("review_hog", "0021_reviewreport_published_urgency_thresholds"),
-        ("review_hog", "0022_reviewreport_outcomes_emitted_at"),
-        ("review_hog", "0023_reviewreport_unclassified_idx"),
-        ("review_hog", "0024_reviewreport_published_head_shas"),
-        ("review_hog", "0025_reviewusersettings_stamphog_review_inbox_prs"),
-        ("review_hog", "0026_reviewreport_review_initial_permission_mode_and_more"),
-        ("review_hog", "0027_alter_reviewreportartefact_type"),
-        ("review_hog", "0028_reviewusersettings_resolve_comments"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0117_task_set_null_cascade_indexes"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

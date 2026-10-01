@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1342_drop_cimd_blocklist_table"),
-        ("tasks", "0117_task_set_null_cascade_indexes"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

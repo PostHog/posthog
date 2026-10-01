@@ -8,16 +8,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("legal_documents", "0001_initial_migration"),
-        ("legal_documents", "0002_legaldocument_pandadoc_integration"),
-        ("legal_documents", "0003_legaldocument_drop_signed_document_url"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

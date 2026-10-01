@@ -9,8 +9,8 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("customer_analytics", "0046_usercustomeranalyticsconfig"),
-        ("posthog", "1333_uploaded_media_library_index"),
+        ("customer_analytics", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

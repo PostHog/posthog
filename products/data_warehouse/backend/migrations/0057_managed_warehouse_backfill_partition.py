@@ -8,8 +8,8 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0056_remove_data_modeling_models"),
-        ("posthog", "1252_datadeletionrequest_property_removal_marker"),
+        ("data_warehouse", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

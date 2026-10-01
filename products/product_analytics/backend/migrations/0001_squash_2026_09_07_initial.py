@@ -12,19 +12,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("product_analytics", "0001_migrate_product_analytics_models"),
-        ("product_analytics", "0002_delete_insightcachingstate"),
-        ("product_analytics", "0003_drop_insightcachingstate_table"),
-        ("product_analytics", "0004_delete_revenue_analytics_insights"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("dashboards", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

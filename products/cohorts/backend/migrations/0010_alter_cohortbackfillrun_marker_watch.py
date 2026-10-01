@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
+        ("cohorts", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -7,7 +7,7 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("mcp_registry", "0001_initial")]
+    replaces = []
 
     initial = True
 

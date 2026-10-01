@@ -15,53 +15,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("ai_observability", "0001_adopt_llm_analytics_models"),
-        ("ai_observability", "0002_migrate_ai_observability_models"),
-        ("ai_observability", "0003_normalize_evaluation_conditions"),
-        ("ai_observability", "0004_parserrecipe"),
-        ("ai_observability", "0005_release_skills_to_skills_app"),
-        ("ai_observability", "0006_alter_evaluation_evaluation_type_and_more"),
-        ("ai_observability", "0007_retire_reports_for_deleted_evaluations"),
-        ("ai_observability", "0008_alter_evaluation_status_reason"),
-        ("ai_observability", "0009_alter_evaluation_status_reason"),
-        ("ai_observability", "0010_add_minimax_provider"),
-        ("ai_observability", "0011_evaluation_target"),
-        ("ai_observability", "0012_clear_model_config_from_non_judge_evals"),
-        ("ai_observability", "0013_add_model_config_only_on_llm_judge"),
-        ("ai_observability", "0014_validate_model_config_only_on_llm_judge"),
-        ("ai_observability", "0015_llmprompt_version_description"),
-        ("ai_observability", "0016_deprecate_trial_evaluations"),
-        ("ai_observability", "0017_relabel_terminal_status_reasons"),
-        ("ai_observability", "0018_deduplicate_evaluation_reports"),
-        ("ai_observability", "0019_delete_duplicate_evaluation_reports"),
-        ("ai_observability", "0020_unique_evaluation_report_per_evaluation"),
-        ("ai_observability", "0021_add_zeabur_provider"),
-        ("ai_observability", "0022_add_generated_delivery_status"),
-        ("ai_observability", "0023_llmpromptlabel"),
-        ("ai_observability", "0024_relabel_trial_status_reasons"),
-        ("ai_observability", "0025_alter_evaluation_status_reason"),
-        ("ai_observability", "0026_retire_trial_columns"),
-        ("ai_observability", "0027_resweep_trial_status_reasons"),
-        ("ai_observability", "0028_drop_trial_eval_columns"),
-        ("ai_observability", "0029_disable_reports_for_disabled_evaluations"),
-        ("ai_observability", "0030_evaluationreport_last_attempted_at"),
-        ("ai_observability", "0031_llmprompt_config"),
-        ("ai_observability", "0032_dataset_versioning"),
-        ("ai_observability", "0033_evaluation_target_session"),
-        ("ai_observability", "0034_evaluationdirectory_evaluation_directory_and_more"),
-        ("ai_observability", "0035_evaluation_directory_index"),
-        ("ai_observability", "0036_dataset_item_client_id_and_version_dataset"),
-        ("ai_observability", "0037_backfill_dataset_item_version_dataset"),
-        ("ai_observability", "0038_make_dataset_item_version_dataset_non_null"),
-        ("ai_observability", "0039_dataset_item_version_ownership_constraints"),
-        ("ai_observability", "0040_validate_dataset_item_version_ownership"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

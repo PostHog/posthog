@@ -31,7 +31,7 @@ def reverse_func(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0059_scimprovisioneduser_unique_config"),
+        ("ee", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

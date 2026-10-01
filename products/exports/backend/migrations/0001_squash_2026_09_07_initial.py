@@ -11,23 +11,14 @@ import products.exports.backend.models.exported_asset
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("exports", "0001_migrate_exports_models"),
-        ("exports", "0002_subscription_prompt"),
-        ("exports", "0003_alter_subscription_target_type"),
-        ("exports", "0004_subscription_ai_prompt_config"),
-        ("exports", "0005_subscriptiondelivery_posthog_subdel_sub_fin"),
-        ("exports", "0006_subscription_ai_query_plan"),
-        ("exports", "0007_alter_exportedasset_export_format"),
-        ("exports", "0008_exportedasset_source_authentication"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("dashboards", "0015_dashboard_customization"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
+        ("dashboards", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("product_analytics", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

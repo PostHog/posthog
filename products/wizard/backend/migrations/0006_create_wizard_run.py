@@ -7,8 +7,8 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1319_team_posthog_team_widget_token_idx"),
-        ("wizard", "0005_wizardsession_handoff_text"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("wizard", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

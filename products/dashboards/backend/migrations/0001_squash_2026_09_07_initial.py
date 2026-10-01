@@ -11,28 +11,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("dashboards", "0001_migrate_dashboards_models"),
-        ("dashboards", "0002_add_dashboardtile_team_id_column"),
-        ("dashboards", "0003_backfill_dashboardtile_team_id"),
-        ("dashboards", "0004_add_dashboardtile_team_id_index"),
-        ("dashboards", "0005_enforce_dashboardtile_team_id_not_null"),
-        ("dashboards", "0006_migrate_product_analytics_models"),
-        ("dashboards", "0007_dashboardwidget_table"),
-        ("dashboards", "0008_dashboardtile_widget_id"),
-        ("dashboards", "0009_dashboardtile_check_4way"),
-        ("dashboards", "0010_validate_dashboardtile_check"),
-        ("dashboards", "0011_dashboardtile_widget_id_idx"),
-        ("dashboards", "0012_alter_dashboardtemplate_scope"),
-        ("dashboards", "0013_dashboardtile_button_tile_id_idx"),
-        ("dashboards", "0014_backfill_dashboardtemplate_button_tile_type"),
-        ("dashboards", "0015_dashboard_customization"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

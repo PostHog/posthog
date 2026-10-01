@@ -8,12 +8,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("replay", "0001_migrate_replay_models"), ("replay", "0002_remove_session_summary_models")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

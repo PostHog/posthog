@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("ai_observability", "0047_alter_evaluationconfig_team"),
-        ("posthog", "1339_validate_taggeditem_project_fk"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

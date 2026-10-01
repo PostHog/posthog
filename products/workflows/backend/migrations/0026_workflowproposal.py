@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1300_identityproviderconfig_saml_relay_state_unique"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         ("workflows", "0025_hogflow_email_sending_paused_by"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

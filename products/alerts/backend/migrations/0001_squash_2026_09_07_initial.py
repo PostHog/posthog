@@ -10,18 +10,14 @@ import posthog.schema_enums
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("alerts", "0001_migrate_models"),
-        ("alerts", "0002_migrate_product_analytics_models"),
-        ("alerts", "0003_alter_alertconfiguration_calculation_interval"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("notebooks", "0014_notebook_variables"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
+        ("notebooks", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("product_analytics", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

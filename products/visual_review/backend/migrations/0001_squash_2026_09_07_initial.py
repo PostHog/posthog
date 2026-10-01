@@ -10,19 +10,7 @@ import products.visual_review.backend.facade.enums
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("visual_review", "0001_initial"),
-        ("visual_review", "0002_add_team_id_to_child_models"),
-        ("visual_review", "0003_backfill_team_id"),
-        ("visual_review", "0004_add_enable_pr_comments"),
-        ("visual_review", "0005_tolerated_hashes"),
-        ("visual_review", "0006_quarantined_identifiers"),
-        ("visual_review", "0007_tolerated_hash_diff_percentage"),
-        ("visual_review", "0008_add_artifact_thumbnail"),
-        ("visual_review", "0009_add_ssim_score_and_change_kind"),
-        ("visual_review", "0010_backfill_change_kind_and_ssim"),
-        ("visual_review", "0011_alter_artifact_managers_and_more"),
-    ]
+    replaces = []
 
     initial = True
 

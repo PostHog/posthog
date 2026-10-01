@@ -16,45 +16,13 @@ import products.data_modeling.backend.models.datawarehouse_saved_query
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("data_modeling", "0001_initial"),
-        ("data_modeling", "0002_edge_edge_unique_within_dag"),
-        ("data_modeling", "0003_create_detect_cycles_function"),
-        ("data_modeling", "0004_drop_detect_cycles_function"),
-        ("data_modeling", "0005_remove_node_name_unique_within_team_dag_and_more"),
-        ("data_modeling", "0006_backfill_nodes_edges_from_saved_queries"),
-        ("data_modeling", "0007_create_dag"),
-        ("data_modeling", "0008_backfill_dags"),
-        ("data_modeling", "0009_edge_dag_id_text_node_dag_id_text"),
-        ("data_modeling", "0010_add_endpoint_node_type"),
-        ("data_modeling", "0011_remove_edge_unique_within_dag"),
-        ("data_modeling", "0012_add_description_to_node"),
-        ("data_modeling", "0013_edge_dag_fk_node_dag_fk"),
-        ("data_modeling", "0014_node_dag_fk"),
-        ("data_modeling", "0015_add_dag_fk_indexes"),
-        ("data_modeling", "0016_backfill_dag_fks"),
-        ("data_modeling", "0017_make_old_dag_text_fields_nullable"),
-        ("data_modeling", "0018_switch_constraints_to_dag_fk"),
-        ("data_modeling", "0019_drop_old_dag_text_columns"),
-        ("data_modeling", "0020_dag_fk_not_null"),
-        ("data_modeling", "0021_dag_sync_frequency"),
-        ("data_modeling", "0022_github_sync_models"),
-        ("data_modeling", "0023_migrate_data_modeling_models"),
-        ("data_modeling", "0024_datamodelingjob_team_status_idx"),
-        ("data_modeling", "0025_datawarehouse_saved_query_column_annotation"),
-        ("data_modeling", "0026_datawarehousesavedquery_semantic_enrichment_hash"),
-        ("data_modeling", "0027_datawarehousesavedquery_column_order"),
-        ("data_modeling", "0028_alter_datawarehousemanagedviewset_kind"),
-        ("data_modeling", "0029_add_skipped_data_modeling_job_status"),
-        ("data_modeling", "0030_datawarehousesavedquery_incremental_config_and_more"),
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("warehouse_sources", "0159_externaldatajob_destination_ids_and_more"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("warehouse_sources", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

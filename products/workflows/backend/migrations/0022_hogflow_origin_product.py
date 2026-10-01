@@ -7,7 +7,7 @@ import products.workflows.backend.models.hog_flow.hog_flow
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("workflows", "0021_backfill_internal_event_triggers"),
+        ("workflows", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

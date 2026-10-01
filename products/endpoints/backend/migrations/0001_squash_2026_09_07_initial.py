@@ -12,43 +12,13 @@ import products.endpoints.backend.models
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("endpoints", "0001_initial_migration"),
-        ("endpoints", "0002_endpoint_cache_age_seconds"),
-        ("endpoints", "0003_add_endpoint_materialization"),
-        ("endpoints", "0004_endpoint_current_version_endpointversion_and_more"),
-        ("endpoints", "0005_populate_initial_versions"),
-        ("endpoints", "0006_endpoint_derived_from_insight"),
-        ("endpoints", "0007_fix_hogql_variable_keys"),
-        ("endpoints", "0008_endpoint_last_executed_at"),
-        ("endpoints", "0009_endpointversion_version_fields"),
-        ("endpoints", "0010_populate_endpointversion_fields"),
-        ("endpoints", "0011_make_endpoint_fields_nullable"),
-        ("endpoints", "0012_remove_deprecated_endpoint_fields"),
-        ("endpoints", "0013_add_endpointversion_is_active"),
-        ("endpoints", "0014_endpointversion_columns"),
-        ("endpoints", "0015_endpoint_soft_delete"),
-        ("endpoints", "0016_endpoint_soft_delete_constraint"),
-        ("endpoints", "0017_remove_endpointversion_is_materialized_state"),
-        ("endpoints", "0018_endpointversion_bucket_overrides"),
-        ("endpoints", "0019_backfill_nodes_with_endpoints"),
-        ("endpoints", "0020_backfill_endpoint_edges"),
-        ("endpoints", "0021_add_team_to_endpointversion"),
-        ("endpoints", "0022_backfill_team_id_on_endpointversion"),
-        ("endpoints", "0023_backfill_team_id_on_endpointversion_fix"),
-        ("endpoints", "0024_endpointversion_updated_at"),
-        ("endpoints", "0025_alter_endpoint_created_by"),
-        ("endpoints", "0026_add_data_freshness_seconds"),
-        ("endpoints", "0027_copy_cache_age_to_data_freshness"),
-        ("endpoints", "0028_remove_cache_age_seconds"),
-        ("endpoints", "0029_remove_data_modeling_models"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("data_modeling", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

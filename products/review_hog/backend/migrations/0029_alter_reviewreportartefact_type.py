@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("review_hog", "0028_reviewusersettings_resolve_comments"),
+        ("review_hog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

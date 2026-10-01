@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("data_catalog", "0005_alter_metric_description"),
-        ("posthog", "1298_user_stripped_alias_index"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

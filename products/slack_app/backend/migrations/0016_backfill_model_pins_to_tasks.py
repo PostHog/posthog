@@ -143,8 +143,7 @@ def backfill_model_pins(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("slack_app", "0015_backfill_slack_thread_conversation_type"),
-        # UserTasksConfig and the posthog identity models the mapping reads.
-        ("tasks", "0115_teamtasksconfig_usertasksconfig"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
         ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 

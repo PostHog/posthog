@@ -6,9 +6,9 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("alerts", "0003_alter_alertconfiguration_calculation_interval"),
-        ("exports", "0003_alter_subscription_target_type"),
-        ("pulse", "0001_initial"),
+        ("alerts", "0001_squash_2026_09_07_initial"),
+        ("exports", "0001_squash_2026_09_07_initial"),
+        ("pulse", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

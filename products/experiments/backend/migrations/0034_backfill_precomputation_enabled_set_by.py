@@ -12,7 +12,7 @@ def backfill_manual(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("experiments", "0033_teamexperimentsconfig_precomputation_enabled_set_by"),
+        ("experiments", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -154,7 +154,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

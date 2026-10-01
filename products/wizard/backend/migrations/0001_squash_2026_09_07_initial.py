@@ -8,18 +8,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("wizard", "0001_initial_wizard_session"),
-        ("wizard", "0002_wizardsession_team_wf_start_idx"),
-        ("wizard", "0003_wizardsession_pending_input"),
-        ("wizard", "0004_wizardsession_created_by"),
-        ("wizard", "0005_wizardsession_handoff_text"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

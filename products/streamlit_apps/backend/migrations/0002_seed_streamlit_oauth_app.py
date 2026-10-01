@@ -57,7 +57,7 @@ def delete_oauth_app(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("streamlit_apps", "0001_initial"),
+        ("streamlit_apps", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

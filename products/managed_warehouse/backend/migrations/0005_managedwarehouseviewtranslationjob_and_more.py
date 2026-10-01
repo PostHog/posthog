@@ -12,7 +12,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("managed_warehouse", "0004_managedwarehousesourcelifecycle"),
-        ("posthog", "1331_messagingrecord_campaign_key_idx"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

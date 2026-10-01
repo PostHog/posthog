@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("replay_vision", "0086_remove_visionactionrun_vision_action_and_more"),
+        ("replay_vision", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

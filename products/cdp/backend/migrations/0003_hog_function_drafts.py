@@ -8,8 +8,8 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1266_comment_convo_content_trgm"),
-        ("cdp", "0002_alter_hogfunction_batch_export"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("cdp", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

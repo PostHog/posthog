@@ -12,43 +12,14 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("error_tracking", "0001_migrate_error_tracking_models"),
-        ("error_tracking", "0002_issue_cohort_reference"),
-        ("error_tracking", "0003_frame_part_field"),
-        ("error_tracking", "0004_frame_part_index"),
-        ("error_tracking", "0005_frame_part_constraint"),
-        ("error_tracking", "0006_frame_idx_removal"),
-        ("error_tracking", "0007_auto_capture_controls"),
-        ("error_tracking", "0008_spike_detection_config"),
-        ("error_tracking", "0009_errortrackingissueassignment_team"),
-        ("error_tracking", "0010_backfill_errortrackingissueassignment_team"),
-        ("error_tracking", "0011_errortrackingissueassignment_team_id_idx"),
-        ("error_tracking", "0012_suppression_rule_bytecode_and_sampling_rate"),
-        ("error_tracking", "0013_spike_events"),
-        ("error_tracking", "0014_recommendation"),
-        ("error_tracking", "0015_errortrackingsettings"),
-        ("error_tracking", "0016_errortrackingrecommendation_status"),
-        ("error_tracking", "0017_migrate_cohorts_models"),
-        ("error_tracking", "0018_symbolset_last_used_created_idx"),
-        ("error_tracking", "0019_errortrackingbypassrule"),
-        ("error_tracking", "0020_errortrackingsettings_autocapture_exceptions_opt_in"),
-        ("error_tracking", "0021_remove_errortrackingsettings_autocapture_exceptions_opt_in"),
-        ("error_tracking", "0022_drop_redundant_symbolset_team_ref_idx"),
-        ("error_tracking", "0023_symbolset_autovacuum_scale_factor"),
-        ("error_tracking", "0024_errortrackingissue_severity"),
-        ("error_tracking", "0025_issue_state_updated_at"),
-        ("error_tracking", "0026_issue_state_updated_at_index"),
-        ("error_tracking", "0027_add_severity_rules"),
-        ("error_tracking", "0028_add_symbol_set_cleanup_bucket_index"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
-        ("ee", "0059_scimprovisioneduser_unique_config"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("cohorts", "0001_squash_2026_09_07_initial"),
+        ("ee", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

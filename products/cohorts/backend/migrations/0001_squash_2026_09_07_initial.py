@@ -10,22 +10,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("cohorts", "0001_migrate_cohorts_models"),
-        ("cohorts", "0002_cohort_last_backfill_events_at"),
-        ("cohorts", "0003_cohort_filters_shape_hash"),
-        ("cohorts", "0004_cohort_backfill_tables"),
-        ("cohorts", "0005_cohort_condition_type"),
-        ("cohorts", "0006_cohort_backfill_completion"),
-        ("cohorts", "0007_cohortbackfillrun_cohort_bfr_reconciling_idx"),
-        ("cohorts", "0008_person_property_backfill_foundation"),
-        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

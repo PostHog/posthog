@@ -8,17 +8,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("batch_exports", "0001_migrate_batch_exports_models"),
-        ("batch_exports", "0002_batchexport_batchexportbackfill_and_more"),
-        ("batch_exports", "0003_alter_batchexportdestination_type"),
-        ("batch_exports", "0004_migrate_managed_migrations_models"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

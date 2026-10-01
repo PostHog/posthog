@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("early_access_features", "0008_backfill_earlyaccessfeature_created_by"),
-        ("ee", "0028_alter_conversation_type"),
+        ("ee", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     # lock and is metadata-only (no table rewrite); the table is small and low-traffic.
 
     dependencies = [
-        ("mcp_analytics", "0007_alter_mcpsession_options_and_more"),
+        ("mcp_analytics", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

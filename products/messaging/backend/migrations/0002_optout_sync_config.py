@@ -6,8 +6,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1098_add_customerio_integration_kinds"),
-        ("messaging", "0001_migrate_messaging_models"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("messaging", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

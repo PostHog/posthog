@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("canvas", "0015_remove_canvas_discussion_task_id"),
+        ("canvas", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

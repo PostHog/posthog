@@ -10,10 +10,10 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("data_tools", "0003_datawarehouseexpression"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("warehouse_sources", "0159_externaldatajob_destination_ids_and_more"),
+        ("data_modeling", "0001_squash_2026_09_07_initial"),
+        ("data_tools", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("warehouse_sources", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

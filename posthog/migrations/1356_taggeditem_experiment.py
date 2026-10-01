@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        # Only the new relation's target needs pinning (matching the project precedent in 1335);
-        # the other TaggedItem FK columns already exist in state via their own earlier migrations.
-        ("experiments", "0029_experiment_repository"),
+        ("experiments", "0001_squash_2026_09_07_initial"),
         ("posthog", "1355_datadeletionrequest_ddr_team_created_at_idx"),
     ]
 

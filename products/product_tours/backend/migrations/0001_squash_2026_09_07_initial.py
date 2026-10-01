@@ -8,22 +8,14 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("product_tours", "0001_initial"),
-        ("product_tours", "0002_producttour_auto_launch"),
-        ("product_tours", "0003_producttour_linked_surveys"),
-        ("product_tours", "0004_producttour_linked_flag"),
-        ("product_tours", "0005_producttour_draft_content"),
-        ("product_tours", "0006_alter_producttour_linked_surveys"),
-        ("product_tours", "0007_migrate_feature_flags_models"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("surveys", "0005_migrate_product_analytics_models"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("surveys", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

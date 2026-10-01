@@ -8,12 +8,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [("managed_migrations", "0001_migrate_managed_migrations_models")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

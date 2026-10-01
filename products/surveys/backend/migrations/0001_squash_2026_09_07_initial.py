@@ -9,21 +9,15 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("surveys", "0001_initial"),
-        ("surveys", "0002_action_fk_repoint"),
-        ("surveys", "0003_survey_base_language_alter_survey_questions"),
-        ("surveys", "0004_migrate_feature_flags_models"),
-        ("surveys", "0005_migrate_product_analytics_models"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("actions", "0001_migrate_actions_models"),
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
+        ("actions", "0001_squash_2026_09_07_initial"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("product_analytics", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

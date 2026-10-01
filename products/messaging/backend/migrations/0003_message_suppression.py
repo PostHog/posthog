@@ -10,7 +10,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("messaging", "0002_optout_sync_config"),
-        ("posthog", "1256_userproductlist_default_reason"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
