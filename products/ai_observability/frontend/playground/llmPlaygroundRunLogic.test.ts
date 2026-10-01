@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import {
     appendToolCallChunk,
     describeError,
@@ -142,7 +142,8 @@ describe('llmPlaygroundRunLogic', () => {
 
     it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
         // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
-        // a warning that keeps firing after the values are filled is noise.
+        // a warning that names a skipped panel's variable, or keeps firing after the
+        // values are filled, misreports what was sent.
         const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
         const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
         const captureSpy = jest.spyOn(posthog, 'capture')
@@ -151,8 +152,14 @@ describe('llmPlaygroundRunLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
-        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: '{{topic}} in a {{tone}} tone' }])
+        // The second panel has no messages, so it is skipped: {{ghost}} is never sent
+        llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+            createPromptConfig({
+                model: 'gpt-5-mini',
+                messages: [{ role: 'user', content: '{{topic}} in a {{tone}} tone' }],
+            }),
+            createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
+        ])
         llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
         llmPlaygroundRunLogic.actions.submitPrompt()
         await expectLogic(logic).toFinishAllListeners()

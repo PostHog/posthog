@@ -17,7 +17,7 @@ import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
-import { substituteVariables } from './playgroundTemplating'
+import { extractVariablesFromTexts, getVariableValue, substituteVariables } from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -174,8 +174,6 @@ export interface llmPlaygroundRunLogicValues {
     activeProviderKeyId: string | null // llmPlaygroundModelLogic
     effectiveModelOptions: ModelOption[] // llmPlaygroundModelLogic
     promptConfigs: PromptConfig[] // llmPlaygroundPromptsLogic
-    detectedVariables: string[] // llmPlaygroundVariablesLogic
-    unfilledVariables: string[] // llmPlaygroundVariablesLogic
     variableValues: Record<string, string> // llmPlaygroundVariablesLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
@@ -236,7 +234,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmProviderKeysLogic,
             ['providerKeys'],
             llmPlaygroundVariablesLogic,
-            ['variableValues', 'detectedVariables', 'unfilledVariables'],
+            ['variableValues'],
         ],
         actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
@@ -333,6 +331,16 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 return
             }
 
+            // Count only the prompts actually submitted; a skipped panel's variables are not sent,
+            // so they belong in neither the warning nor the event.
+            const runVariables = extractVariablesFromTexts(
+                runnablePrompts.flatMap(({ prompt, messagesToSend }) => [
+                    prompt.systemPrompt,
+                    ...messagesToSend.map((m) => m.content),
+                ])
+            )
+            const runUnfilledVariables = runVariables.filter((name) => !getVariableValue(values.variableValues, name))
+
             posthog.capture('llma playground prompt submitted', {
                 prompt_count: runnablePrompts.length,
                 models: runnablePrompts.map(({ prompt }) => prompt.model),
@@ -341,14 +349,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
                 ),
-                variable_count: values.detectedVariables.length,
-                unfilled_variable_count: values.unfilledVariables.length,
+                variable_count: runVariables.length,
+                unfilled_variable_count: runUnfilledVariables.length,
             })
 
-            if (values.unfilledVariables.length > 0) {
-                const names = values.unfilledVariables.map((name) => `{{${name}}}`).join(', ')
+            if (runUnfilledVariables.length > 0) {
+                const names = runUnfilledVariables.map((name) => `{{${name}}}`).join(', ')
                 const suffix =
-                    values.unfilledVariables.length === 1
+                    runUnfilledVariables.length === 1
                         ? 'The placeholder is sent as written.'
                         : 'The placeholders are sent as written.'
                 lemonToast.warning(`No value for ${names}. ${suffix}`)
