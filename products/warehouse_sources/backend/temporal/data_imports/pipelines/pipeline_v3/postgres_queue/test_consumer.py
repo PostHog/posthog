@@ -345,6 +345,33 @@ class TestProcessSingle:
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
         mock_capture.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_non_reportable_error_skips_error_tracking_on_first_attempt_too(self):
+        # A NonReportableError can also match a non-retryable message pattern (e.g. a storage
+        # backend out of disk space during a maintenance op) and fail on the very first attempt,
+        # not just after exhausting retries — that branch needs the same classification check.
+        consumer = _make_consumer(max_attempts=3)
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock(
+            side_effect=TransientObjectStoreError(
+                "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
+                "Storage backend has reached its minimum free drive threshold."
+            )
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        mock_capture.assert_not_called()
+
 
 class TestProcessGroup:
     @pytest.mark.asyncio
