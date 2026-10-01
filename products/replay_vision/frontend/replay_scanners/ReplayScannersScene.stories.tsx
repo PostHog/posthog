@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -1862,8 +1863,18 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
         featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
+        // A draft request that never answers, because a failed one sends the page back to the goal step.
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/vision/scanners/draft/': async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({})
+                },
+            },
+        }),
         (StoryFn) => {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
