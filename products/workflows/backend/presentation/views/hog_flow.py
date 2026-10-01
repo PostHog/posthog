@@ -929,6 +929,41 @@ class InternalBlastRadiusPersonsSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether another page may follow.")
 
 
+class InternalProcessedSchedulesSerializer(serializers.Serializer):
+    """Response contract for the internal due-schedules endpoint, read by the scheduler service."""
+
+    processed = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of due schedules that dispatched a run."
+    )
+    initialized = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of new schedules that got their first run time."
+    )
+    failed = serializers.ListField(
+        child=serializers.CharField(), help_text="Ids of due schedules that failed to dispatch."
+    )
+
+
+class InternalBatchJobStatusSerializer(serializers.Serializer):
+    """Response contract for the internal batch job status write, read by the Node batch resolver."""
+
+    id = serializers.CharField(help_text="Batch job id.")
+    status = serializers.CharField(help_text="Status of the batch job after the call.")
+    no_op = serializers.BooleanField(help_text="True when the job was already terminal and nothing changed.")
+
+
+class InternalAccountAudienceSerializer(serializers.Serializer):
+    """Response contract for the internal account audience endpoint, read by the Node batch resolver."""
+
+    accounts = serializers.ListField(
+        child=serializers.CharField(), help_text="Account group keys in this page, in stable pagination order."
+    )
+    cursor = serializers.CharField(
+        allow_null=True, help_text="Cursor for the next call, or null when this page is the last."
+    )
+    has_more = serializers.BooleanField(help_text="Whether another page may follow.")
+    group_type = serializers.CharField(allow_null=True, help_text="Group type the account keys belong to.")
+
+
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
     after = serializers.CharField(
         required=False,
@@ -6750,12 +6785,14 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             page = get_account_audience_ids_page(team_id=team.id, filters=filters, cursor=cursor)
             return Response(
-                {
-                    "accounts": page.ids,
-                    "cursor": page.ids[-1] if page.ids else None,
-                    "has_more": page.has_more,
-                    "group_type": group_type,
-                }
+                InternalAccountAudienceSerializer(
+                    {
+                        "accounts": page.ids,
+                        "cursor": page.ids[-1] if page.ids else None,
+                        "has_more": page.has_more,
+                        "group_type": group_type,
+                    }
+                ).data
             )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
@@ -6771,11 +6808,13 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             result = process_due_schedules()
             return Response(
-                {
-                    "processed": result.processed,
-                    "initialized": result.initialized,
-                    "failed": result.failed,
-                }
+                InternalProcessedSchedulesSerializer(
+                    {
+                        "processed": result.processed,
+                        "initialized": result.initialized,
+                        "failed": result.failed,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
@@ -6819,21 +6858,25 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": batch_job.status,
+                        "no_op": True,
+                    }
+                ).data
             )
 
         try:
             set_batch_job_status(team_id=team.id, batch_job_id=batch_job.id, status=HogFlowBatchJobState(new_status))
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": new_status,
-                    "no_op": False,
-                }
+                InternalBatchJobStatusSerializer(
+                    {
+                        "id": str(batch_job.id),
+                        "status": new_status,
+                        "no_op": False,
+                    }
+                ).data
             )
         except Exception as e:
             logger.exception(
