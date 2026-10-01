@@ -407,7 +407,7 @@ def _build_autostart_task_description(
         "then package.json scripts, a Makefile, pyproject.toml or the CI workflow. Run the subset that covers "
         "the files you change before you open the PR. If you cannot run a check in the sandbox, name the "
         "checks you skipped and why in the PR description, rather than implying they passed.\n\n"
-        "As soon as the change works and those checks pass, make the work durable before anything "
+        "As soon as the change works and the checks you could run pass, make the work durable before anything "
         "else: stage it, commit with the git_signed_commit tool, push the branch, and open the draft PR; when "
         "the repository policy check above rules a PR out, push the branch to the user's fork instead. "
         "Only after that point, run the `/simplify` skill over your branch and push what it finds as "
