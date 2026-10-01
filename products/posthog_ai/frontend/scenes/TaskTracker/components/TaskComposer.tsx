@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -38,9 +38,13 @@ import { RepositorySelector } from './RepositorySelector'
 export interface TaskComposerProps {
     /** `inline` drops the welcome header and the full-height centering, for a composer placed inside a host page. */
     variant?: 'page' | 'inline'
+    /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
+    focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
 }
 
-export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Element {
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
@@ -79,6 +83,12 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     // The whole input frame is the drop target, so a file dropped anywhere on it attaches.
     const frameRef = useRef<HTMLLabelElement>(null)
+
+    useEffect(() => {
+        if (focusRequest > 0) {
+            textAreaRef.current?.focus()
+        }
+    }, [focusRequest])
 
     const handleSelectSuggestion = (item: SuggestionItem): void => {
         applySuggestion(item)
@@ -143,7 +153,11 @@ export function TaskComposer({ variant = 'page' }: TaskComposerProps): JSX.Eleme
                                     <Composer.Placeholder>
                                         {composerOverride?.placeholder ?? 'Describe the task in detail…'}
                                     </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus onPaste={onPaste} data-attr="task-composer-input" />
+                                    <Composer.Textarea
+                                        autoFocus={autoFocus}
+                                        onPaste={onPaste}
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker

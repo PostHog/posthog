@@ -1450,7 +1450,6 @@
 2 products/tasks/backend/temporal/process_task/activities/get_sandbox_for_repository.py
 2 products/tasks/backend/temporal/process_task/activities/refresh_sandbox_credentials.py
 2 products/tasks/backend/temporal/process_task/sandbox_credentials.py
-2 products/tasks/backend/temporal/process_task/slack_agent_design_relay.py
 2 products/warehouse_sources/backend/temporal/data_imports/external_data_job.py
 2 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/person_property_sync.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/adobe_commerce.py
@@ -1547,7 +1546,6 @@
 4 products/marketing_analytics/backend/services/campaign_mapping_suggester.py
 4 products/marketing_analytics/backend/services/conversion_goals_inspector.py
 4 products/signals/backend/temporal/buffer.py
-4 products/tasks/backend/temporal/process_task/activities/slack_agent_design.py
 4 products/tasks/backend/temporal/process_task/activities/start_agent_server.py
 4 products/tasks/backend/temporal/process_task/workflow.py
 4 products/tasks/backend/temporal/task_management/activities/pending_followups.py

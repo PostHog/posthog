@@ -1,11 +1,8 @@
 from datetime import datetime
-from typing import Union
 
 from django.db.models import Q
 
 import structlog
-
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
@@ -38,18 +35,6 @@ def recalculation_hour_filter(hour: int) -> Q:
             | Q(team__teamexperimentsconfig__isnull=True)
         )
     return match
-
-
-def get_metric(metric_data: dict) -> Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]:
-    metric_type = metric_data.get("metric_type")
-    if metric_type == "mean":
-        return ExperimentMeanMetric(**metric_data)
-    elif metric_type == "funnel":
-        return ExperimentFunnelMetric(**metric_data)
-    elif metric_type == "ratio":
-        return ExperimentRatioMetric(**metric_data)
-    else:
-        raise ValueError(f"Unknown metric type: {metric_type}")
 
 
 def _get_significant_variant_keys(result_dict: dict) -> set[str]:

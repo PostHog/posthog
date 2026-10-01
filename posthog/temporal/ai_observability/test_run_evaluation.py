@@ -58,14 +58,18 @@ from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
     TransientJudgeError,
+    _build_errored_trace_result,
+    _build_output_limit_skip_result,
     _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
 )
+from .evaluation_types import build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
     LocalEvaluationOutcome,
     backfill_verdict_timestamp,
     build_evaluation_event_properties,
+    capture_evaluation_run_usage,
     emit_internal_telemetry_activity,
 )
 from .run_evaluation import (
@@ -91,6 +95,201 @@ from .run_evaluation import (
     run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
 )
+from .run_trace_evaluation import EmitTraceEvaluationEventInputs, emit_trace_evaluation_event_activity
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("skipped", [False, True])
+@pytest.mark.parametrize(
+    "target,evaluation_type,result",
+    [
+        (target, evaluation_type, result)
+        for target in ["generation", "trace", "session"]
+        for evaluation_type in ["hog", "llm_judge"]
+        for result in [
+            {"result_type": "boolean", "verdict": True},
+            {"result_type": "numeric", "score": 123.45},
+            {"result_type": "categorical", "categories": ["private_key"]},
+        ]
+    ]
+    + [
+        ("generation", "sentiment", {"result_type": "sentiment", "sentiment_score": 0.9, "sentiment_label": "positive"})
+    ],
+)
+async def test_execution_telemetry_covers_output_types(
+    target: str, evaluation_type: str, result: EvaluationActivityResult, skipped: bool
+) -> None:
+    evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": evaluation_type}
+    result = {**result, "skipped": skipped, "reasoning": "Private content"}
+    model_usage = {
+        "model": "example-model",
+        "provider": "example-provider",
+        "input_tokens": 42,
+        "output_tokens": 8,
+        "total_tokens": 50,
+    }
+    if skipped:
+        if evaluation_type == "sentiment":
+            result = {"result_type": "sentiment", "reasoning": "No user messages", "skipped": True}
+        else:
+            result = build_skipped_evaluation_result(
+                output_type=result["result_type"], allows_na=False, reasoning="Private content", skip_reason="example"
+            )
+    elif evaluation_type == "llm_judge":
+        result.update(
+            {
+                "model": "example-model",
+                "provider": "example-provider",
+                "input_tokens": 42,
+                "output_tokens": 8,
+                "total_tokens": 50,
+            }
+        )
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with (
+        override_settings(SITE_URL="https://example.com"),
+        patch(f"{module}.Team.objects.filter") as teams,
+        patch("posthog.tasks.usage_report.get_ph_client") as capture,
+        patch(f"{module}.capture_ai_internal_for_team"),
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team"),
+    ):
+        teams.return_value.values_list.return_value.get.return_value = "test-org"
+        if target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                )
+            )
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+        if not skipped and (target != "generation" or evaluation_type == "llm_judge"):
+            capture.assert_not_called()
+            await emit_internal_telemetry_activity(
+                EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+            )
+
+    capture.assert_called_once_with(sync_mode=True, disabled=True)
+    capture.return_value.flush.assert_called_once_with()
+    capture.return_value.capture.assert_called_once_with(
+        distinct_id="org-test-org",
+        event="llm analytics evaluation executed",
+        properties={
+            "evaluation_id": "test-evaluation",
+            "team_id": 1,
+            **(model_usage if evaluation_type == "llm_judge" and not skipped else {}),
+            **({"verdict": result["verdict"]} if "verdict" in result and not skipped else {}),
+            "result_type": result["result_type"],
+            "status": "skipped" if skipped else "completed",
+        },
+        groups={"organization": "test-org", "instance": "https://example.com"},
+    )
+
+
+@pytest.mark.parametrize("model_called", [False, True])
+def test_skipped_usage_only_includes_actual_model_metadata(model_called: bool) -> None:
+    result = (
+        _build_output_limit_skip_result(
+            False, is_byok=False, key_id=None, provider="example-provider", model="example-model"
+        )
+        if model_called
+        else _build_errored_trace_result(False)
+    )
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with patch(f"{module}.Team.objects.filter"), patch("posthog.tasks.usage_report.get_ph_client") as capture:
+        capture_evaluation_run_usage({"id": "test-evaluation", "evaluation_type": "llm_judge"}, result, team_id=1)
+
+    assert capture.return_value.capture.call_args.kwargs["properties"] == {
+        "evaluation_id": "test-evaluation",
+        "team_id": 1,
+        "result_type": "boolean",
+        "status": "skipped",
+        **({"model": "example-model", "provider": "example-provider"} if model_called else {}),
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["telemetry", "generation", "trace", "session"])
+@pytest.mark.parametrize("failure", ["lookup", "capture"])
+async def test_usage_failure_preserves_activity_behavior(target: str, failure: str) -> None:
+    module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+    with (
+        patch(f"{module}.Team.objects.filter") as teams,
+        patch("posthog.tasks.usage_report.get_ph_client") as capture,
+        patch(f"{module}.capture_ai_internal_for_team") as generation_capture,
+        patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_ai_internal_for_team") as trace_capture,
+    ):
+        failing_call = teams if failure == "lookup" else capture.return_value.capture
+        failing_call.side_effect = RuntimeError("telemetry unavailable")
+        evaluation = {"id": "test-evaluation", "name": "Example evaluation", "evaluation_type": "hog"}
+        result: EvaluationActivityResult = {"result_type": "numeric", "skipped": True, "reasoning": "Example"}
+        if target == "telemetry":
+            with pytest.raises(RuntimeError, match="telemetry unavailable"):
+                await emit_internal_telemetry_activity(
+                    EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
+                )
+        elif target == "generation":
+            await emit_evaluation_event_activity(
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=create_mock_event_data(1),
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                )
+            )
+            generation_capture.assert_called_once()
+        else:
+            await emit_trace_evaluation_event_activity(
+                EmitTraceEvaluationEventInputs(
+                    evaluation=evaluation,
+                    team_id=1,
+                    trace_id="example-trace",
+                    distinct_id="example-user",
+                    session_id=None,
+                    result=result,
+                    start_time=datetime(2026, 9, 1, tzinfo=UTC),
+                    target=target,
+                    ai_session_id="example-session",
+                )
+            )
+            trace_capture.assert_called_once()
+
+
+def test_execution_telemetry_does_not_add_destination_region() -> None:
+    events: list[dict[str, Any]] = []
+
+    def record_event(event: dict[str, Any]) -> dict[str, Any]:
+        events.append(event)
+        return event
+
+    client = posthoganalytics.Client("example-key", send=False, before_send=record_event)
+    try:
+        with (
+            override_settings(CLOUD_DEPLOYMENT="EU"),
+            patch("posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.filter"),
+            patch("posthog.tasks.usage_report.get_ph_client", return_value=client),
+        ):
+            capture_evaluation_run_usage(
+                {"id": "test-evaluation"}, {"result_type": "numeric", "score": 1, "reasoning": "Example"}, team_id=1
+            )
+        assert len(events) == 1
+        assert "region" not in events[0]["properties"]
+    finally:
+        client.shutdown()
 
 
 def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
@@ -830,13 +1029,13 @@ class TestRunEvaluationWorkflow:
             "reasoning": "Customer content",
             "allows_na": False,
         }
-        with patch("posthog.tasks.usage_report.get_ph_client") as get_client:
+        with patch("posthog.tasks.usage_report.get_ph_client") as capture:
             await emit_internal_telemetry_activity(
                 EmitInternalTelemetryInputs(evaluation=evaluation, team_id=setup_data["team"].id, result=result)
             )
 
-        get_client.return_value.capture.assert_called_once()
-        properties = get_client.return_value.capture.call_args.kwargs["properties"]
+        capture.return_value.capture.assert_called_once()
+        properties = capture.return_value.capture.call_args.kwargs["properties"]
         assert properties["result_type"] == "numeric"
         assert "score" not in properties
         assert "reasoning" not in properties

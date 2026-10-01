@@ -19,6 +19,19 @@ export function extractVariables(text: string): string[] {
     return names
 }
 
+/** Distinct variable names across several texts, in order of first appearance. */
+export function extractVariablesFromTexts(texts: string[]): string[] {
+    const names: string[] = []
+    for (const text of texts) {
+        for (const name of extractVariables(text)) {
+            if (!names.includes(name)) {
+                names.push(name)
+            }
+        }
+    }
+    return names
+}
+
 /**
  * Own-property read of a variable value. A plain record inherits `constructor`,
  * `toString` and the rest of Object.prototype, so a bare `values[name]` would

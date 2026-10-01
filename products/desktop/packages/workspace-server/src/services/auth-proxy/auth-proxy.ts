@@ -6,85 +6,99 @@ import {
   type ScopedLogger,
 } from "@posthog/di/logger";
 import { serializeError } from "@posthog/shared";
-import { inject, injectable } from "inversify";
-import { hopByHop } from "../proxy-stream/hop-by-hop";
+import { inject, injectable, optional } from "inversify";
 import {
   type StreamProgress,
   streamBodyToResponse,
 } from "../proxy-stream/proxy-stream";
-import { AUTH_PROXY_AUTH } from "./identifiers";
-import type { AuthProxyAuth } from "./ports";
+import {
+  type FetchLike,
+  GatewaySessionHandler,
+  type SessionTarget,
+} from "./gateway-session";
+import {
+  AUTH_PROXY_AUTH,
+  AUTH_PROXY_FETCH,
+  GATEWAY_CREDENTIAL_SOURCE,
+} from "./identifiers";
+import type { AuthProxyAuth, GatewayCredentialSource } from "./ports";
+import {
+  jsonError,
+  PROXY_TIMEOUTS,
+  readBody,
+  responseHeaders,
+  strippedRequestHeaders,
+} from "./proxy-http";
 
-type Body = Buffer<ArrayBuffer>;
+export { MAX_BODY_BYTES, PROXY_TIMEOUTS } from "./proxy-http";
 
-const STRIPPED_REQUEST_HEADERS = new Set([
-  "authorization",
-  "x-api-key",
-  "api-key",
-  "anthropic-auth-token",
-  "proxy-authorization",
-  "content-length",
-  "transfer-encoding",
-  "cookie",
-]);
+interface LegacyTarget {
+  kind: "legacy";
+  gatewayUrl: string;
+  headers: Record<string, string>;
+}
 
-const STRIPPED_RESPONSE_HEADERS = new Set([
-  "transfer-encoding",
-  "content-encoding",
-  "content-length",
-  "set-cookie",
-  "www-authenticate",
-]);
-
-export const MAX_BODY_BYTES = 16 * 1024 * 1024;
-export const PROXY_TIMEOUTS = {
-  bodyMs: 60_000,
-  // Non-streaming calls can run for minutes before the first byte, so this
-  // only catches a wedged connection.
-  headersMs: 10 * 60_000,
-};
+type ProxyTarget = LegacyTarget | SessionTarget;
 
 @injectable()
 export class AuthProxyService {
   private server: http.Server | null = null;
   private port: number | null = null;
   private listenPromise: Promise<void> | null = null;
-  private readonly targetByToken = new Map<
-    string,
-    { gatewayUrl: string; headers: Record<string, string> }
-  >();
+  private readonly targetByToken = new Map<string, ProxyTarget>();
   private readonly tokenByTarget = new Map<string, string>();
   private readonly log: ScopedLogger;
+  private readonly sessions: GatewaySessionHandler;
 
   constructor(
     @inject(AUTH_PROXY_AUTH)
     private readonly auth: AuthProxyAuth,
     @inject(ROOT_LOGGER)
     rootLogger: RootLogger,
+    @inject(GATEWAY_CREDENTIAL_SOURCE)
+    @optional()
+    private readonly source?: GatewayCredentialSource,
+    @inject(AUTH_PROXY_FETCH)
+    @optional()
+    fetchImpl?: FetchLike,
   ) {
     this.log = rootLogger.scope("auth-proxy");
+    this.sessions = new GatewaySessionHandler({
+      log: this.log,
+      fetchImpl: fetchImpl ?? ((url, init) => fetch(url, init)),
+      source: () => this.requireSource(),
+      forwardLegacy: (url, options, res, abort) =>
+        this.forwardRequest(url, options, res, abort),
+    });
   }
 
   async start(
     gatewayUrl: string,
     headers: Record<string, string> = {},
   ): Promise<string> {
-    const targetKey = JSON.stringify([
+    return this.register(["legacy", gatewayUrl], {
+      kind: "legacy",
       gatewayUrl,
-      Object.entries(headers).sort(([left], [right]) =>
-        left.localeCompare(right),
-      ),
-    ]);
-    let token = this.tokenByTarget.get(targetKey);
-    if (!token) {
-      token = randomBytes(32).toString("base64url");
-      this.tokenByTarget.set(targetKey, token);
-      this.targetByToken.set(token, { gatewayUrl, headers: { ...headers } });
-    }
+      headers: { ...headers },
+    });
+  }
 
-    await this.ensureListening();
-
-    return this.getProxyUrl(token);
+  /**
+   * The bearer and gateway URL resolve per request, so a refreshed token never
+   * changes the loopback URL the CLI holds.
+   */
+  async startGatewaySession(input: {
+    projectId: number;
+    legacyGatewayUrl: string;
+    headers?: Record<string, string>;
+  }): Promise<string> {
+    this.requireSource();
+    return this.register(["session", input.projectId, input.legacyGatewayUrl], {
+      kind: "session",
+      projectId: input.projectId,
+      legacyGatewayUrl: input.legacyGatewayUrl,
+      headers: { ...(input.headers ?? {}) },
+    });
   }
 
   getProxyUrl(token: string): string {
@@ -96,6 +110,28 @@ export class AuthProxyService {
 
   isRunning(): boolean {
     return this.server !== null && this.port !== null;
+  }
+
+  private async register(
+    identity: unknown[],
+    target: ProxyTarget,
+  ): Promise<string> {
+    const targetKey = JSON.stringify([
+      ...identity,
+      Object.entries(target.headers).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ]);
+    let token = this.tokenByTarget.get(targetKey);
+    if (!token) {
+      token = randomBytes(32).toString("base64url");
+      this.tokenByTarget.set(targetKey, token);
+      this.targetByToken.set(token, target);
+    }
+
+    await this.ensureListening();
+
+    return this.getProxyUrl(token);
   }
 
   private ensureListening(): Promise<void> {
@@ -158,6 +194,17 @@ export class AuthProxyService {
       return;
     }
 
+    if (target.kind === "session") {
+      void this.sessions.handle(
+        target,
+        match?.[2] ?? "/",
+        incomingUrl.search,
+        req,
+        res,
+      );
+      return;
+    }
+
     const base = target.gatewayUrl.endsWith("/")
       ? target.gatewayUrl
       : `${target.gatewayUrl}/`;
@@ -193,14 +240,9 @@ export class AuthProxyService {
     }
 
     const headers: Record<string, string> = {};
-    const requestHopByHop = hopByHop(req.headers.connection);
+    const stripped = strippedRequestHeaders(req.headers.connection);
     for (const [key, value] of Object.entries(req.headers)) {
-      const name = key.toLowerCase();
-      if (
-        name === "host" ||
-        requestHopByHop.has(name) ||
-        STRIPPED_REQUEST_HEADERS.has(name)
-      ) {
+      if (stripped.has(key.toLowerCase())) {
         continue;
       }
       if (typeof value === "string") {
@@ -309,16 +351,7 @@ export class AuthProxyService {
         return;
       }
 
-      const responseHeaders: Record<string, string> = {};
-      const responseHopByHop = hopByHop(response.headers.get("connection"));
-      response.headers.forEach((value: string, key: string) => {
-        const name = key.toLowerCase();
-        if (STRIPPED_RESPONSE_HEADERS.has(name) || responseHopByHop.has(name))
-          return;
-        responseHeaders[key] = value;
-      });
-
-      res.writeHead(response.status, responseHeaders);
+      res.writeHead(response.status, responseHeaders(response));
 
       await streamBodyToResponse(response.body, res, progress);
 
@@ -366,53 +399,11 @@ export class AuthProxyService {
       res.end("Proxy error");
     }
   }
-}
 
-function jsonError(
-  res: http.ServerResponse,
-  status: number,
-  error: Record<string, string>,
-  extraHeaders: Record<string, string> = {},
-): void {
-  if (res.headersSent) {
-    res.end();
-    return;
+  private requireSource(): GatewayCredentialSource {
+    if (!this.source) {
+      throw new Error("Gateway sessions need a credential source");
+    }
+    return this.source;
   }
-  res.writeHead(status, {
-    "content-type": "application/json",
-    ...extraHeaders,
-  });
-  res.end(JSON.stringify({ error }));
-}
-
-function readBody(
-  req: http.IncomingMessage,
-): Promise<Body | "too_large" | "timeout" | "aborted"> {
-  return new Promise((resolve) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let settled = false;
-    const finish = (result: Body | "too_large" | "timeout" | "aborted") => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      req.off("data", onData);
-      // Drain the rest so the socket can carry the error response.
-      if (typeof result === "string") req.resume();
-      resolve(result);
-    };
-    const timer = setTimeout(() => finish("timeout"), PROXY_TIMEOUTS.bodyMs);
-    const onData = (chunk: Buffer) => {
-      size += chunk.byteLength;
-      if (size > MAX_BODY_BYTES) {
-        finish("too_large");
-        return;
-      }
-      chunks.push(chunk);
-    };
-    req.on("data", onData);
-    req.on("end", () => finish(Buffer.concat(chunks)));
-    req.on("error", () => finish("aborted"));
-    req.on("aborted", () => finish("aborted"));
-  });
 }

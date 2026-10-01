@@ -96,6 +96,12 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
+from products.replay_vision.backend.jev_watch_feed import (
+    JEV_WATCHABLE_MIN,
+    load_watch_ranks,
+    rank_watch_feed_by_jev,
+    watch_feed_ranker,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -1445,6 +1451,9 @@ WATCH_FEED_CANDIDATE_CAP = 1000
 # the whole cap and quiet scanners lose not just feed slots but their own baselines — "unusual for
 # this scanner lately" silently stops firing for exactly the scanners the cap crowded out.
 WATCH_FEED_PER_SCANNER_CAP = 100
+# Ids per query when the jev feed fetches cached watchable rows the recency slice cut off. Keeps
+# each id__in list bounded while the walk stops as soon as the page is covered.
+WATCH_FEED_BYPASS_CHUNK = 200
 
 
 class WatchFeedReason(models.TextChoices):
@@ -1456,6 +1465,7 @@ class WatchFeedReason(models.TextChoices):
     RARE_TAG = "rare_tag"
     NOVEL_SUMMARY = "novel_summary"
     FRICTION = "friction"
+    JEV_WATCHABLE = "jev_watchable"
     UNVIEWED_RECENT = "unviewed_recent"
     RECENT = "recent"
 
@@ -1550,6 +1560,8 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
             "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
             "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
+            "`jev_watchable` (the decision model judged the session worth watching; teams on the "
+            "Jev ranker experiment only), "
             "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
@@ -1586,13 +1598,18 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
     )
+    jev_probability = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.",
+    )
     notability_reason = serializers.CharField(
         required=False,
         allow_null=True,
         help_text=(
-            "The scan's own sentence naming why the session is worth watching. Present only on the `notable` "
-            "reason kind, and preferred over copy derived from the reason kind. Absent on observations "
-            "scanned before notability shipped."
+            "The scan's own sentence naming why the session is worth watching. Present on the `notable` and "
+            "`jev_watchable` reason kinds when the scan itself found the session notable, and preferred over "
+            "copy derived from the reason kind. Absent on observations scanned before notability shipped."
         ),
     )
     score = serializers.FloatField(
@@ -2318,7 +2335,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
+        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
+        # the hourly sweep cached. Neither arm makes a model call here.
+        if watch_feed_ranker(self.team_id) == "jev":
+            probabilities = load_watch_ranks(self.team_id, allowed_ids)
+            jev_rows = list(candidate_rows)
+            # The recency slice above holds only each scanner's newest rows, which on a high-volume
+            # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
+            # the slice cut off, walking the cache in probability-descending chunks. Each chunk goes
+            # through `candidates` — team, scanner, date, and search — so nothing outside the
+            # request's scope can enter, and a cached id that matches no candidate row cannot use up
+            # the page: slicing the cache before filtering would let high-probability non-matches
+            # push out matching rows. The walk stops once the page is covered, and the cache itself
+            # bounds it (at most a window's judged rows per readable scanner).
+            watchable_missing = sorted(
+                (
+                    UUID(observation_id)
+                    for observation_id, probability in probabilities.items()
+                    if probability >= JEV_WATCHABLE_MIN
+                ),
+                key=lambda observation_id: probabilities[str(observation_id)],
+                reverse=True,
+            )
+            loaded_ids = {row["id"] for row in jev_rows}
+            missing = [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]
+            needed = params["limit"]
+            for start in range(0, len(missing), WATCH_FEED_BYPASS_CHUNK):
+                if needed <= 0:
+                    break
+                fetched = list(
+                    candidates.filter(id__in=missing[start : start + WATCH_FEED_BYPASS_CHUNK])
+                    .annotate(feed_viewed=viewed)
+                    .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
+                )
+                jev_rows += fetched
+                needed -= len(fetched)
+            ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
+        else:
+            ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row

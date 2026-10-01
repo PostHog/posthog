@@ -1027,6 +1027,45 @@ def get_primary_key_columns(conn: psycopg.Connection, schema: str, table_names: 
     return result
 
 
+def get_enforced_unique_keys(
+    conn: psycopg.Connection, schema: str, table_names: list[str]
+) -> dict[str, list[frozenset[str]]]:
+    """Column sets of each table's unique indexes that Postgres enforces on every row as it is written.
+
+    A deferrable constraint is checked only at the end of the statement or transaction, a partial index
+    leaves the rows outside its predicate free, and an expression index constrains no plain column. A
+    nullable key column lets any number of rows hold NULL there. Those are left out, so a set returned
+    here can never be held by two rows at once.
+    """
+    if not table_names:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.relname, array_agg(a.attname::text)
+            FROM pg_index i
+            JOIN pg_class c ON c.oid = i.indrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_attribute a
+              ON a.attrelid = c.oid AND a.attnum = ANY((i.indkey::int2[])[0:i.indnkeyatts - 1])
+            WHERE i.indisunique
+              AND i.indimmediate
+              AND i.indisvalid
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
+              AND n.nspname = %s
+              AND c.relname = ANY(%s)
+            GROUP BY c.relname, i.indexrelid
+            HAVING bool_and(a.attnotnull)
+            """,
+            (schema, table_names),
+        )
+        keys: dict[str, list[frozenset[str]]] = {}
+        for table, columns in cur:
+            keys.setdefault(table, []).append(frozenset(columns))
+    return keys
+
+
 def get_leading_index_columns(
     conn: psycopg.Connection, schema: str, table_names: list[str]
 ) -> dict[str, set[str]] | None:
