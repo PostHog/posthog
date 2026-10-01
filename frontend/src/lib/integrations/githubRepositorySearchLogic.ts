@@ -12,8 +12,9 @@ import {
     selectors,
 } from 'kea'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
+import { integrationsGithubReposRetrieve } from 'products/integrations/frontend/generated/api'
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
 const PAGE_SIZE = 50
@@ -201,7 +202,7 @@ export const githubRepositorySearchLogic = kea<githubRepositorySearchLogicType>(
             // committing stale repositories onto the new result set.
             const query = values.searchQuery.trim()
             try {
-                const response = await api.integrations.githubRepositories(props.id, {
+                const response = await integrationsGithubReposRetrieve(String(ApiConfig.getCurrentTeamId()), props.id, {
                     limit: props.loadAll ? FULL_LIST_PAGE_SIZE : PAGE_SIZE,
                     offset,
                     search: query || undefined,

@@ -18,7 +18,7 @@ describe('GitHubRepositoryCombobox', () => {
         requests = 0
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/github_repos': () => {
+                '/api/projects/:team_id/integrations/:id/github_repos/': () => {
                     const firstPage = requests++ === 0
                     return [
                         200,
