@@ -74,6 +74,15 @@ const EMAIL_AUTOSAVE_RETRY_MS = 2000
 
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
+// Shown in the stepper, and named to PostHog AI so it points the user at the step they can see.
+export const BROADCAST_WIZARD_STEP_LABELS: Record<BroadcastWizardStep, string> = {
+    recipients: 'Recipients',
+    goal: 'Goal',
+    content: 'Content',
+    schedule: 'Schedule',
+    review: 'Review',
+}
+
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
 // The value stored in the email action's `inputs.email.value`, mirroring the
@@ -281,6 +290,9 @@ export interface broadcastWizardLogicActions {
         broadcast: HogFlowApi | null
         payload?: any
     }
+    loadExternalEdit: () => {
+        value: true
+    }
     moveToDraft: () => {
         value: true
     }
@@ -487,6 +499,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         draftAutosaved: (broadcast: HogFlowApi) => ({ broadcast }),
         applyExternalEdit: (broadcast: HogFlowApi, base: HogFlowApi | null) => ({ broadcast, base }),
         replayDeferredEdit: true,
+        loadExternalEdit: true,
         expandRun: (runId: string) => ({ runId }),
         collapseRun: (runId: string) => ({ runId }),
         setExpandedRunOverride: (runIds: string[]) => ({ runIds }),
@@ -949,7 +962,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (!recurringRepeating) {
                     return `Sends once on ${dayjs(recurringStartsAt).tz(effectiveTimezone).format('MMMM D, YYYY h:mm A')} (${effectiveTimezone})`
                 }
-                return buildSummary(scheduleState, recurringStartsAt)
+                return buildSummary(scheduleState, recurringStartsAt, effectiveTimezone)
             },
         ],
         rateLimitedSendDuration: [
@@ -1041,6 +1054,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             })
         },
         applyExternalEdit: ({ broadcast, base }) => {
+            // PostHog AI can change the recipients, so the audience size shown must follow.
+            if (changedElsewhere(broadcast, base, readAudience)) {
+                actions.loadBlastRadius()
+            }
             const composerDraft = loadComposerDraft(broadcast.id)
             if (!composerDraft) {
                 return
@@ -1196,7 +1213,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.resourceEdited(deferred)
             }
         },
-        resourceEdited: async ({ event }, breakpoint) => {
+        resourceEdited: ({ event }) => {
             const broadcast = values.broadcast
             if (
                 !broadcast ||
@@ -1206,6 +1223,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             ) {
                 return
             }
+            actions.loadExternalEdit()
+        },
+        loadExternalEdit: async (_, breakpoint) => {
+            const broadcast = values.broadcast
+            if (!broadcast || broadcast.status !== 'draft' || !values.currentProjectId) {
+                return
+            }
+            await getSaveQueue(cache, values).whenIdle()
             await breakpoint(200)
             const fresh = await hogFlowsRetrieve(String(values.currentProjectId), broadcast.id).catch(() => null)
             breakpoint()
