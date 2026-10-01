@@ -2527,7 +2527,7 @@ def send_ticket_assigned_notification(
     message = EmailMessage(
         use_http=True,
         campaign_key=f"conversation_ticket_assigned_{ticket.id}_{assignment_digest}",
-        subject=f"[Ticket #{ticket.ticket_number}] Assigned to you in {team.name}",
+        subject=f"[Ticket #{ticket.ticket_number}] Assigned to you in {single_line(team.name)}",
         template_name="conversation_ticket_assigned",
         template_context={
             "ticket_number": ticket.ticket_number,
