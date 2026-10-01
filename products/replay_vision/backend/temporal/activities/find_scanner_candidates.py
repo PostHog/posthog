@@ -73,12 +73,12 @@ class _DeepProgress:
 
 
 def _experiment_lifecycle_block(scanner: ReplayScanner) -> str | None:
-    """Why this scanner's experiment can no longer be watched: 'deleted', 'archived', or 'ended'.
+    """Why this scanner's experiment can't be watched now: 'deleted', 'archived', 'ended', or 'paused'.
 
-    None when the scanner watches no experiment or the experiment is still active. A paused
-    experiment stays watchable: it resumes without a lifecycle change (see ExperimentStatus).
-    Only the experiment type is judged: a legacy scanner targeting an experiment through the
-    column predates this gate, and flipping those off on deploy is not its call.
+    None when the scanner watches no experiment or the experiment is running. A pause turns the
+    flag off, so an exposed user's sessions from then on show no variant, and attributing them to
+    one would mislabel the readout. Only the experiment type is judged: a legacy scanner targeting
+    an experiment through the column predates this gate, and changing those on deploy is not its call.
     """
     if scanner.scanner_type != ScannerType.EXPERIMENT:
         return None
@@ -97,6 +97,8 @@ def _experiment_lifecycle_block(scanner: ReplayScanner) -> str | None:
         return "archived"
     if status.end_date is not None:
         return "ended"
+    if status.status == "paused":
+        return "paused"
     return None
 
 
@@ -134,10 +136,10 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         activity.logger.info("replay_vision.sweep.disabled_experiment_scanner scanner_id=%s", inputs.scanner_id)
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
     if lifecycle_block is not None:
-        # An ended or archived experiment comes back through reset and relaunch, and a disabled
-        # scanner has no schedule left to notice that. So skip the tick instead, before any
-        # ClickHouse read. Both watermarks move to now, as a re-enable does, so a relaunch sweeps
-        # from then on and never bills the gap the experiment was over for.
+        # A pause resumes, and an ended or archived experiment comes back through reset and relaunch,
+        # but a disabled scanner has no schedule left to notice either. So skip the tick instead,
+        # before any ClickHouse read. Both watermarks move to now, as a re-enable does, so the sweep
+        # picks up from the resume or relaunch and never bills the gap.
         record_sweep_outcome("experiment_over")
         horizon = initial_watermark()
         return FindScannerCandidatesOutput(

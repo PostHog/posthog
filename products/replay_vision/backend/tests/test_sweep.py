@@ -177,16 +177,20 @@ class TestFindScannerCandidatesActivity:
         result = find_scanner_candidates_activity(FindScannerCandidatesInputs(scanner_id=uuid.uuid4(), team_id=999))
         assert result == FindScannerCandidatesOutput(candidates=[], saturated=False)
 
-    @parameterized.expand([("ended",), ("archived",), ("deleted",)])
-    def test_an_experiment_that_is_over_stops_the_sweep(self, state: str) -> None:
-        # Ended and archived experiments come back through reset and relaunch, and a disabled scanner
-        # has no schedule to notice that, so those skip the tick and stay enabled. Their watermarks
-        # move to now, or a relaunch would bill the whole gap. Only a deleted experiment disables.
+    @parameterized.expand([("paused",), ("ended",), ("archived",), ("deleted",)])
+    def test_an_experiment_that_is_not_running_stops_the_sweep(self, state: str) -> None:
+        # Paused, ended, and archived experiments come back (resume, or reset and relaunch), and a
+        # disabled scanner has no schedule to notice that, so those skip the tick and stay enabled.
+        # Their watermarks move to now, or a comeback would bill the whole gap. Only a deleted
+        # experiment disables.
         scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
         experiment = create_experiment(scanner.team, "over-flag", launched=True, variants=["control", "test"])
         scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
         scanner.save()
-        if state == "ended":
+        if state == "paused":
+            experiment.feature_flag.active = False
+            experiment.feature_flag.save()
+        elif state == "ended":
             experiment.end_date = timezone.now()
         elif state == "archived":
             experiment.archived = True
@@ -219,24 +223,6 @@ class TestFindScannerCandidatesActivity:
         ReplayScanner.objects.filter(pk=scanner.pk).update(
             experiment_targeting={"experiment_id": experiment.id, "variant": None, "variants": None}
         )
-
-        with _patched_queries():
-            find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
-            )
-
-        scanner.refresh_from_db()
-        assert scanner.enabled is True
-
-    def test_a_paused_experiment_keeps_its_scanner_sweeping(self) -> None:
-        # Pausing turns the flag off temporarily; the experiment resumes without a lifecycle
-        # change, so the sweep must not disable the scanner over it.
-        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
-        experiment = create_experiment(scanner.team, "paused-flag", launched=True, variants=["control", "test"])
-        experiment.feature_flag.active = False
-        experiment.feature_flag.save()
-        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
-        scanner.save()
 
         with _patched_queries():
             find_scanner_candidates_activity(

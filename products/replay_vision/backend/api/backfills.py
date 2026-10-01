@@ -25,7 +25,7 @@ from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_backfill import (
     ACTIVE_BACKFILL_STATUSES,
     BackfillStatus,
@@ -48,6 +48,26 @@ ENUMERATION_MAX_EXECUTION_SECONDS = 30
 # Beyond a year a backfill is asking for recordings almost every team has already aged out, while the
 # enumeration pays for the whole partition range. Bounds the per-request ClickHouse cost.
 MAX_BACKFILL_WINDOW_DAYS = 365
+
+
+def _experiment_end_date(scanner: ReplayScanner) -> datetime | None:
+    """When an experiment scanner's experiment ended, or None while it runs or for other types.
+
+    Ending an experiment leaves its flag on, so exposed users keep producing sessions that would
+    still match. A backfill covers the experiment's own run, and stopping at the end is what keeps
+    it from paying for that afterlife.
+    """
+    if scanner.scanner_type != ScannerType.EXPERIMENT:
+        return None
+    experiment_id = (scanner.experiment_scope() or {}).get("experiment_id")
+    if experiment_id is None:
+        return None
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_status  # noqa: PLC0415
+
+    status = experiment_status(scanner.team, experiment_id=experiment_id)
+    return status.end_date if status is not None else None
 
 
 class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -206,7 +226,8 @@ class ReplayScannerBackfillViewSet(
         )
 
     def _clamped_window(self, data: dict[str, Any]) -> tuple[datetime, datetime]:
-        """The requested window, bounded above by the settle horizon the live sweep also waits for.
+        """The requested window, bounded above by the settle horizon the live sweep also waits for,
+        and for an experiment scanner by the experiment's end (see `_experiment_end_date`).
 
         Not `now`: a session inside the settle window is still recording or still merging, so scanning it
         yields a truncated observation, and the unique (scanner, session) constraint makes that the only
@@ -221,8 +242,15 @@ class ReplayScannerBackfillViewSet(
         find, which `_enumerate` answers directly.
         """
         window_end = min(data["window_end"], timezone.now() - SETTLE_INTERVAL)
+        experiment_end = _experiment_end_date(self._scanner_for_url())
+        if experiment_end is not None:
+            window_end = min(window_end, experiment_end)
         window_start = data["window_start"]
         if window_start >= window_end:
+            if experiment_end is not None and window_start >= experiment_end:
+                raise ValidationError(
+                    "This experiment ended before the start of the range. Pick a range from while it ran."
+                )
             raise ValidationError("The end of the range must be in the past. Pick an earlier range.")
         return window_start, window_end
 
