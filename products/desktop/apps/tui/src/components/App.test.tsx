@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import type { PiChats } from "../chats";
 import { initialLayout, openTask, saveLayout } from "../layout";
 import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
+import type { MouseEvents } from "../mouse";
 import { type CloudRuns, emptyRunView } from "../runs";
 import { renderInTerminal } from "../testing";
 import type { WorkList } from "../work";
@@ -129,6 +131,55 @@ describe("App", () => {
     } finally {
       instance.unmount();
       rmSync(sessions, { recursive: true });
+    }
+  });
+
+  it("starts new chats where the last /local or /cloud pointed, after a restart", async () => {
+    saveLayout(initialLayout());
+    const session = {
+      work: {
+        listRecent: () => new Promise(() => {}),
+      } as unknown as WorkList,
+      runs: { prefetch: async () => {} } as unknown as CloudRuns,
+      chats: {} as PiChats,
+      control: () => ({}) as PiControl,
+      startLocal: () => Promise.reject(new Error("no local")),
+    };
+    const mouse: MouseEvents = new EventEmitter();
+    const app = (): ReturnType<typeof renderInTerminal> =>
+      renderInTerminal(
+        <App
+          session={session}
+          login={async () => {}}
+          logout={() => {}}
+          mouse={mouse}
+        />,
+      );
+
+    const first = app();
+    try {
+      await vi.waitFor(() =>
+        expect(first.output()).toContain("start a cloud run"),
+      );
+      mouse.emit("keys", "/local");
+      mouse.emit("keys", "\r");
+      await vi.waitFor(() =>
+        expect(first.output()).toContain("start a local chat"),
+      );
+    } finally {
+      first.instance.unmount();
+    }
+
+    const second = app();
+    try {
+      await vi.waitFor(() =>
+        expect(second.output()).toContain("start a local chat"),
+      );
+    } finally {
+      second.instance.unmount();
+      rmSync(join(homedir(), ".config", "posthog-tui", "prefs.json"), {
+        force: true,
+      });
     }
   });
 });
