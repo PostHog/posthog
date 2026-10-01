@@ -124,7 +124,8 @@ class TestFeatureFlagsFreshness(BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        # A regression in the flags claim only shows when the residual runs too.
+        # Production also runs the product analytics residual. It takes `$feature_flag_called`
+        # when the flags spec stops claiming the event.
         residual = DataSourceSpec(product=ProductKey.PRODUCT_ANALYTICS, is_residual=True)
         patcher = patch(
             "posthog.data_freshness.discover_data_sources",
@@ -144,6 +145,20 @@ class TestFeatureFlagsFreshness(BaseTest):
             ),
             ("soft-deleted flag still called", [timedelta(hours=1)], True, None, timedelta(hours=1)),
             ("event definition for a key with no flag", [], False, timedelta(hours=2), timedelta(hours=2)),
+            (
+                "event definition newer than the latest flag call",
+                [timedelta(days=3)],
+                False,
+                timedelta(hours=2),
+                timedelta(hours=2),
+            ),
+            (
+                "flag call newer than the event definition",
+                [timedelta(hours=1)],
+                False,
+                timedelta(hours=2),
+                timedelta(hours=1),
+            ),
             ("last call before the lookback window", [timedelta(days=LOOKBACK_DAYS + 1)], False, None, None),
         ]
     )
