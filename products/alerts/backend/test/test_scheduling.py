@@ -350,6 +350,7 @@ class TestNextCalendarCheckTime:
             now=due_at,
             tz_name=tz_name,
             next_check_at=due_at,
+            alert_id=ALERT_ID,
             schedule_start_time=anchor,
         )
         assert result == expected
