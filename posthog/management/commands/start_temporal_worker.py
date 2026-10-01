@@ -749,7 +749,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--activity-maximum-slots",
             type=int,
-            default=settings.MAX_CONCURRENT_ACTIVITIES,
+            default=None,
             help="Maximum number of activity task slots for this worker. Requires tuner options to be set",
         )
         parser.add_argument(
@@ -761,7 +761,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--workflow-maximum-slots",
             type=int,
-            default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
+            default=None,
             help="Maximum number of workflow task slots for this worker. Requires tuner options to be set",
         )
         parser.add_argument(
