@@ -172,13 +172,15 @@ def current_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> 
     return _CACHE.current(fallback, version=version)
 
 
-def model_shadow_prompt(primary: SystemOnePrompt, version: int) -> SystemOnePrompt | None:
+def model_experiment_prompt(primary: SystemOnePrompt, version: int, model: str) -> SystemOnePrompt | None:
+    if primary.source == "managed" and primary.version == version and primary.model == model:
+        return primary
     fallback = bundled_prompt(primary.name, primary.policy, primary.question, primary.threshold)
     candidate = current_prompt(fallback, version=version)
     if (
         candidate.source != "managed"
         or candidate.version != version
-        or candidate.model == primary.model
+        or candidate.model != model
         or candidate.policy != primary.policy
         or candidate.question != primary.question
         or candidate.threshold != primary.threshold

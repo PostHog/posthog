@@ -1,14 +1,10 @@
 import math
 import random
 import asyncio
-from collections.abc import Awaitable, Callable, Coroutine
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from copy import deepcopy
-from functools import partial
-from threading import BoundedSemaphore
 from time import perf_counter
-from typing import Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar
 from uuid import uuid4
 
 from django.conf import settings
@@ -33,7 +29,14 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.signals.backend.system_one_prompts import DEFAULT_SYSTEM_ONE_MODEL, SystemOnePrompt, model_shadow_prompt
+from products.signals.backend.system_one_prompts import (
+    DEFAULT_SYSTEM_ONE_MODEL,
+    SystemOnePrompt,
+    model_experiment_prompt,
+)
+
+if TYPE_CHECKING:
+    from posthoganalytics.feature_flag_evaluations import FeatureFlagEvaluations
 
 logger = structlog.get_logger(__name__)
 
@@ -51,12 +54,9 @@ JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS = 0.5
 JEV_REDIS_TIMEOUT_SECONDS = 0.1
 JEV_BUDGET = Budget(burst=2, per_hour=3600)
 JEV_TEAM_BUDGET = Budget(burst=1, per_hour=1800)
-MODEL_SHADOW_FLAG = "signals-system-one-jeeves-shadow"
-MODEL_SHADOW_SAMPLE_RATE = 0.05
-MODEL_SHADOW_TEAM_BUDGET = Budget(burst=1, per_hour=90)
-MODEL_SHADOW_FLAG_TIMEOUT_SECONDS = 1.0
-_MODEL_SHADOW_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="signals-model-shadow")
-_MODEL_SHADOW_SLOTS = BoundedSemaphore(2)
+SHADOW_MODEL_FLAG = "signals-system-one-shadow-model"
+SHADOW_MODEL_FLAG_TIMEOUT_SECONDS = 1.0
+SHADOW_MODELS = {"jevk": DEFAULT_SYSTEM_ONE_MODEL, "jeeves": "posthog/hogference/jeeves-0.1"}
 
 SAFETY_CATEGORIES = {
     "none": "No matching safety category",
@@ -129,6 +129,45 @@ class SignalsDecision:
     category_confidence: float | None
 
 
+@frozen
+class _ShadowModelExperiment:
+    prompt: SystemOnePrompt
+    variant: str | None = None
+    status: str = "not_enrolled"
+    flags: "FeatureFlagEvaluations | None" = None
+
+
+async def _shadow_model_experiment(team_id: int, trace_id: str, prompt: SystemOnePrompt) -> _ShadowModelExperiment:
+    if prompt.source != "managed" or prompt.model != DEFAULT_SYSTEM_ONE_MODEL:
+        return _ShadowModelExperiment(prompt=prompt)
+    try:
+        async with asyncio.timeout(SHADOW_MODEL_FLAG_TIMEOUT_SECONDS):
+            flags = await asyncio.to_thread(
+                posthoganalytics.evaluate_flags,
+                trace_id,
+                groups={"project": str(team_id)},
+                group_properties={"project": {"id": team_id}},
+                flag_keys=[SHADOW_MODEL_FLAG],
+            )
+        variant = flags.get_flag(SHADOW_MODEL_FLAG)
+        if not isinstance(variant, str) or variant not in SHADOW_MODELS:
+            return _ShadowModelExperiment(prompt=prompt, flags=flags)
+        payload = flags.get_flag_payload(SHADOW_MODEL_FLAG)
+        versions = payload.get("prompt_versions") if isinstance(payload, dict) else None
+        version = versions.get(prompt.name) if isinstance(versions, dict) else None
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            return _ShadowModelExperiment(prompt=prompt, variant=variant, status="invalid_payload", flags=flags)
+        candidate = model_experiment_prompt(prompt, version, SHADOW_MODELS[variant])
+        if candidate is None:
+            return _ShadowModelExperiment(
+                prompt=prompt, variant=variant, status="prompt_unavailable_or_mismatched", flags=flags
+            )
+        return _ShadowModelExperiment(prompt=candidate, variant=variant, status="assigned", flags=flags)
+    except Exception as error:
+        logger.warning("Shadow model flag check failed", stage="model_selection", error_type=type(error).__name__)
+        return _ShadowModelExperiment(prompt=prompt, status=type(error).__name__)
+
+
 async def model_mode(team_id: int) -> ModelMode:
     try:
         value = await asyncio.to_thread(
@@ -151,10 +190,8 @@ async def model_mode(team_id: int) -> ModelMode:
     return "traditional-only"
 
 
-async def _admit_jev(team_id: int, stage: str, mode: ModelMode, *, model_shadow: bool = False) -> None:
+async def _admit_jev(team_id: int, stage: str, mode: ModelMode) -> None:
     key = f"signals:jev:admission:{settings.CLOUD_DEPLOYMENT or 'local'}"
-    team_key = f"{key}:team:{team_id}" + (":model-shadow" if model_shadow else "")
-    team_budget = MODEL_SHADOW_TEAM_BUDGET if model_shadow else JEV_TEAM_BUDGET
     try:
         timeout = JEV_SHADOW_ADMISSION_TIMEOUT_SECONDS if mode == "system-one-shadow" else JEV_ADMISSION_TIMEOUT_SECONDS
         async with asyncio.timeout(timeout):
@@ -162,7 +199,7 @@ async def _admit_jev(team_id: int, stage: str, mode: ModelMode, *, model_shadow:
                 socket_timeout=JEV_REDIS_TIMEOUT_SECONDS, socket_connect_timeout=JEV_REDIS_TIMEOUT_SECONDS
             )
             while True:
-                decision = await asyncio.to_thread(consume, team_key, team_budget, client=client)
+                decision = await asyncio.to_thread(consume, f"{key}:team:{team_id}", JEV_TEAM_BUDGET, client=client)
                 if not isinstance(decision, BucketUnavailable) and decision.allowed:
                     decision = await asyncio.to_thread(consume, key, JEV_BUDGET, client=client)
                 if isinstance(decision, BucketUnavailable):
@@ -189,11 +226,8 @@ async def _query(
     source_id: str | None,
     source_product: str | None,
     mode: ModelMode,
-    *,
-    model_shadow: bool = False,
-    comparison_id: str | None = None,
 ) -> SignalsDecision:
-    await _admit_jev(team_id, stage, mode, model_shadow=model_shadow)
+    await _admit_jev(team_id, stage, mode)
     question_name = "actionable" if stage == "actionability" else "safe"
     questions = {
         question_name: DecisionQuestion(type=DecisionQuestionType.NOUL, instructions=prompt.question),
@@ -223,8 +257,6 @@ async def _query(
                     "$ai_prompt_name": prompt.name,
                     "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
                     "system_one_prompt_source": prompt.source,
-                    "signals_model_comparison_id": comparison_id,
-                    "signals_model_comparison_role": "shadow" if model_shadow else None,
                 }.items()
                 if value is not None
             },
@@ -259,120 +291,6 @@ async def _query(
     )
 
 
-async def _compare_model_shadow(
-    *,
-    team_id: int,
-    stage: str,
-    state: dict[str, JsonValue],
-    prompt: SystemOnePrompt,
-    primary: SignalsDecision,
-    primary_latency_seconds: float,
-    trace_id: str,
-    source_id: str | None,
-    source_product: str | None,
-) -> None:
-    async with asyncio.timeout(MODEL_SHADOW_FLAG_TIMEOUT_SECONDS):
-        flags = await asyncio.to_thread(
-            posthoganalytics.evaluate_flags,
-            f"team-{team_id}",
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": team_id}},
-            flag_keys=[MODEL_SHADOW_FLAG],
-        )
-    if flags.get_flag(MODEL_SHADOW_FLAG) is not True:
-        return
-    payload = flags.get_flag_payload(MODEL_SHADOW_FLAG)
-    versions = payload.get("prompt_versions") if isinstance(payload, dict) else None
-    version = versions.get(prompt.name) if isinstance(versions, dict) else None
-    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
-        return
-
-    comparison_id = str(uuid4())
-    candidate = model_shadow_prompt(prompt, version)
-    properties: dict[str, object] = {
-        "$ai_trace_id": trace_id,
-        "signals_decision_id": trace_id,
-        "signals_model_comparison_id": comparison_id,
-        "stage": stage,
-        "source_id": source_id,
-        "source_product": source_product,
-        "$ai_prompt_name": prompt.name,
-        "primary_prompt_version": prompt.version,
-        "shadow_prompt_version": version,
-        "primary_model": primary.model,
-        "primary_probability": primary.probability,
-        "primary_category": primary.category,
-        "primary_verdict": primary.probability >= prompt.threshold and primary.category in (None, "none"),
-        "primary_latency_ms": primary_latency_seconds * 1000,
-        "threshold": prompt.threshold,
-        "sample_rate": MODEL_SHADOW_SAMPLE_RATE,
-    }
-    if candidate is None:
-        properties["shadow_status"] = "prompt_unavailable_or_mismatched"
-    else:
-        started = perf_counter()
-        try:
-            shadow = await _query(
-                team_id,
-                stage,
-                state,
-                candidate,
-                comparison_id,
-                source_id,
-                source_product,
-                "system-one-shadow",
-                model_shadow=True,
-                comparison_id=comparison_id,
-            )
-        except _JevAdmissionError as error:
-            properties["shadow_status"] = error.status
-        except Exception as error:
-            properties["shadow_status"] = type(error).__name__
-        else:
-            shadow_verdict = shadow.probability >= candidate.threshold and shadow.category in (None, "none")
-            properties.update(
-                {
-                    "shadow_status": "ok",
-                    "shadow_model": shadow.model,
-                    "shadow_probability": shadow.probability,
-                    "shadow_category": shadow.category,
-                    "shadow_category_confidence": shadow.category_confidence,
-                    "shadow_verdict": shadow_verdict,
-                    "shadow_input_tokens": shadow.input_tokens,
-                    "disagreement": properties["primary_verdict"] != shadow_verdict,
-                    "category_disagreement": primary.category != shadow.category,
-                }
-            )
-        properties["shadow_latency_ms"] = (perf_counter() - started) * 1000
-    posthoganalytics.capture(
-        event="signals_system_one_model_comparison",
-        distinct_id=f"team-{team_id}",
-        properties=properties,
-        flags=flags,
-    )
-
-
-def _run_model_shadow(stage: str, comparison: Callable[[], Coroutine[object, object, None]]) -> None:
-    try:
-        # The executor outlives short-lived caller loops and drains on process exit.
-        asyncio.run(comparison())
-    except Exception as error:
-        logger.warning("Model shadow comparison failed", stage=stage, error_type=type(error).__name__)
-    finally:
-        _MODEL_SHADOW_SLOTS.release()
-
-
-def _schedule_model_shadow(stage: str, comparison: Callable[[], Coroutine[object, object, None]]) -> None:
-    if not _MODEL_SHADOW_SLOTS.acquire(blocking=False):
-        _ADMISSIONS.labels(stage, "model_shadow_worker_busy").inc()
-        return
-    try:
-        _MODEL_SHADOW_EXECUTOR.submit(_run_model_shadow, stage, comparison)
-    except Exception as error:
-        _MODEL_SHADOW_SLOTS.release()
-        logger.warning("Model shadow scheduling failed", stage=stage, error_type=type(error).__name__)
-
-
 async def run_model_decision(
     *,
     team_id: int | None,
@@ -396,6 +314,7 @@ async def run_model_decision(
         return await traditional(None)
 
     trace_id = str(uuid4())
+    experiment = _ShadowModelExperiment(prompt=prompt)
 
     async def run_traditional() -> _SignalsModelCallResult[T]:
         started = perf_counter()
@@ -409,8 +328,12 @@ async def run_model_decision(
             return _SignalsModelCallResult(value=None, error=error, latency_seconds=perf_counter() - started)
 
     async def run_system_one() -> _SignalsModelCallResult[SignalsDecision]:
+        nonlocal experiment, prompt
         started = perf_counter()
         try:
+            if mode == "system-one-shadow":
+                experiment = await _shadow_model_experiment(team_id, trace_id, prompt)
+                prompt = experiment.prompt
             result = await _query(team_id, stage, state, prompt, trace_id, source_id, source_product, mode)
             return _SignalsModelCallResult(value=result, error=None, latency_seconds=perf_counter() - started)
         except _JevAdmissionError as error:
@@ -512,6 +435,9 @@ async def run_model_decision(
             "$ai_prompt_name": prompt.name,
             "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
             "system_one_prompt_source": prompt.source,
+            "system_one_model_experiment_variant": experiment.variant,
+            "system_one_model_experiment_status": experiment.status,
+            "system_one_requested_model": prompt.model,
         }
         if system_one is not None:
             disagreement = traditional_verdict != system_one_verdict if traditional_verdict is not None else None
@@ -552,6 +478,7 @@ async def run_model_decision(
             event="signals_typesafe_decision_evaluated",
             distinct_id=f"team-{team_id}",
             properties=properties,
+            flags=experiment.flags,
         )
     if decision_error is not None:
         if mode == "system-one-only":
@@ -566,28 +493,6 @@ async def run_model_decision(
         if mode == "system-one-only":
             raise SignalsDecisionError("Signals decision returned no result")
         raise RuntimeError("Model decision returned no result")
-    if (
-        deciding_provider == "system_one"
-        and system_one is not None
-        and prompt.source == "managed"
-        and prompt.model == DEFAULT_SYSTEM_ONE_MODEL
-        and random.random() < MODEL_SHADOW_SAMPLE_RATE
-    ):
-        _schedule_model_shadow(
-            stage,
-            partial(
-                _compare_model_shadow,
-                team_id=team_id,
-                stage=stage,
-                state=deepcopy(state),
-                prompt=prompt,
-                primary=system_one,
-                primary_latency_seconds=system_one_call.latency_seconds,
-                trace_id=trace_id,
-                source_id=source_id,
-                source_product=source_product,
-            ),
-        )
     if on_deciding_provider is not None:
         on_deciding_provider(deciding_provider)
     return decision

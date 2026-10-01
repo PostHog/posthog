@@ -14,7 +14,7 @@ from products.signals.backend.system_one_prompts import (
     _PromptState,
     bundled_prompt,
     fetch_prompt,
-    model_shadow_prompt,
+    model_experiment_prompt,
 )
 from products.signals.backend.temporal.report_safety_judge import REPORT_SAFETY_SYSTEM_ONE_PROMPT
 from products.signals.backend.temporal.safety_filter import SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
@@ -184,7 +184,7 @@ def test_failed_refresh_reverts_a_managed_safety_prompt_to_bundled() -> None:
 
 
 @pytest.mark.parametrize("changed", [None, "policy", "question", "threshold", "model", "version", "source"])
-def test_model_shadow_requires_a_model_only_candidate(changed: str | None) -> None:
+def test_model_experiment_requires_a_model_only_candidate(changed: str | None) -> None:
     primary = replace(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, source="managed", version=2)
     candidate = replace(primary, model="posthog/hogference/jeeves-0.1", version=3)
     if changed == "policy":
@@ -200,7 +200,9 @@ def test_model_shadow_requires_a_model_only_candidate(changed: str | None) -> No
     elif changed == "source":
         candidate = replace(candidate, source="bundled")
     with patch("products.signals.backend.system_one_prompts.current_prompt", return_value=candidate):
-        assert model_shadow_prompt(primary, 3) == (candidate if changed is None else None)
+        assert model_experiment_prompt(primary, 3, "posthog/hogference/jeeves-0.1") == (
+            candidate if changed is None else None
+        )
 
 
 def test_versioned_shadow_refresh_does_not_replace_production() -> None:
