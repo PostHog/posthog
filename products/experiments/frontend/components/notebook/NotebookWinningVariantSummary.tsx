@@ -1,12 +1,11 @@
 import { ExperimentMetric, NewExperimentQueryResponse } from '~/queries/schema/schema-general'
-
-import { VariantTag } from '../ExperimentView/VariantTag'
+import { VariantTag } from '~/scenes/experiments/ExperimentView/VariantTag'
 import {
     ExperimentVariantResult,
     formatChanceToWinForGoal,
     getChanceToWin,
     isBayesianResult,
-} from '../MetricsView/shared/utils'
+} from '~/scenes/experiments/MetricsView/shared/utils'
 
 type NotebookWinningVariantSummaryProps = {
     result: NewExperimentQueryResponse
