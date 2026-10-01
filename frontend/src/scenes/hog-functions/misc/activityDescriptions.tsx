@@ -66,14 +66,19 @@ export function DiffLink({ before, after, language, children }: DiffLinkProps): 
 
 type HogFunctionChange = { inline: string | JSX.Element; inlist: string | JSX.Element }
 
+function inputValue(input: unknown): unknown {
+    return isObject(input) ? (input as { value?: unknown }).value : input
+}
+
 function describeHogFunctionInputs(change: ActivityChange): HogFunctionChange {
-    const beforeValues = isObject(change.before) ? (change.before as Record<string, { value?: unknown }>) : {}
-    const afterValues = isObject(change.after) ? (change.after as Record<string, { value?: unknown }>) : {}
+    const beforeValues = isObject(change.before) ? (change.before as Record<string, unknown>) : {}
+    const afterValues = isObject(change.after) ? (change.after as Record<string, unknown>) : {}
 
     const changedFields = Object.entries(afterValues)
         .map(([key, value]) => {
-            const before = JSON.stringify(beforeValues[key]?.value)
-            const after = JSON.stringify(value?.value)
+            // Masked rows store a plain string per key instead of the input value
+            const before = JSON.stringify(inputValue(beforeValues[key]))
+            const after = JSON.stringify(inputValue(value))
 
             if (before !== after) {
                 return (
