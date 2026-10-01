@@ -76,6 +76,19 @@ describe('GitHubRepositoryCombobox', () => {
         expect(onChange).toHaveBeenCalledWith('example-org/active')
     })
 
+    it('loads later pages without a load-more click when loadAll is set', async () => {
+        hasMore = true
+        render(
+            <Provider>
+                <GitHubRepositoryCombobox integrationId={123} value="" onChange={jest.fn()} loadAll />
+            </Provider>
+        )
+        await userEvent.click(screen.getByRole('combobox'))
+        expect(await screen.findByText('example-org/archived')).toBeVisible()
+        expect(await screen.findByText('example-org/active')).toBeVisible()
+        expect(screen.queryByText('Load more')).not.toBeInTheDocument()
+    })
+
     it('disables the trigger and exposes its explanation', async () => {
         render(
             <Provider>
