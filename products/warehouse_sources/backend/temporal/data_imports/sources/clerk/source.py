@@ -103,7 +103,12 @@ The secret key starts with `sk_live_`.
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.clerk.com": "Your Clerk secret key is invalid or has been revoked. Please update the secret key in your Clerk dashboard and reconnect.",
-            "403 Client Error: Forbidden for url: https://api.clerk.com": "Your Clerk secret key does not have permission to access this endpoint. Please check the key's permissions in your Clerk dashboard.",
+            # Clerk secret keys carry no per-key permissions, so a 403 here usually means the table's
+            # feature is off for the instance. Pointing the customer at key permissions dead-ends.
+            "403 Client Error: Forbidden for url: https://api.clerk.com": (
+                "Clerk denied access to this table. Check that the feature it needs is turned on for "
+                "your Clerk instance, or turn off syncing for this table."
+            ),
             # Clerk answers 410 for endpoints it has removed. Schema discovery retires the table
             # within a few hours, so this only covers runs that start in between.
             "410 Client Error: Gone for url: https://api.clerk.com": "Clerk removed this endpoint from its API, so this table can't sync any more. Turn off syncing for this table.",
