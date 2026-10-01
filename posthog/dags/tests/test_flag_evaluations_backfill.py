@@ -8,6 +8,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import dagster
@@ -23,6 +24,7 @@ from posthog.dags.flag_evaluations_backfill import (
     FlagEvaluationsBackfillConfig,
     PolicyDisk,
     ShardBackfill,
+    ShardBackfillTotals,
     disk_headroom,
     flag_evaluations_backfill_job,
     resolve_backfill_days,
@@ -449,6 +451,8 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
         node_role=NodeRole.ALL,
     )
 
+    yesterday = datetime.now(UTC).date() - timedelta(days=1)
+
     with (
         patch.object(ShardBackfill, "check_disk_headroom"),
         patch.object(ShardBackfill, "check_consumer_lag"),
@@ -456,11 +460,43 @@ def test_backfill_stops_before_copying_when_another_backfill_run_is_executing(
     ):
         if stops:
             with pytest.raises(dagster.Failure, match=other_run.run_id):
-                backfill.run([date(2026, 3, 10)])
+                backfill.run([yesterday])
         else:
-            backfill.run([date(2026, 3, 10)])
+            backfill.run([yesterday])
 
     assert copy_day.called is not stops
+
+
+def test_backfill_stops_at_a_day_that_expires_during_the_run() -> None:
+    first_day, boundary_day, expired_day = date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)
+    backfill = ShardBackfill(
+        cluster=MagicMock(),
+        shard_num=1,
+        config=FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
+        instance=dagster.DagsterInstance.ephemeral(),
+        run_id="backfill-run",
+        log=MagicMock(),
+        query_tags=DagsterTags(),
+        workload=Workload.DEFAULT,
+        node_role=NodeRole.ALL,
+    )
+
+    with time_machine.travel(datetime(2026, 3, 10, 23, tzinfo=UTC), tick=False) as traveller:
+
+        def copy_past_midnight(day: date, *args: Any) -> int:
+            if day == first_day:
+                traveller.shift(timedelta(hours=2))
+            return 5
+
+        with (
+            patch.object(ShardBackfill, "check_disk_headroom"),
+            patch.object(ShardBackfill, "check_consumer_lag"),
+            patch.object(ShardBackfill, "copy_day", side_effect=copy_past_midnight) as copy_day,
+        ):
+            totals = backfill.run([first_day, boundary_day, expired_day])
+
+    assert [call.args[0] for call in copy_day.call_args_list] == [first_day, boundary_day]
+    assert totals == ShardBackfillTotals(days=2, rows=10)
 
 
 @pytest.mark.django_db

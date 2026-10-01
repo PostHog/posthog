@@ -82,14 +82,19 @@ WHERE policy.policy_name = (
 """
 
 
+# The TTL expires each row at the start of toDate(timestamp) + FLAG_EVALUATIONS_TTL_DAYS.
+# The day FLAG_EVALUATIONS_TTL_DAYS back has already expired when today starts.
+# A TTL merge can drop the rows copied for that day soon after the insert.
+_EARLIEST_START_DAYS_AGO = FLAG_EVALUATIONS_TTL_DAYS - 1
+
+
 class FlagEvaluationsBackfillConfig(dagster.Config):
     start_date: str | None = pydantic.Field(
         default=None,
         description=(
-            f"First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to {FLAG_EVALUATIONS_TTL_DAYS - 1} days "
-            "before today, which is also the earliest allowed value. A run copies the oldest days last, so move "
-            "start_date one day later for each day the run lasts past the day it starts, or the TTL drops the "
-            "oldest days soon after they are copied."
+            f"First day to copy (YYYY-MM-DD, UTC, inclusive). Defaults to {_EARLIEST_START_DAYS_AGO} days "
+            "before today, which is also the earliest allowed value. A run copies the oldest days last. It "
+            "stops at the first day that the TTL has expired by the time the run reaches it."
         ),
     )
     end_date: str | None = pydantic.Field(
@@ -166,12 +171,19 @@ class DiskHeadroom:
     below_move_line: bool
 
 
+@frozen
+class ShardBackfillTotals:
+    days: int
+    rows: int
+
+
+def earliest_backfill_day(today: date) -> date:
+    return today - timedelta(days=_EARLIEST_START_DAYS_AGO)
+
+
 def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date) -> tuple[date, ...]:
     latest_end = today - timedelta(days=1)
-    # The TTL expires every row at the start of toDate(timestamp) + FLAG_EVALUATIONS_TTL_DAYS. Rows
-    # from the day FLAG_EVALUATIONS_TTL_DAYS back are already expired when today starts, so a TTL
-    # merge can drop their copies soon after the insert. The window therefore starts one day later.
-    earliest_start = today - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS - 1)
+    earliest_start = earliest_backfill_day(today)
     start = date.fromisoformat(config.start_date) if config.start_date else earliest_start
     end = date.fromisoformat(config.end_date) if config.end_date else latest_end
     if start < earliest_start:
@@ -260,7 +272,9 @@ class ShardBackfill:
 
     sharded_events and sharded_flag_evaluations share a shard key, so the copy reads and writes
     only this shard's local tables. The checks run before every day, not once at the start,
-    because a run spans days and the weekly squash can start partway through.
+    because a run spans days. The weekly squash can start partway through, and the TTL can
+    expire a planned day before the run reaches it. Days run newest first, so the run stops at
+    the first expired day.
     """
 
     cluster: ClickhouseCluster
@@ -273,7 +287,7 @@ class ShardBackfill:
     workload: Workload
     node_role: NodeRole
 
-    def run(self, days: Sequence[date]) -> int:
+    def run(self, days: Sequence[date]) -> ShardBackfillTotals:
         if not self.config.dry_run:
             self.check_no_other_backfill_run()
         copy_query = build_copy_query(
@@ -287,20 +301,28 @@ class ShardBackfill:
             "max_insert_threads": self.config.max_insert_threads,
         }
         total_rows = 0
+        copied_days = 0
         for day in days:
             self.wait_for_parts_to_merge(day)
             blocking_run_check = self.wait_for_blocking_runs()
             self.check_disk_headroom()
             self.check_consumer_lag()
+            if day < earliest_backfill_day(datetime.now(UTC).date()):
+                self.log.warning(
+                    f"Shard {self.shard_num}: stopping at {day}, because the TTL has already expired it. "
+                    f"{len(days) - copied_days} planned day(s) are not copied."
+                )
+                break
             try:
                 rows = self.copy_day(day, copy_query, settings)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
             total_rows += rows
+            copied_days += 1
             action = "would copy" if self.config.dry_run else "copied"
             self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
-        return total_rows
+        return ShardBackfillTotals(days=copied_days, rows=total_rows)
 
     def wait_for_parts_to_merge(self, day: date) -> None:
         if self.config.max_unmerged_parts <= 0:
@@ -482,7 +504,7 @@ def backfill_flag_evaluations_shard(
     plan: BackfillPlan,
 ) -> int:
     workload, node_role = (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
-    total_rows = ShardBackfill(
+    totals = ShardBackfill(
         cluster=cluster,
         shard_num=shard_num,
         config=plan.config,
@@ -496,12 +518,12 @@ def backfill_flag_evaluations_shard(
     context.add_output_metadata(
         {
             "shard": dagster.MetadataValue.int(shard_num),
-            "days": dagster.MetadataValue.int(len(plan.days)),
-            "rows": dagster.MetadataValue.int(total_rows),
+            "days": dagster.MetadataValue.int(totals.days),
+            "rows": dagster.MetadataValue.int(totals.rows),
             "dry_run": dagster.MetadataValue.bool(plan.config.dry_run),
         }
     )
-    return total_rows
+    return totals.rows
 
 
 @dagster.job(tags=OWNER_TAG)
