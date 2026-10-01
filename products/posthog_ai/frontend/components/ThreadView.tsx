@@ -59,7 +59,8 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
 function quillRowShowsProgress(item: ThreadDisplayItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean {
     switch (item.type) {
         case 'assistant_thought':
-            return true
+            // An empty thought renders nothing, so the bottom indicator still has to show.
+            return !!item.text?.trim()
         case 'tool_invocation': {
             const status = item.toolCallId ? toolInvocations.get(item.toolCallId)?.status : undefined
             return status === 'pending' || status === 'in_progress'

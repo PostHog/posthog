@@ -27,7 +27,7 @@ function describeCall(call: ToolInvocation): { name: string; detail?: string; ic
 const isRunning = (call: ToolInvocation): boolean => call.status === 'pending' || call.status === 'in_progress'
 
 export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
-    const { group, toolInvocations, active, waitingForInput = false, renderItem } = props
+    const { group, toolInvocations, active, cancelled, waitingForInput = false, renderItem } = props
     const { calls, expanded, setExpanded, window, showMiddle, toggleMiddle, visibleThoughtsOnly, newCount, showNew } =
         useActivityGroup(props)
     const rowProps = { thoughtsOnly: visibleThoughtsOnly, toolInvocations, active, renderItem }
@@ -35,6 +35,7 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
     const thinking = running && group.items.at(-1)?.type === 'assistant_thought'
     const current = calls.findLast(isRunning) ?? calls.at(-1)
     const lead = current ? describeCall(current) : undefined
+    const failedCount = calls.filter((call) => call.status === 'failed').length
 
     return (
         <ThreadMarker
@@ -92,9 +93,16 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
                     {!thinking && lead?.detail && <span className="truncate opacity-70">{lead.detail}</span>}
                 </>
             ) : (
-                <span className="truncate" data-attr="thread-activity-toggle">
-                    {summarizeToolRun(calls)}
-                </span>
+                <>
+                    {/* A collapsed group still has to say the run stopped, or that a call in it failed. */}
+                    {cancelled && <span className="shrink-0 font-medium">Stopped</span>}
+                    <span className="truncate" data-attr="thread-activity-toggle">
+                        {summarizeToolRun(calls)}
+                    </span>
+                    {failedCount > 0 && (
+                        <span className="shrink-0 text-(--destructive-foreground)">{failedCount} failed</span>
+                    )}
+                </>
             )}
         </ThreadMarker>
     )
