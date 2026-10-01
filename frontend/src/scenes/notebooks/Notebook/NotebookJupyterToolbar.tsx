@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconFastForward, IconKeyboard, IconPlayFilled, IconPlus, IconRefresh, IconStopFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 
 import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
@@ -12,6 +12,7 @@ import { NotebookJupyterShortcutsModal } from './NotebookJupyterShortcutsModal'
 import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import { notebookLogic } from './notebookLogic'
 import { notebookRunLogic } from './notebookRunLogic'
+import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export function NotebookJupyterToolbar(): JSX.Element | null {
     const jupyter = useNotebookJupyterCommands()
@@ -21,12 +22,14 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
     const { interruptRun: interruptRunAll } = useActions(notebookRunLogic({ shortId }))
     const { isRestartingKernel } = useValues(notebookJupyterLogic({ shortId }))
     const { requestKernelRestart } = useActions(notebookJupyterLogic({ shortId }))
+    const { showKernelInfo } = useValues(notebookSettingsLogic)
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
     const activeCellId = useNotebookJupyterStoreValue((state) => state.activeCellId)
     const activeRunHandler = useNotebookJupyterStoreValue((state) =>
         state.activeCellId ? (state.runHandlers.get(state.activeCellId) ?? null) : null
     )
     const runningHandler = useNotebookJupyterStoreValue(
-        (state) => [...state.runHandlers.values()].find((handler) => handler.isRunning) ?? null
+        (state) => [...state.runHandlers.values()].find((handler) => handler.isRunning && !handler.isQueued) ?? null
     )
 
     if (!jupyter) {
@@ -163,8 +166,14 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                     onClick={() => jupyter.store.setShortcutsOpen(true)}
                     data-attr="notebook-jupyter-shortcuts"
                 />
-                <Tooltip title={`Kernel status: ${kernelStatus}`}>
-                    <div className="flex items-center gap-2 px-2 text-xs text-secondary whitespace-nowrap">
+                <LemonButton
+                    size="small"
+                    tooltip={`Kernel status: ${kernelStatus}. Click to ${showKernelInfo ? 'hide' : 'show'} kernel details.`}
+                    active={showKernelInfo}
+                    onClick={() => setShowKernelInfo(!showKernelInfo)}
+                    data-attr="notebook-jupyter-kernel-status"
+                >
+                    <span className="flex items-center gap-2 text-xs text-secondary font-normal whitespace-nowrap">
                         <span>Python 3 (sandbox)</span>
                         <span
                             aria-label={`Kernel ${kernelStatus.toLowerCase()}`}
@@ -173,8 +182,8 @@ export function NotebookJupyterToolbar(): JSX.Element | null {
                                 isBusy && 'bg-current'
                             )}
                         />
-                    </div>
-                </Tooltip>
+                    </span>
+                </LemonButton>
             </div>
             <NotebookJupyterShortcutsModal />
         </>
