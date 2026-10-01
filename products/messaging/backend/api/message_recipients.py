@@ -2,7 +2,7 @@ from typing import Any
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
@@ -11,10 +11,30 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.messaging.backend.models.message_preferences import PreferenceStatus
 from products.messaging.backend.models.message_suppression import SuppressionSource
-from products.messaging.backend.services.recipients import RecipientQuery, list_recipients
+from products.messaging.backend.services.recipients import (
+    InvalidRecipientFilter,
+    RecipientQuery,
+    list_recipients,
+    parse_recipient_filter,
+)
 
 
 class RecipientListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=512,
+        help_text="Case-insensitive substring match on the email address.",
+    )
+    filter = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        help_text="Repeatable `facet:value` filter; prefix with `-` to negate. Values on one facet are OR, "
+        "facets are AND. Facets: `subscribed`, `unsubscribed` and `no-preference` take a topic key or "
+        "`all-marketing`; `suppressed` takes `BOUNCE`, `COMPLAINT` or `MANUAL`; `person` takes `linked` or "
+        "`none`; `preference` takes `recorded` or `none`.",
+    )
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=200, help_text="Page size, 1-200. Defaults to 50."
     )
@@ -77,6 +97,14 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
             raise PermissionDenied("You need hog_flow viewer access to view recipients.")
-        query = RecipientQuery(limit=request.validated_query_data["limit"])
-        page = list_recipients(self.team, request.user, query)
+        params = request.validated_query_data
+        try:
+            query = RecipientQuery(
+                limit=params["limit"],
+                search=params.get("search"),
+                filters=tuple(parse_recipient_filter(raw) for raw in params["filter"]),
+            )
+            page = list_recipients(self.team, request.user, query)
+        except InvalidRecipientFilter as error:
+            raise ValidationError({"filter": [str(error)]})
         return Response(RecipientPageSerializer(page).data)
