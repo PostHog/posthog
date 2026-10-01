@@ -433,6 +433,10 @@ _PATCH_ID_TURN_OPENS_ON_DISPATCH = "tasks-turn-opens-on-dispatch"
 # must retain the old rotation decision when replayed.
 _PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN = "tasks-block-rotation-on-open-turn"
 
+# Preserving a completion signal can enable later command-producing branches, so histories that
+# already recorded the post-delivery reset must retain it during replay.
+_PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY = "tasks-preserve-completion-during-delivery"
+
 
 def _turn_opens_on_dispatch() -> bool:
     if not workflow.in_workflow():
@@ -444,6 +448,12 @@ def _block_rotation_on_open_turn() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_BLOCK_ROTATION_ON_OPEN_TURN)
+
+
+def _preserve_completion_during_delivery() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_PRESERVE_COMPLETION_DURING_DELIVERY)
 
 
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
@@ -3735,7 +3745,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # signal already holds the newer state and must not be overwritten.
             if outcome != STEER_DECLINED_OUTCOME:
                 turn_opens_on_dispatch = _turn_opens_on_dispatch()
-                if self._turn_completion_signal_count == turn_completion_count and turn_opens_on_dispatch:
+                preserve_completion = _preserve_completion_during_delivery()
+                completion_arrived = self._turn_completion_signal_count != turn_completion_count
+                if turn_opens_on_dispatch and (not completion_arrived or not preserve_completion):
                     self._end_of_turn_received = False
                     # The ingest plane never reports a turn active, only inactive at its close, so a
                     # stale `False` from the turn that just ended must not carry into this one — it
