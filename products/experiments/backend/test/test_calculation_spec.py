@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -51,8 +52,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Result rows and stored `fingerprint` values of these configurations already hold these hashes, so the
-# calculation key must keep producing them. Keyed by (metric kind, breakdown, only_count_matured_users).
+# Result rows written before key version 2 hold these hashes, and the display readers find them by the legacy
+# key, so it must keep producing them. Keyed by (metric kind, breakdown, only_count_matured_users).
 STORED_KEYS: dict[tuple[str, bool, bool], str] = {
     ("mean", False, False): "8c4c170619bed04837934834898b06c80e1ffb081cfc83e50394e7a90809e7f1",
     ("mean", False, True): "170e5a30b8b04a520777ec3cccac4e055f7038b64dd547263499ee75ea1b71fc",
@@ -181,7 +182,7 @@ class TestCalculationSpec(BaseTest):
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata=metadata)
 
     @parameterized.expand(STORED_KEY_CASES)
-    def test_key_equals_the_stored_fingerprint(
+    def test_legacy_key_equals_the_stored_fingerprint(
         self,
         _name: str,
         kind: str,
@@ -195,7 +196,7 @@ class TestCalculationSpec(BaseTest):
 
         [spec] = plan(experiment)
 
-        assert spec.calculation_key() == stored_key
+        assert spec.legacy_key() == stored_key
 
     @parameterized.expand([("no_breakdowns", False), ("with_breakdowns", True)])
     def test_equivalent_inline_and_saved_metrics_have_equal_specs(self, _name: str, breakdown: bool) -> None:
@@ -275,6 +276,52 @@ class TestCalculationSpec(BaseTest):
 
         first_spec, second_spec = specs
         assert first_spec == second_spec
+        assert first_spec.calculation_key() == second_spec.calculation_key()
+
+    @parameterized.expand(
+        [
+            ("baseline", "experiment", {"stats_config": {"baseline_variant_key": "test"}}, True),
+            ("credible_interval", "experiment", {"stats_config": {"bayesian": {"ci_level": 0.9}}}, True),
+            ("explicit_cuped", "experiment", {"stats_config": {"cuped": {"enabled": True}}}, True),
+            ("team_default_cuped", "team_config", {"default_cuped_enabled": True}, True),
+            ("alpha", "experiment", {"stats_config": {"frequentist": {"alpha": 0.1}}}, True),
+            ("team_default_sequential", "team_config", {"default_sequential_testing_enabled": True}, True),
+            ("flag_aggregation", "flag", {"aggregation_group_type_index": 0}, True),
+            ("team_test_account_filters", "team", {"test_account_filters": [{"key": "email", "type": "person"}]}, True),
+            ("test_account_filtering_off", "experiment", {"exposure_criteria": {"filterTestAccounts": False}}, True),
+            ("name_and_description", "experiment", {"name": "renamed", "description": "new words"}, False),
+            ("display_order", "experiment", {"primary_metrics_ordered_uuids": ["inline-mean"]}, False),
+            ("end_date", "experiment", {"end_date": datetime(2026, 2, 1, tzinfo=UTC)}, False),
+            ("conclusion", "experiment", {"conclusion": "won", "conclusion_comment": "shipped"}, False),
+        ]
+    )
+    def test_the_key_changes_with_every_analytical_input_and_nothing_else(
+        self, _name: str, target: str, changes: dict[str, Any], key_changes: bool
+    ) -> None:
+        # Alpha and sequential testing only reach the resolved settings of a frequentist experiment.
+        base_stats = {"method": "frequentist"} if _name in ("alpha", "team_default_sequential") else {}
+        experiment = self._experiment(stats_config=base_stats)
+        self._add_metric(experiment, "mean", "inline", role="primary")
+        [before] = plan(experiment)
+
+        if target == "experiment":
+            if "stats_config" in changes:
+                changes = {"stats_config": {**base_stats, **changes["stats_config"]}}
+            Experiment.objects.filter(pk=experiment.pk).update(**changes)
+        elif target == "team_config":
+            TeamExperimentsConfig.objects.filter(team=self.team).update(**changes)
+        elif target == "flag":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, **changes}
+            flag.save()
+        else:
+            for name, value in changes.items():
+                setattr(self.team, name, value)
+            self.team.save()
+        get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        [after] = plan(Experiment.objects.get(pk=experiment.pk))
+
+        assert (after.calculation_key() != before.calculation_key()) is key_changes
 
     @parameterized.expand(
         [
@@ -324,3 +371,60 @@ def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool
     base_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
     variant_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal
+
+
+_FREQUENTIST = FrequentistSettings(
+    alpha=0.05, difference_type=DifferenceType.RELATIVE, sequential_testing_enabled=False, sequential_tuning_parameter=0
+)
+
+
+@pytest.mark.parametrize(
+    "stats,metric_change,expected_equal",
+    [
+        # `1 - 0.95` is how a confidence level becomes a stored alpha.
+        (dataclasses.replace(_FREQUENTIST, alpha=1 - 0.95), {}, True),
+        (dataclasses.replace(_FREQUENTIST, alpha=0.1), {}, False),
+        (_FREQUENTIST, {"upper_bound_percentile": 0.9500000000000001}, True),
+        (_FREQUENTIST, {"upper_bound_percentile": 0.9}, False),
+        (_FREQUENTIST, {"conversion_window": 14.0}, True),
+    ],
+)
+def test_float_noise_does_not_split_keys(
+    stats: FrequentistSettings, metric_change: dict[str, Any], expected_equal: bool
+) -> None:
+    base = dataclasses.replace(_SETTINGS, stats=_FREQUENTIST)
+    base_key = base.spec_for(
+        metric_id="m1", role="primary", definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14}
+    ).calculation_key()
+    variant_key = (
+        dataclasses.replace(_SETTINGS, stats=stats)
+        .spec_for(
+            metric_id="m1",
+            role="primary",
+            definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14, **metric_change},
+        )
+        .calculation_key()
+    )
+    assert (variant_key == base_key) is expected_equal
+
+
+@pytest.mark.parametrize(
+    "settings,key",
+    [
+        (_SETTINGS, "87c3c9aa7d367aa887f88054ff90a6cd2510f2a31e352b6cebd746279b8208a6"),
+        (
+            dataclasses.replace(
+                _SETTINGS,
+                stats=_FREQUENTIST,
+                excluded_variants=("test-2",),
+                test_account_filters=({"key": "email", "value": "@example.com", "type": "person"},),
+                cuped=CupedQueryConfig(enabled=True, lookback_days=7),
+            ),
+            "455ae47f664d9db54df519e44cf043747924ffe09ac86963b940832f3f999fd6",
+        ),
+    ],
+)
+def test_key_version_2_is_stable(settings: ExperimentCalculationSettings, key: str) -> None:
+    # Every stored result is filed under this hash. A change to the hashed payload, such as a new settings field,
+    # makes all of them unreachable for reuse, so it has to come with a CALCULATION_KEY_VERSION bump and new pins.
+    assert settings.spec_for(metric_id="m1", role="primary", definition=_MEAN).calculation_key() == key

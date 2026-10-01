@@ -884,27 +884,45 @@ class TestPostgresSections(APIBaseTest):
         assert outcome.analyzed_exposures == 70
         assert outcome.result_data_through == now - timedelta(days=1)
 
-    def test_a_result_of_an_earlier_configuration_is_not_the_outcome(self) -> None:
+    @parameterized.expand(
+        [
+            ("start_date_edited_after_the_result", "current", {"days": 12}, None),
+            # A result stored before calculation key version 2 still describes the experiment, marked legacy.
+            ("result_from_before_key_version_2", "legacy", None, True),
+            ("result_under_the_current_key", "current", None, False),
+        ]
+    )
+    def test_the_outcome_follows_the_calculation_key(
+        self, _name: str, key_family: str, moved_start: dict[str, int] | None, expected_legacy: bool | None
+    ) -> None:
         now = timezone.now()
         experiment = self._experiment(
-            "edited-start", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
+            "keyed", start_date=now - timedelta(days=10), metrics=[_mean_metric("inline-primary")]
         )
+        spec = plan_metric(experiment, "inline-primary")
+        assert spec is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="inline-primary",
-            fingerprint=_key(experiment, "inline-primary"),
+            fingerprint=spec.calculation_key() if key_family == "current" else spec.legacy_key(),
             query_from=now - timedelta(days=10),
             query_to=now,
             status=ExperimentMetricResult.Status.COMPLETED,
             result=_stored_result(40, [40], False),
             completed_at=now,
         )
-        Experiment.objects.filter(pk=experiment.pk).update(start_date=now - timedelta(days=12))
+        if moved_start is not None:
+            Experiment.objects.filter(pk=experiment.pk).update(start_date=now - timedelta(**moved_start))
 
         previous = get_previous_experiments(Experiment.objects.filter(team_id=self.team.pk), limit=10)
 
-        assert previous.experiments[0].outcome is None
-        assert previous.summary.launched_without_results == 1
+        outcome = previous.experiments[0].outcome
+        if expected_legacy is None:
+            assert outcome is None
+            assert previous.summary.launched_without_results == 1
+        else:
+            assert outcome is not None
+            assert (outcome.analyzed_exposures, outcome.result_is_legacy) == (80, expected_legacy)
 
     def test_a_draft_does_not_crowd_out_a_launched_experiment(self) -> None:
         self._experiment("fresh-draft", days_ago=0)

@@ -39,6 +39,10 @@ Each metric activity stores its result through the experiments facade (`record_d
 The write looks the row up on `(experiment, metric_uuid, query_to)` and stores the calculation key as the row's fingerprint.
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 
+The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
+When no point carries that key, it compares with the previous point under the metric's legacy key (calculation key version 1).
+Without that fallback, the first daily run after the key version changed would report every significant variant as newly significant.
+
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
 `experiment-drop-timeseries-publish-2026-10`.

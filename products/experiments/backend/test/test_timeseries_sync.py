@@ -75,12 +75,16 @@ class TestSyncTimeseriesRecalculation(BaseTest):
         assert spec is not None
         return spec.calculation_key()
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict) -> None:
+    def _timeseries_point(
+        self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict, *, legacy: bool = False
+    ) -> None:
         assert exp.start_date is not None
+        spec = plan_metric(exp, metric_uuid)
+        assert spec is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=self._config_fp(exp, metric_uuid),
+            fingerprint=spec.legacy_key() if legacy else spec.calculation_key(),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
@@ -187,16 +191,18 @@ class TestSyncTimeseriesRecalculation(BaseTest):
 
     @parameterized.expand(
         [
-            ("point_before_this_run", BEFORE_RUN, None),
-            ("point_in_the_future", IN_FUTURE, None),
-            ("recalculation_already_newer", IN_RUN, LATER_IN_RUN),
+            ("point_before_this_run", BEFORE_RUN, None, False),
+            ("point_in_the_future", IN_FUTURE, None, False),
+            ("recalculation_already_newer", IN_RUN, LATER_IN_RUN, False),
+            # A copy would carry the current key, and a run that reuses the window would take it as its result.
+            ("point_under_the_legacy_key", IN_RUN, None, True),
         ]
     )
     def test_skips_when_no_point_qualifies_or_a_newer_run_exists(
-        self, _name: str, point_query_to: datetime, existing_recalc_query_to: datetime | None
+        self, _name: str, point_query_to: datetime, existing_recalc_query_to: datetime | None, legacy: bool
     ):
         exp = self._experiment(f"sync-skip-{_name}", [_mean_metric("m1")])
-        self._timeseries_point(exp, "m1", point_query_to, {"m": 1})
+        self._timeseries_point(exp, "m1", point_query_to, {"m": 1}, legacy=legacy)
         if existing_recalc_query_to is not None:
             ExperimentMetricsRecalculation.objects.create(
                 team=self.team,

@@ -224,38 +224,57 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert body["status"] == "pending"
         assert body["active_run"] == {"id": str(active.id), "status": "pending"}
 
-    def test_get_latest_returns_most_recent_completed_with_results(self):
+    @parameterized.expand(
+        [
+            ("current_keys", ("current", "current")),
+            # A run from before calculation key version 2. On page load the frontend starts a run when a completed
+            # run leaves a metric uncovered, so the legacy rows must cover every metric of it.
+            ("run_from_before_key_version_2", ("legacy", "legacy")),
+            ("run_partly_recomputed_under_the_current_key", ("legacy", "current")),
+        ]
+    )
+    def test_get_latest_returns_most_recent_completed_with_results(
+        self, _name: str, key_families: tuple[str, str]
+    ) -> None:
         exp = self._launched_experiment()
+        exp.metrics = [_mean_metric("m1"), _mean_metric("m2")]
+        exp.save()
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
-            metric_uuids=["m1"],
+            metric_uuids=["m1", "m2"],
+            total_metrics=2,
             status="completed",
             query_to=datetime(2026, 6, 1, tzinfo=UTC),
         )
-        # Narrow nullable fields populated above. _launched_experiment always sets metrics + start_date,
+        # Narrow nullable fields populated above. _launched_experiment always sets start_date,
         # and we just set query_to on the recalc above.
-        assert exp.metrics and exp.start_date is not None
+        assert exp.start_date is not None
         assert recalc.query_to is not None
-        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint=recalc_fp,
-            query_from=exp.start_date,
-            query_to=recalc.query_to,
-            status="completed",
-            result={"ok": True},
-        )
+        for metric_uuid, family in zip(("m1", "m2"), key_families):
+            spec = plan_metric(exp, metric_uuid)
+            assert spec is not None
+            key = spec.calculation_key() if family == "current" else spec.legacy_key()
+            ExperimentMetricResult.objects.create(
+                experiment=exp,
+                metric_uuid=metric_uuid,
+                fingerprint=_recalc_fingerprint(key),
+                query_from=exp.start_date,
+                query_to=recalc.query_to,
+                status="completed",
+                result={"ok": metric_uuid},
+            )
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["id"] == str(recalc.id)
         assert body["status"] == "completed"
-        assert len(body["results"]) == 1
-        assert body["results"][0]["metric_uuid"] == "m1"
-        assert body["results"][0]["result"] == {"ok": True}
+        assert body["completed_metrics"] + body["failed_metrics"] == body["total_metrics"] == 2
+        assert [(result["metric_uuid"], result["result"], result["legacy"]) for result in body["results"]] == [
+            ("m1", {"ok": "m1"}, key_families[0] == "legacy"),
+            ("m2", {"ok": "m2"}, key_families[1] == "legacy"),
+        ]
         assert body.get("active_run") is None
 
     # ------------------------------------------------------------------
@@ -294,23 +313,29 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # GET /metrics_recalculation/latest/ — timeseries cold-start fallback
     # ------------------------------------------------------------------
 
-    def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
+    def _store_timeseries_point(
+        self, exp: Experiment, metric_uuid: str, query_to: datetime, *, legacy: bool = False
+    ) -> None:
         assert exp.start_date is not None
+        spec = plan_metric(exp, metric_uuid)
+        assert spec is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=_calculation_key(exp, metric_uuid),
+            fingerprint=spec.legacy_key() if legacy else spec.calculation_key(),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
             result={"ok": True},
         )
 
+    @parameterized.expand([("current_point", False), ("point_from_before_key_version_2", True)])
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
-    def test_get_latest_returns_timeseries_fallback_on_cold_start(self):
+    def test_get_latest_returns_timeseries_fallback_on_cold_start(self, _name: str, legacy: bool) -> None:
         # No real recalc row, but a completed timeseries point exists → 200 with source=timeseries_fallback.
+        # The frontend starts a cold run for any metric the fallback leaves out, so a legacy point must cover it.
         exp = self._launched_experiment(flag_key="ts-fallback")
-        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1))
+        self._store_timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), legacy=legacy)
 
         resp = self.client.get(self._latest_url(exp.id))
         assert resp.status_code == status.HTTP_200_OK, resp.content
@@ -319,8 +344,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # The latest response type declares metric_retries; the fallback has no run, so it reports none.
         assert body["metric_retries"] == {}
         assert body["status"] == "completed"
-        assert len(body["results"]) == 1
-        assert body["results"][0]["result"] == {"ok": True}
+        assert body["completed_metrics"] == body["total_metrics"] == 1
+        assert [(result["result"], result["legacy"]) for result in body["results"]] == [({"ok": True}, legacy)]
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
     def test_get_latest_prefers_timeseries_fallback_over_first_active_run(self):
