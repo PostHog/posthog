@@ -379,6 +379,15 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         item_ids = {row["item_id"] for row in res.json()["results"]}
         assert item_ids == {"flag-1"}
 
+    def test_query_reads_filters_from_body(self) -> None:
+        url = f"/api/organizations/{self.organization.id}/advanced_activity_logs/query/?page=1&page_size=100"
+        users = [str(uuid4()) for _ in range(500)] + [str(self.user.uuid)]
+
+        res = self.client.post(url, data={"users": users, "team_ids": [self.team.id]}, format="json")
+
+        assert res.status_code == status.HTTP_200_OK
+        assert {row["item_id"] for row in res.json()["results"]} == {"flag-1"}
+
     def test_audit_logs_feature_required_on_cloud(self) -> None:
         self.organization.available_product_features = []
         self.organization.save()

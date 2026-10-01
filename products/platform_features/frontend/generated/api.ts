@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ActivityLogApi,
     ActivityLogListParams,
+    AdvancedActivityLogFiltersApi,
     AdvancedActivityLogsListParams,
     ApprovalPoliciesListParams,
     ApprovalPolicyApi,
@@ -817,6 +818,29 @@ export const advancedActivityLogsExportCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(activityLogApi),
+    })
+}
+
+export const getAdvancedActivityLogsQueryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/advanced_activity_logs/query/`
+}
+
+/**
+ * List activity logs with the filters in the request body instead of the query string.
+ *
+ * A long filter, such as many users, can make a GET URL longer than proxies accept. Send
+ * `page`, `page_size` and `ordering` in the query string, because pagination reads them from there.
+ */
+export const advancedActivityLogsQueryCreate = async (
+    projectId: string,
+    advancedActivityLogFiltersApi?: AdvancedActivityLogFiltersApi,
+    options?: RequestInit
+): Promise<PaginatedActivityLogListApi> => {
+    return apiMutator<PaginatedActivityLogListApi>(getAdvancedActivityLogsQueryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(advancedActivityLogFiltersApi),
     })
 }
 

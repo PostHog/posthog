@@ -657,7 +657,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # filters serializer produces, instead of re-parsing the raw query string.
         validated = getattr(self, "_validated_query_params_cache", None)
         if validated is None:
-            serializer = AdvancedActivityLogFiltersSerializer(data=self.request.query_params)
+            data = self.request.data if self.action == "query" else self.request.query_params
+            serializer = AdvancedActivityLogFiltersSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             validated = self._validated_query_params_cache = serializer.validated_data
         return validated
@@ -691,6 +692,16 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @extend_schema(request=AdvancedActivityLogFiltersSerializer, responses={200: ActivityLogSerializer(many=True)})
+    @action(detail=False, methods=["POST"], required_scopes=["activity_log:read"])
+    def query(self, request, *args, **kwargs):
+        """List activity logs with the filters in the request body instead of the query string.
+
+        A long filter, such as many users, can make a GET URL longer than proxies accept. Send
+        `page`, `page_size` and `ordering` in the query string, because pagination reads them from there.
+        """
+        return self.list(request, *args, **kwargs)
 
     @extend_schema(responses={200: AvailableFiltersResponseSerializer})
     @action(detail=False, methods=["GET"])
