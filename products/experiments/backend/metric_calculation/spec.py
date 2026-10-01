@@ -476,6 +476,25 @@ def plan_metric(experiment: Experiment, metric_uuid: str) -> CalculationSpec | N
     return next((spec for spec in plan(experiment) if spec.metric_id == metric_uuid), None)
 
 
+def spec_for_key(experiment: Experiment, metric_uuid: str, calculation_key: str) -> CalculationSpec | None:
+    """The spec of the experiment's metric with this uuid whose calculation key is `calculation_key`, under the
+    current configuration of the experiment.
+
+    Unlike `plan_metric`, this keys an inline and a saved metric that share a uuid each by its own definition, the
+    same way `metric_calculation_keys` does. None when no metric with this uuid has this key, for example because
+    the configuration changed after the caller computed the key.
+    """
+    candidates = [metric for metric in resolve_experiment_metrics(experiment) if metric.uuid == metric_uuid]
+    if not candidates:
+        return None
+    settings = ExperimentCalculationSettings.of_experiment(experiment)
+    for metric in candidates:
+        spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+        if spec.calculation_key() == calculation_key:
+            return spec
+    return None
+
+
 def stamp_calculation_keys(
     metrics: list[dict[str, Any]], role: MetricRole, settings: ExperimentCalculationSettings
 ) -> list[dict[str, Any]]:
