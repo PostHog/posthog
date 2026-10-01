@@ -8,6 +8,7 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
@@ -174,6 +175,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self._github_source: ExternalDataSource | None = None
 
     def _create_table(

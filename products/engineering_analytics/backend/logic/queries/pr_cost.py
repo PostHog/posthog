@@ -215,6 +215,13 @@ _COSTS_BY_PR_SELECT = f"""
 """
 
 
+# The endpoint and MCP descriptions state that cost can lag new CI by this long.
+_PR_COSTS_CACHE_SECONDS = 300
+# The cache stores the SQL row, not a PRCostAggregate, because the cache key covers the SQL but not
+# the Python classes that read the row.
+_CostRow = tuple[str, str, float | None, float | None, int | None, int | None, int | None]
+
+
 def query_pr_costs(
     *, curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime | None = None
 ) -> dict[tuple[str, str, int], PRCostAggregate]:
@@ -240,10 +247,27 @@ def query_pr_costs(
         .replace("__COST_AGGREGATES__", _cost_aggregates())
         .replace("__RUN_FROM__", run_from_clause)
     )
-    response = curated.run(sql, query_type="engineering_analytics.pr_costs", placeholders=placeholders)
+
+    def load(numbers: list[int]) -> dict[int, tuple[_CostRow, ...]]:
+        response = curated.run(
+            sql,
+            query_type="engineering_analytics.pr_costs",
+            placeholders={**placeholders, "pr_numbers": ast.Constant(value=numbers)},
+        )
+        by_number: dict[int, list[_CostRow]] = {number: [] for number in numbers}
+        for repo_owner, repo_name, pr_number, *agg in response.results or []:
+            by_number[int(pr_number)].append((repo_owner, repo_name, *agg))
+        # A PR without costed jobs is stored too, so it does not bring the full jobs scan back on every view.
+        return {number: tuple(costs) for number, costs in by_number.items()}
+
+    if run_from is None:
+        costs_by_number = curated.read_through(sql=sql, keys=pr_numbers, load=load, ttl_seconds=_PR_COSTS_CACHE_SECONDS)
+    else:
+        costs_by_number = load(pr_numbers)
     return {
-        (repo_owner, repo_name, int(pr_number)): _aggregate(*agg)
-        for repo_owner, repo_name, pr_number, *agg in response.results or []
+        (repo_owner, repo_name, number): _aggregate(billable, cost, costed, unsettled, excluded)
+        for number, costs in costs_by_number.items()
+        for repo_owner, repo_name, billable, cost, costed, unsettled, excluded in costs
     }
 
 
