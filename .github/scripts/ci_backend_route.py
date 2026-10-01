@@ -35,6 +35,7 @@ from typing import Any
 
 from ci_backend_relay import (
     EVENT_TIME,
+    MERGE_QUEUE_PREFIX,
     MIRROR_APP_ID,
     CheckReader,
     CheckRunReader,
@@ -46,8 +47,6 @@ from ci_backend_relay import (
 LABEL_FORCE_GITHUB = "ci-backend-github"
 LABEL_FORCE_DEPOT = "ci-backend-depot"
 PERCENT_VARIABLE = "CI_BACKEND_DEPOT_PERCENT"
-# The Trunk merge queue tests each batch through a draft pull request on this branch.
-MERGE_QUEUE_PREFIX = "trunk-merge/"
 HANDOFF_CHECK = "Hand off backend tests to Depot CI"
 GITHUB_ACTIONS_APP_ID = 15368
 ENGINE_BY_HANDOFF_CONCLUSION = {"success": "depot", "skipped": "github"}

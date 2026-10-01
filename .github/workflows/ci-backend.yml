@@ -4316,6 +4316,7 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  HEAD_REF: ${{ github.head_ref }}
               run: python3 .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'

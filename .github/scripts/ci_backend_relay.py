@@ -49,6 +49,8 @@ DEPOT_ORG = "ntsdt08fpt"
 # The PostHog tests GitHub App. Depot's wait and gate jobs post the same checks with it, because
 # Depot posts its own checks from a budget that runs out at peak and then delivers them late.
 MIRROR_APP_ID = 2492437
+# The Trunk merge queue tests each batch through a draft pull request on this branch.
+MERGE_QUEUE_PREFIX = "trunk-merge/"
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -324,6 +326,7 @@ class Event:
     pr_number: int
     # The pull request's `updated_at` in this event's payload.
     event_at: str
+    merge_queue: bool = False
 
 
 def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | None:
@@ -479,14 +482,26 @@ def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list
         f"  gh run rerun {run_id} --repo {event.repo} --failed",
         "",
     ]
+    # Labels do not route a merge queue batch, and a push to its branch ends the queue attempt.
+    to_github = (
+        [
+            "Run on GitHub Actions instead: CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT=0 keeps new merge queue batches there.",
+            f"  gh variable set CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT --repo {event.repo} --body 0",
+            "Then queue the pull request again.",
+        ]
+        if event.merge_queue
+        else [
+            "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
+            f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
+            "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
+        ]
+    )
     return [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
         f"Depot run: {details_url or 'not found'}",
         "",
         *(rerun if run_id else []),
-        "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
-        f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
-        "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
+        *to_github,
     ]
 
 
@@ -521,7 +536,13 @@ def main(argv: Sequence[str]) -> int:
         sys.stderr.write("usage: ci_backend_relay.py gate\n")
         return 2
     env = os.environ
-    event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
+    event = Event(
+        repo=env["REPO"],
+        sha=env["SHA"],
+        pr_number=int(env["PR_NUMBER"]),
+        event_at=env["EVENT_AT"],
+        merge_queue=env.get("HEAD_REF", "").startswith(MERGE_QUEUE_PREFIX),
+    )
     reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
         result = gate_verdict(reader, event, rerun=env.get("GITHUB_RUN_ATTEMPT", "1") != "1")
