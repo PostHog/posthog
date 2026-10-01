@@ -61,7 +61,7 @@ _CODE_PREVIEW_CHARS = 8_000
 class CellVisualization:
     display: str
     x_axis: str | None
-    y_axis: tuple[str, ...]
+    y_axis: tuple[str, ...] | None
     series_breakdown: str | None
 
 
@@ -95,23 +95,25 @@ def _code_from_query_prop(value: Any) -> str:
     HogQLQuery, or wrapped in a data-table or visualization node. The editor renders all
     three, so a whole-notebook run has to plan all three rather than silently skip them.
     """
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return ""
-        if not text.startswith("{"):
-            # Anything else a string prop can hold is the SQL itself.
-            return text
-        try:
-            value = json.loads(text)
-        except ValueError:
-            return ""
-    if not isinstance(value, dict):
+    if isinstance(value, str) and not value.strip().startswith("{"):
+        # Anything else a string prop can hold is the SQL itself.
+        return value.strip()
+    query = _query_prop_object(value)
+    if query is None:
         return ""
-    source = value if value.get("kind") == "HogQLQuery" else value.get("source")
+    source = query if query.get("kind") == "HogQLQuery" else query.get("source")
     if isinstance(source, dict) and source.get("kind") == "HogQLQuery" and isinstance(source.get("query"), str):
         return source["query"]
     return ""
+
+
+def _query_prop_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value if isinstance(value, dict) else None
 
 
 # Mirrors the SQLV2 node, which opens on the chart only when `outputTab` says so and draws a line
@@ -125,9 +127,16 @@ def _axis_column(axis: Any) -> str | None:
 
 
 def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None:
-    if props.get("outputTab") != "visualization":
+    output_tab, viz_query = props.get("outputTab"), props.get("vizQuery")
+    code = props.get("code")
+    if not (isinstance(code, str) and code.strip()):
+        # Mirrors the editor's `getSqlV2PropsFromQueryProp`: a cell without `code` whose `query`
+        # is a visualization node opens on that chart, whatever `outputTab` and `vizQuery` hold.
+        query = _query_prop_object(props.get("query"))
+        if query and query.get("kind") == "DataVisualizationNode" and _code_from_query_prop(query).strip():
+            output_tab, viz_query = "visualization", query
+    if output_tab != "visualization":
         return None
-    viz_query = props.get("vizQuery")
     viz_query = viz_query if isinstance(viz_query, dict) else {}
     chart_settings = viz_query.get("chartSettings")
     chart_settings = chart_settings if isinstance(chart_settings, dict) else {}
@@ -137,7 +146,9 @@ def _visualization_from_props(props: dict[str, Any]) -> CellVisualization | None
     return CellVisualization(
         display=display if isinstance(display, str) and display else _DEFAULT_CHART_DISPLAY,
         x_axis=_axis_column(chart_settings.get("xAxis")),
-        y_axis=tuple(column for column in map(_axis_column, y_axis if isinstance(y_axis, list) else []) if column),
+        # The chart picks the Y series only when `yAxis` is absent. An empty list records that the
+        # author removed every series, so the chart plots nothing, and the two must not merge.
+        y_axis=tuple(column for column in map(_axis_column, y_axis) if column) if isinstance(y_axis, list) else None,
         series_breakdown=breakdown if isinstance(breakdown, str) and breakdown else None,
     )
 

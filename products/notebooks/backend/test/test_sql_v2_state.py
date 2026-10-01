@@ -53,6 +53,11 @@ class TestCellExtractionAndEdges(SimpleTestCase):
             (
                 "chart tab without a stored chart",
                 'outputTab="visualization"',
+                CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
+            (
+                "every series removed",
+                'outputTab="visualization" vizQuery={{"kind":"DataVisualizationNode","chartSettings":{"yAxis":[]}}}',
                 CellVisualization(display="ActionsLineGraph", x_axis=None, y_axis=(), series_breakdown=None),
             ),
             (
@@ -60,11 +65,17 @@ class TestCellExtractionAndEdges(SimpleTestCase):
                 'outputTab="results" vizQuery={{"kind":"DataVisualizationNode","display":"ActionsBar"}}',
                 None,
             ),
-            ("no output tab", "", None),
+            ("no output tab", 'code="select 1"', None),
+            (
+                "chart held in the legacy query prop",
+                'query={{"kind":"DataVisualizationNode","display":"ActionsPie",'
+                '"source":{"kind":"HogQLQuery","query":"select 1"}}}',
+                CellVisualization(display="ActionsPie", x_axis=None, y_axis=None, series_breakdown=None),
+            ),
         ]
     )
     def test_sql_cell_visualization(self, _name: str, props: str, expected: CellVisualization | None) -> None:
-        cells = extract_cells(markdown_content(f'<SQLV2 nodeId="s" code="select 1" returnVariable="df" {props} />'))
+        cells = extract_cells(markdown_content(f'<SQLV2 nodeId="s" returnVariable="df" {props} />'))
         assert cells[0].visualization == expected
 
     @parameterized.expand(
