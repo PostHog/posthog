@@ -151,6 +151,22 @@ describe('settingsSceneLogic', () => {
         expect(router.values.hashParams).not.toHaveProperty('authorized-urls')
     })
 
+    it.each([
+        '/settings/project-autocapture',
+        '/settings/project-error-tracking',
+        '/settings/environment-error-tracking',
+    ])(
+        'redirects the legacy exception-autocapture link on %s to the error tracking configuration tab',
+        async (path) => {
+            router.actions.push(path, {}, { 'exception-autocapture': null })
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location.pathname).toMatch(/\/error_tracking$/)
+            expect(router.values.searchParams).toEqual({ activeTab: 'configuration' })
+            expect(router.values.hashParams).toEqual({ selectedSetting: 'error-tracking-exception-autocapture' })
+        }
+    )
+
     it('redirects level-only URLs to first section', async () => {
         // Each push switches to a different level, so no section at the target level is
         // selected yet and the redirect to the first section runs.

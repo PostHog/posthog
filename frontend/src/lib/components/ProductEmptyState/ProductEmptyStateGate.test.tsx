@@ -160,6 +160,36 @@ describe('ProductEmptyStateGate', () => {
         expect(!!screen.queryByText('the real scene')).toBe(!expectedGated)
     })
 
+    // Error tracking keeps its tab in `?activeTab=`, and its Configuration tab must stay reachable
+    // before the first exception arrives.
+    it.each([
+        ['', true],
+        ['?activeTab=issues', true],
+        ['?activeTab=configuration', false],
+    ])('gates the search param tab %s: %s', (search, expectedGated) => {
+        const statusLogic = productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
+        statusLogic.mount()
+        statusLogic.actions.setDetectedStatus('needs-setup')
+        router.actions.push(`/error_tracking${search}`)
+        sceneLogic.mount()
+        sceneLogic.actions.setScene(Scene.ErrorTracking, undefined, { params: {}, searchParams: {}, hashParams: {} })
+
+        render(
+            <ProductEmptyStateGate
+                emptyState={{
+                    config: { ...config, productKey: ProductKey.ERROR_TRACKING },
+                    statusLogic: noopStatusLogic,
+                    scenes: [{ scene: Scene.ErrorTracking, searchParam: 'activeTab', tabs: [undefined, 'issues'] }],
+                }}
+            >
+                <div>the real scene</div>
+            </ProductEmptyStateGate>
+        )
+
+        expect(!!screen.queryByText('Set up experiments')).toBe(expectedGated)
+        expect(!!screen.queryByText('the real scene')).toBe(!expectedGated)
+    })
+
     it('renders SceneNav on the setup screen so sibling tabs stay reachable', () => {
         const statusLogic = productSetupStatusLogic({ productKey: ProductKey.BUSINESS_KNOWLEDGE })
         statusLogic.mount()
