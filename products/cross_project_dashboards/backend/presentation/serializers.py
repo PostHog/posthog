@@ -41,7 +41,9 @@ class CrossProjectDashboardTileSerializer(serializers.ModelSerializer):
         # update never re-points a tile at another project.
         if self.instance is None:
             user = cast(User, self.context["request"].user)
-            assert_can_reference_insight(user, attrs["project_id"], attrs["insight_id"])
+            assert_can_reference_insight(
+                user, self.context["organization_id"], attrs["project_id"], attrs["insight_id"]
+            )
         return attrs
 
     def update(self, instance: CrossProjectDashboardTile, validated_data: dict[str, Any]) -> CrossProjectDashboardTile:

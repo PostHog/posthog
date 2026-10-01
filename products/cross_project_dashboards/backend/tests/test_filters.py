@@ -58,8 +58,8 @@ def test_property_group_is_stored_as_the_flat_list_the_tiles_apply():
     assert normalized["properties"] == [leaf]
 
 
-@pytest.mark.parametrize("filters", ["abc", 5, ["date_from"]])
-def test_filters_that_are_not_an_object_are_a_validation_error(filters):
+@pytest.mark.parametrize("filters", ["abc", 5, ["date_from"], {"breakdown_filter": {"breakdowns": 5}}])
+def test_malformed_filters_are_a_validation_error(filters):
     with pytest.raises(ValidationError):
         validate_cross_project_filters(filters)
 

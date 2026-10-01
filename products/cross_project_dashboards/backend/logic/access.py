@@ -1,10 +1,12 @@
 """Access rules for referencing another project's insight from a cross-project dashboard."""
 
 from typing import cast
+from uuid import UUID
 
 from rest_framework import serializers
 
 from posthog.models import Team, User
+from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
@@ -12,14 +14,28 @@ from products.product_analytics.backend.facade.models import Insight
 NOT_AVAILABLE = "That insight is not available to you."
 
 
-def assert_can_reference_insight(user: User, project_id: int, insight_id: int) -> None:
+def visible_project_ids(user: User, organization_id: UUID | str) -> list[int]:
+    """Projects in the organization the user may open, by the rule the project endpoints apply."""
+    user_permissions = UserPermissions(user=user)
+    teams = Team.objects.filter(organization_id=organization_id).only("pk", "organization_id", "project_id")
+    return [team.pk for team in teams if user_permissions.team(team).effective_membership_level is not None]
+
+
+def assert_can_reference_insight(user: User, organization_id: UUID | str, project_id: int, insight_id: int) -> None:
     """Allow a tile to reference an insight only when the user can already view it.
 
     This is a usability rule, not the security boundary. Every reader fetches each tile from
     that project's own insight endpoint, which enforces their own access independently.
     """
-    team = Team.objects.filter(pk=project_id).first()
+    # A dashboard references only its own organization's projects. A credential scoped to that
+    # organization then cannot use a tile to probe a project in another one.
+    team = Team.objects.filter(pk=project_id, organization_id=organization_id).first()
     if team is None:
+        raise serializers.ValidationError({"project_id": NOT_AVAILABLE})
+
+    # The project endpoints let an explicit member denial win over an allow for everyone, and
+    # the legacy access resolution below does not, so both have to pass.
+    if UserPermissions(user=user).team(team).effective_membership_level is None:
         raise serializers.ValidationError({"project_id": NOT_AVAILABLE})
 
     user_access_control = UserAccessControl(user=cast(User, user), team=team)

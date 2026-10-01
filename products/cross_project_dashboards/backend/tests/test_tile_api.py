@@ -3,8 +3,10 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from posthog.models import Organization
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team
 
+from products.access_control.backend.facade.api import AccessControl
 from products.cross_project_dashboards.backend.models import CrossProjectDashboard, CrossProjectDashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
@@ -137,6 +139,30 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"] == []
+
+    def test_a_project_the_reader_is_denied_hides_its_tiles(self, _flag):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        denied_team = Team.objects.create(organization=self.organization, name="Denied project")
+        AccessControl.objects.create(
+            team=denied_team, resource="project", resource_id=str(denied_team.id), access_level="none"
+        )
+        visible = CrossProjectDashboardTile.objects.create(
+            dashboard=self.dashboard, organization=self.organization, project_id=self.team.pk, insight_id=1
+        )
+        CrossProjectDashboardTile.objects.create(
+            dashboard=self.dashboard, organization=self.organization, project_id=denied_team.pk, insight_id=2
+        )
+
+        tiles = self.client.get(self._url()).json()["results"]
+        dashboard = self.client.get(
+            f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
+        ).json()
+
+        assert [tile["id"] for tile in tiles] == [str(visible.id)]
+        assert [tile["id"] for tile in dashboard["tiles"]] == [str(visible.id)]
 
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()
