@@ -126,6 +126,7 @@ export interface spaceSceneLogicValues {
     filteredFeedItems: TodayWorkItem[]
     members: TaskUserBasicInfoApi[]
     membersLoading: boolean
+    membersUnavailable: boolean
     nameDraft: string | null
     nameError: string | null
     pendingName: string | null
@@ -446,6 +447,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         sessionsUnavailable: [false, { loadSessions: () => false, loadSessionsFailure: () => true }],
         sessionsLoaded: [false, { loadSessionsSuccess: () => true }],
         canvasesUnavailable: [false, { loadCanvases: () => false, loadCanvasesFailure: () => true }],
+        membersUnavailable: [false, { loadMembers: () => false, loadMembersFailure: () => true }],
         spaceUnavailable: [false, { loadSpace: () => false, loadSpaceFailure: () => true }],
         spaceMissing: [
             false,
