@@ -96,7 +96,8 @@ const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }
 }
 
 // A support trigger is fundamentally an event subscription; these extra property filters narrow it,
-// e.g. only tickets assigned to one team (assignee_role_name), or a given priority/channel.
+// e.g. only tickets assigned to one teammate (assignee_email) or one team (assignee_role_name),
+// or a given priority/channel.
 function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
@@ -108,7 +109,7 @@ function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.El
             <p className="mb-0 text-sm text-muted-alt">{meta.description}</p>
             <LemonField.Pure
                 label="Filters"
-                info="Only run when the ticket matches these properties. Filter on assignee_role_name to target a single team, or on priority, status, or channel_source."
+                info="Only run when the ticket matches these properties. Filter on assignee_email for one teammate's tickets, assignee_role_name for a single team, or on priority, status, or channel_source."
             >
                 <HogFlowPropertyFilters
                     filtersKey={`support-trigger-${node.data.id}`}
