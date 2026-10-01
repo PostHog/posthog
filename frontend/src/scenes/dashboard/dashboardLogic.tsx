@@ -4307,6 +4307,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
 
                 actions.abortAnyRunningQuery()
+                const manualControllers: Map<string, AbortController> | undefined = cache.manualRefreshControllers
+                for (const tile of sortedTilesToRefresh) {
+                    manualControllers?.get(tile.insight.short_id)?.abort()
+                }
                 cache.abortController = new AbortController()
                 const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
 

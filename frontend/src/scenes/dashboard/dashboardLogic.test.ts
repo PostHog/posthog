@@ -2737,13 +2737,21 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it('keeps a manual tile refresh alive when an automatic refresh only reloads another stale tile', async () => {
+            it.each([
+                { scenario: 'keeps a manual refresh when only another tile is stale', manualTileIsStale: false },
+                { scenario: 'replaces a manual refresh when the same tile is stale', manualTileIsStale: true },
+            ])('$scenario', async ({ manualTileIsStale }) => {
                 await expectLogic(logic).toFinishAllListeners()
                 const [manualTile, staleTile] = logic.values.insightTiles
                 const manualInsight = manualTile.insight!
                 const staleInsight = staleTile.insight!
                 dashboardsModel.actions.updateDashboardInsight(
-                    { ...manualInsight, cache_target_age: now().add(1, 'hour').toISOString() },
+                    {
+                        ...manualInsight,
+                        cache_target_age: now()
+                            .add(manualTileIsStale ? -1 : 60, 'minute')
+                            .toISOString(),
+                    },
                     undefined,
                     5
                 )
@@ -2758,10 +2766,18 @@ describe('dashboardLogic', () => {
                 })
                 const getResponse = jest
                     .spyOn(api, 'getResponse')
+                    .mockImplementationOnce(() => manualResponse)
                     .mockImplementation((url) =>
-                        String(url).includes(`/insights/${manualInsight.id}/`)
-                            ? manualResponse
-                            : Promise.resolve(new Response(JSON.stringify(staleInsight), { status: 200 }))
+                        Promise.resolve(
+                            new Response(
+                                JSON.stringify(
+                                    String(url).includes(`/insights/${manualInsight.id}/`)
+                                        ? { ...manualInsight, result: [{ count: 84 }] }
+                                        : staleInsight
+                                ),
+                                { status: 200 }
+                            )
+                        )
                     )
                 try {
                     logic.actions.refreshDashboardItem({ tile: manualTile })
@@ -2770,14 +2786,14 @@ describe('dashboardLogic', () => {
                     await expectLogic(logic, () => {
                         logic.actions.refreshDashboardItems({ action: DashboardLoadAction.Update })
                     }).toDispatchActions(['refreshDashboardItems', 'setRefreshStatus'])
-                    expect(signal?.aborted).toBe(false)
+                    expect(signal?.aborted).toBe(manualTileIsStale)
                     finishManual(
                         new Response(JSON.stringify({ ...manualInsight, result: [{ count: 42 }] }), { status: 200 })
                     )
                     await expectLogic(logic).toFinishAllListeners()
                     expect(
                         logic.values.insightTiles.find((tile) => tile.insight?.id === manualInsight.id)?.insight?.result
-                    ).toEqual([{ count: 42 }])
+                    ).toEqual([{ count: manualTileIsStale ? 84 : 42 }])
                 } finally {
                     finishManual(new Response(JSON.stringify(manualInsight), { status: 200 }))
                     getResponse.mockRestore()
