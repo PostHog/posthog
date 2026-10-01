@@ -2,6 +2,7 @@
 import sys
 import json
 import argparse
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,7 +13,19 @@ from products.tasks.evals.agents_md.cloud import CLOUD_LEDGER, CLOUD_RUNTIME, Cl
 
 from .agents import DEFAULT_MODELS, AgentOutcome, Runtime, run_agent
 from .cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
-from .scoring import DEFAULT_JUDGE_MODEL, DiffScores, Verdict, changed_files, judge, score_diffs
+from .costs import TokenPrices, case_cost_usd, load_token_prices
+from .scoring import (
+    DEFAULT_JUDGE_MODEL,
+    FAST_CASE_SECONDS,
+    SLOW_CASE_SECONDS,
+    SLOW_CASE_SPEED_FACTOR,
+    DiffScores,
+    Verdict,
+    changed_files,
+    eval_score,
+    judge,
+    score_diffs,
+)
 from .workspace import candidate_diff, checkout_parent, ensure_golden_commits, golden_diff
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -105,8 +118,16 @@ def result_paths(results_dir: Path) -> list[Path]:
     return [path for path in results_dir.rglob("*.json") if path.stem.isdigit()]
 
 
+def _load_result(path: Path) -> dict:
+    second_judges = {}
+    for verdict_path in path.parent.glob(f"{path.stem}.judge-*.json"):
+        verdict = json.loads(verdict_path.read_text())
+        second_judges[verdict["judge_model"]] = verdict["judge_score"]
+    return json.loads(path.read_text()) | {"second_judges": second_judges}
+
+
 def load_results(results_dir: Path) -> list[dict]:
-    return sorted((json.loads(path.read_text()) for path in result_paths(results_dir)), key=lambda r: r["pr"])
+    return sorted((_load_result(path) for path in result_paths(results_dir)), key=lambda r: r["pr"])
 
 
 def rejudge(results_dir: Path, golden_prs: list[GoldenPR], judge_model: str, repo: Path) -> None:
@@ -122,28 +143,54 @@ def rejudge(results_dir: Path, golden_prs: list[GoldenPR], judge_model: str, rep
         print(f"{path}: {judge_model} {verdict.score:.2f}", flush=True)
 
 
-def _cost(result: dict) -> str:
-    cost = result["usage"].get("total_cost_usd")
-    return "n/a" if cost is None else f"{cost:.2f}"
+def _two_places(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.2f}"
 
 
-def report(results: list[dict]) -> str:
+def _mean_of_known(values: Iterable[float | None]) -> float | None:
+    known = [value for value in values if value is not None]
+    return mean(known) if known else None
+
+
+def report(results: list[dict], prices: Mapping[str, TokenPrices]) -> str:
     if not results:
         return "No results found.\n"
-    header = "| PR | Title | Author | Agent | Files hit | Line F1 | Judge | Minutes | Cost $ |\n|---|---|---|---|---|---|---|---|---|\n"
+    second_judges = sorted({model for r in results for model in r.get("second_judges", {})})
+
+    def judge_scores(r: dict) -> list[float | None]:
+        return [r["judge_score"], *(r.get("second_judges", {}).get(model) for model in second_judges)]
+
+    def score(r: dict) -> float:
+        return eval_score([s for s in judge_scores(r) if s is not None], r["duration_seconds"])
+
+    judges = " | ".join(f"Judge {model}" for model in [results[0]["judge_model"], *second_judges])
+    header = (
+        f"| PR | Title | Author | Agent | Eval score | {judges} | Minutes | Cost $ | Files hit | Line F1 |\n"
+        f"|{'---|' * (9 + len(second_judges))}\n"
+    )
     rows = [
-        f"| #{r['pr']} | {r['title']} | {r['author']} | {r['runtime']} {r['model']} "
-        f"| {r['scores']['file_recall']:.2f} | {r['scores']['added_line_f1']:.2f} | {r['judge_score']:.2f} "
+        f"| #{r['pr']} | {r['title']} | {r['author']} | {r['runtime']} {r['model']} | {score(r):.2f} "
+        f"| {' | '.join(_two_places(s) for s in judge_scores(r))} "
         f"| {r['duration_seconds'] / 60:.1f}{' (timed out)' if r['timed_out'] else ''} "
-        f"| {_cost(r)} |"
+        f"| {_two_places(case_cost_usd(r, prices))} "
+        f"| {r['scores']['file_recall']:.2f} | {r['scores']['added_line_f1']:.2f} |"
         for r in results
     ]
+    judge_means = (_mean_of_known(column) for column in zip(*(judge_scores(r) for r in results)))
     means = (
-        f"| **Mean** | | | | {mean(r['scores']['file_recall'] for r in results):.2f} "
-        f"| {mean(r['scores']['added_line_f1'] for r in results):.2f} | {mean(r['judge_score'] for r in results):.2f} | | |"
+        f"| **Mean** | | | | {mean(score(r) for r in results):.2f} "
+        f"| {' | '.join(_two_places(m) for m in judge_means)} "
+        f"| {mean(r['duration_seconds'] for r in results) / 60:.1f} "
+        f"| {_two_places(_mean_of_known(case_cost_usd(r, prices) for r in results))} "
+        f"| {mean(r['scores']['file_recall'] for r in results):.2f} "
+        f"| {mean(r['scores']['added_line_f1'] for r in results):.2f} |"
     )
     reasoning = "\n".join(f"- **#{r['pr']}** ({r['judge_score']:.2f}): {r['judge_reasoning']}" for r in results)
-    return f"{header}{'\n'.join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
+    return (
+        f"Eval score: the mean judge score, scaled by speed from 1 at {FAST_CASE_SECONDS} s or less "
+        f"to {SLOW_CASE_SPEED_FACTOR} at {SLOW_CASE_SECONDS // 60} minutes or more. Cost is at API prices.\n\n"
+        f"{header}{'\n'.join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
+    )
 
 
 def _positive_int(value: str) -> int:
@@ -190,7 +237,7 @@ def main(argv: list[str]) -> int:
             print(f"#{pr.number}\t{pr.merged_at[:10]}\t{pr.author}\t{pr.title}")
         return 0
     if args.command == "report":
-        print(report(load_results(args.results_dir)))
+        print(report(load_results(args.results_dir), load_token_prices()))
         return 0
     if args.command == "rejudge":
         rejudge(args.results_dir, golden_prs, args.judge_model, args.repo)
@@ -221,7 +268,7 @@ def main(argv: list[str]) -> int:
         write_result(results_dir, result, candidate, agent_log)
         print(f"#{pr.number}: judge {result.judge_score:.2f}, files hit {result.scores.file_recall:.2f}", flush=True)
     print(f"\nResults in {results_dir}\n")
-    print(report(load_results(results_dir)))
+    print(report(load_results(results_dir), load_token_prices()))
     return 0
 
 

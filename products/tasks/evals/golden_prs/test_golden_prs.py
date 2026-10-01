@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -22,10 +23,12 @@ from products.tasks.evals.golden_prs.agents import (
     agent_usage,
 )
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
+from products.tasks.evals.golden_prs.costs import TokenPrices, case_cost_usd
 from products.tasks.evals.golden_prs.scoring import (
     Verdict,
     added_lines,
     changed_files,
+    eval_score,
     judge,
     score_diffs,
     structured_answer,
@@ -201,7 +204,7 @@ def test_rejudge_saves_a_second_verdict_beside_each_result_and_the_report_counts
         "judge_score": 0.9,
         "judge_reasoning": "Same.",
     }
-    assert load_results(tmp_path) == [{"pr": 7, "judge_score": 0.5}]
+    assert load_results(tmp_path) == [{"pr": 7, "judge_score": 0.5, "second_judges": {"gpt-6-sol": 0.9}}]
 
 
 @parameterized.expand([("diff only", None, ""), ("with the checkout", Path("/work/tree"), "Read,Grep,Glob")])
@@ -349,37 +352,80 @@ def test_agent_environment_drops_github_credentials_and_the_other_provider_key()
     assert agent_environment(host, "codex") == {"OPENAI_API_KEY": "w", "PATH": "/bin"}
 
 
-def test_report_lists_each_case_and_the_mean():
+@parameterized.expand(
+    [
+        ("fast case keeps the mean judge score", [0.8, 0.6], 10, 0.7),
+        ("case at the slow mark loses half", [1.0], 30 * 60, 0.5),
+        ("case past the slow mark loses no more than half", [1.0], 60 * 60, 0.5),
+        ("halfway on the log scale loses a quarter", [1.0], (30 * 30 * 60) ** 0.5, 0.75),
+    ]
+)
+def test_eval_score_combines_the_judges_with_speed(
+    _name: str, judge_scores: list[float], seconds: float, expected: float
+) -> None:
+    assert eval_score(judge_scores, seconds) == pytest.approx(expected)
+
+
+SOL_PRICES = {"openai/gpt-6-sol": TokenPrices(input=2e-6, cached_input=2e-7, output=1e-5)}
+
+
+@parameterized.expand(
+    [
+        ("claude reports its own cost", "claude", "claude-opus-5-5", {"total_cost_usd": 1.5, "input_tokens": 9}, 1.5),
+        (
+            "codex tokens priced with cached input at the cache rate",
+            "codex",
+            "gpt-6-sol",
+            {"input_tokens": 1_000_000, "cached_input_tokens": 800_000, "output_tokens": 10_000},
+            0.4 + 0.16 + 0.1,
+        ),
+        ("codex model with no price", "codex", "gpt-unknown", {"input_tokens": 10, "output_tokens": 1}, None),
+        ("no usage at all", "codex", "gpt-6-sol", {}, None),
+    ]
+)
+def test_case_cost_prices_codex_tokens_at_api_rates(
+    _name: str, runtime: str, model: str, usage: dict[str, float], expected: float | None
+) -> None:
+    cost = case_cost_usd({"runtime": runtime, "model": model, "usage": usage}, SOL_PRICES)
+    assert cost == (None if expected is None else pytest.approx(expected))
+
+
+def test_report_leads_with_the_eval_score_then_each_judge_then_speed_and_cost():
     results = [
         {
             "pr": 1,
             "title": "fix: a",
             "author": "pauldambra",
-            "runtime": "claude",
-            "model": "m",
+            "runtime": "codex",
+            "model": "gpt-6-sol",
             "scores": {"file_recall": 1.0, "added_line_f1": 0.5},
+            "judge_model": "claude-opus-5",
             "judge_score": 0.8,
-            "duration_seconds": 120,
+            "second_judges": {"gpt-6-sol": 0.6},
+            "duration_seconds": 10,
             "timed_out": False,
-            "usage": {"total_cost_usd": 1.5},
+            "usage": {"input_tokens": 1_000_000, "cached_input_tokens": 800_000, "output_tokens": 10_000},
             "judge_reasoning": "Good.",
         },
         {
             "pr": 2,
             "title": "fix: b",
             "author": "Twixes",
-            "runtime": "claude",
-            "model": "m",
+            "runtime": "codex",
+            "model": "gpt-6-sol",
             "scores": {"file_recall": 0.0, "added_line_f1": 0.0},
+            "judge_model": "claude-opus-5",
             "judge_score": 0.0,
+            "second_judges": {"gpt-6-sol": 0.0},
             "duration_seconds": 1800,
             "timed_out": True,
             "usage": {},
             "judge_reasoning": "Nothing.",
         },
     ]
-    rendered = report(results)
-    assert "| #1 | fix: a | pauldambra | claude m | 1.00 | 0.50 | 0.80 | 2.0 | 1.50 |" in rendered
-    assert "| 30.0 (timed out) | n/a |" in rendered
-    assert "| **Mean** | | | | 0.50 | 0.25 | 0.40 | | |" in rendered
-    assert report([]) == "No results found.\n"
+    rendered = report(results, SOL_PRICES)
+    assert "| Eval score | Judge claude-opus-5 | Judge gpt-6-sol | Minutes | Cost $ | Files hit | Line F1 |" in rendered
+    assert "| #1 | fix: a | pauldambra | codex gpt-6-sol | 0.70 | 0.80 | 0.60 | 0.2 | 0.66 | 1.00 | 0.50 |" in rendered
+    assert "| 0.00 | 0.00 | 0.00 | 30.0 (timed out) | n/a |" in rendered
+    assert "| **Mean** | | | | 0.35 | 0.40 | 0.30 | 15.1 | 0.66 | 0.50 | 0.25 |" in rendered
+    assert report([], SOL_PRICES) == "No results found.\n"

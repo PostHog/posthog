@@ -1,11 +1,14 @@
 import os
 import re
 import json
+import math
 import tempfile
 import subprocess
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import mean
 
 import anthropic
 from pydantic import BaseModel, Field, ValidationError
@@ -45,6 +48,24 @@ class DiffScores:
     file_precision: float
     file_jaccard: float
     added_line_f1: float
+
+
+FAST_CASE_SECONDS = 30
+SLOW_CASE_SECONDS = 30 * 60
+SLOW_CASE_SPEED_FACTOR = 0.5
+
+
+def speed_factor(seconds: float) -> float:
+    """1 up to FAST_CASE_SECONDS, falling on a log scale to SLOW_CASE_SPEED_FACTOR at SLOW_CASE_SECONDS and after."""
+    slowness = math.log(max(seconds, FAST_CASE_SECONDS) / FAST_CASE_SECONDS) / math.log(
+        SLOW_CASE_SECONDS / FAST_CASE_SECONDS
+    )
+    return 1 - (1 - SLOW_CASE_SPEED_FACTOR) * min(slowness, 1)
+
+
+def eval_score(judge_scores: Iterable[float], seconds: float) -> float:
+    """The mean judge score scaled by speed. Accuracy dominates: the slowest agent keeps half its score."""
+    return mean(judge_scores) * speed_factor(seconds)
 
 
 def is_artifact(path: str) -> bool:
