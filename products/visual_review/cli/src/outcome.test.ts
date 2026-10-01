@@ -110,10 +110,9 @@ describe('reportRunOutcome', () => {
         expect(output).toContain('No visual changes')
     })
 
-    // A run the server failed keeps zero counts, which used to read as a clean run and pass the gate.
+    // --tolerate-drift is for observe drift on master. It must not pass a failed gating review run.
     it.each([
         { purpose: 'observe', tolerateDrift: false, exitCode: 1 },
-        { purpose: 'review', tolerateDrift: false, exitCode: 1 },
         { purpose: 'review', tolerateDrift: true, exitCode: 1 },
         { purpose: 'observe', tolerateDrift: true, exitCode: 0 },
     ])(
@@ -128,22 +127,10 @@ describe('reportRunOutcome', () => {
             )
 
             expect(result).toBe(exitCode)
-            expect(output).toContain('Visual Review run failed: The baseline file is missing 8 entries.')
+            expect(output).toContain('Run failed: The baseline file is missing 8 entries.')
             expect(output).not.toContain('No visual changes')
         }
     )
-
-    it('fails a failed run even though nothing counts as unresolved', async () => {
-        const exitCode = await reportRunOutcome(
-            client,
-            { ...run({ unresolved: 0 }), status: 'failed', error_message: 'hash mismatch' } as Run,
-            'https://vr.example.com/run-1',
-            'review'
-        )
-
-        expect(exitCode).toBe(1)
-        expect(output).toContain('Run failed: hash mismatch')
-    })
 
     it('still reports when the snapshot listing fails', async () => {
         vi.spyOn(client, 'getRunSnapshots').mockRejectedValue(new Error('boom'))

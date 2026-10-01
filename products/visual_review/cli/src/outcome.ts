@@ -84,20 +84,14 @@ export async function reportRunOutcome(
     tolerateDrift = false
 ): Promise<number> {
     const runId = run.id
-    // A failed run has no settled counts, so its zero counts must not read as a clean run.
-    // --tolerate-drift exempts only observe runs (master pushes), never a gating review run.
-    if (run.status === 'failed') {
-        warn(`Visual Review run failed: ${run.error_message || 'no reason given'} Review at: ${reviewUrl}`)
-        return tolerateDrift && purpose === 'observe' ? 0 : 1
-    }
-
     const s = run.summary
     const changes = s.changed + s.new + s.removed
 
     // A failed run counts nothing as unresolved, so the counts below would pass it.
+    // --tolerate-drift exempts only observe runs (master pushes), never a gating review run.
     if (run.status === 'failed') {
         log(`[run:${runId}] Run failed: ${run.error_message ?? 'no error recorded'} — review at: ${reviewUrl}`)
-        return tolerateDrift ? 0 : 1
+        return tolerateDrift && purpose === 'observe' ? 0 : 1
     }
 
     if (purpose === 'observe') {
