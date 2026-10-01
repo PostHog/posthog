@@ -23,6 +23,7 @@ export function useReportDismiss({
     surface,
     onDismiss,
     onDismissed,
+    onMerge,
 }: {
     reportId: string
     cardTitle: string
@@ -33,6 +34,7 @@ export function useReportDismiss({
     onDismiss?: (dismissal: DismissalFeedback) => void
     /** Fired once the report is dismissed (after `onDismiss`, or after the fallback API call succeeds). */
     onDismissed?: () => void
+    onMerge?: () => void
 }): { isDismissing: boolean; onDismissClick: (event: React.MouseEvent) => void } {
     const [isDismissing, setIsDismissing] = useState(false)
 
@@ -41,6 +43,7 @@ export function useReportDismiss({
         event.stopPropagation()
         openDismissReportDialog({
             reportTitle: cardTitle,
+            onMerge,
             onConfirm: async (dismissal) => {
                 const { reason, note, correctedRepository } = dismissal
                 // The structured reason plus the user's note — the note is the actionable signal

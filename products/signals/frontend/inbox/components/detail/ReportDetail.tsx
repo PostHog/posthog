@@ -237,6 +237,7 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        mergedIntoReportId,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
@@ -430,7 +431,11 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={report}
+                            mergedIntoReportId={mergedIntoReportId}
+                            rightSlot={hideRailButton}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection

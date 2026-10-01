@@ -1,3 +1,5 @@
+import { IconListTreeConnected } from '@posthog/icons'
+
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
@@ -19,6 +21,7 @@ interface OpenDismissReportDialogParams {
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
      * so the person only has to write the note. */
     initialReason?: DismissalReasonValue
+    onMerge?: () => void
     /** Called with the chosen reason, note and optional repo correction once the user confirms. */
     onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
@@ -42,6 +45,7 @@ export function openDismissReportDialog({
     hotkeys = false,
     initialReason,
     onConfirm,
+    onMerge,
 }: OpenDismissReportDialogParams): void {
     // The selection bar knows the count and no titles, so its copy counts reports even when one
     // report is selected. Every other caller names the report instead.
@@ -101,6 +105,21 @@ export function openDismissReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
+        tertiaryButton: onMerge
+            ? {
+                  children: 'Merge into…',
+                  icon: <IconListTreeConnected />,
+                  type: 'tertiary',
+                  onClick: onMerge,
+                  // Enter opens the picker without submitting a selected dismissal reason.
+                  onKeyDown: (event) => {
+                      if (event.key === 'Enter') {
+                          event.stopPropagation()
+                      }
+                  },
+                  'data-attr': 'inbox-dismiss-report-merge',
+              }
+            : undefined,
         primaryButtonProps: { children: 'Dismiss & teach the agent' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note, correctedRepository }) => {
