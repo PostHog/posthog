@@ -6141,6 +6141,9 @@ describe("AgentServer HTTP Mode", () => {
       expect(
         (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
       ).toContain("Cloud Task Execution");
+      expect(
+        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
+      ).toContain("# Repository Conventions");
     });
 
     it("injects benjamin into codex instructions when POSTHOG_BENJAMIN is set", () => {
