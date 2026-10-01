@@ -229,8 +229,8 @@ def _parse_frame(value: str) -> Frame:
 
 
 def _frames_from_dir(frames_dir: Path, fps: int) -> list[Frame]:
-    if fps <= 0:
-        raise SystemExit(f"--fps must be positive (got {fps})")
+    if not 1 <= fps <= 60:
+        raise SystemExit(f"--fps must be between 1 and 60 (got {fps})")
     if not frames_dir.is_dir():
         raise SystemExit(f"missing frames directory: {frames_dir}")
     return [Frame(path, round(1000 / fps)) for path in sorted(frames_dir.glob("*.png"))]
@@ -275,7 +275,7 @@ def animate(args: argparse.Namespace) -> int:
         duration=durations,
         loop=0,
         quality=82,
-        # method 6 is 10x slower on a 100-frame reel for about 3% smaller output
+        # method 6 is far slower on a long reel for a slightly smaller file
         method=4,
     )
     outputs = [args.output]

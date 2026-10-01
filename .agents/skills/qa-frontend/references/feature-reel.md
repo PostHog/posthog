@@ -65,6 +65,7 @@ Captions are user-facing copy, so `/writing-user-facing-copy` applies: sentence 
 
 ```bash
 RUN_DIR=".qa-frontend/runs/reel-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$RUN_DIR"
 # write the shot list to "$RUN_DIR/shot-list.json"
 node "<skill_dir>/scripts/reel-capture.mjs" "$RUN_DIR/shot-list.json" "$RUN_DIR/capture"
 node "<skill_dir>/scripts/reel-render.mjs" "$RUN_DIR/capture" "$RUN_DIR/frames"

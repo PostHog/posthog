@@ -39,8 +39,8 @@ function locate(page, target) {
         return scope.getByLabel(target.label, { exact: true }).first()
     }
     if (target.text && target.within) {
-        // The `within` element that holds the text, such as a list row.
-        return scope.filter({ hasText: target.text }).first()
+        // The `within` element that holds an element with exactly this text, such as a list row.
+        return scope.filter({ has: page.getByText(target.text, { exact: true }) }).first()
     }
     if (target.text) {
         return scope.getByText(target.text, { exact: true }).first()

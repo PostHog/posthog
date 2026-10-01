@@ -6,7 +6,7 @@ description: >
   flow against the local PostHog stack, use qa-frontend, or QA current frontend
   changes with browser/runtime evidence. Do not use for generic code review, PR
   review, "check my changes", CI debugging, or security audit; use qa-team,
-  debugging-ci-failures, or security-audit instead. Runs in PR mode or local
+  debugging-ci-failures, or security-audit instead. QA runs in PR mode or local
   mode, plans adaptive browser and visual checks, drives browser MCP/tooling
   such as Playwright MCP or Chrome DevTools MCP, captures evidence, and applies
   only approved/narrow fixes. Reel mode makes a feature reel instead: a short,
