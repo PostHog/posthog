@@ -386,6 +386,7 @@ export namespace Schemas {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -505,6 +506,7 @@ export namespace Schemas {
       Tagger: 'tagger',
       Ticket: 'ticket',
       Task: 'task',
+      Today: 'today',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
       FieldNote: 'field_note',
@@ -624,6 +626,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -847,6 +850,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -1249,6 +1253,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -17832,6 +17837,170 @@ export namespace Schemas {
       confidence: number;
     }
 
+    export interface BriefingSegment {
+      /** A run of text in a paragraph. Includes its own spaces. */
+      text: string;
+      /**
+         * Key of the item this run links to, or null for plain text.
+         * @nullable
+         */
+      item_key: string | null;
+      /** True only for the run that names the top item. */
+      highlight: boolean;
+    }
+
+    /**
+     * * `report` - REPORT
+     * * `dashboard` - DASHBOARD
+     * * `other` - OTHER
+     */
+    export type TodayItemGroupEnum = typeof TodayItemGroupEnum[keyof typeof TodayItemGroupEnum];
+
+
+    export const TodayItemGroupEnum = {
+      Report: 'report',
+      Dashboard: 'dashboard',
+      Other: 'other',
+    } as const;
+
+    /**
+     * * `self_driving` - SELF_DRIVING
+     * * `product_analytics` - PRODUCT_ANALYTICS
+     * * `alerts` - ALERTS
+     * * `support` - SUPPORT
+     * * `error_tracking` - ERROR_TRACKING
+     * * `github` - GITHUB
+     */
+    export type TodayItemSourceEnum = typeof TodayItemSourceEnum[keyof typeof TodayItemSourceEnum];
+
+
+    export const TodayItemSourceEnum = {
+      SelfDriving: 'self_driving',
+      ProductAnalytics: 'product_analytics',
+      Alerts: 'alerts',
+      Support: 'support',
+      ErrorTracking: 'error_tracking',
+      Github: 'github',
+    } as const;
+
+    /**
+     * * `claimed_by_you` - CLAIMED_BY_YOU
+     * * `waiting_for_you` - WAITING_FOR_YOU
+     * * `suggested_reviewer` - SUGGESTED_REVIEWER
+     * * `urgent_for_project` - URGENT_FOR_PROJECT
+     * * `dashboard_you_viewed` - DASHBOARD_YOU_VIEWED
+     * * `dashboard_you_starred` - DASHBOARD_YOU_STARRED
+     * * `insight_you_viewed` - INSIGHT_YOU_VIEWED
+     * * `insight_you_starred` - INSIGHT_YOU_STARRED
+     * * `alert_firing` - ALERT_FIRING
+     * * `assigned_ticket` - ASSIGNED_TICKET
+     * * `assigned_error_issue` - ASSIGNED_ERROR_ISSUE
+     * * `review_requested` - REVIEW_REQUESTED
+     * * `your_pull_request` - YOUR_PULL_REQUEST
+     */
+    export type TodayItemReasonEnum = typeof TodayItemReasonEnum[keyof typeof TodayItemReasonEnum];
+
+
+    export const TodayItemReasonEnum = {
+      ClaimedByYou: 'claimed_by_you',
+      WaitingForYou: 'waiting_for_you',
+      SuggestedReviewer: 'suggested_reviewer',
+      UrgentForProject: 'urgent_for_project',
+      DashboardYouViewed: 'dashboard_you_viewed',
+      DashboardYouStarred: 'dashboard_you_starred',
+      InsightYouViewed: 'insight_you_viewed',
+      InsightYouStarred: 'insight_you_starred',
+      AlertFiring: 'alert_firing',
+      AssignedTicket: 'assigned_ticket',
+      AssignedErrorIssue: 'assigned_error_issue',
+      ReviewRequested: 'review_requested',
+      YourPullRequest: 'your_pull_request',
+    } as const;
+
+    /**
+     * * `open` - OPEN
+     * * `done` - DONE
+     */
+    export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
+
+
+    export const BriefingItemStateEnum = {
+      Open: 'open',
+      Done: 'done',
+    } as const;
+
+    export interface BriefingItem {
+      /** Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>. */
+      key: string;
+      /** The item's own title, as the source names it. */
+      title: string;
+      /** Short left-bar label of at most 6 words. */
+      label: string;
+      /** Short fact under the label, at most 40 characters, for example 'Spend down 37%'. */
+      signal: string;
+      /** Where the item opens: an app path, or a GitHub URL for pull requests. */
+      url: string;
+      /** Position in the briefing, 1 is the top item. */
+      rank: number;
+      /**
+         * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
+         * @nullable
+         */
+      source_product: string | null;
+      group: TodayItemGroupEnum;
+      source: TodayItemSourceEnum;
+      reason: TodayItemReasonEnum;
+      state: BriefingItemStateEnum;
+    }
+
+    /**
+     * * `collecting` - COLLECTING
+     * * `writing` - WRITING
+     * * `ready` - READY
+     * * `failed` - FAILED
+     */
+    export type BriefingStatusEnum = typeof BriefingStatusEnum[keyof typeof BriefingStatusEnum];
+
+
+    export const BriefingStatusEnum = {
+      Collecting: 'collecting',
+      Writing: 'writing',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `agent` - AGENT
+     */
+    export type WriterEnum = typeof WriterEnum[keyof typeof WriterEnum];
+
+
+    export const WriterEnum = {
+      Agent: 'agent',
+    } as const;
+
+    export interface Briefing {
+      /** Briefing id. */
+      id: string;
+      /** The day this briefing is for, in the person's timezone. */
+      local_day: string;
+      /** One sentence that counts what needs the person. */
+      headline: string;
+      /** Up to 3 paragraphs, each a list of text runs; runs with an item_key are links. */
+      paragraphs: BriefingSegment[][];
+      /** The items the text names, in rank order: what the page and the left bar show. */
+      items: BriefingItem[];
+      /** Other open reports for the person, beyond the ones the briefing shows. */
+      more_reports_count: number;
+      /** Open reports in the whole project beyond the ones the briefing shows, whoever they are for. */
+      open_reports_count: number;
+      status: BriefingStatusEnum;
+      writer: WriterEnum | null;
+      created_at: string;
+      /** @nullable */
+      ready_at: string | null;
+    }
+
     /**
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
@@ -18917,6 +19086,29 @@ export namespace Schemas {
       check_id: string;
     }
 
+    export interface CandidateFact {
+      /** Fact name, for example pct_change or unread_messages. */
+      name: string;
+      /** Fact value as text. */
+      value: string;
+    }
+
+    export interface Candidate {
+      /** Stable item key, for example report:<uuid> or dashboard:<id>. */
+      key: string;
+      /** The item's own title. */
+      title: string;
+      /** Where the item opens. */
+      url: string;
+      /** Position in the briefing, 1 is the top item. */
+      rank: number;
+      /** The numbers and short facts the briefing text rests on. */
+      facts: CandidateFact[];
+      group: TodayItemGroupEnum;
+      source: TodayItemSourceEnum;
+      reason: TodayItemReasonEnum;
+    }
+
     export interface CandidateEvent {
       /** Name of the candidate event */
       event_name: string;
@@ -18940,6 +19132,15 @@ export namespace Schemas {
       suggestion_score: number;
       /** Human-readable rationale for the suggestion */
       suggestion_reason: string;
+    }
+
+    export interface CandidateList {
+      /** The day the list is for, in the person's timezone. */
+      local_day: string;
+      /** The briefing's items in rank order, up to 5. */
+      candidates: Candidate[];
+      /** Other open reports for the person not in the list. */
+      more_reports_count: number;
     }
 
     export interface CannyFeedbackSignalExtra {
@@ -22989,6 +23190,15 @@ export namespace Schemas {
     export interface CompareItem {
       label: string;
       value: string;
+    }
+
+    export interface CompleteRunInput {
+      /**
+         * Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.
+         * @maxLength 32
+         * @pattern ^\d+$
+         */
+      check_run_id?: string;
     }
 
     /**
@@ -30117,6 +30327,7 @@ export namespace Schemas {
      * * `AudioGO` - AudioGO
      * * `ExactOnline` - ExactOnline
      * * `LettrLabs` - LettrLabs
+     * * `GrafanaIRM` - GrafanaIRM
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -31475,6 +31686,7 @@ export namespace Schemas {
       AudioGO: 'AudioGO',
       ExactOnline: 'ExactOnline',
       LettrLabs: 'LettrLabs',
+      GrafanaIRM: 'GrafanaIRM',
     } as const;
 
     /**
@@ -32846,7 +33058,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -35430,7 +35643,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -44803,14 +45017,19 @@ export namespace Schemas {
          */
       sync_time_of_day?: string | null;
       /**
-         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
          * @minimum 1
          * @maximum 90
          * @nullable
          */
       full_refresh_interval_days?: number | null;
       /**
-         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+         * @nullable
+         */
+      full_refresh_time_of_day?: string | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
          * @nullable
          */
       readonly next_full_refresh_at: string | null;
@@ -44927,6 +45146,11 @@ export namespace Schemas {
          * @nullable
          */
       full_refresh_interval_days?: number | null;
+      /**
+         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+         * @nullable
+         */
+      full_refresh_time_of_day?: string | null;
       /**
          * Column names for primary key deduplication.
          * @nullable
@@ -46331,7 +46555,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -47723,7 +47948,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -52060,28 +52286,52 @@ export namespace Schemas {
      * Validates and sanitizes the workflow before creating it as a template.
      */
     export interface HogFlowTemplate {
+      /** ID of the template. */
       readonly id: string;
-      /** @maxLength 400 */
+      /**
+         * Template name.
+         * @maxLength 400
+         */
       name: string;
+      /** Template description. */
       description?: string;
       /**
+         * URL of the image shown on the template card.
          * @maxLength 8201
          * @nullable
          */
       image_url?: string | null;
+      /** Tags for filtering templates. */
       tags?: string[];
+      /** Who can use the template: this project only, or every project in the organization.
+       *
+       * * `team` - Only team
+       * * `organization` - Organization
+       * * `global` - Global */
       scope: HogFlowTemplateScopeEnum;
+      /** When the template was created. */
       readonly created_at: string;
       /** @nullable */
       readonly created_by: HogFlowTemplateCreatedBy;
+      /** When the template was last updated. */
       readonly updated_at: string;
+      /** Trigger config. Set from the config of the trigger action on save. */
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal config. */
       conversion?: unknown;
+      /** When a person exits a workflow created from the template.
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
+      /** Connections between the actions. */
       edges?: unknown;
       actions: HogFlowTemplateAction[];
       /**
+         * ID of the abort action.
          * @maxLength 400
          * @nullable
          */
@@ -62381,6 +62631,7 @@ export namespace Schemas {
        * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
+       * * `today` - today
        * * `toolbar` - toolbar
        * * `tracing` - tracing
        * * `field_note` - field_note
@@ -69898,7 +70149,7 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Snapshot[];
-      /** Count of this run's snapshots whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
+      /** Count of this run's snapshots that match the other filters and whose identifier is currently quarantined. Excluded from results unless include_quarantined=true is passed. */
       quarantined_count?: number;
     }
 
@@ -71495,11 +71746,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `customer_message` - Customer message
+     * * `sent_reply` - Sent reply
+     * * `internal_note` - Internal note
+     * * `ai_draft` - AI draft
+     */
+    export type TicketMessageTypeEnum = typeof TicketMessageTypeEnum[keyof typeof TicketMessageTypeEnum];
+
+
+    export const TicketMessageTypeEnum = {
+      CustomerMessage: 'customer_message',
+      SentReply: 'sent_reply',
+      InternalNote: 'internal_note',
+      AiDraft: 'ai_draft',
+    } as const;
+
+    /**
      * A single message in a ticket thread (output-only).
      */
     export interface TicketMessage {
       /** Message (comment) UUID. */
       readonly id: string;
+      /** What the message is, and whether it was sent to the customer. customer_message: written by the customer. sent_reply: a reply sent to the customer by a teammate, a workflow or the AI. It does not confirm that the customer received it, because delivery can fail. internal_note: a note for the team only. It was never sent to the customer. ai_draft: a reply or question the AI wrote for a teammate to review. It was never sent to the customer.
+       *
+       * * `customer_message` - Customer message
+       * * `sent_reply` - Sent reply
+       * * `internal_note` - Internal note
+       * * `ai_draft` - AI draft */
+      readonly message_type: TicketMessageTypeEnum;
       /** Plain-text message body. */
       readonly content: string;
       /** TipTap rich content JSON, if any. */
@@ -76017,14 +76291,19 @@ export namespace Schemas {
          */
       sync_time_of_day?: string | null;
       /**
-         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync, and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
+         * Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.
          * @minimum 1
          * @maximum 90
          * @nullable
          */
       full_refresh_interval_days?: number | null;
       /**
-         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.
+         * UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.
+         * @nullable
+         */
+      full_refresh_time_of_day?: string | null;
+      /**
+         * When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.
          * @nullable
          */
       readonly next_full_refresh_at?: string | null;
@@ -76593,28 +76872,52 @@ export namespace Schemas {
      * Validates and sanitizes the workflow before creating it as a template.
      */
     export interface PatchedHogFlowTemplate {
+      /** ID of the template. */
       readonly id?: string;
-      /** @maxLength 400 */
+      /**
+         * Template name.
+         * @maxLength 400
+         */
       name?: string;
+      /** Template description. */
       description?: string;
       /**
+         * URL of the image shown on the template card.
          * @maxLength 8201
          * @nullable
          */
       image_url?: string | null;
+      /** Tags for filtering templates. */
       tags?: string[];
+      /** Who can use the template: this project only, or every project in the organization.
+       *
+       * * `team` - Only team
+       * * `organization` - Organization
+       * * `global` - Global */
       scope?: HogFlowTemplateScopeEnum;
+      /** When the template was created. */
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: PatchedHogFlowTemplateCreatedBy;
+      /** When the template was last updated. */
       readonly updated_at?: string;
+      /** Trigger config. Set from the config of the trigger action on save. */
       trigger?: unknown;
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal config. */
       conversion?: unknown;
+      /** When a person exits a workflow created from the template.
+       *
+       * * `exit_on_conversion` - Conversion
+       * * `exit_on_trigger_not_matched` - Trigger Not Matched
+       * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+       * * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
+      /** Connections between the actions. */
       edges?: unknown;
       actions?: HogFlowTemplateAction[];
       /**
+         * ID of the abort action.
          * @maxLength 400
          * @nullable
          */
@@ -80046,8 +80349,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 9
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 10
          */
       write_scopes?: string[];
     }
@@ -91890,8 +92193,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 9
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 10
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -92143,8 +92446,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 9
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 10
          */
       readonly write_scopes: readonly string[];
       /**
@@ -94206,8 +94509,8 @@ export namespace Schemas {
          */
       repositories?: string[];
       /**
-         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-         * @maxItems 9
+         * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+         * @maxItems 10
          */
       write_scopes?: string[];
       /** Whether this scout runs on its schedule. Defaults to true. */
@@ -96490,7 +96793,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -97898,7 +98202,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -99288,7 +99593,8 @@ export namespace Schemas {
        * * `Gem` - Gem
        * * `AudioGO` - AudioGO
        * * `ExactOnline` - ExactOnline
-       * * `LettrLabs` - LettrLabs */
+       * * `LettrLabs` - LettrLabs
+       * * `GrafanaIRM` - GrafanaIRM */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -119135,7 +119441,7 @@ export namespace Schemas {
 
     export type MetricsAttributeValuesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null;
@@ -119165,7 +119471,7 @@ export namespace Schemas {
 
     export type MetricsAttributesRetrieveParams = {
     /**
-     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.
      * @nullable
      */
     dateFrom?: string | null;
@@ -121598,6 +121904,30 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type TodayBriefingRetrieveParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
+    export type TodayBriefingRefreshCreateParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
+    export type TodayCandidatesRetrieveParams = {
+    /**
+     * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.
+     * @maxLength 64
+     */
+    timezone?: string;
+    };
+
     export type TracingRetentionRulesListParams = {
     /**
      * Number of results to return per page.
@@ -122534,6 +122864,10 @@ export namespace Schemas {
 
     export type VisualReviewRunsSnapshotsListParams = {
     /**
+     * Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.
+     */
+    exclude_unchanged?: boolean;
+    /**
      * Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.
      */
     include_quarantined?: boolean;
@@ -122545,6 +122879,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
+     */
+    snapshot_id?: string;
     };
 
     export type VisualReviewRunsToleratedHashesListParams = {
