@@ -1,14 +1,34 @@
+from datetime import UTC, datetime
 from typing import Any
 
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest, _create_person, flush_persons_and_events
 
 from rest_framework import status
 
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models.message_assets.sql import TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
+from posthog.models.person.sql import TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL, TRUNCATE_PERSON_TABLE_SQL
+
+from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_suppression import MessageSuppression
 
+NOW = datetime(2026, 9, 15, 10, 0, tzinfo=UTC)
+
 
 class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Sequences reset between these non-atomic tests, so every test reuses the same team id and
+        # would otherwise read the previous test's ClickHouse persons and sends.
+        for statement in (
+            TRUNCATE_PERSON_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+            TRUNCATE_MESSAGE_ASSETS_TABLE_SQL,
+        ):
+            sync_execute(statement)
+
     def _list(self, **params: Any) -> dict[str, Any]:
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/", params)
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -20,14 +40,19 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
     def _prefer(self, identifier: str, preferences: dict[str, str]) -> None:
         MessageRecipientPreference.objects.create(team=self.team, identifier=identifier, preferences=preferences)
 
-    def _suppress(self, identifier: str, source: str = "BOUNCE") -> None:
+    def _suppress(self, identifier: str, source: str = "BOUNCE", reason: str | None = None) -> None:
         MessageSuppression.objects.for_team(self.team.id).create(
-            team=self.team, identifier=identifier, source=source, suppressed=True
+            team=self.team, identifier=identifier, source=source, reason=reason, suppressed=True, suppressed_at=NOW
         )
 
-    def _person(self, email: str, distinct_id: str | None = None) -> None:
-        _create_person(team=self.team, distinct_ids=[distinct_id or email], properties={"email": email})
+    def _person(self, email: str, distinct_id: str | None = None, name: str | None = None) -> str:
+        properties = {"email": email} if name is None else {"email": email, "name": name}
+        person = _create_person(team=self.team, distinct_ids=[distinct_id or email], properties=properties)
         flush_persons_and_events()
+        return str(person.uuid)
+
+    def _topic(self, key: str) -> str:
+        return str(MessageCategory.objects.create(team=self.team, key=key, name=key.title()).id)
 
     def test_lists_every_known_address_once_ordered_by_address(self) -> None:
         self._prefer("carol@example.com", {"$all": "OPTED_OUT"})
@@ -36,3 +61,29 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._person("carol@example.com")
 
         assert self._emails() == ["alice@example.com", "bob@example.com", "carol@example.com"]
+
+    @time_machine.travel(NOW, tick=False)
+    def test_folds_casings_of_one_address_into_one_row_where_unsubscribed_wins(self) -> None:
+        newsletter = self._topic("newsletter")
+        product_updates = self._topic("product-updates")
+        self._prefer("Jamie@Example.com", {"$all": "OPTED_IN", newsletter: "OPTED_OUT", product_updates: "OPTED_IN"})
+        self._prefer("jamie@example.com", {"$all": "OPTED_OUT", newsletter: "OPTED_IN", "$email_tracking": "OPTED_OUT"})
+        self._suppress("jamie@example.com", source="COMPLAINT", reason="Marked as spam")
+        person_uuid = self._person("JAMIE@example.com ", distinct_id="jamie-1", name="Jamie")
+
+        assert self._list()["results"] == [
+            {
+                "email": "jamie@example.com",
+                "all_marketing": "OPTED_OUT",
+                "topics": {"newsletter": "OPTED_OUT", "product-updates": "OPTED_IN"},
+                "suppression": {
+                    "source": "COMPLAINT",
+                    "reason": "Marked as spam",
+                    "suppressed_at": "2026-09-15T10:00:00Z",
+                },
+                "persons": [{"uuid": person_uuid, "distinct_id": "jamie-1", "name": "Jamie"}],
+                "person_count": 1,
+                "last_sent_at": None,
+                "preferences_updated_at": "2026-09-15T10:00:00Z",
+            }
+        ]
