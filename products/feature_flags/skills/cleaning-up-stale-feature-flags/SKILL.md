@@ -14,6 +14,8 @@ The ordering is fixed: clean up the code, wait for that cleanup to deploy, and o
 - The user wants to find flags that are stale, unused, or fully rolled out
 - The user asks "which feature flags can I remove?" or similar
 - The user wants to reduce tech debt from old feature flags
+- The user asks for a feature flag hygiene review
+- The user runs a weekly or recurring flag cleanup
 
 Do not activate for an unrelated coding task that merely mentions a feature flag.
 Cleaning up a flag is its own job, requested by the user.
