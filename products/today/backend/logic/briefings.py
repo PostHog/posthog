@@ -162,7 +162,7 @@ def recent_ready_briefings(briefing: DailyBriefing, limit: int) -> list[DailyBri
 
 
 def store_briefing(briefing: DailyBriefing, fact_sheet: FactSheet, content: BriefingContent) -> None:
-    """Store what the agent wrote and show it."""
+    """Store the written briefing and show it."""
     briefing.facts = fact_sheet.model_dump(mode="json")
     briefing.content = content.model_dump(mode="json")
     briefing.writer = BriefingWriter.AGENT
