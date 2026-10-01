@@ -138,6 +138,7 @@ from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
+from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -965,6 +966,7 @@ schedules = [
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
     create_autoresearch_daily_schedule,
+    create_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,

@@ -1,5 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
-import { JSX, useCallback, useEffect, useRef } from 'react'
+import { JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -152,6 +152,32 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         scope,
     ])
 }
+
+/**
+ * One row of the flat list, memoized. The list above it re-renders on every count, page and poll
+ * that lands, and repainting a few hundred rows each time is what made the inbox stop answering
+ * clicks. The restore closure is built here so the row's props stay comparable.
+ */
+const ReportRow = memo(function ReportRow({
+    report,
+    sectionKey,
+}: {
+    report: SignalReport
+    sectionKey: InboxReportSectionKey
+}): JSX.Element {
+    return (
+        <ReportContextMenu report={report} sectionKey={sectionKey}>
+            <ReportCard
+                report={report}
+                sectionKey={sectionKey}
+                selectable
+                onRestore={() =>
+                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
+                }
+            />
+        </ReportContextMenu>
+    )
+})
 
 /** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
 function ReportsEmptyState(): JSX.Element {
@@ -357,19 +383,7 @@ export function ReportsTab(): JSX.Element {
             ) : (
                 <div className="@container flex flex-col gap-1.5">
                     {rows.map(({ report, sectionKey }) => (
-                        <ReportContextMenu key={report.id} report={report} sectionKey={sectionKey}>
-                            <ReportCard
-                                report={report}
-                                sectionKey={sectionKey}
-                                selectable
-                                onRestore={() =>
-                                    reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(
-                                        report.id,
-                                        'list_row'
-                                    )
-                                }
-                            />
-                        </ReportContextMenu>
+                        <ReportRow key={report.id} report={report} sectionKey={sectionKey} />
                     ))}
                     {/* Skeleton cards continue the list while the next pages load – sleeker than a spinner. */}
                     {pageLoading && <CardSkeleton count={2} variant="cards" dashed />}

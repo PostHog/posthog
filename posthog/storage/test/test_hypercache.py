@@ -2,7 +2,7 @@ import json
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -758,7 +758,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
 
         # The mirrored delete must also swallow the failure and still drop the primary entry.
         hc.delete_cache_entry(team_id, kinds=["redis"])
-        broken.delete_many.assert_called()
+        broken.delete.assert_called()
         assert caches["flags_dedicated"].get(cache_key) is None
 
     @parameterized.expand([("etag", True), ("no_etag", False)])
@@ -852,6 +852,72 @@ class TestHyperCacheSecondaryCache(BaseTest):
         assert caches["flags_dedicated"].get(etag_key) is None
         assert caches["default"].get(cache_key) is None
         assert caches["default"].get(etag_key) is None
+
+    def test_delete_sends_one_key_per_command_etag_around_payload(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        hc.cache_client.delete_many.side_effect = RuntimeError("CROSSSLOT Keys in request don't hash to the same slot")
+        team_id = self.team.id
+
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert hc.cache_client.delete.call_args_list == [
+            call(hc.get_etag_key(team_id)),
+            call(hc.get_cache_key(team_id)),
+            call(hc.get_etag_key(team_id)),
+        ]
+        hc.cache_client.delete_many.assert_not_called()
+
+    def test_delete_attempts_every_key_and_raises_the_first_error(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        first = ConnectionError("etag shard down")
+        hc.cache_client.delete.side_effect = [first, True, ConnectionError("again")]
+        team_id = self.team.id
+
+        with pytest.raises(ConnectionError) as raised:
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert raised.value is first
+        assert hc.cache_client.delete.call_args_list == [
+            call(hc.get_etag_key(team_id)),
+            call(hc.get_cache_key(team_id)),
+            call(hc.get_etag_key(team_id)),
+        ]
+
+    def test_delete_leaves_no_etag_when_a_write_lands_between_deletes(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        team_id = self.team.id
+        hc.set_cache_value(team_id, self.sample_data)
+        real_delete = hc.cache_client.delete
+        deleted: list[str] = []
+
+        def write_after_first_delete(key: str) -> bool:
+            deleted.append(key)
+            result = real_delete(key)
+            if len(deleted) == 1:
+                hc.set_cache_value(team_id, {"rewritten": True})
+            return result
+
+        with patch.object(hc.cache_client, "delete", side_effect=write_after_first_delete):
+            hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        assert hc.cache_client.get(hc.get_cache_key(team_id)) is None
+        assert hc.cache_client.get(hc.get_etag_key(team_id)) is None
+
+    def test_delete_mirrors_the_same_sequence_before_the_primary(self):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        calls = Mock()
+        hc.cache_client = calls.primary
+        hc.secondary_cache_client = calls.secondary
+        team_id = self.team.id
+
+        hc.delete_cache_entry(team_id, kinds=["redis"])
+
+        sequence = [hc.get_etag_key(team_id), hc.get_cache_key(team_id), hc.get_etag_key(team_id)]
+        assert calls.mock_calls == [
+            getattr(call, client).delete(key) for client in ("secondary", "primary") for key in sequence
+        ]
 
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""
@@ -1424,7 +1490,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
         hc = self._make_hypercache(token_based=False)
         hc.cache_client = Mock()
-        hc.cache_client.delete_many.side_effect = ConnectionError("Redis unavailable")
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
 
         with pytest.raises(ConnectionError):
             hc.clear_cache(42)

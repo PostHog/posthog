@@ -21,6 +21,13 @@ const PAST_TENSE: Record<TodayBulkVerb, string> = {
 
 export const EMPTY_SELECTION: TodaySessionSelection = { ids: [], anchorId: null }
 
+export function isEditableTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    )
+}
+
 export function selectionClick(event: Pick<MouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>): TodaySelectionClick {
     return event.shiftKey ? 'range' : event.metaKey || event.ctrlKey ? 'toggle' : 'open'
 }
@@ -60,6 +67,11 @@ export function computeRangeSelection(
     }
     const range = orderedIds.slice(Math.min(anchorIndex, toIndex), Math.max(anchorIndex, toIndex) + 1)
     return { ids: Array.from(new Set([...current, ...range])), anchorId: toId }
+}
+
+/** Like Desktop, a right-click on a row inside a selection acts on the selection, not on that one row. */
+export function rightClickActsOnSelection(selectedIds: string[], sessionId: string): boolean {
+    return selectedIds.length > 1 && selectedIds.includes(sessionId)
 }
 
 export function pruneToVisible(ids: string[], visibleIds: string[]): string[] {

@@ -52,6 +52,12 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(visualReviewReposQuarantineCreateBodyReasonMax)
         .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
+        ),
     source_run_id: zod
         .uuid()
         .nullish()
@@ -64,7 +70,6 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .describe(
             'Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration.'
         ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**
@@ -149,6 +154,24 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
         )
         .describe(
             'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
+        ),
+})
+
+/**
+ * Complete a run: detect removals, verify uploads, trigger diff processing.
+ */
+export const visualReviewRunsCompleteCreateBodyCheckRunIdMax = 32
+
+export const visualReviewRunsCompleteCreateBodyCheckRunIdRegExp = new RegExp('^\\d+$')
+
+export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
+    check_run_id: zod
+        .string()
+        .max(visualReviewRunsCompleteCreateBodyCheckRunIdMax)
+        .regex(visualReviewRunsCompleteCreateBodyCheckRunIdRegExp)
+        .optional()
+        .describe(
+            'Numeric GitHub Actions job ID of the CI job that completes the run, from `${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict without capturing the snapshots again. Omit it outside GitHub Actions.'
         ),
 })
 

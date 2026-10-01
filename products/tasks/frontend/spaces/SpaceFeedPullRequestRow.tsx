@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconPullRequest } from '@posthog/icons'
+import { IconPullRequest, type IconProps } from '@posthog/icons'
 import { Badge, Card, Text, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -13,8 +13,17 @@ import { pullRequestLinkLabel, pullRequestStateMeta } from './TaskPullRequestChi
 import { TaskPullRequest } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
+function IconGitMerge(props: IconProps): JSX.Element {
+    return (
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false" {...props}>
+            <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
+        </svg>
+    )
+}
+
 interface SpaceFeedPullRequestRowProps {
     pullRequest: TaskPullRequest
+    pullRequestTitle: string | undefined
     /** The session that opened the pull request. */
     session: TodayWorkItem
     author: TaskUserBasicInfoApi | null
@@ -24,6 +33,7 @@ interface SpaceFeedPullRequestRowProps {
 /** A pull request in the feed's PRs view, as a card or a list row, like PostHog Desktop's. It opens on GitHub. */
 export function SpaceFeedPullRequestRow({
     pullRequest,
+    pullRequestTitle,
     session,
     author,
     listRow,
@@ -31,11 +41,9 @@ export function SpaceFeedPullRequestRow({
     const { pullRequestStates } = useValues(todaySpacesLogic)
     const state = pullRequestStates[pullRequest.url]
     const known = pullRequestStateMeta(state)
-    // GitHub reports no title to the web, so the row names the session that opened the pull request.
-    const title = session.title || 'Untitled session'
-    const icon = (
-        <IconPullRequest className={cn('size-3.5 shrink-0', known ? known.iconClassName : 'text-muted-foreground')} />
-    )
+    const title = pullRequestTitle || session.title || 'Untitled session'
+    const Icon = state === 'merged' ? IconGitMerge : IconPullRequest
+    const icon = <Icon className={cn('size-3.5 shrink-0', known ? known.iconClassName : 'opacity-50')} />
     const number = (
         <Text render={<span />} size="xs" variant="muted" className="shrink-0">
             {`#${pullRequest.number}`}
@@ -62,6 +70,7 @@ export function SpaceFeedPullRequestRow({
     if (listRow) {
         return (
             <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
+                <span aria-hidden className="size-3.5 shrink-0" />
                 {icon}
                 {number}
                 {link('flex-1 text-sm font-medium')}
@@ -86,6 +95,7 @@ export function SpaceFeedPullRequestRow({
             className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
         >
             <div className="flex min-w-0 items-center gap-3">
+                <span aria-hidden className="size-3.5 shrink-0" />
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                     <span className="flex translate-y-0.5">{icon}</span>
                     {number}
@@ -96,7 +106,7 @@ export function SpaceFeedPullRequestRow({
                         </Text>
                     )}
                 </div>
-                {known && <Badge className="shrink-0">{known.label}</Badge>}
+                <Badge className="shrink-0">{known?.label ?? 'Open'}</Badge>
             </div>
             <Text size="xs" variant="muted" className="mt-1.5 truncate">
                 {pullRequest.repository}

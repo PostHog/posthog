@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { ComponentType, JSX, useCallback, useEffect, useRef } from 'react'
+import { ComponentType, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -30,6 +30,34 @@ interface InboxReportListProps {
         | { content: JSX.Element }
         | { icon: JSX.Element; title: string; description: string; extra?: JSX.Element }
 }
+
+/**
+ * One row, memoized. The list re-renders on every badge count, page and poll that lands, and
+ * repainting every row each time is what made the inbox stop answering clicks. The row builds its
+ * own dismiss and restore closures from the list's stable actions, so its props stay comparable.
+ */
+const LegacyReportRow = memo(function LegacyReportRow({
+    report,
+    sectionKey,
+    Card,
+    dismissReport,
+    restoreReport,
+}: {
+    report: SignalReport
+    sectionKey: InboxReportSectionKey
+    Card: ComponentType<InboxReportCardProps>
+    dismissReport: (reportId: string, dismissal: DismissalFeedback) => void
+    restoreReport: (reportId: string, surface: 'list_row') => void
+}): JSX.Element {
+    return (
+        <Card
+            report={report}
+            sectionKey={sectionKey}
+            onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+            onRestore={() => restoreReport(report.id, 'list_row')}
+        />
+    )
+})
 
 /**
  * Shared body for the flat report-list tabs shown with the redesign flag off (Pull requests /
@@ -233,12 +261,13 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                     {/* Each report is its own freestanding card, separated by a small gap. */}
                     <div className="flex flex-col gap-1.5">
                         {reports.map((report) => (
-                            <Card
+                            <LegacyReportRow
                                 key={report.id}
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
-                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
-                                onRestore={() => restoreReport(report.id, 'list_row')}
+                                Card={Card}
+                                dismissReport={dismissReport}
+                                restoreReport={restoreReport}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

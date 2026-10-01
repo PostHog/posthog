@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
 use axum::Router;
 use common_ingestion_warnings::{
-    observe_delivery, KafkaWarningEmitter, WarningEmitter, INGESTION_WARNINGS_EMITTER_ENABLED,
+    observe_delivery, KafkaWarningEmitter, WarningEmitter, WarningThrottle,
+    INGESTION_WARNINGS_EMITTER_ENABLED,
 };
 use common_kafka::config::KafkaConfig as WarningsKafkaConfig;
 use common_kafka::kafka_producer::create_threaded_kafka_producer_no_ping;
@@ -706,6 +708,12 @@ const WARNINGS_KAFKA_LINGER_MS: u32 = 100;
 const WARNINGS_KAFKA_QUEUE_MESSAGES: u32 = 10_000;
 // Drop a message not delivered within this many ms.
 const WARNINGS_KAFKA_MESSAGE_TIMEOUT_MS: u32 = 5_000;
+// Per-type budget per pod: a burst of 60 that refills one a second, so about
+// 60 warnings of one type a minute. It caps what a failure that hits many
+// tokens at once can send, because the per-token throttle alone scales with
+// the number of tokens.
+const WARNINGS_TYPE_BUDGET_PERIOD: Duration = Duration::from_secs(1);
+const WARNINGS_TYPE_BUDGET_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
 
 /// Build the dedicated, warnings-only Kafka config. Reuses only the
 /// destination cluster (`hosts`/`tls`) from capture's main Kafka config;
@@ -823,7 +831,13 @@ async fn create_ingestion_warning_emitter(
         }
     };
 
-    let emitter = Arc::new(KafkaWarningEmitter::new(producer, topic.clone()));
+    let throttle = WarningThrottle::default()
+        .with_type_budget(WARNINGS_TYPE_BUDGET_PERIOD, WARNINGS_TYPE_BUDGET_BURST);
+    let emitter = Arc::new(KafkaWarningEmitter::with_throttle(
+        producer,
+        topic.clone(),
+        throttle,
+    ));
 
     let emitter_bg = emitter.clone();
     tokio::spawn(async move {
