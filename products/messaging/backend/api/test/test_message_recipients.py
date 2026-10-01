@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
@@ -8,9 +8,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.models.message_assets.sql import TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
+from posthog.models.message_assets.sql import INSERT_MESSAGE_ASSET_SQL, TRUNCATE_MESSAGE_ASSETS_TABLE_SQL
 from posthog.models.person.sql import TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL, TRUNCATE_PERSON_TABLE_SQL
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import MessageRecipientPreference
 from products.messaging.backend.models.message_suppression import MessageSuppression
@@ -41,19 +44,60 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
     def _emails(self, **params: Any) -> list[str]:
         return [row["email"] for row in self._list(**params)["results"]]
 
-    def _prefer(self, identifier: str, preferences: dict[str, str]) -> None:
-        MessageRecipientPreference.objects.create(team=self.team, identifier=identifier, preferences=preferences)
-
-    def _suppress(self, identifier: str, source: str = "BOUNCE", reason: str | None = None) -> None:
-        MessageSuppression.objects.for_team(self.team.id).create(
-            team=self.team, identifier=identifier, source=source, reason=reason, suppressed=True, suppressed_at=NOW
+    def _prefer(self, identifier: str, preferences: dict[str, str], team: Team | None = None) -> None:
+        MessageRecipientPreference.objects.create(
+            team=team or self.team, identifier=identifier, preferences=preferences
         )
 
-    def _person(self, email: str, distinct_id: str | None = None, name: str | None = None) -> str:
-        properties = {"email": email} if name is None else {"email": email, "name": name}
-        person = _create_person(team=self.team, distinct_ids=[distinct_id or email], properties=properties)
+    def _suppress(
+        self, identifier: str, source: str = "BOUNCE", reason: str | None = None, team: Team | None = None
+    ) -> None:
+        team = team or self.team
+        MessageSuppression.objects.for_team(team.id).create(
+            team=team, identifier=identifier, source=source, reason=reason, suppressed=True, suppressed_at=NOW
+        )
+
+    def _person(
+        self, email: str | None, distinct_id: str | None = None, name: str | None = None, team: Team | None = None
+    ) -> str:
+        properties = {key: value for key, value in {"email": email, "name": name}.items() if value is not None}
+        person = _create_person(
+            team=team or self.team, distinct_ids=[distinct_id or email or "anonymous"], properties=properties
+        )
         flush_persons_and_events()
         return str(person.uuid)
+
+    def _send(self, recipient: str, sent_at: datetime) -> None:
+        sync_execute(
+            INSERT_MESSAGE_ASSET_SQL,
+            {
+                "team_id": self.team.id,
+                "function_kind": "hog_flow",
+                "function_id": "flow",
+                "parent_run_id": "",
+                "invocation_id": f"run-{recipient}-{sent_at.isoformat()}",
+                "action_id": "email-step",
+                "kind": "email",
+                "distinct_id": recipient,
+                "person_id": "",
+                "recipient": recipient,
+                "subject": "Hello",
+                "html": "",
+                "status": "sent",
+                "sent_at": sent_at,
+                "version": 1,
+                "is_deleted": 0,
+            },
+        )
+
+    def _deny_hog_flow_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
 
     def _topic(self, key: str) -> str:
         return str(MessageCategory.objects.create(team=self.team, key=key, name=key.title()).id)
@@ -171,3 +215,56 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             ["c@example.com", "d@example.com"],
             ["e@example.com"],
         ]
+
+    def test_email_returns_exactly_that_recipient(self) -> None:
+        self._prefer("Jamie@Example.com", {})
+        self._prefer("jamie.other@example.com", {})
+
+        assert self._emails(email=" JAMIE@example.com") == ["jamie@example.com"]
+
+    def test_email_of_an_unknown_address_is_not_found(self) -> None:
+        self._prefer("jamie@example.com", {})
+
+        assert self._get(email="nobody@example.com").status_code == status.HTTP_404_NOT_FOUND
+
+    def test_never_lists_another_teams_recipients(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._prefer("theirs@example.com", {}, team=other_team)
+        self._suppress("theirs@example.com", team=other_team)
+        self._person("theirs@example.com", team=other_team)
+        self._prefer("ours@example.com", {})
+
+        assert self._emails() == ["ours@example.com"]
+
+    @parameterized.expand([("list", ""), ("coverage", "coverage/")])
+    def test_denies_users_without_hog_flow_access(self, _name: str, path: str) -> None:
+        self._deny_hog_flow_access()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/{path}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_last_sent_at_comes_from_sends_in_the_last_30_days(self) -> None:
+        recent = datetime.now(tz=UTC).replace(microsecond=0) - timedelta(days=2)
+        self._prefer("recent@example.com", {})
+        self._prefer("stale@example.com", {})
+        self._send("Recent@Example.com", recent - timedelta(days=1))
+        self._send("Recent@Example.com", recent)
+        self._send("stale@example.com", recent - timedelta(days=40))
+
+        last_sent = {row["email"]: row["last_sent_at"] for row in self._list()["results"]}
+
+        assert last_sent == {
+            "recent@example.com": recent.isoformat().replace("+00:00", "Z"),
+            "stale@example.com": None,
+        }
+
+    def test_coverage_counts_persons_without_an_email(self) -> None:
+        self._person("reachable@example.com")
+        self._person(None, distinct_id="anonymous-1")
+        self._person(None, distinct_id="anonymous-2", name="No Email")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/coverage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"persons_without_email": 2}
