@@ -36,7 +36,13 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
-from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, PRODUCT_ALLOWED_MODELS
+from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    FREE_TIER_PIN_KEY,
+    GATEWAY_PRODUCT_STATE_KEY,
+    PRODUCT_ALLOWED_MODELS,
+)
+from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
 from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
@@ -53,9 +59,11 @@ from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    POSTHOG_CODE_PRODUCT,
     is_slack_origin,
     mint_refusal,
     mint_scoped_token,
+    posthog_code_allowed_models,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
     token_cap_usd,
@@ -342,6 +350,7 @@ class RunState(BaseModel, extra="allow"):
     context_window: str | None = None
     fast_mode: bool | None = None
     claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
     resume_from_import_run: bool = False
     same_run_resume: bool = False
@@ -361,6 +370,10 @@ class RunState(BaseModel, extra="allow"):
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
     sandbox_template: str | None = None
+
+    @property
+    def model_access(self) -> ModelAccess:
+        return resolve_model_access(self.model_dump())
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
@@ -1356,7 +1369,8 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
-    if ctx.claude_model_access == "own-subscription":
+    if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+        record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
     try:
         env_vars = ai_gateway_env_vars(
@@ -1370,6 +1384,11 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             model=ctx.model,
             runtime=ctx.task_runtime,
         )
+        pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+            # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
+            for key in _TOKEN_ENV_KEYS:
+                env_vars.pop(key, None)
     except Exception:
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
@@ -1378,11 +1397,13 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
             extra={"run_id": ctx.run_id},
             exc_info=True,
         )
-        return {}
-    if not _record_pinned_gateway_product(ctx.run_id, ctx.state, env_vars.get("AI_GATEWAY_PRODUCT")):
-        # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
-        env_vars.pop("AI_GATEWAY_TOKEN", None)
-        env_vars.pop("AI_GATEWAY_TOKEN_CAP_USD", None)
+        env_vars = {}
+    # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
+    record_gateway_routing(
+        run_id=ctx.run_id,
+        team_id=ctx.team_id,
+        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")) and ctx.task_runtime != "pi",
+    )
     return env_vars
 
 
@@ -1397,6 +1418,11 @@ def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | 
     if not is_slack_origin(origin_product) or is_slack_interaction_state(state):
         return False
     return TaskRun.objects.filter(task_id=task.id, state__interaction_origin="slack").exists()
+
+
+_TOKEN_ENV_KEYS = ("AI_GATEWAY_TOKEN", "AI_GATEWAY_TOKEN_CAP_USD")
+# Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
+_PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
 
 
 def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
@@ -1475,11 +1501,18 @@ def ai_gateway_env_vars(
                     extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
                 )
                 return env_vars
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            mint_kwargs: dict[str, Any] = {}
+            if ai_product == POSTHOG_CODE_PRODUCT:
+                free_pin = posthog_code_allowed_models(team_id)
+                if free_pin is not None:
+                    mint_kwargs["allowed_models"] = free_pin
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
                 env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+                if "allowed_models" in mint_kwargs:
+                    env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars

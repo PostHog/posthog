@@ -133,14 +133,20 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     orderDirection = serializers.ChoiceField(
         choices=["ASC", "DESC"], required=False, default="DESC", help_text="Sort direction. Defaults to DESC."
     )
-    limit = serializers.IntegerField(required=False, min_value=1, max_value=100, default=25, help_text="Page size.")
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        default=10,
+        help_text="Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.",
+    )
     offset = serializers.IntegerField(required=False, min_value=0, default=0, help_text="Pagination offset.")
     volumeResolution = serializers.IntegerField(
         required=False,
         min_value=0,
         max_value=200,
         default=0,
-        help_text="Number of volume buckets. Defaults to 0 for compact aggregate counts.",
+        help_text="Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.",
     )
     library = StringOrStringListField(
         required=False, help_text="Filter by SDK/library value from event $lib, for example posthog-js."
@@ -182,6 +188,16 @@ class ErrorTrackingIssueQueryRequestSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Set true to include a compact numeric occurrence sparkline. Defaults to false.",
+    )
+    includeBreakdown = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), "
+            "screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the "
+            "sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, "
+            "so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false."
+        ),
     )
 
 
@@ -270,7 +286,11 @@ class ErrorTrackingAggregationsSerializer(ErrorTrackingImpactSerializer):
 class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Error tracking issue ID.")
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
-    description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.",
+    )
     status = serializers.CharField(required=False, help_text="Issue status.")
     severity = ErrorTrackingIssueSeverityField(
         choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
@@ -315,6 +335,45 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingBreakdownValueSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="Property value.")
+    count = serializers.IntegerField(help_text="Number of matching events with this value.")
+
+
+def breakdown_values_field(help_text: str) -> serializers.ListField:
+    return serializers.ListField(child=ErrorTrackingBreakdownValueSerializer(), required=False, help_text=help_text)
+
+
+class ErrorTrackingBreakdownTopValuesSerializer(serializers.Serializer):
+    path = breakdown_values_field("Most common $pathname values, most frequent first.")
+    url = breakdown_values_field(
+        "Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with "
+        "backend SDKs."
+    )
+    screen = breakdown_values_field("Most common $screen_name values, most frequent first.")
+    browser = breakdown_values_field("Most common $browser values, most frequent first.")
+    os = breakdown_values_field("Most common $os values, most frequent first.")
+    library = breakdown_values_field("Most common $lib values, most frequent first.")
+    library_version = breakdown_values_field("Most common $lib_version values, most frequent first.")
+    app_version = breakdown_values_field("Most common $app_version values, most frequent first.")
+
+
+class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(help_text="Start of the range that the breakdown covers.")
+    date_to = serializers.DateTimeField(help_text="End of the range that the breakdown covers.")
+    range_limited = serializers.BooleanField(
+        help_text="True when the requested range was longer than 30 days and the breakdown covers only the last 30."
+    )
+    occurrences = serializers.IntegerField(help_text="Matching exception events in the breakdown range.")
+    sample_session_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Up to 5 $session_id values with the most matching events, for session recording lookups.",
+    )
+    top_values = ErrorTrackingBreakdownTopValuesSerializer(
+        help_text="Most common values for each dimension. A dimension with no values is left out."
+    )
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
@@ -324,6 +383,9 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
+    )
+    breakdown = ErrorTrackingIssueBreakdownSerializer(
+        required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
     )
 
 

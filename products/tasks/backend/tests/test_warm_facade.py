@@ -1151,6 +1151,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 retry = self.client.post(url, payload, format="json", HTTP_X_POSTHOG_WARM_RETRY=retry_token)
                 assert retry.status_code == (201 if endpoint == "create" else 200), retry.content
                 assert retry.json()["latest_run"]["id"] == str(run.id)
+                if endpoint != "create":
+                    assert retry.json()["run"]["id"] == str(run.id)
                 assert handle.signal.await_count == 3
                 assert all(call.kwargs["args"] == first_message for call in handle.signal.await_args_list)
                 run.refresh_from_db()
@@ -1665,6 +1667,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             extra_state={
                 "snapshot_external_id": "snapshot-1",
                 "pr_base_branch": base_branch,
+                "stack_base_branch": "release",
                 "auto_publish": True,
                 "runtime_adapter": "claude",
                 "model": "claude-sonnet-5",
@@ -1696,6 +1699,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
         assert warm_run.state["pr_base_branch"] == base_branch
         assert warm_run.state["resume_from_run_id"] == str(terminal.id)
         assert warm_run.state["snapshot_external_id"] == "snapshot-1"
+        assert warm_run.state["stack_base_branch"] == "release"
         assert warm_run.state["await_user_message"] is True
         assert warm_run.state["auto_publish"] is True
         assert warm_run.state["pr_authorship_mode"] == "bot"
@@ -1719,6 +1723,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             )
 
         assert result is not None and result.error is None
+        assert result.run_id == warm_run.id
         assert task.runs.count() == 2
         signal.assert_called_once()
         warm_run.refresh_from_db()
@@ -2056,9 +2061,21 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
 
-    @parameterized.expand([("context_window", "1m"), ("claude_model_access", "own-subscription")])
-    def test_runtime_selection_mismatch_does_not_activate_warm_run(self, field, value):
-        task, run = self._warm_run()
+    @parameterized.expand(
+        [
+            ("context_window", {"context_window": "1m"}, None),
+            ("claude_model_access", {"claude_model_access": "own-subscription"}, None),
+            # A codex plan requires the codex runtime, so the warm run has to be warmed on it too.
+            # Otherwise the runtime alone decides the mismatch and the plan gate goes untested.
+            (
+                "codex_model_access",
+                {"codex_model_access": "own-subscription", "runtime_adapter": "codex"},
+                {"runtime_adapter": "codex"},
+            ),
+        ]
+    )
+    def test_runtime_selection_mismatch_does_not_activate_warm_run(self, _name, requested, warm_state):
+        task, run = self._warm_run(extra_state=warm_state)
         with (
             patch(f"{FACADE}.signal_task_run_user_message") as mock_signal,
             patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None) as mock_trigger,
@@ -2071,7 +2088,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     "mode": "interactive",
                     "branch": "main",
                     "pending_user_message": "do it",
-                    field: value,
+                    **requested,
                 },
             )
 

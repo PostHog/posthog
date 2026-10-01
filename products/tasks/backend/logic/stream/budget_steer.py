@@ -45,15 +45,12 @@ class BudgetSteerCapture:
             or cls._parse_timestamp(properties.get("threshold_at"))
             or timezone.now()
         ).isoformat()
-        original_timestamp = redis.set(
-            f"task-run-budget-steer:{event_uuid}:timestamp",
-            timestamp,
-            nx=True,
-            get=True,
-            ex=BUDGET_STEER_RETENTION_SECONDS,
-        )
-        if original_timestamp is not None:
-            timestamp = original_timestamp.decode() if isinstance(original_timestamp, bytes) else original_timestamp
+        timestamp_key = f"task-run-budget-steer:{event_uuid}:timestamp"
+        # Redis before 7.0 rejects SET with NX and GET together, so read the first value back separately.
+        if not redis.set(timestamp_key, timestamp, nx=True, ex=BUDGET_STEER_RETENTION_SECONDS):
+            original_timestamp = redis.get(timestamp_key)
+            if original_timestamp is not None:
+                timestamp = original_timestamp.decode() if isinstance(original_timestamp, bytes) else original_timestamp
         current_app.send_task(
             BUDGET_STEER_CAPTURE_TASK,
             kwargs={"team_id": team_id, "event_uuid": event_uuid, "timestamp": timestamp, "properties": properties},

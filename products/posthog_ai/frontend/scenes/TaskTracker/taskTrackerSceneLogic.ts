@@ -30,6 +30,7 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -48,6 +49,9 @@ import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
 import type { AttachedContextItem } from '../../types/contextTypes'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import type { TaskListParams } from '../../types/taskTypes'
+import { uploadRunAttachments, uploadStagedTaskAttachments } from '../../utils/artifactUpload'
+import { rememberAttachmentPreview } from '../../utils/attachmentPreviews'
+import type { PendingAttachment } from '../../utils/attachments'
 import {
     buildRunCreateRequest,
     buildServerResolvedRunCreateRequest,
@@ -63,6 +67,7 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
+    seedContextItems?: AttachedContextItem[]
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -86,6 +91,12 @@ export interface TaskTrackerSceneLogicProps {
     contextItems?: AttachedContextItem[]
     composerOverride?: ComposerOverride
     welcomeHeadlines?: string[]
+    /** Tasks channel that owns every task this composer creates. */
+    channelId?: string
+    /** Repository the composer starts from instead of the last-used one. The user can still change it. */
+    initialRepositoryConfig?: PersistedRepositoryConfig
+    /** Called with the created task's id after its run starts, so the host can open or list it. */
+    onTaskCreated?: (taskId: string) => void
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -166,6 +177,7 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 export interface taskTrackerSceneLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
+    stagedAttachments: PendingAttachment[] // composerAttachmentsLogic
     composerOverride: ComposerOverride | null // composerOverrideLogic
     seed: ComposerSeed | null // composerSeedLogic
     integrations: IntegrationType[] | null // integrationsLogic
@@ -208,6 +220,12 @@ export interface taskTrackerSceneLogicActions {
         keys: string[]
         taskId: string
     } // attachedContextLogic
+    removeAttachments: (ids: string[]) => {
+        ids: string[]
+    } // composerAttachmentsLogic
+    setUploading: (uploading: boolean) => {
+        uploading: boolean
+    } // composerAttachmentsLogic
     consumeSeed: () => {
         value: true
     } // composerSeedLogic
@@ -406,6 +424,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // the resume endpoint for a task that doesn't exist yet.
             taskWarmLogic({ panelId: props.panelId }),
             ['warmLease'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['stagedAttachments'],
             taskRunDefaultsLogic,
             ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
         ],
@@ -424,6 +444,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             ['consumeSeed', 'setSeed'],
             taskWarmLogic({ panelId: props.panelId }),
             ['noteDraft', 'prepareSubmit', 'consumeWarm', 'releaseWarm'],
+            composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
+            ['removeAttachments', 'setUploading'],
         ],
     })),
 
@@ -452,7 +474,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
             },
         ],
@@ -594,7 +625,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
-            if (data.repositoryConfig?.repository) {
+            // A host default owns this composer's starting repo, so picks made here keep the shared memory intact.
+            if (data.repositoryConfig?.repository && !props.initialRepositoryConfig) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }
@@ -627,9 +659,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (githubIntegrations.length === 0) {
                 return
             }
-            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
-            // GitHubBranchCombobox re-selects the repo's actual default branch.
-            const { integrationId, repository } = values.persistedRepositoryConfig
+            // Restore the host default or the last-used repo only if its integration is still connected. Branch
+            // is left unset so GitHubBranchCombobox re-selects the repo's actual default branch.
+            const initial = props.initialRepositoryConfig
+            const { integrationId, repository } = initial?.repository
+                ? { integrationId: initial.integrationId ?? githubIntegrations[0].id, repository: initial.repository }
+                : values.persistedRepositoryConfig
             if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
                 actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
                 return
@@ -647,7 +682,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
         applySuggestion: ({ item }) => {
-            actions.setNewTaskData({ description: item.content })
+            actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
                 actions.submitNewTask()
             }
@@ -680,6 +715,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.submittingTask = disposables
             const projectId = String(values.currentProjectId)
             const warmSubmission: WarmSubmission = { projectId, lease: null }
+            let warmConsumed = false
             actions.prepareSubmit(warmSubmission)
 
             // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
@@ -688,7 +724,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = props.contextItems ?? values.contextItems
+            const seededContext = [
+                ...(props.contextItems ?? values.contextItems),
+                ...(values.newTaskData.seedContextItems ?? []),
+            ]
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -719,9 +758,32 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
             cache.creationRoute = creationRouteKey(router.values.location.pathname, router.values.searchParams)
             actions.setActiveCreation({ streamKey, interactionKey: streamKey })
-            stream.actions.startOptimisticRun(description)
+            const sending = values.stagedAttachments
+            stream.actions.startOptimisticRun(
+                description,
+                sending.map(({ file }) => ({ name: file.name, previewId: rememberAttachmentPreview(file) }))
+            )
 
             try {
+                // Files can only be uploaded against something that already exists. A warm lease names a task
+                // and a run, so they go onto that run and ride its activation. Without one there is nothing
+                // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
+                const attachedFiles = sending.map(({ file }) => file)
+                const warmLease = warmSubmission.lease
+                const suppressWarmReuse = attachedFiles.length > 0 && !warmLease
+                let pendingUserArtifactIds: string[] = []
+                if (attachedFiles.length > 0) {
+                    actions.setUploading(true)
+                    if (warmLease) {
+                        pendingUserArtifactIds = await uploadRunAttachments(
+                            projectId,
+                            warmLease.taskId,
+                            warmLease.runId,
+                            attachedFiles
+                        )
+                    }
+                }
+
                 const pendingUserMessage = wrapWithPosthogContext(description, seededContext)
                 const runPayload = {
                     branch: repositoryConfig.branch ?? null,
@@ -758,9 +820,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     // Warm-reuse hints. The backend matches these against an idling warm Run and, on a hit,
                     // activates it in place and returns it as `latest_run` — no second Run is created. All of
                     // them are write-only and ignored on a cold create. `branch` must be present as a key
-                    // (even `null`) or reuse is never attempted at all. The model triple is left off when
-                    // the selection is untouched, so the backend resolves it for warm matching too.
-                    branch: runPayload.branch,
+                    // (even `null`) or reuse is never attempted at all — which is how lease-less attachments
+                    // opt out. The model triple is left off when the selection is untouched, so the backend
+                    // resolves it for warm matching too.
+                    ...(suppressWarmReuse ? {} : { branch: runPayload.branch }),
+                    ...(pendingUserArtifactIds.length > 0 ? { pending_user_artifact_ids: pendingUserArtifactIds } : {}),
                     ...(pinnedRequest
                         ? {
                               runtime_adapter: pinnedRequest.runtime_adapter,
@@ -770,6 +834,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                           }
                         : { initial_permission_mode: permissionMode }),
                     pending_user_message: pendingUserMessage,
+                    ...(props.channelId ? { channel: props.channelId } : {}),
                 }
 
                 const newTask = await submitWithWarmRunRetry(
@@ -777,6 +842,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     disposables
                 )
                 actions.consumeWarm(warmSubmission, newTask.latest_run?.id ?? null)
+                warmConsumed = true
 
                 if (!disposables.isDisposed && values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
@@ -795,11 +861,27 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 let createdRun = newTask.latest_run
                 let runId = createdRun?.id
                 if (!runId) {
+                    // Also covers a warm miss: reaching here after a lease upload means the create did not
+                    // activate that warm run, and a cold create drops its warm hints — including the artifact
+                    // ids — so the files are staged again rather than left on a run nothing will read.
+                    const stagedArtifactIds =
+                        attachedFiles.length > 0
+                            ? await uploadStagedTaskAttachments(projectId, newTask.id, attachedFiles)
+                            : []
                     const runResponse = await submitWithWarmRunRetry(
-                        (options) => tasksRunCreate(projectId, newTask.id, runRequest, options),
+                        (options) =>
+                            tasksRunCreate(
+                                projectId,
+                                newTask.id,
+                                stagedArtifactIds.length > 0
+                                    ? { ...runRequest, pending_user_artifact_ids: stagedArtifactIds }
+                                    : runRequest,
+                                options
+                            ),
                         disposables
                     )
-                    createdRun = runResponse.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
 
@@ -860,15 +942,24 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (creationIsActive || values.newTaskData.description.trim() === description) {
                     actions.resetNewTaskData()
                 }
+                // Only what this send took. A failure leaves them staged, since the restored draft is resent.
+                actions.removeAttachments(sending.map(({ id }) => id))
                 cache.submittingTask = null
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
                 }
                 actions.releaseApplyBackTargets(streamKey)
+                // `prepareSubmit` took the lease out of `taskWarmLogic`, so only `consumeWarm` releases it,
+                // and a run that never got a message would hold a warm slot until its idle timeout.
+                if (!warmConsumed) {
+                    actions.consumeWarm(warmSubmission, null)
+                    warmConsumed = true
+                }
                 if (values.activeCreation?.streamKey === streamKey) {
                     interaction.props.flushDraft?.()
                     const unsent = [
@@ -879,6 +970,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()
@@ -892,9 +984,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (cache.submittingTask === disposables) {
                     cache.submittingTask = null
                 }
+                // Drops the spinners off chips that outlived a failed send.
+                actions.setUploading(false)
             }
         },
         openExistingTask: ({ task }) => {
+            actions.setNewTaskData({ seedContextItems: undefined })
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
                 actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
@@ -940,7 +1035,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({ description: seed.prompt })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }

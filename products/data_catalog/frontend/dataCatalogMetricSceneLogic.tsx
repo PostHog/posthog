@@ -23,7 +23,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, DataModelingEdge, DataModelingNode } from '~/types'
 
-import { validateMetricName } from './common'
+import { HOGQL_METRIC_DEFINITION_KIND, validateMetricName } from './common'
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -460,7 +460,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         ],
         supportsMetricChecks: [
             (s) => [s.metric],
-            (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === 'HogQLQuery',
+            (metric: DataCatalogMetricApi | null): boolean => metric?.definition_kind === HOGQL_METRIC_DEFINITION_KIND,
         ],
         breadcrumbs: [
             (s) => [s.metric, (_, props) => props.name],

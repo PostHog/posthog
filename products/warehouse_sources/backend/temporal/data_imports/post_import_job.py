@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     data_quality_checks_needed_for,
     emit_signals_enabled_for,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.calculate_table_size import (
     CalculateTableSizeActivityInputs,
     calculate_table_size_activity,
@@ -52,7 +53,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
-    statistics_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _enrichment_pending,
@@ -154,9 +154,7 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
-    return bool(
-        gate.team is not None and statistics_enabled(gate.team) and _statistics_stale(gate.team_id, gate.schema.table)
-    )
+    return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
 
 
 def _always(gate: PostImportGateContext) -> bool:
@@ -335,6 +333,7 @@ def _legacy_step_keys(ctx: PostImportContext) -> list[str]:
 
 
 @activity.defn
+@with_internal_db_retries
 def resolve_post_import_context_activity(inputs: PostImportWorkflowInputs) -> PostImportContext:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()

@@ -75,3 +75,11 @@ export function compactMinutes(minutes: number | null | undefined): string {
 export function percent(rate: number | null | undefined, precision: number = 0): string {
     return rate == null ? '—' : `${(rate * 100).toFixed(precision)}%`
 }
+
+/** A friction score, as a multiple of the typical author or pull request: 1.0 is typical. */
+export function timesTypical(score: number | null | undefined): string {
+    if (score == null) {
+        return '–'
+    }
+    return `${score.toFixed(1)}×`
+}

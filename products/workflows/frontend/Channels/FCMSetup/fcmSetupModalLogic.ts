@@ -10,11 +10,12 @@ import { IntegrationType } from '~/types'
 
 import {
     PushIdentityVerificationMode,
+    pushIdentityPublicKeyError,
     pushIdentityPublicKeysPayload,
     pushIdentityVerificationPayload,
     resolvePushIdentityPublicKey,
     resolvePushIdentityVerification,
-} from '../PushIdentityVerificationField'
+} from '../pushIdentityVerification'
 
 export interface FCMSetupModalLogicProps {
     integration?: IntegrationType | null
@@ -155,8 +156,9 @@ export const fcmSetupModalLogic = kea<fcmSetupModalLogicType>([
                 identityVerification: resolvePushIdentityVerification(props.integration),
                 identityPublicKey: resolvePushIdentityPublicKey(props.integration),
             },
-            errors: ({ serviceAccountKey }) => ({
+            errors: ({ serviceAccountKey, identityVerification, identityPublicKey }) => ({
                 serviceAccountKey: serviceAccountKey.trim() ? undefined : 'Service account key is required',
+                identityPublicKey: pushIdentityPublicKeyError(identityVerification, identityPublicKey),
             }),
             submit: async () => {
                 let keyInfo: Record<string, unknown>

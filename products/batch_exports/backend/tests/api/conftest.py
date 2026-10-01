@@ -4,8 +4,9 @@ import pytest
 from unittest import mock
 
 from django.conf import settings
+from django.db import connections
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import SyncToAsync, async_to_sync
 from temporalio.client import (
     Client as TemporalClient,
     ScheduleDescription,
@@ -75,6 +76,9 @@ def temporal_worker(temporal):
 
 @pytest.fixture
 def cleanup(temporal):
+    # Activities that outlive an earlier test can exit an atomic block while pytest-django blocks the database,
+    # which leaves the activity thread's connection in a transaction that hides every later activity write.
+    SyncToAsync.single_thread_executor.submit(connections.close_all).result()
     yield
     cleanup_temporal_schedules(temporal)
 

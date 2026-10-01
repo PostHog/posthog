@@ -52,6 +52,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precomput
     BACKGROUND_WARMING_TRIGGERS,
     handle_not_ready,
     handle_stale_served,
+    is_on_demand_revalidation,
     marketing_ensure_precomputed,
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -190,6 +191,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Without this, a rollout where every query falls back to the live path looks identical to
         # one that works.
         self._sessions_precompute_used: bool = False
+        self._live_session_resolution_used: bool = False
         # The job set backing this query, resolved once and shared by the reach and credit sides.
         # `resolved` separates "not looked up yet" from "looked up, cannot use the precompute".
         self._sessions_precompute_resolved: bool = False
@@ -260,6 +262,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 "costs_sources_materialized": self._costs_sources_materialized,
                 "costs_grain": self._costs_grain,
                 "sessions_precompute_used": self._sessions_precompute_used,
+                "live_session_resolution_used": self._live_session_resolution_used,
             }
             if error is None:
                 props["timings"] = [{"k": t.k, "t": t.t} for t in self.timings.to_list()]
@@ -1244,7 +1247,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Build the cost source. When cost precompute is enabled, read the native materialized table
             # (no S3); fall back to the live S3 adapter union if not enabled or jobs aren't ready.
             union_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
-            if self.config.costs_precomputation_enabled:
+            if self.config.costs_precomputation_enabled and not is_on_demand_revalidation():
                 with self.timings.measure("ma_build_costs_precompute"):
                     try:
                         union_subquery = self._build_costs_from_precompute(self.query_date_range)
