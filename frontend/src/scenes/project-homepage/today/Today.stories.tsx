@@ -177,6 +177,44 @@ const TEAM_SESSIONS = [
     ...RECENT_SESSIONS,
 ]
 
+function canvas(
+    id: string,
+    name: string,
+    description: string,
+    updatedAt: string,
+    author: typeof ADA
+): Record<string, unknown> {
+    return {
+        id,
+        name,
+        kind: 'freeform',
+        description,
+        channel: 'space-checkout',
+        template_id: '',
+        generation_task_id: null,
+        pinned: false,
+        pinned_at: null,
+        current_version_id: null,
+        published_build_id: null,
+        component_meta: null,
+        created_by: author,
+        created_at: '2026-09-20T09:00:00Z',
+        updated_at: updatedAt,
+        url: `/canvases/${id}`,
+    }
+}
+
+const CANVASES = [
+    canvas(
+        'canvas-funnel',
+        'Checkout funnel board',
+        'Conversion from cart to paid, split by plan and country.',
+        '2026-09-28T17:10:00Z',
+        GRACE
+    ),
+    canvas('canvas-refunds', 'Refund tracker', '', '2026-09-26T08:45:00Z', ADA),
+]
+
 const LIBRARY = [
     { id: 'fs-1', path: 'Unfiled/Insights/Checkout funnel', type: 'insight', ref: 'abc123' },
     { id: 'fs-2', path: 'Unfiled/Dashboards/Growth overview', type: 'dashboard', ref: '12' },
@@ -283,6 +321,11 @@ const meta: Meta = {
                           : params.get('channel')
                             ? []
                             : TEAM_SESSIONS
+                    return [200, { results, count: results.length, next: null, previous: null }]
+                },
+                '/api/projects/:team_id/canvases/': ({ request }) => {
+                    const results =
+                        new URL(request.url).searchParams.get('channel') === 'space-checkout' ? CANVASES : []
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -422,8 +465,23 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
     },
 }
 
+export const SpacePageListView: Story = {
+    decorators: [withSpaceFeedView({ view: 'list' })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
 export const SpacePagePullRequests: Story = {
     decorators: [withSpaceFeedView({ types: ['pr'] })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacePageCanvases: Story = {
+    decorators: [withSpaceFeedView({ types: ['canvas'] })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacePageCanvasesListView: Story = {
+    decorators: [withSpaceFeedView({ types: ['canvas'], view: 'list' })],
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
