@@ -417,7 +417,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
         FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
-        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: '',
+        // Local dev resolves post-cutoff experiments to $experiment_exposure the same way Cloud does,
+        // so it needs the duplicated event too. Hobby stays empty, which matches the backend setting
+        // EXPERIMENT_EXPOSURE_EVENT_INGESTED that defaults to false there.
+        EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: isDevEnv() ? '*' : '',
 
         // $feature_flag_called fork into the flag_evaluations ClickHouse table.
         // Teams default empty so flipping the mode alone forks nobody; ramp by
