@@ -1066,18 +1066,28 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         live = FeatureFlag.objects.create(team=self.team, key="live", active=True, last_called_at=called_at)
         disabled = FeatureFlag.objects.create(team=self.team, key="disabled", active=False)
         archived = FeatureFlag.objects.create(team=self.team, key="archived", active=False, archived=True)
+        removed = FeatureFlag.objects.create(team=self.team, key="removed", active=False, deleted=True)
 
         response = execute_hogql_query(
-            "SELECT key, active, archived, last_called_at, updated_at FROM system.feature_flags ORDER BY key",
+            "SELECT key, active, archived, deleted, last_called_at, updated_at FROM system.feature_flags ORDER BY key",
             team=self.team,
             user=self.user,
         )
 
         assert response.results == [
-            ("archived", 0, 1, None, archived.updated_at),
-            ("disabled", 0, 0, None, disabled.updated_at),
-            ("live", 1, 0, called_at, live.updated_at),
+            ("archived", 0, 1, 0, None, archived.updated_at),
+            ("disabled", 0, 0, 0, None, disabled.updated_at),
+            ("live", 1, 0, 0, called_at, live.updated_at),
+            ("removed", 0, 0, 1, None, removed.updated_at),
         ]
+
+        roster = execute_hogql_query(
+            "SELECT key FROM system.feature_flags WHERE archived = 0 AND deleted = 0 ORDER BY key",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert roster.results == [("disabled",), ("live",)]
 
     def test_error_tracking_issue_severity(self):
         create_issue(team_id=self.team.pk, name="high_severity_issue", severity="high")

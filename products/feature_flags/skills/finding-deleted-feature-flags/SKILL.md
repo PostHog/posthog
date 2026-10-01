@@ -41,8 +41,8 @@ SELECT id, key, created_at, updated_at
 FROM system.feature_flags
 WHERE team_id = <team_id>
   AND deleted = 1
-  AND updated_at >= toDateTime('<cutoff_utc>') - INTERVAL 1 HOUR
-ORDER BY updated_at DESC
+  AND updated_at >= toDateTime('<cutoff_utc>', 'UTC') - INTERVAL 1 HOUR
+ORDER BY updated_at DESC, id DESC
 LIMIT 100
 ```
 
@@ -54,13 +54,13 @@ If the query returns 100 rows, page with `OFFSET` until a page returns fewer, so
 
 ### 3. Fan out activity-log lookups in parallel
 
-For each candidate id, call `posthog:feature-flags-activity-retrieve` with `limit: 5, page: 1`. **Issue all calls in one message so they run concurrently** — sequential calls are dramatically slower.
+For each candidate id, call `posthog:feature-flags-activity-retrieve` with `limit: 5, page: 1`. **Send the calls in batches of about 25, with every call in a batch in one message, so they run concurrently** — sequential calls are dramatically slower.
 
 ```text
 call feature-flags-activity-retrieve {"id": <flag_id>, "limit": 5, "page": 1}
 ```
 
-Look up every candidate from step 2, because the `updated_at` filter already limits the list to the window. Send the calls in batches of about 25 per message.
+Look up every candidate from step 2, because the `updated_at` filter already limits the list to the window.
 
 If you stop before the last batch, say so in the report and offer to check the rest as a follow-up.
 
