@@ -626,16 +626,12 @@ def get_run_snapshots(
     run = run_queries.get_run(run_id, team_id=team_id)
     snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
 
-    quarantined_identifiers = (
-        [q.identifier for q in quarantine.list_quarantined_identifiers(run.repo_id, team_id, run_type=run.run_type)]
-        if team_id is not None
-        else []
-    )
     quarantined_count = 0
-    if quarantined_identifiers:
-        quarantined_count = snapshots.filter(identifier__in=quarantined_identifiers).count()
+    if team_id is not None:
+        quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
+        quarantined_count = snapshots.filter(identifier__in=quarantined).count()
         if not include_quarantined:
-            snapshots = snapshots.exclude(identifier__in=quarantined_identifiers)
+            snapshots = snapshots.exclude(identifier__in=quarantined)
 
     total_count = snapshots.count()
     page = list(snapshots[offset : offset + limit if limit is not None else None])

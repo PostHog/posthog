@@ -123,6 +123,42 @@ describe('visualReviewRunSceneLogic', () => {
         await expectLogic(logic).toMatchValues({ selectedSnapshot: otherUnchangedSnapshot })
     })
 
+    it('keeps a cached deep link when the user returns to it before a newer one loads', async () => {
+        const otherUnchangedSnapshot = { id: 'snapshot-other', identifier: 'other-unchanged', result: 'unchanged' }
+        let releaseOther: () => void = () => {}
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: async ({ request }) => {
+                    const snapshotId = new URL(request.url).searchParams.get('snapshot_id')
+                    if (snapshotId === otherUnchangedSnapshot.id) {
+                        await new Promise<void>((resolve) => {
+                            releaseOther = resolve
+                        })
+                    }
+                    const results =
+                        snapshotId === UNCHANGED_SNAPSHOT.id
+                            ? [UNCHANGED_SNAPSHOT]
+                            : snapshotId === otherUnchangedSnapshot.id
+                              ? [otherUnchangedSnapshot]
+                              : [CHANGED_SNAPSHOT]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        await expectLogic(logic, () => logic.actions.loadSnapshots()).toDispatchActions([
+            'loadDeepLinkedSnapshotSuccess',
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedSnapshotId(otherUnchangedSnapshot.id)
+        ).toDispatchActions(['loadDeepLinkedSnapshot'])
+
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        releaseOther()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ selectedSnapshot: UNCHANGED_SNAPSHOT })
+    })
+
     it.each([
         { slow: 'slow', fast: 'quiet', manual: 0 },
         { slow: 'slow-failing', fast: 'flaky', manual: 3 },

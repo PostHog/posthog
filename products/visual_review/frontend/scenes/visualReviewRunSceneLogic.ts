@@ -404,6 +404,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         snapshot_id: snapshotId,
                     })
                     breakpoint()
+                    // The user may have gone back to a snapshot cached here, which starts no request.
+                    if (values.selectedSnapshotId !== snapshotId) {
+                        return values.deepLinkedSnapshot
+                    }
                     return response.results[0] ?? null
                 },
             },

@@ -219,6 +219,7 @@ export function VisualReviewRunScene(): JSX.Element {
         snapshotsLoading,
         deepLinkedSnapshotLoading,
         selectedSnapshot,
+        selectedSnapshotId,
         sortedChangedSnapshots,
         toleratedHashes,
         toleratedHashesLoading,
@@ -631,6 +632,11 @@ export function VisualReviewRunScene(): JSX.Element {
                         <div className="space-y-3 py-4">
                             <LemonSkeleton className="h-6 w-1/4" />
                             <LemonSkeleton className="h-48 w-full" />
+                        </div>
+                    ) : selectedSnapshotId ? (
+                        <div className="text-center text-muted py-8">
+                            Couldn't load this snapshot. It may not belong to this run. Pick a snapshot from the list
+                            above, or reload the page.
                         </div>
                     ) : sortedChangedSnapshots.length > 0 ? (
                         <div className="text-center text-muted py-8">Select a snapshot to view details</div>
