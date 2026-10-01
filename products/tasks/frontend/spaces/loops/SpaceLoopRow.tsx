@@ -7,7 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { SpaceLoop } from './spaceLoops'
+import { SpaceLoop, spaceLoopName } from './spaceLoops'
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 
 function lastRunText(loop: SpaceLoop): string {
@@ -21,7 +21,7 @@ function lastRunText(loop: SpaceLoop): string {
 export function SpaceLoopRow({ spaceId, loop }: { spaceId: string; loop: SpaceLoop }): JSX.Element {
     const { pendingLoopIds } = useValues(spaceLoopsLogic({ id: spaceId }))
     const { setLoopEnabled } = useActions(spaceLoopsLogic({ id: spaceId }))
-    const name = loop.name || 'Untitled loop'
+    const name = spaceLoopName(loop)
 
     return (
         <Item variant="outline" size="sm" className="relative" data-attr="today-space-loop-row">

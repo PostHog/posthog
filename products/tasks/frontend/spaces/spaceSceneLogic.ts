@@ -49,6 +49,12 @@ const SPACE_FEED_LIMIT = 50
 
 export type SpaceTab = 'feed' | 'loops' | 'settings'
 
+export const SPACE_TAB_URLS: Record<SpaceTab, (id: string) => string> = {
+    feed: (id) => urls.taskSpace(id),
+    loops: (id) => urls.taskSpaceLoops(id),
+    settings: (id) => urls.taskSpaceSettings(id),
+}
+
 export type SpaceFeedSourceStatus = 'hidden' | 'loading' | 'failed' | 'ready'
 
 export interface SpaceFeedStatus {
@@ -331,7 +337,7 @@ export interface spaceSceneLogicMeta {
             autoArchiveCustomDays: number | null,
             space: ChannelDTOApi | null
         ) => string | null
-        activeTab: (location: { hash: string; pathname: string; search: string }) => SpaceTab
+        activeTab: (location: { hash: string; pathname: string; search: string }, arg: any) => SpaceTab
         feedItems: (sessions: TaskListItemApi[]) => TodayWorkItem[]
         feedSourceOptions: (feedItems: TodayWorkItem[], filters: SpaceFeedFilters) => string[]
         filteredFeedItems: (
@@ -618,13 +624,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 (days === space?.auto_archive_after_days ? 'Change the number of days first' : null),
         ],
         activeTab: [
-            () => [router.selectors.location],
-            (location: { pathname: string }): SpaceTab =>
-                location.pathname.endsWith('/settings')
-                    ? 'settings'
-                    : location.pathname.endsWith('/loops')
-                      ? 'loops'
-                      : 'feed',
+            () => [router.selectors.location, (_, props) => props],
+            (location: { pathname: string }, props: SpaceSceneLogicProps): SpaceTab =>
+                (['loops', 'settings'] as const).find((tab) =>
+                    location.pathname.endsWith(SPACE_TAB_URLS[tab](props.id))
+                ) ?? 'feed',
         ],
         feedItems: [
             (s) => [s.sessions],

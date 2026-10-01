@@ -4,6 +4,8 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { shortTimeAgo } from '~/layout/today/todayWorkItems'
+
 import { SpaceLoopRun } from './spaceLoops'
 
 export function SpaceLoopRunRow({ run }: { run: SpaceLoopRun }): JSX.Element {
@@ -20,13 +22,15 @@ export function SpaceLoopRunRow({ run }: { run: SpaceLoopRun }): JSX.Element {
                     <span className="min-w-0 truncate">{run.title ?? 'Loop run'}</span>
                 </ItemTitle>
                 <ItemDescription className={run.error ? 'text-destructive-foreground' : undefined}>
-                    <span title={dayjs(run.startedAt).format('LLL')}>{dayjs(run.startedAt).fromNow()}</span>
+                    <span title={dayjs(run.startedAt).format('LLL')}>{shortTimeAgo(run.startedAt)}</span>
                     {run.error ? ` · ${run.error}` : ''}
                 </ItemDescription>
             </ItemContent>
-            <ItemActions>
-                <Badge variant={run.status.variant}>{run.status.label}</Badge>
-            </ItemActions>
+            {run.status && (
+                <ItemActions>
+                    <Badge variant={run.status.variant}>{run.status.label}</Badge>
+                </ItemActions>
+            )}
         </Item>
     )
 }

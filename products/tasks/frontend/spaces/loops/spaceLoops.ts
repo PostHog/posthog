@@ -1,16 +1,16 @@
+import { describeCron as describeAnyCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
+import { isObject, isString } from 'lib/utils/guards'
 
 import type { HogFlowMinimalApi, HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
+import {
+    buildSummary,
+    parseRRuleToState,
+} from 'products/workflows/frontend/Workflows/hogflows/steps/components/rrule-helpers'
 
 import type { LoopDTOApi, LoopRunDTOApi, LoopTriggerDTOApi, TaskListItemApi } from '../../generated/api.schemas'
+import { RUN_STATUSES, SpaceFeedStatus, spaceFeedStatus } from '../spaceFeedStatus'
 import type { TaskAvatarUser } from '../TaskUserAvatar'
-
-export type SpaceLoopStatusVariant = 'default' | 'info' | 'destructive' | 'success'
-
-export interface SpaceLoopStatus {
-    label: string
-    variant: SpaceLoopStatusVariant
-}
 
 /** One loop of a space, the same for a loop from the loops API and a loop stored as a workflow. */
 export interface SpaceLoop {
@@ -18,8 +18,7 @@ export interface SpaceLoop {
     name: string
     description: string
     enabled: boolean
-    autoPaused: boolean
-    status: SpaceLoopStatus
+    status: SpaceFeedStatus
     /** The first trigger, short enough for a table cell. */
     trigger: string
     /** Every trigger, with its cadence where the source holds one. */
@@ -40,14 +39,10 @@ export interface SpaceLoopRun {
     id: string
     taskId: string
     title: string | null
-    status: SpaceLoopStatus
+    /** Null while a local run is still going, the same as the space feed shows it. */
+    status: SpaceFeedStatus | null
     startedAt: string
     error: string | null
-}
-
-export interface SpaceLoopFilters {
-    search: string
-    hidePaused: boolean
 }
 
 /** The fields of a loop workflow the mapping reads. The list serves no schedules, the detail does. */
@@ -81,17 +76,7 @@ const WEEKDAYS: Record<string, string> = {
 }
 const CRON_WEEKDAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
 
-const RUN_STATUSES: Record<string, SpaceLoopStatus> = {
-    not_started: { label: 'Not started', variant: 'default' },
-    queued: { label: 'Queued', variant: 'default' },
-    started: { label: 'Running', variant: 'info' },
-    in_progress: { label: 'Running', variant: 'info' },
-    completed: { label: 'Completed', variant: 'success' },
-    failed: { label: 'Failed', variant: 'destructive' },
-    cancelled: { label: 'Cancelled', variant: 'default' },
-}
-
-function loopStatus(enabled: boolean, disabledReason: string | null, lastRunFailed: boolean): SpaceLoopStatus {
+function loopStatus(enabled: boolean, disabledReason: string | null, lastRunFailed: boolean): SpaceFeedStatus {
     if (!enabled) {
         if (disabledReason === 'usage_limited') {
             return { label: 'Paused: usage limit', variant: 'destructive' }
@@ -103,17 +88,13 @@ function loopStatus(enabled: boolean, disabledReason: string | null, lastRunFail
     return lastRunFailed ? { label: 'Failing', variant: 'destructive' } : { label: 'Active', variant: 'success' }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function readString(value: unknown): string {
-    return typeof value === 'string' ? value : ''
+    return isString(value) ? value : ''
 }
 
 function inputValue(inputs: Record<string, unknown>, key: string): unknown {
     const input = inputs[key]
-    return isRecord(input) ? input.value : undefined
+    return isObject(input) ? input.value : undefined
 }
 
 function clockTime(hour: number, minute: number): string {
@@ -127,13 +108,13 @@ function describeCron(cron: string, timezone: string): string {
     const m = Number(minute)
     const h = Number(hour)
     if (dayOfMonth !== '*' || month !== '*' || !Number.isInteger(m)) {
-        return `Schedule · ${cron}${zone}`
+        return `${describeAnyCron(cron) ?? cron}${zone}`
     }
     if (hour === '*' && dayOfWeek === '*') {
         return 'Every hour'
     }
     if (!Number.isInteger(h)) {
-        return `Schedule · ${cron}${zone}`
+        return `${describeAnyCron(cron) ?? cron}${zone}`
     }
     const time = clockTime(h, m)
     if (dayOfWeek === '*') {
@@ -143,7 +124,7 @@ function describeCron(cron: string, timezone: string): string {
         return `Weekdays at ${time}${zone}`
     }
     const day = CRON_WEEKDAYS[Number(dayOfWeek)]
-    return day ? `${WEEKDAYS[day]} at ${time}${zone}` : `Schedule · ${cron}${zone}`
+    return day ? `${WEEKDAYS[day]} at ${time}${zone}` : `${describeAnyCron(cron) ?? cron}${zone}`
 }
 
 /** The cadence of a workflow schedule, for the rrule presets the building-loops skill writes. */
@@ -166,7 +147,7 @@ function describeRRule(schedule: HogFlowScheduleApi): string {
     if (parts.FREQ === 'WEEKLY' && WEEKDAYS[parts.BYDAY]) {
         return `${WEEKDAYS[parts.BYDAY]} at ${time}`
     }
-    return `Schedule · ${schedule.rrule}`
+    return buildSummary(parseRRuleToState(schedule.rrule), schedule.starts_at, schedule.timezone)
 }
 
 function describeLoopTrigger(trigger: LoopTriggerDTOApi): string {
@@ -190,9 +171,9 @@ function hogFlowActions(flow: SpaceLoopHogFlow): { type: unknown; config: Record
     if (!Array.isArray(flow.actions)) {
         return []
     }
-    return flow.actions.filter(isRecord).map((action) => ({
+    return flow.actions.filter(isObject).map((action) => ({
         type: action.type,
-        config: isRecord(action.config) ? action.config : {},
+        config: isObject(action.config) ? action.config : {},
     }))
 }
 
@@ -200,7 +181,7 @@ function hogFlowTaskInputs(flow: SpaceLoopHogFlow): Record<string, unknown> {
     const task = hogFlowActions(flow).find(
         ({ type, config }) => type === 'function' && config.template_id === CREATE_TASK_TEMPLATE_ID
     )
-    return task && isRecord(task.config.inputs) ? task.config.inputs : {}
+    return task && isObject(task.config.inputs) ? task.config.inputs : {}
 }
 
 /** The space a loop workflow files its runs in. The task step holds it as `<space id>|<space name>`. */
@@ -209,7 +190,7 @@ function hogFlowSpaceId(flow: SpaceLoopHogFlow): string | null {
 }
 
 function propertyValue(filters: Record<string, unknown>, key: string): string {
-    const properties = Array.isArray(filters.properties) ? filters.properties.filter(isRecord) : []
+    const properties = Array.isArray(filters.properties) ? filters.properties.filter(isObject) : []
     const value = properties.find((property) => property.key === key)?.value
     return Array.isArray(value) ? value.filter((item) => typeof item === 'string').join(', ') : readString(value)
 }
@@ -223,13 +204,13 @@ function hogFlowTrigger(flow: SpaceLoopHogFlow): { summary: string; detail: stri
     if (config.type === 'schedule') {
         const schedule = flow.schedules?.[0]
         const detail = flow.schedules ? (schedule ? describeRRule(schedule) : 'No schedule set') : 'Schedule'
-        return { summary: flow.schedules ? detail : 'Schedule', detail, canRunNow: true }
+        return { summary: detail, detail, canRunNow: true }
     }
     if (config.type === 'manual') {
         return { summary: 'Manual', detail: 'Manual', canRunNow: true }
     }
-    const filters = isRecord(config.filters) ? config.filters : {}
-    const event = Array.isArray(filters.events) && isRecord(filters.events[0]) ? readString(filters.events[0].id) : ''
+    const filters = isObject(config.filters) ? config.filters : {}
+    const event = Array.isArray(filters.events) && isObject(filters.events[0]) ? readString(filters.events[0].id) : ''
     if (config.type === 'internal-event' && event === GITHUB_EVENT) {
         const repository = propertyValue(filters, 'repository') || 'a repository'
         const eventType = propertyValue(filters, 'event_type')
@@ -280,7 +261,6 @@ export function spaceLoopFromLoop(loop: LoopDTOApi): SpaceLoop {
         name: loop.name,
         description: loop.description.trim(),
         enabled: loop.enabled,
-        autoPaused: !loop.enabled && !!loop.disabled_reason,
         status: loopStatus(loop.enabled, loop.disabled_reason, lastRunFailed),
         trigger: rest.length ? `${summary} +${rest.length} more` : summary,
         triggers,
@@ -310,15 +290,14 @@ export function spaceLoopFromHogFlow(flow: SpaceLoopHogFlow): SpaceLoop {
         name: flow.name ?? '',
         description: (flow.description ?? '').trim(),
         enabled,
-        autoPaused: false,
         status: loopStatus(enabled, null, lastRunFailed),
         trigger: trigger.summary,
         triggers: [trigger.detail],
         lastRunAt: flow.last_run?.ran_at ?? null,
         lastRunFailed,
         instructions: readString(inputValue(inputs, 'prompt')),
-        model: isRecord(model) ? readString(model.model) : '',
-        reasoningEffort: isRecord(model) ? readString(model.reasoning_effort) || null : null,
+        model: isObject(model) ? readString(model.model) : '',
+        reasoningEffort: isObject(model) ? readString(model.reasoning_effort) || null : null,
         repositories: repository ? [repository] : [],
         createdBy: flow.created_by
             ? {
@@ -348,7 +327,7 @@ export function spaceLoopsFromHogFlows(flows: SpaceLoopHogFlow[], spaceId: strin
 
 /** A loop after someone pauses or resumes it, before the next load. */
 export function spaceLoopWithEnabled(loop: SpaceLoop, enabled: boolean): SpaceLoop {
-    return { ...loop, enabled, autoPaused: false, status: loopStatus(enabled, null, loop.lastRunFailed) }
+    return { ...loop, enabled, status: loopStatus(enabled, null, loop.lastRunFailed) }
 }
 
 export function spaceLoopRunFromLoopRun(run: LoopRunDTOApi): SpaceLoopRun {
@@ -369,7 +348,7 @@ export function spaceLoopRunFromTask(task: TaskListItemApi): SpaceLoopRun {
         id: run?.id ?? task.id,
         taskId: task.id,
         title: task.title || null,
-        status: RUN_STATUSES[run?.status ?? 'not_started'] ?? RUN_STATUSES.not_started,
+        status: spaceFeedStatus(run),
         startedAt: run?.created_at ?? task.created_at ?? '',
         error: run?.error_message ?? null,
     }
@@ -391,11 +370,16 @@ export function spaceLoopRunBlockedMessage(reason: string): string {
     return RUN_BLOCKED_MESSAGES[reason] ?? 'The run didn’t start. Try again.'
 }
 
-export function filterSpaceLoops(loops: SpaceLoop[], filters: SpaceLoopFilters): SpaceLoop[] {
-    const query = filters.search.trim().toLowerCase()
+/** The name a person sees for a loop. Search still matches the stored name. */
+export function spaceLoopName(loop: Pick<SpaceLoop, 'name'>): string {
+    return loop.name || 'Untitled loop'
+}
+
+export function filterSpaceLoops(loops: SpaceLoop[], search: string, hidePaused: boolean): SpaceLoop[] {
+    const query = search.trim().toLowerCase()
     return loops.filter(
         (loop) =>
-            (!filters.hidePaused || loop.enabled) &&
+            (!hidePaused || loop.enabled) &&
             (!query || [loop.name, loop.description].some((value) => value.toLowerCase().includes(query)))
     )
 }

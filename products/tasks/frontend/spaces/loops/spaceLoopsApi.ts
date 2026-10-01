@@ -1,3 +1,10 @@
+import posthog from 'posthog-js'
+
+import { toast } from '@posthog/quill'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+
 import {
     hogFlowsDestroy,
     hogFlowsList,
@@ -37,6 +44,15 @@ export const SPACE_LOOP_RUNS_LIMIT = 10
 export interface SpaceLoopsBackend {
     projectId: string
     workflowBacked: boolean
+}
+
+export function spaceLoopsBackend(
+    featureFlags: FeatureFlagsSet,
+    currentTeamId: number | null
+): SpaceLoopsBackend | null {
+    return currentTeamId
+        ? { projectId: String(currentTeamId), workflowBacked: !!featureFlags[FEATURE_FLAGS.LOOPS_HOG_FLOWS] }
+        : null
 }
 
 export async function listSpaceLoops(
@@ -89,6 +105,24 @@ export async function setSpaceLoopEnabled(
         return
     }
     await loopsPartialUpdate(projectId, loopId, { enabled })
+}
+
+/** Pauses or resumes a loop from the list or the loop page, and says so when it fails. Returns whether it saved. */
+export async function saveSpaceLoopEnabled(
+    backend: SpaceLoopsBackend,
+    loopId: string,
+    enabled: boolean,
+    surface: 'list' | 'detail'
+): Promise<boolean> {
+    try {
+        await setSpaceLoopEnabled(backend, loopId, enabled)
+        // pinned: analytics event name, renaming breaks dashboards
+        posthog.capture('space loop enabled toggled', { enabled, surface })
+        return true
+    } catch {
+        toast.error({ title: enabled ? 'Couldn’t resume this loop' : 'Couldn’t pause this loop' })
+        return false
+    }
 }
 
 /** Starts a run now. Returns why the loops API refused it, or null when a run started. */

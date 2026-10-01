@@ -36,6 +36,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { SpaceLoopConfiguration } from './SpaceLoopConfiguration'
 import { SpaceLoopRunRow } from './SpaceLoopRunRow'
+import { spaceLoopName } from './spaceLoops'
 import { SPACE_LOOP_RUNS_LIMIT } from './spaceLoopsApi'
 import { SpaceLoopSceneLogicProps, spaceLoopSceneLogic } from './spaceLoopSceneLogic'
 
@@ -68,7 +69,7 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
         return <NotFound object="loop" />
     }
 
-    const name = loop ? loop.name || 'Untitled loop' : null
+    const name = loop ? spaceLoopName(loop) : null
     return (
         <TooltipProvider>
             <SceneContent>
@@ -147,31 +148,7 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                     }
                 />
                 <div className="flex w-full max-w-200 flex-col gap-7 pb-8" data-quill>
-                    {!loop ? (
-                        loopUnavailable ? (
-                            <Empty className="border border-dashed py-8">
-                                <EmptyHeader>
-                                    <EmptyTitle>This loop didn’t load</EmptyTitle>
-                                    <EmptyDescription>Check your connection and try again.</EmptyDescription>
-                                </EmptyHeader>
-                                <EmptyContent>
-                                    <Button
-                                        variant="outline"
-                                        loading={loopLoading}
-                                        onClick={() => loadLoop()}
-                                        data-attr="today-space-loop-retry"
-                                    >
-                                        Try again
-                                    </Button>
-                                </EmptyContent>
-                            </Empty>
-                        ) : (
-                            <div aria-hidden className="flex flex-col gap-7">
-                                <Skeleton className="h-48 w-full" />
-                                <Skeleton className="h-24 w-full" />
-                            </div>
-                        )
-                    ) : (
+                    {loop ? (
                         <>
                             <SpaceLoopConfiguration loop={loop} />
                             <SpaceSettingsSection label="Instructions" description="What the agent does on each run.">
@@ -211,6 +188,28 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                                 )}
                             </SpaceSettingsSection>
                         </>
+                    ) : loopUnavailable ? (
+                        <Empty className="border border-dashed py-8">
+                            <EmptyHeader>
+                                <EmptyTitle>This loop didn’t load</EmptyTitle>
+                                <EmptyDescription>Check your connection and try again.</EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                                <Button
+                                    variant="outline"
+                                    loading={loopLoading}
+                                    onClick={() => loadLoop()}
+                                    data-attr="today-space-loop-retry"
+                                >
+                                    Try again
+                                </Button>
+                            </EmptyContent>
+                        </Empty>
+                    ) : (
+                        <div aria-hidden className="flex flex-col gap-7">
+                            <Skeleton className="h-48 w-full" />
+                            <Skeleton className="h-24 w-full" />
+                        </div>
                     )}
                 </div>
 

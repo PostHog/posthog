@@ -23,7 +23,6 @@ import {
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -33,7 +32,13 @@ import { EmbeddedTaskComposer } from 'products/posthog_ai/frontend/api/runner'
 
 import { SpaceLoops } from './loops/SpaceLoops'
 import { SpaceFeed } from './SpaceFeed'
-import { SpaceSceneLogicProps, SpaceTab, spaceComposerPanelId, spaceSceneLogic } from './spaceSceneLogic'
+import {
+    SPACE_TAB_URLS,
+    SpaceSceneLogicProps,
+    SpaceTab,
+    spaceComposerPanelId,
+    spaceSceneLogic,
+} from './spaceSceneLogic'
 import { SpaceSettings } from './SpaceSettings'
 
 const SPACE_COMPOSER_OVERRIDE = {
@@ -44,12 +49,6 @@ const SPACE_COMPOSER_OVERRIDE = {
 }
 
 // The repository picker and the input frame at their loaded sizes, so the feed does not jump when the chunk lands.
-const TAB_URLS: Record<SpaceTab, (id: string) => string> = {
-    feed: urls.taskSpace,
-    loops: urls.taskSpaceLoops,
-    settings: urls.taskSpaceSettings,
-}
-
 const COMPOSER_SKELETON = (
     <div className="flex flex-col gap-2">
         <Skeleton className="h-8 w-36" />
@@ -141,7 +140,7 @@ export function SpaceScene({ id }: SpaceSceneLogicProps): JSX.Element {
                 {/* Pulled up to the title and ruled off full width, like PostHog Desktop's space tabs. */}
                 <Tabs
                     value={activeTab === 'loops' && !loopsEnabled ? 'feed' : activeTab}
-                    onValueChange={(tab: SpaceTab) => router.actions.push(TAB_URLS[tab](id))}
+                    onValueChange={(tab: SpaceTab) => router.actions.push(SPACE_TAB_URLS[tab](id))}
                     className="-mt-4"
                     data-quill
                 >
