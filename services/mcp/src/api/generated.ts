@@ -50751,6 +50751,11 @@ export namespace Schemas {
       repositories: GitHubRepo[];
       /** Whether more repositories are available beyond this page. */
       has_more: boolean;
+      /**
+         * The offset to pass to get the next page, or null when this page is the last one.
+         * @nullable
+         */
+      next_offset: number | null;
       /** Total number of repositories matching the search query, across all pages. */
       total: number;
     }
@@ -68270,6 +68275,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
+      /**
+         * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+         * @maxLength 2000
+         * @nullable
+         */
+      goal?: string | null;
       /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
@@ -79763,6 +79774,12 @@ export namespace Schemas {
        * * `scorer` - Scorer
        * * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
+      /**
+         * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+         * @maxLength 2000
+         * @nullable
+         */
+      goal?: string | null;
       /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
        *
        * * `ai` - AI draft
@@ -90367,8 +90384,8 @@ export namespace Schemas {
 
     export interface RepositorySelection {
       /**
-         * owner/repo names to allow. At most 20. Replaces the current list.
-         * @maxItems 20
+         * owner/repo names to allow. At most 100. Replaces the current list.
+         * @maxItems 100
          */
       repos: string[];
     }
@@ -101874,6 +101891,24 @@ export namespace Schemas {
     export interface TaskPresenceBeaconRequest {
       /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
       device_id: string;
+    }
+
+    /**
+     * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+     */
+    export type TaskPullRequestTitlesTitles = {[key: string]: string};
+
+    export interface TaskPullRequestTitles {
+      /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+      titles: TaskPullRequestTitlesTitles;
+    }
+
+    export interface TaskPullRequestTitlesRequest {
+      /**
+         * Task IDs whose latest run's pull request titles to fetch (max 30).
+         * @maxItems 30
+         */
+      ids: string[];
     }
 
     export interface TaskRepositoriesResponse {
@@ -118083,6 +118118,10 @@ export namespace Schemas {
 
     export type IntegrationsGithubReposRetrieveParams = {
     /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean;
+    /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
      * @maximum 500
@@ -123434,6 +123473,10 @@ export namespace Schemas {
     };
 
     export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean;
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
