@@ -36,6 +36,7 @@ import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-pro
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
+import { appendRepositoryConventionsForCodex } from "@posthog/harness/extensions/agent-instructions";
 import {
   appendBenjaminGuidance,
   appendSte100Guidance,
@@ -4388,7 +4389,11 @@ export class AgentServer {
       typeof systemPrompt === "string" ? systemPrompt : systemPrompt.append;
     // Codex has no command-rewrite hook (see rtk-guidance.ts), so RTK is
     // adopted through the developer instructions instead.
-    return appendBenjaminGuidance(appendRtkGuidanceForCodex(instructions));
+    return appendBenjaminGuidance(
+      appendRtkGuidanceForCodex(
+        appendRepositoryConventionsForCodex(instructions),
+      ),
+    );
   }
 
   /**

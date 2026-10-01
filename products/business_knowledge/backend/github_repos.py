@@ -41,7 +41,7 @@ from .models import TeamBusinessKnowledgeConfig
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOS_FLAG = "business-knowledge-github-repos"
-MAX_GITHUB_REPOS = 20
+MAX_GITHUB_REPOS = 100
 MAX_SEARCH_HITS = 20
 MAX_README_HITS = 5
 MAX_FILE_TEXT_CHARS = 32_000

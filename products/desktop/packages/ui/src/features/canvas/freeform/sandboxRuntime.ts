@@ -831,9 +831,8 @@ function contentSecurityPolicy(analyticsApiHost?: string): string {
   return [
     "default-src 'none'",
     // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
-    // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
-    // so 'unsafe-eval' is required).
-    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
+    // posthog-js recorder script + the in-browser Tailwind engine.
+    `script-src 'unsafe-inline' blob: ${twCdn} ${esm} ${ph}`,
     `style-src 'unsafe-inline' ${esm}`,
     `font-src data: ${esm}`,
     "img-src data: blob: https:",

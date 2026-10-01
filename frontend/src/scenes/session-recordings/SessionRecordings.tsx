@@ -81,6 +81,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
+                                data-attr="replay-open-file-playback"
                                 to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
@@ -89,6 +90,7 @@ function Header(): JSX.Element {
                                 <IconDocument /> Playback from PostHog JSON file
                             </Link>
                             <Link
+                                data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
                                 buttonProps={{
                                     menuItem: true,

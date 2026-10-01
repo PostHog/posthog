@@ -54,9 +54,9 @@ export function TodaySessionRow({
     )
     const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
 
-    const badges = useMemo(() => sessionBadges(item), [item])
-    const [pullRequest] = item.pullRequests
     const pinBadge = pinned && showPinBadge
+    const badges = useMemo(() => sessionBadges(item, userId, { pinned: pinBadge }), [item, userId, pinBadge])
+    const [pullRequest] = item.pullRequests
     const badgeCount = badges.length + (pinBadge ? 1 : 0)
 
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
@@ -80,6 +80,7 @@ export function TodaySessionRow({
                 ) : null
             }
             badgeCount={badgeCount >= 3 ? 3 : badgeCount === 2 ? 2 : 1}
+            weight="regular"
             ticker
             selected={selected}
             onClickCapture={onSelectClick}

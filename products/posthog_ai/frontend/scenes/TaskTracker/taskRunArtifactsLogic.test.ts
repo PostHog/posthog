@@ -32,9 +32,14 @@ describe('taskRunArtifactsLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             activeTab: 'artifacts',
-            selectedFileName: 'report.md',
+            selectedFileKey: 'report.md',
             selectedVersionId: 'v1',
         })
+
+        // The copied link must reopen the same file and version.
+        expect(logic.values.shareUrl).toBe(
+            `http://localhost/project/${logic.values.currentProjectId}/ai?task=${TASK_ID}&artifact=report.md&artifact_version=v1`
+        )
 
         logic.actions.selectArtifact('chart.svg')
         expect(router.values.searchParams).toEqual({ artifact: 'chart.svg' })
@@ -48,6 +53,6 @@ describe('taskRunArtifactsLogic', () => {
         const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
         logic.mount()
 
-        await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileName: null })
+        await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 })
