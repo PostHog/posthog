@@ -3,9 +3,10 @@
 from typing import Literal
 
 import structlog
+from openai import LengthFinishReasonError
 from pydantic import BaseModel, ValidationError
 
-from posthog.llm.gateway_client import build_anthropic_client
+from posthog.llm.gateway_client import build_openai_client
 from posthog.models import Team, User
 
 from ..models import DailyBriefing
@@ -14,8 +15,8 @@ from .fact_sheet import FactSheet
 
 logger = structlog.get_logger(__name__)
 
-MODEL = "claude-opus-5-5"
-# Opus 5.5 always thinks, and thinking tokens count toward this cap.
+MODEL = "gpt-6-luna"
+# Reasoning tokens count toward this cap.
 MAX_OUTPUT_TOKENS = 8000
 # The items and their order are chosen by code, so the writer reasons only about the prose.
 EFFORT: Literal["medium"] = "medium"
@@ -54,6 +55,13 @@ What to write:
   - "signal": the short fact under the label, at most 40 characters, with a number from the fact sheet when there is one."""
 
 
+# Strict structured outputs allow no defaults, so the writer's shapes declare every field.
+class _Segment(BaseModel):
+    text: str
+    item_key: str | None
+    highlight: bool
+
+
 class _ItemText(BaseModel):
     item_key: str
     label: str
@@ -63,14 +71,17 @@ class _ItemText(BaseModel):
 # Structured outputs accept no free-form maps, so labels and signals come back as a list of items.
 class WriterOutput(BaseModel):
     headline: str
-    paragraphs: list[list[ContentSegment]]
+    paragraphs: list[list[_Segment]]
     items: list[_ItemText]
 
     def to_content(self) -> BriefingContent:
         """The stored content shape, which the draft, the checks and the API share."""
         return BriefingContent(
             headline=self.headline,
-            paragraphs=self.paragraphs,
+            paragraphs=[
+                [ContentSegment(text=s.text, item_key=s.item_key, highlight=s.highlight) for s in paragraph]
+                for paragraph in self.paragraphs
+            ],
             labels={item.item_key: item.label for item in self.items},
             signals={item.item_key: item.signal for item in self.items},
         )
@@ -101,7 +112,8 @@ def write(
     Every attempt for one briefing shares its id as the trace, and the properties name the edition
     and the attempt, so AI observability shows the cost and the retries per briefing.
     """
-    client = build_anthropic_client(
+    distinct_id = str(user.distinct_id)
+    client = build_openai_client(
         product="posthog_ai",
         ai_product=AI_PRODUCT,
         trace_id=str(briefing.id),
@@ -112,21 +124,28 @@ def write(
             "today_trigger": str(briefing.trigger),
             "today_attempt": str(attempt),
         },
-        distinct_id=str(user.distinct_id),
-        team_id=team.id,
+        distinct_id=distinct_id,
     )
     try:
-        response = client.messages.parse(
+        response = client.chat.completions.parse(
             model=MODEL,
-            max_tokens=MAX_OUTPUT_TOKENS,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _user_message(fact_sheet, problems)}],
-            output_config={"effort": EFFORT},
-            output_format=WriterOutput,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": _user_message(fact_sheet, problems)},
+            ],
+            response_format=WriterOutput,
+            reasoning_effort=EFFORT,
+            max_completion_tokens=MAX_OUTPUT_TOKENS,
+            user=distinct_id,
         )
+    except LengthFinishReasonError as error:
+        raise WriterError("writer ran out of output tokens") from error
     except ValidationError as error:
-        # The SDK validates the text while it parses. A refusal or a cut-off answer does not match the schema.
+        # The SDK validates the text while it parses. An answer that does not match the schema is a retry.
         raise WriterError(f"writer output did not match the schema: {error}") from error
-    if response.stop_reason != "end_turn" or response.parsed_output is None:
-        raise WriterError(f"writer stopped with {response.stop_reason} and no valid output")
-    return response.parsed_output.to_content()
+    message = response.choices[0].message
+    if message.refusal:
+        raise WriterError(f"writer refused: {message.refusal}")
+    if message.parsed is None:
+        raise WriterError(f"writer stopped with {response.choices[0].finish_reason} and no valid output")
+    return message.parsed.to_content()

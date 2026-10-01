@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from openai import LengthFinishReasonError
 from parameterized import parameterized
 
 from posthog.models import Team, User
@@ -26,15 +27,19 @@ OUTPUT = WriterOutput.model_validate(
 )
 
 
-def _response(stop_reason: str, parsed_output: WriterOutput | None) -> SimpleNamespace:
-    return SimpleNamespace(stop_reason=stop_reason, parsed_output=parsed_output)
+def _response(finish_reason: str, parsed: WriterOutput | None, refusal: str | None = None) -> SimpleNamespace:
+    message = SimpleNamespace(parsed=parsed, refusal=refusal)
+    return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason=finish_reason)])
 
 
 class TestWrite(SimpleTestCase):
-    def _write(self, response: SimpleNamespace) -> tuple[BriefingContent, MagicMock]:
+    def _write(self, response: SimpleNamespace | Exception) -> tuple[BriefingContent, MagicMock]:
         client = MagicMock()
-        client.messages.parse.return_value = response
-        with patch("products.today.backend.logic.writer.build_anthropic_client", return_value=client) as build:
+        if isinstance(response, Exception):
+            client.chat.completions.parse.side_effect = response
+        else:
+            client.chat.completions.parse.return_value = response
+        with patch("products.today.backend.logic.writer.build_openai_client", return_value=client) as build:
             content = write(
                 team=cast(Team, SimpleNamespace(id=1)),
                 user=cast(User, SimpleNamespace(distinct_id="person-1")),
@@ -45,7 +50,7 @@ class TestWrite(SimpleTestCase):
         return content, build
 
     def test_items_become_the_stored_labels_and_signals(self) -> None:
-        content, _ = self._write(_response("end_turn", OUTPUT))
+        content, _ = self._write(_response("stop", OUTPUT))
 
         assert content.labels == {"report:1": "Checkout button hidden", "ticket:9": "Ticket #1042"}
         assert content.signals == {"report:1": "P2, waits for you", "ticket:9": "6 unread messages"}
@@ -54,16 +59,20 @@ class TestWrite(SimpleTestCase):
         )
 
     def test_every_attempt_is_traced_under_its_briefing(self) -> None:
-        _, build = self._write(_response("end_turn", OUTPUT))
+        _, build = self._write(_response("stop", OUTPUT))
 
         kwargs = build.call_args.kwargs
         assert kwargs["trace_id"] == "b-1"
         assert kwargs["ai_product"] == "today"
         assert kwargs["properties"]["today_attempt"] == "1"
 
-    @parameterized.expand([("refusal", "refusal", None), ("cut off", "max_tokens", OUTPUT)])
-    def test_an_unfinished_answer_is_a_writer_error(
-        self, _name: str, stop_reason: str, parsed_output: WriterOutput | None
-    ) -> None:
+    @parameterized.expand(
+        [
+            ("refusal", _response("stop", None, refusal="I cannot write that")),
+            ("no parsed output", _response("content_filter", None)),
+            ("cut off", LengthFinishReasonError(completion=MagicMock())),
+        ]
+    )
+    def test_an_unfinished_answer_is_a_writer_error(self, _name: str, response: SimpleNamespace | Exception) -> None:
         with self.assertRaises(WriterError):
-            self._write(_response(stop_reason, parsed_output))
+            self._write(response)

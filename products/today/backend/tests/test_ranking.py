@@ -1,14 +1,18 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import cast
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import ItemGroup, ItemReason, ItemSource
@@ -22,7 +26,10 @@ from products.today.backend.logic.candidates import (
 )
 from products.today.backend.logic.eligibility import current_edition, due_edition
 from products.today.backend.logic.ranking import rank_candidates, select
-from products.today.backend.logic.sources import reports as report_source
+from products.today.backend.logic.sources import (
+    dashboards as dashboard_source,
+    reports as report_source,
+)
 
 _GROUPS = {"report": ItemGroup.REPORT, "dashboard": ItemGroup.DASHBOARD, "ticket": ItemGroup.OTHER}
 
@@ -170,3 +177,21 @@ class TestBriefingEdition(SimpleTestCase):
         slot = due_edition(now, "Europe/Prague", 15)
 
         assert (slot.edition if slot else None) == expected
+
+
+class TestDashboardInterest(BaseTest):
+    def test_starred_items_come_before_viewed_ones_and_need_no_recent_view(self) -> None:
+        now = timezone.now()
+        FileSystemShortcut.objects.create(team=self.team, user=self.user, path="Starred", type="dashboard", ref="7")
+        FileSystemViewLog.objects.create(team=self.team, user=self.user, type="dashboard", ref="8", viewed_at=now)
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="9", viewed_at=now - timedelta(days=2)
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="10", viewed_at=now - timedelta(days=30)
+        )
+        ctx = SourceContext(team=self.team, user=self.user, now=now)
+
+        interests = dashboard_source._interests(ctx, "dashboard", limit=5)
+
+        assert [(i.ref, i.starred) for i in interests] == [("7", True), ("8", False), ("9", False)]

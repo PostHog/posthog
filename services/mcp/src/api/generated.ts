@@ -17850,7 +17850,9 @@ export namespace Schemas {
      * * `suggested_reviewer` - SUGGESTED_REVIEWER
      * * `urgent_for_project` - URGENT_FOR_PROJECT
      * * `dashboard_you_viewed` - DASHBOARD_YOU_VIEWED
+     * * `dashboard_you_starred` - DASHBOARD_YOU_STARRED
      * * `insight_you_viewed` - INSIGHT_YOU_VIEWED
+     * * `insight_you_starred` - INSIGHT_YOU_STARRED
      * * `alert_firing` - ALERT_FIRING
      * * `assigned_ticket` - ASSIGNED_TICKET
      * * `assigned_error_issue` - ASSIGNED_ERROR_ISSUE
@@ -17866,7 +17868,9 @@ export namespace Schemas {
       SuggestedReviewer: 'suggested_reviewer',
       UrgentForProject: 'urgent_for_project',
       DashboardYouViewed: 'dashboard_you_viewed',
+      DashboardYouStarred: 'dashboard_you_starred',
       InsightYouViewed: 'insight_you_viewed',
+      InsightYouStarred: 'insight_you_starred',
       AlertFiring: 'alert_firing',
       AssignedTicket: 'assigned_ticket',
       AssignedErrorIssue: 'assigned_error_issue',
