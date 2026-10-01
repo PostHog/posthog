@@ -10,7 +10,9 @@ import { workflowLogic } from '../workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
-    const { optimizationEnabled, optimizationLoading } = useValues(workflowProposalsLogic({ id }))
+    const { optimizationEnabled, optimizationLoading, optimizationUnreadable } = useValues(
+        workflowProposalsLogic({ id })
+    )
     const { setOptimizationEnabled } = useActions(workflowProposalsLogic({ id }))
     const { workflowUserAccessLevel, originalWorkflow } = useValues(workflowLogic({ id }))
     // A draft or archived workflow cannot be opted in; the switch stays visible and says why. Turning
@@ -27,7 +29,12 @@ export function WorkflowSuggestionsSwitch({ id }: { id: string }): JSX.Element {
             userAccessLevel={workflowUserAccessLevel ?? undefined}
         >
             {({ disabledReason }) => {
-                const reason = disabledReason ?? notLiveReason
+                // A failed read leaves the switch showing a default, so acting on it would write from a state
+                // nobody read. The panel toggle refuses the same way.
+                const unreadableReason = optimizationUnreadable
+                    ? 'Could not read whether suggestions are on for this workflow. Reload the page to try again.'
+                    : undefined
+                const reason = disabledReason ?? notLiveReason ?? unreadableReason
                 // LemonSwitch's own tooltip covers only the knob, so the reason wraps the whole control.
                 return (
                     <Tooltip title={reason}>
