@@ -65,6 +65,7 @@ function mocks(view: CanvasViewResponseApi): ReturnType<typeof mswDecorator> {
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Canvas',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

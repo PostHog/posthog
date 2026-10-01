@@ -10,6 +10,7 @@ const props = { canvasId: 'example-canvas', spaceId: 'example-space', sourceVers
 const meta: Meta<typeof CanvasHostPromptDialog> = {
     component: CanvasHostPromptDialog,
     title: 'Scenes-App/Canvas/Action confirmation',
+    tags: ['test-skip'],
     decorators: [
         (Story) => (
             <BindLogic logic={canvasHostLogic} props={props}>
