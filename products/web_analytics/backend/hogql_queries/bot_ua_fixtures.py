@@ -393,6 +393,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ",
         # Bare Mozilla token, no platform or engine.
         "Mozilla/5.0",
+        # Randomized 4-digit Chrome patch on stock device templates (prod-us, cross-team scraper fleet).
+        "Mozilla/5.0 (Linux; Android 8.0; Pixel 2 Build/OPD3.170816.012) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.5191.1712 Mobile Safari/537.36",
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 11_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.1178.1115 Mobile Safari/537.36",
+        "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.9251.1728 Safari/537.36",
     ],
     "regular_browser": [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -405,6 +409,12 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
         # Genuine legacy EdgeHTML (Edge 18) shipped with Chrome 64, a pairing the rule must allow.
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/18.17763",
+        # Chromium forks that put their own 4-digit build in the Chrome patch slot, and 2010-era
+        # Chrome 4, which really shipped one. The Impossible Chrome patch version rule must skip them.
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.2457 YaBrowser/24.1.0.2457 (beta) Yowser/2.5 Safari/537.36",
+        "Mozilla/5.0 (Linux; arm_64; Android 14; SM-A725F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.6834.2037 YaApp_Android/25.20.1 YaSearchBrowser/25.20.1 BroPP/1.0 SA/3 Mobile Safari/537.36",
+        "Mozilla/5.0 (Linux; Android 10; SM-N975F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.6261.9400 Mobile Safari/537.36 OPR/63.3.3216.58675",
+        "Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.1.249.1025 Safari/532.5",
     ],
 }
 
