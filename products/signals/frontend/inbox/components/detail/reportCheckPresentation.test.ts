@@ -249,7 +249,7 @@ describe('reportCheckPresentation', () => {
                     })
                 ).toEqual({
                     tag: { label: 'Waiting for resolve', type: 'muted' },
-                    detail: `Starts ${label} after this report is resolved`,
+                    detail: `Starts ${label} after this report is resolved · Waits for a full query window`,
                 })
             }
         )
@@ -265,6 +265,9 @@ describe('reportCheckPresentation', () => {
         it('names which path stopped a check, and falls back when the reason is unknown', () => {
             expect(checkCancelledEntry({ reason: 'replaced_by_research' }).detail).toEqual(
                 'Replaced when research re-ran on this report and wrote a new check'
+            )
+            expect(checkCancelledEntry({ reason: 'replaced_by_request' }).detail).toEqual(
+                'Replaced on request by a revised check'
             )
             expect(checkCancelledEntry({}).detail).toEqual('Stopped before it could settle')
         })

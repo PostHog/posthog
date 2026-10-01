@@ -26,7 +26,6 @@ from posthog.temporal.oauth import grants_scratchpad_write
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
     Dismissal,
-    ImpactMeasurementPlan,
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
@@ -34,11 +33,13 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.impact_measurement_plans import (
-    latest_measurement_plans,
-    persist_authored_measurement_plans,
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalScoutNote,
 )
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -214,39 +215,14 @@ _EXISTING_CHART = {
 _EXISTING_METRIC = _metric("existing-affected-users").model_dump(mode="json")
 
 
-def test_automatic_metric_goal_requires_authoring_flag():
+def test_report_observations_do_not_store_goal_fields():
     metric = _metric().model_copy(
         update={"goal_value": 2, "goal_direction": "at_most", "decision_window_days": 7, "minimum_data_points": 30}
     )
 
-    blocked = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
-    allowed = _resolve_report_metrics_payload(
-        [metric], True, expected_impact_authoring_enabled=True, report_id="report-1", team_id=2
-    )
-
-    assert blocked is not None and allowed is not None
-    assert all(blocked[0][field_name] is None for field_name in REPORT_METRIC_GOAL_FIELDS)
-    assert allowed[0]["goal_value"] == 2
-
-
-def test_disabled_authoring_preserves_existing_goal_only_for_the_same_measure():
-    previous = _metric().model_copy(update={"goal_value": 5, "goal_direction": "at_most", "decision_window_days": 7})
-    changed_goal = previous.model_copy(update={"goal_value": 0, "decision_window_days": 1})
-    changed_query = json.loads(json.dumps(changed_goal.query))
-    changed_query["source"]["series"][0]["event"] = "$pageview"
-    changed_measure = changed_goal.model_copy(update={"query": changed_query})
-
-    retained = _resolve_report_metrics_payload(
-        [changed_goal], True, previous_metrics=[previous], report_id="report-1", team_id=2
-    )
-    removed = _resolve_report_metrics_payload(
-        [changed_measure], True, previous_metrics=[previous], report_id="report-1", team_id=2
-    )
-
-    assert retained is not None and removed is not None
-    assert retained[0]["goal_value"] == 5
-    assert retained[0]["decision_window_days"] == 7
-    assert removed[0]["goal_value"] is None
+    observations = _resolve_report_metrics_payload([metric], True, report_id="report-1", team_id=2)
+    assert observations is not None
+    assert all(field_name not in observations[0] for field_name in REPORT_METRIC_GOAL_FIELDS)
 
 
 async def _run_activity_with_output(
@@ -1169,44 +1145,40 @@ async def test_run_agentic_report_activity_resolves_metrics_payload(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_supplies_existing_plans_to_reresearch(monkeypatch, ateam):
+@pytest.mark.parametrize("has_previous_research", [False, True])
+async def test_run_agentic_report_activity_supplies_existing_checks_to_reresearch(
+    monkeypatch, ateam, has_previous_research
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
-    plan = ImpactMeasurementPlan(
-        metric_id="affected-users",
-        title="Affected users",
-        kind="affected_users",
-        query=_metric().query,
-        value_format="count",
-        unit="users",
-        goal_value=0,
-        goal_direction="at_most",
-        decision_window_days=7,
-        activated=True,
-    )
-    row = await database_sync_to_async(SignalReportArtefact.add_log)(
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).create)(
         team_id=ateam.id,
-        report_id=str(report.id),
-        content=plan,
-        attribution=ArtefactAttribution.system(),
+        report=report,
+        title="Affected users stay at zero",
+        kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+        config={"query": _metric().query, "comparison": {"operator": "lte", "value": 0}},
+        status=SignalReportCheck.Status.PENDING,
+        next_run_at=timezone.now() + timedelta(days=7),
+        expires_at=timezone.now() + timedelta(days=37),
+        soak_minutes=7 * 24 * 60,
+        approved_at=timezone.now(),
     )
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report._load_previous_research",
-        AsyncMock(return_value=_build_research_output()),
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.report.team_expected_impact_authoring_enabled",
-        lambda team_id: True,
+        AsyncMock(return_value=_build_research_output() if has_previous_research else None),
     )
     research_kwargs: dict[str, object] = {}
 
-    result = await _run_activity_with_output(
+    await _run_activity_with_output(
         monkeypatch, ateam, report, _build_research_output(), research_kwargs=research_kwargs
     )
 
-    assert research_kwargs["previous_measurement_plans"] == {"affected-users": (str(row.id), plan)}
-    assert result.previous_measurement_plan_ids == {"affected-users": str(row.id)}
+    previous_checks = research_kwargs["previous_checks"]
+    assert isinstance(previous_checks, list)
+    assert isinstance(previous_checks[0], dict)
+    assert previous_checks[0]["id"] == str(check.id)
+    assert previous_checks[0]["approved"] is True
 
 
 @pytest.mark.asyncio
@@ -1294,41 +1266,59 @@ async def test_mark_report_ready_activity_applies_metrics(ateam, name, metrics, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_mark_report_ready_activity_revises_existing_measurement_plan(ateam):
+@pytest.mark.parametrize(
+    "reconcile_checks,checks,retired",
+    [(False, [], False), (True, None, False), (True, [], True)],
+)
+@pytest.mark.parametrize("pending_input", [False, True])
+async def test_ready_transition_only_reconciles_explicit_new_check_payloads(
+    ateam: Team, reconcile_checks: bool, checks: list[dict] | None, retired: bool, pending_input: bool
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
         signal_count=2,
         total_weight=1.3,
     )
-    original_metric = (
-        _metric()
-        .model_copy(update={"goal_value": 0, "goal_direction": "at_most", "decision_window_days": 7})
-        .model_dump(mode="json")
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).create)(
+        team_id=ateam.id,
+        report=report,
+        title="The export error stays fixed",
+        kind=SignalReportCheck.Kind.AGENT,
+        config={"instructions": "Check for export errors."},
+        status=SignalReportCheck.Status.PENDING,
+        next_run_at=timezone.now() + timedelta(days=7),
+        expires_at=timezone.now() + timedelta(days=37),
+        soak_minutes=7 * 24 * 60,
     )
-    await database_sync_to_async(persist_authored_measurement_plans)(
-        report, [original_metric], ArtefactAttribution.system()
-    )
-    previous_row, _ = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
-    revised_metric = {**original_metric, "goal_value": 7}
 
-    await mark_report_ready_activity(
-        MarkReportReadyInput(
-            team_id=ateam.id,
-            report_id=str(report.id),
-            title="Updated title",
-            summary="Updated expected impact",
-            processed_signal_count=2,
-            metrics=[revised_metric],
-            revise_measurement_plan_metric_ids=["affected-users"],
-            previous_measurement_plan_ids={"affected-users": str(previous_row.id)},
+    if pending_input:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Needs input",
+                checks=checks,
+                reconcile_checks=reconcile_checks,
+            )
         )
-    )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                checks=checks,
+                reconcile_checks=reconcile_checks,
+            )
+        )
 
-    updated_row, revised = await database_sync_to_async(lambda: latest_measurement_plans(report)["affected-users"])()
-    assert updated_row.id != previous_row.id
-    assert revised.goal_value == 7
-    assert revised.activated is False
+    await database_sync_to_async(check.refresh_from_db)()
+    assert (check.status == SignalReportCheck.Status.CANCELLED) is retired
 
 
 @pytest.mark.asyncio
@@ -1351,6 +1341,15 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
             summary="Draft summary",
             reason="Needs input",
             metrics=[new_metric],
+            checks=[
+                {
+                    "title": "Affected users stay below five",
+                    "kind": "metric_threshold",
+                    "soak_hours": 24,
+                    "config": {"metric_id": "pending-affected-users", "comparison": {"operator": "lte", "value": 5}},
+                }
+            ],
+            reconcile_checks=True,
         )
     )
 
@@ -1359,14 +1358,15 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
     assert stored.title == "Draft title"
     assert stored.summary == "Draft summary"
     assert [metric["metric_id"] for metric in stored.metrics] == ["pending-affected-users"]
+    check = await database_sync_to_async(SignalReportCheck.objects.for_team(ateam.id).get)(report=report)
+    assert check.status == SignalReportCheck.Status.PENDING
+    assert check.config["query"] == new_metric["query"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("pending_input", [False, True])
-async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(
-    ateam: Team, pending_input: bool
-) -> None:
+async def test_report_transition_discards_legacy_goal_fields(ateam: Team, pending_input: bool) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1401,15 +1401,13 @@ async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goa
             )
         )
 
-    def stored_outcome() -> tuple[list[dict[str, object]], ImpactMeasurementPlan]:
+    def stored_outcome() -> list[dict[str, object]]:
         updated_report = SignalReport.objects.get(id=report.id)
-        return updated_report.metrics, latest_measurement_plans(updated_report)["measured-outcome"][1]
+        return updated_report.metrics
 
-    observations, plan = await database_sync_to_async(stored_outcome)()
-    assert observations[0]["metric_id"] == plan.metric_id
+    observations = await database_sync_to_async(stored_outcome)()
+    assert observations[0]["metric_id"] == "measured-outcome"
     assert not any(field in observations[0] for field in REPORT_METRIC_GOAL_FIELDS)
-    assert plan.goal_value == 0
-    assert plan.activated is False
 
 
 @pytest.mark.asyncio
@@ -1535,6 +1533,7 @@ async def test_run_multi_turn_research_requests_verification_note_as_the_final_a
             assert result.research_task_id == "research-task-id"
             if actionability != ActionabilityChoice.NOT_ACTIONABLE and failure is None:
                 assert result.verification_note is not None
+                assert result.checks is None
                 assert result.verification_note.note.startswith(
                     "## Verification plan\n\n### Confirm the current state\n\n"
                 )

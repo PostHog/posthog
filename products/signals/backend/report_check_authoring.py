@@ -26,7 +26,7 @@ from django.utils import timezone
 import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_research import research_can_reconcile_checks
@@ -238,62 +238,68 @@ def create_checks_from_specs(
     attribution: ArtefactAttribution,
     checks_snapshot: dict[str, str] | None = None,
 ) -> list[SignalReportCheck]:
-    """Write a research run's check specs on the report it just finished.
+    """Reconcile a successful verification turn with the report's open checks.
 
-    The specs replace unapproved research-owned pending checks. This turn does not review existing
-    checks, so person-selected and approved checks remain. A pass that returns no specs leaves them
-    alone, because the verification turn is best-effort and an empty result can be a failed turn.
-
-    A spec the report cannot carry is dropped with a log rather than failing the run, the way an
-    unvalidatable chart is: the prose is the report's point, and a check that names a metric the
-    presentation turn did not keep is the model over-reaching, not a broken pipeline.
+    Identical rows keep their schedule, results, and approval. A changed or omitted claim retires;
+    replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
+    leaves the old checks running.
     """
-    if not specs:
-        return []
-    with transaction.atomic():
-        report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
-        existing = list(
-            SignalReportCheck.objects.for_team(report.team_id)
-            .select_for_update()
-            .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
-            .order_by("id")
-        )
-        if not research_can_reconcile_checks(existing, checks_snapshot):
-            return []
-        for replaced in existing:
-            if replaced.status != SignalReportCheck.Status.PENDING:
-                continue
-            if replaced.actor_kind in (SignalActorKind.USER, SignalActorKind.AGENT) or replaced.approved_at is not None:
-                continue
-            cancel_check(
-                replaced,
-                reason="replaced_by_research",
-                attribution=attribution,
-                from_statuses=(SignalReportCheck.Status.PENDING,),
+    try:
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
+            desired = [(spec, _stored_config(report, spec.kind, spec.config)) for spec in specs]
+            existing = list(
+                SignalReportCheck.objects.for_team(report.team_id)
+                .select_for_update()
+                .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
+                .order_by("id")
             )
-        written: list[SignalReportCheck] = []
-        for spec in specs:
-            try:
-                written.append(
-                    create_check(
-                        report=report,
-                        title=spec.title,
-                        rationale=spec.rationale,
-                        kind=spec.kind,
-                        config=spec.config,
-                        attribution=attribution,
-                        soak_minutes=spec.soak_hours * 60,
-                    )
+            if not research_can_reconcile_checks(existing, checks_snapshot):
+                return []
+            retained_ids: set[uuid.UUID] = set()
+            new_specs: list[CheckSpec] = []
+            for spec, config in desired:
+                match = next(
+                    (
+                        check
+                        for check in existing
+                        if check.id not in retained_ids
+                        and check.title == spec.title
+                        and check.rationale == spec.rationale
+                        and check.kind == spec.kind
+                        and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
+                        # Normalize legacy display fields so matching claims keep their approval.
+                        and _with_metric_display(report, check.config, check.config.get("metric_id")) == config
+                    ),
+                    None,
                 )
-            except CheckCreationError as error:
-                logger.warning(
-                    "signals.report_check.research_spec_dropped",
-                    report_id=str(report.id),
-                    team_id=report.team_id,
+                if match is None:
+                    new_specs.append(spec)
+                else:
+                    retained_ids.add(match.id)
+            for replaced in existing:
+                if replaced.id not in retained_ids:
+                    cancel_check(replaced, reason="replaced_by_research", attribution=attribution)
+            return [
+                create_check(
+                    report=report,
+                    title=spec.title,
+                    rationale=spec.rationale,
                     kind=spec.kind,
-                    reason=str(error),
+                    config=spec.config,
+                    attribution=attribution,
+                    soak_minutes=spec.soak_hours * 60,
                 )
-        return written
+                for spec in new_specs
+            ]
+    except CheckCreationError as error:
+        logger.warning(
+            "signals.report_check.research_spec_dropped",
+            report_id=str(report.id),
+            team_id=report.team_id,
+            reason=str(error),
+        )
+        return []
 
 
 def replace_metric_check(
