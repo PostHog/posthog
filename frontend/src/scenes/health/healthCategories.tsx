@@ -31,6 +31,7 @@ export type HealthIssueKind =
     | 'missing_session_id'
     | 'ingestion_lag'
     | 'ingestion_warning'
+    | 'ingestion_stopped'
     | 'sdk_outdated'
     | 'materialized_view_failure'
     | 'external_data_failure'
@@ -107,6 +108,7 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     // Ingestion
     ingestion_lag: 'ingestion',
     ingestion_warning: 'ingestion',
+    ingestion_stopped: 'ingestion',
 
     // Pipelines
     external_data_failure: 'pipelines',
@@ -148,6 +150,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     ingestion_lag: 'Ingestion lag',
     external_data_failure: 'External data failures',
     ingestion_warning: 'Ingestion warning',
+    ingestion_stopped: 'Events stopped arriving',
     sdk_outdated: 'SDK outdated',
     materialized_view_failure: 'Materialized view failure',
     error_tracking_missing_source_maps: 'Missing source maps',
