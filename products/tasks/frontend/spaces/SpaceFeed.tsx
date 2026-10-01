@@ -16,15 +16,29 @@ import {
 
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 
+import { SpaceFeedCanvasRow } from './SpaceFeedCanvasRow'
 import { SpaceFeedCard } from './SpaceFeedCard'
 import { SpaceFeedControls } from './SpaceFeedControls'
+import { SPACE_FEED_TYPES, SpaceFeedType } from './spaceFeedEntries'
 import { SpaceFeedListRow } from './SpaceFeedListRow'
 import { SpaceFeedPullRequestRow } from './SpaceFeedPullRequestRow'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 import { spaceSceneLogic } from './spaceSceneLogic'
 
+const EMPTY_NOUNS: Record<SpaceFeedType, string> = { task: 'sessions', canvas: 'canvases', pr: 'pull requests' }
+
+/** Names what the shown types would list, like "No canvases or pull requests in this space yet." */
+function emptyNote(types: SpaceFeedType[]): string {
+    const nouns = SPACE_FEED_TYPES.filter(({ value }) => types.includes(value)).map(({ value }) => EMPTY_NOUNS[value])
+    const last = nouns.pop()
+    return `No ${nouns.length ? `${nouns.join(', ')} or ${last}` : last} in this space yet.`
+}
+
 export function SpaceFeed({ id }: { id: string }): JSX.Element {
     const {
+        canvases,
+        canvasesLoading,
+        canvasesUnavailable,
         feedItems,
         feedSections,
         feedSourceOptions,
@@ -33,12 +47,16 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         sessionsLoading,
         sessionsUnavailable,
     } = useValues(spaceSceneLogic({ id }))
-    const { loadSessions } = useActions(spaceSceneLogic({ id }))
-    const { view, filtersActive } = useValues(spaceFeedViewLogic)
+    const { loadCanvases, loadSessions } = useActions(spaceSceneLogic({ id }))
+    const { types, view, filtersActive } = useValues(spaceFeedViewLogic)
     const { clearFilters } = useActions(spaceFeedViewLogic)
     const { pinnedItems, unreadSessionIds } = useValues(todaySpacesLogic)
     const pinnedIds = new Set(pinnedItems.map((item) => item.id))
     const listRows = view === 'list'
+    const canvasesShown = types.includes('canvas')
+    // Canvases load once their type shows, so `null` without an error means they have not answered yet.
+    const canvasesPending = canvasesShown && canvases === null && !canvasesUnavailable
+    const canvasesFailed = canvasesShown && canvasesUnavailable
 
     if (sessionsLoading && !feedItems.length) {
         return (
@@ -68,7 +86,7 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
             </div>
         )
     }
-    if (!feedItems.length) {
+    if (!feedItems.length && !canvases?.length && !canvasesPending && !canvasesFailed) {
         return (
             <Empty className="py-12">
                 <EmptyHeader>
@@ -87,10 +105,32 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
         // No gap: the cards' own margins and the separators' padding space the feed, like PostHog Desktop.
         <div className="flex flex-col">
             <SpaceFeedControls sourceOptions={feedSourceOptions} />
-            {!feedSections.length && (
+            {canvasesFailed && (
+                <div className="flex flex-col items-start gap-2 px-2 pt-4">
+                    <Text size="sm" variant="muted">
+                        This space’s canvases didn’t load.
+                    </Text>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        loading={canvasesLoading}
+                        onClick={() => loadCanvases()}
+                        data-attr="today-space-feed-canvases-retry"
+                    >
+                        Try again
+                    </Button>
+                </div>
+            )}
+            {!feedSections.length && canvasesPending && (
+                <div className="flex flex-col gap-3 px-2 pt-6">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-4 w-2/3" />
+                </div>
+            )}
+            {!feedSections.length && !canvasesPending && !canvasesFailed && (
                 <div className="flex flex-col items-start gap-2 px-2 pt-6">
                     <Text size="sm" variant="muted">
-                        {filtersActive ? 'Nothing here matches these filters.' : 'No pull requests in this space yet.'}
+                        {filtersActive ? 'Nothing here matches these filters.' : emptyNote(types)}
                     </Text>
                     {filtersActive && (
                         <Button
@@ -132,12 +172,22 @@ export function SpaceFeed({ id }: { id: string }): JSX.Element {
                             </div>
                         ))}
                     {section.entries.map((entry) => {
+                        // List rows are ruled apart, like PostHog Desktop's.
+                        const rowClassName = 'border-b border-border last:border-b-0'
+                        if (entry.kind === 'canvas') {
+                            const row = <SpaceFeedCanvasRow key={entry.key} canvas={entry.canvas} listRow={listRows} />
+                            return listRows ? (
+                                <div key={entry.key} className={rowClassName}>
+                                    {row}
+                                </div>
+                            ) : (
+                                row
+                            )
+                        }
                         const task = sessionsById[entry.item.id]
                         if (!task) {
                             return null
                         }
-                        // List rows are ruled apart, like PostHog Desktop's.
-                        const rowClassName = 'border-b border-border last:border-b-0'
                         if (entry.kind === 'pr') {
                             const row = (
                                 <SpaceFeedPullRequestRow
