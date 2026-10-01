@@ -1,5 +1,6 @@
 import io
 import time
+import uuid
 import zipfile
 from typing import Any, ClassVar
 
@@ -32,7 +33,13 @@ from products.tasks.backend.logic.services.living_artifacts import (
     get_task_artifact_for_run,
     get_task_artifacts_for_run,
 )
-from products.tasks.backend.models import Task, TaskArtifact, TaskRun
+from products.tasks.backend.models import (
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Task,
+    TaskArtifact,
+    TaskOwnershipChangedError,
+    TaskRun,
+)
 
 
 def _xlsx_bytes() -> bytes:
@@ -144,6 +151,58 @@ class TestLivingArtifacts(TestCase):
         self.assertEqual(updated.versions[-1]["document_connector_status"], "connected")
         self.assertEqual(updated.versions[-1]["content"], "# Updated report")
         self.assertEqual(updated.location["document_id"], artifact.location["document_id"])
+
+    def _hand_off_task(self) -> None:
+        Task.objects.filter(pk=self.task.pk).update(state={TASK_OWNERSHIP_VERSION_STATE_KEY: str(uuid.uuid4())})
+
+    @parameterized.expand(
+        [
+            ("create_after_handoff", "create", False),
+            ("create_with_handoff_during_delivery", "create", True),
+            ("edit_after_handoff", "edit", False),
+            ("edit_with_handoff_during_delivery", "edit", True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._document_connector_adapter_for_run")
+    def test_task_handoff_stops_a_stale_run_from_saving_artifacts(
+        self, _name, operation, handoff_during_delivery, mock_connector_for_run
+    ):
+        adapter = FakeDocumentConnectorAdapter()
+        mock_connector_for_run.return_value = adapter
+        existing = create_living_artifact(
+            run=self.task_run,
+            name="report.md",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            content="# Report",
+        )
+        deliveries: list[int] = []
+        deliver = adapter.commit
+
+        def commit(**kwargs: Any) -> ArtifactCommit:
+            deliveries.append(kwargs["version"])
+            if handoff_during_delivery:
+                self._hand_off_task()
+            return deliver(**kwargs)
+
+        adapter.commit = commit  # type: ignore[method-assign]
+        if not handoff_during_delivery:
+            self._hand_off_task()
+
+        with self.assertRaises(TaskOwnershipChangedError):
+            if operation == "create":
+                create_living_artifact(
+                    run=self.task_run,
+                    name="second.md",
+                    artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+                    content="# Second",
+                )
+            else:
+                edit_living_artifact(artifact=existing, run=self.task_run, content="# Updated")
+
+        self.assertEqual(len(deliveries), 1 if handoff_during_delivery else 0)
+        self.assertEqual(list(TaskArtifact.objects.for_team(self.team.id).values_list("id", flat=True)), [existing.id])
+        existing.refresh_from_db()
+        self.assertEqual(existing.current_version, 1)
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_mapped_slack_document_defaults_to_canvas_external_pointer(self, mock_integration_for_mapping):

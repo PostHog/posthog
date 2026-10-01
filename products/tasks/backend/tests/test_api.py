@@ -12316,10 +12316,12 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_run_vanishing_before_registration_returns_404(self, mock_render, mock_create):
-        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        asset = self._rendered_asset()
+        mock_render.return_value = (asset, b"png-bytes")
         mock_create.return_value = (None, None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        asset.delete.assert_called_once()
 
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"

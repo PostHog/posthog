@@ -4358,6 +4358,8 @@ def create_task_run_living_artifact(
         return None, None
     try:
         created = create_living_artifact(run=run, **artifact)
+    except TaskOwnershipChangedError:
+        return None, None
     except Exception as exc:
         logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
@@ -4406,6 +4408,8 @@ def edit_task_run_living_artifact(
             name=name,
             metadata=metadata,
         )
+    except TaskOwnershipChangedError:
+        return None, None
     except Exception as exc:
         logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
         return None, str(exc)

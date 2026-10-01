@@ -4410,12 +4410,13 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "export_asset_id": asset.id,
             },
         )
-        if artifact is None and error is None:
-            raise NotFound()
-        if error is not None:
+        if artifact is None:
             # The render already persisted the export; without this it would sit
             # orphaned until its own six-month expiry instead of being cleaned up now.
             asset.delete()
+            if error is None:
+                capture_render(failure_reason="run_not_found")
+                raise NotFound()
             capture_render(failure_reason="artifact_create_failed")
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         capture_render(export_asset_id=asset.id)
