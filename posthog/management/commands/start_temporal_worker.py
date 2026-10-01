@@ -1,6 +1,7 @@
 import os
 import time
 import signal
+import socket
 import typing
 import asyncio
 import datetime as dt
@@ -10,6 +11,7 @@ import collections.abc
 from collections import defaultdict
 
 import structlog
+import temporalio
 from temporalio import workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
@@ -20,6 +22,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
@@ -640,6 +643,19 @@ else:
 LOGGER = get_logger(__name__)
 
 
+async def run_worker_and_capture_failure(worker: ManagedWorker, exception_properties: dict[str, object]) -> None:
+    """Run the worker, and tag a crash with the worker context before it ends the process.
+
+    The uncaught-exception hook captures a crash without this context, so error tracking cannot
+    show which worker fleet fails.
+    """
+    try:
+        await worker.run()
+    except Exception as e:
+        capture_exception(e, exception_properties)
+        raise
+
+
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
@@ -957,7 +973,17 @@ class Command(BaseCommand):
 
                 signal_watcher = asyncio.create_task(shut_down_on_first_signal())
                 try:
-                    await worker.run()
+                    await run_worker_and_capture_failure(
+                        worker,
+                        {
+                            "task_queue": task_queue,
+                            "temporal_namespace": namespace,
+                            "temporal_host": temporal_host,
+                            "temporalio_version": temporalio.__version__,
+                            "cloud_deployment": settings.CLOUD_DEPLOYMENT,
+                            "hostname": socket.gethostname(),
+                        },
+                    )
                 finally:
                     _ = signal_watcher.cancel()
 

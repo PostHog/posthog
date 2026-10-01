@@ -1,6 +1,8 @@
+import asyncio
 from collections.abc import Callable, Sequence
 
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
@@ -14,6 +16,7 @@ from posthog.management.commands.start_temporal_worker import (
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
     _task_queue_specs,
+    run_worker_and_capture_failure,
     workflows_include_data_import_syncs,
 )
 
@@ -108,3 +111,18 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert len(entries) == 1
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+
+
+# A worker crash ends the process, and error tracking keeps only the properties attached here.
+# Without the task queue, nobody can tell which worker fleet fails.
+def test_worker_crash_is_captured_with_worker_context_and_reraised() -> None:
+    error = RuntimeError("poll failed")
+    worker = MagicMock()
+    worker.run = AsyncMock(side_effect=error)
+    properties: dict[str, object] = {"task_queue": "some-task-queue"}
+
+    with patch("posthog.management.commands.start_temporal_worker.capture_exception") as capture:
+        with pytest.raises(RuntimeError):
+            asyncio.run(run_worker_and_capture_failure(worker, properties))
+
+    capture.assert_called_once_with(error, properties)
