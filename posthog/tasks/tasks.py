@@ -1270,6 +1270,8 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     """
     Sync last_called_at timestamps from ClickHouse $feature_flag_called events to PostgreSQL.
 
+    The events and flag_evaluations sources share one checkpoint.
+
     This task:
     1. Uses Redis locking to prevent concurrent executions
     2. Gets the last sync timestamp from Redis checkpoint
@@ -1284,6 +1286,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     - No time limits - task runs until complete
 
     Configuration (via settings.feature_flags):
+    - FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: "events" or "flag_evaluations" (default: "events")
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_BATCH_SIZE: Bulk update batch size (default: 1000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT: Max ClickHouse results per chunk (default: 100000)
     - FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOOKBACK_DAYS: Fallback lookback period (default: 1)
@@ -1295,6 +1298,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
     from django.core.cache import cache
 
     from posthog.clickhouse.client import sync_execute
+    from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -1309,6 +1313,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         return
 
     start_time = timezone.now()
+
+    source = settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE
+    if source not in ("events", "flag_evaluations"):
+        logger.warning("Unknown feature flag sync source, reading events instead", source=source)
+        source = "events"
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.ENRICHMENT, name="sync_feature_flag_last_called")
 
@@ -1375,6 +1384,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
 
         logger.info(
             "Starting feature flag sync",
+            source=source,
             last_sync_timestamp=last_sync_timestamp.isoformat(),
             current_sync_timestamp=current_sync_timestamp.isoformat(),
             window_seconds=window_seconds,
@@ -1405,7 +1415,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # `posthog/models/event/sql.py` defines the two identically, so dev and CI cannot
         # tell them apart and no test covers the difference. Check the live offline host
         # rather than this repo before changing the table.
-        chunk_query = """
+        events_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
@@ -1421,6 +1431,22 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             ORDER BY last_called_at DESC
             LIMIT %(limit)s
         """
+        flag_evaluations_query = f"""
+            SELECT
+                team_id,
+                flag_key,
+                max(timestamp) as last_called_at,
+                count() as call_count
+            FROM {FLAG_EVALUATIONS_TABLE}
+            PREWHERE inserted_at > %(last_sync_timestamp)s
+              AND inserted_at <= %(current_sync_timestamp)s
+            WHERE flag_key != ''
+              AND timestamp <= %(current_sync_timestamp)s
+            GROUP BY team_id, flag_key
+            ORDER BY last_called_at DESC
+            LIMIT %(limit)s
+        """
+        chunk_query = flag_evaluations_query if source == "flag_evaluations" else events_query
 
         limit_hit = False
         chunk_failures = 0

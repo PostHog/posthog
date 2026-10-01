@@ -51,8 +51,11 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
-# The sync reads distributed_events_recent, which either replica of the batch-export shard can
-# answer, so rows inserted moments ago may be missing from whichever one serves a given query.
+# Use "flag_evaluations" only where ingestion forks every team's flag calls into that table. The historical
+# and async ingestion lanes never fork, so calls ingested on them do not move last_called_at with this source.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE: str = get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE", "events")
+# Both source tables are Distributed reads that either replica of a shard can answer, so rows
+# inserted moments ago may be missing from whichever one serves a given query.
 # Ending the scan window this far before now keeps the checkpoint from advancing past those
 # rows, so a row still missing at read time is picked up by the next run instead of being
 # skipped for good.
