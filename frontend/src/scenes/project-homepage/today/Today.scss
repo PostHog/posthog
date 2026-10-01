@@ -71,11 +71,13 @@
     animation: Today__page-in 0.18s ease-out both;
 }
 
-// Zero-specificity resets, so component classes below and shared buttons keep their own styles.
-:where(.Today) button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
 }
 
 :where(.Today) :focus-visible {

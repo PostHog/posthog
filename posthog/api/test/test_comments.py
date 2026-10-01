@@ -837,7 +837,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             team=self.team, channel=channel, name="Scoped canvas", created_by=self.user
         )
         earlier = Comment.objects.create(
-            team=self.team, scope="canvas", item_id=str(canvas.id), content="Earlier", created_by=self.user
+            team=self.team, scope="desktop_canvas", item_id=str(canvas.id), content="Earlier", created_by=self.user
         )
 
         created = self.client.post(
@@ -851,9 +851,9 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
 
         assert created.status_code == status.HTTP_201_CREATED
-        assert created.json()["scope"] == "desktop_canvas"
-        assert Comment.objects.get(id=created.json()["id"]).scope == "desktop_canvas"
-        expected = sorted([(created.json()["id"], "desktop_canvas"), (str(earlier.id), "desktop_canvas")])
+        assert created.json()["scope"] == "canvas"
+        assert Comment.objects.get(id=created.json()["id"]).scope == "canvas"
+        expected = sorted([(created.json()["id"], "canvas"), (str(earlier.id), "canvas")])
         for scope in ("canvas", "desktop_canvas"):
             listed = self.client.get(f"/api/projects/{self.team.id}/comments?scope={scope}&item_id={canvas.id}")
             assert sorted((row["id"], row["scope"]) for row in listed.json()["results"]) == expected

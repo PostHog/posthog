@@ -60,6 +60,7 @@ import {
 } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundRunLogic, type ComparisonItem, type UsageSummary } from './llmPlaygroundRunLogic'
 import { PlaygroundSaveMenu } from './PlaygroundSaveMenu'
+import { PlaygroundVariablesPanel } from './PlaygroundVariablesPanel'
 
 // Cap inline JSON previews at 20 lines so they don't dominate the layout
 const INLINE_JSON_MAX_LINES = 20
@@ -247,6 +248,7 @@ function PlaygroundLayout(): JSX.Element {
         <div className="flex flex-1 min-h-0 flex-col gap-4">
             <RateLimitBanner />
             <SubscriptionRequiredBanner />
+            <PlaygroundVariablesPanel />
 
             <section className="rounded overflow-hidden min-h-0 flex flex-1 flex-col bg-transparent">
                 {sourceSetupLoading ? (

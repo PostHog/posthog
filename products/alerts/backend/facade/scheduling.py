@@ -214,12 +214,18 @@ def _next_calendar_schedule_start_time(
 ) -> datetime:
     earliest_allowed = now
     if next_check_at is not None:
+        # `next_check_at` is when the check became due, which is not always the anchor: enabling
+        # an alert or changing its threshold sets it to now, and a spring-forward date shifts it
+        # past an anchor that does not exist. Adding the interval to a due time later in the
+        # period than the anchor puts the bound past the next anchor, which skips a whole period.
+        # So the interval is added to the anchor the due time belongs to.
+        previous_anchor_local = datetime.combine(
+            next_check_at.astimezone(team_timezone).date(),
+            first_candidate_local.time(),
+        )
         earliest_allowed = max(
             earliest_allowed,
-            _localize_wall_time(
-                team_timezone,
-                (next_check_at.astimezone(team_timezone) + interval_delta).replace(tzinfo=None),
-            ).astimezone(UTC),
+            _localize_wall_time(team_timezone, previous_anchor_local + interval_delta).astimezone(UTC),
         )
 
     candidate_local = first_candidate_local
