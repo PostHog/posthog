@@ -29,15 +29,17 @@ It may not ship a visual change on its own: `finalize-create` commits the baseli
 Gather the evidence with [Is the diff real or unrelated?](#is-the-diff-real-or-unrelated) and the [flake check](#flake-check-has-this-story-been-changing),
 then take the first row that matches each changed snapshot.
 
-| Evidence                                                                                                           | Action                                                                                                | Human yes needed                   |
-| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| PR comes from a fork (`isCrossRepository: true`)                                                                   | Report only. See [Fork PRs](#fork-prs-have-no-visual-review-run)                                      | No VR writes possible              |
-| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize                                                               | Yes, for each run, before finalize |
-| The diff comes from your change and is not intended                                                                | Fix the code and push. No VR write                                                                    | No                                 |
-| Story outside your change, flakiness entry `unstable`, `hard_count` ≥ 5, `last_flaked_at` in the last 7 days       | `quarantine-create`, then `recompute-create`. Report it                                               | No                                 |
-| Story outside your change, flakiness entry `broken`                                                                | Do not quarantine. Its baseline on the default branch is wrong. Report it and recommend a re-baseline | Yes                                |
-| Story outside your change, quiet history, same width and height, `change_kind: pixel`, a noise source you can name | `tolerate-create`, then `recompute-create`                                                            | No                                 |
-| Anything else: `unstable` with fewer failures, a real-looking change you did not make, unsure                      | Stop and report what you saw                                                                          | Yes                                |
+| Evidence                                                                                                           | Action                                                                                                                   | Human yes needed                   |
+| ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- |
+| PR comes from a fork (`isCrossRepository: true`)                                                                   | Report only. See [Fork PRs](#fork-prs-have-no-visual-review-run)                                                         | No VR writes possible              |
+| The diff comes from your change and is intended                                                                    | `approve-create`, then ask for finalize                                                                                  | Yes, for each run, before finalize |
+| The diff comes from your change and is not intended                                                                | Fix the code and push. No VR write                                                                                       | No                                 |
+| Your change renders a quarantined story `changed` or `new`, and the change is intended                             | `approve-create` for that identifier, then ask for finalize. See [Quarantined stories](#quarantined-stories-in-your-run) | Yes, for each run, before finalize |
+| Your change fixes a quarantined story's flake, and the story renders `unchanged`                                   | Say so in the PR description. Lift the quarantine after the merge, per [Triaging the queue](#triaging-the-queue)         | No                                 |
+| Story outside your change, flakiness entry `unstable`, `hard_count` ≥ 5, `last_flaked_at` in the last 7 days       | `quarantine-create`, then `recompute-create`. Report it                                                                  | No                                 |
+| Story outside your change, flakiness entry `broken`                                                                | Do not quarantine. Its baseline on the default branch is wrong. Report it and recommend a re-baseline                    | Yes                                |
+| Story outside your change, quiet history, same width and height, `change_kind: pixel`, a noise source you can name | `tolerate-create`, then `recompute-create`                                                                               | No                                 |
+| Anything else: `unstable` with fewer failures, a real-looking change you did not make, unsure                      | Stop and report what you saw                                                                                             | Yes                                |
 
 Each theme is its own identifier.
 Judge the `--light` and `--dark` snapshots of a story separately, and quarantine only the ones that match.
@@ -46,6 +48,21 @@ Expect tolerations to be rare.
 The diff already absorbs most real render noise below the threshold, and a small diff percentage is often a real structural change.
 A toleration accepts one exact hash forever and cannot be undone through the API, so it is never a way past a gate.
 A story that renders differently from run to run and meets the quarantine row above gets a quarantine, which also protects every other developer. With less evidence, report it instead.
+
+### Quarantined stories in your run
+
+A quarantine hides a story's diff from the gate and from the PR comment, so a green check does not show that your change left a quarantined story alone.
+The story still renders and is diffed on every run that selects it. A PR run renders only the stories its diff affects.
+Check every run of a change that touches UI: when `quarantined_count` is not 0, list them with
+`posthog:visual-review-runs-snapshots-list { id: <run_id>, include_quarantined: true, exclude_unchanged: true }`.
+
+- A quarantined story that your change renders differently needs its new picture approved by identifier, then finalized.
+  "Approve all" and `approve_all` skip quarantined snapshots.
+  Without the approval, the default branch keeps the old entry, and every run fails on the day the quarantine is lifted or expires.
+- A quarantined story that your change does not touch can still show `changed`, because it is flaky. Leave it.
+- A fix for the flake changes nothing VR can see in one run. Nothing records it, and the quarantine stays until someone lifts it.
+  Name the exact identifiers in the PR description, and lift only after the default branch renders them clean.
+- One clean render does not prove a rare flake is gone, and neither does `variant_count: 0`, which counts only absorbed variants.
 
 ## When this skill applies
 
@@ -312,6 +329,9 @@ When the user is doing housekeeping rather than asking about a specific PR:
 5. Lift stale quarantines: entries in `visual-review-repos-flakiness-retrieve` with `needs_decision: true` stopped failing
    or expire soon. Lift one with `posthog:visual-review-repos-quarantine-expire-create { id, run_type, identifier }`
    only when it had no hard failure in the window, or a merged fix removed the cause.
+   Never lift a quarantine whose entry is `broken`. The default branch renders the story differently from its entry on every run,
+   so the lift fails every run. Re-baseline the story first (the README's quarantine section has the procedure), then lift.
+   The same applies before a `broken` quarantine reaches its expiry date: report it, because the expiry fails every run too.
 
 ## Output expectations
 
@@ -324,6 +344,7 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 ## What NOT to do
 
 - Do not tolerate to get past a gate, and do not quarantine a diff your own change caused or a `broken` entry.
+- Do not read a green gate as proof that your change left quarantined stories alone. See [Quarantined stories](#quarantined-stories-in-your-run).
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
 - Do not read an empty run list on a fork PR as a broken or pending run.
