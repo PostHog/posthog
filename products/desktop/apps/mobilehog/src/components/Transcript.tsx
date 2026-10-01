@@ -196,8 +196,16 @@ export const TranscriptRowView = memo(
 );
 
 // Shows the file on disk when this device sent it, else a download URL.
-function SentPhoto({ taskId, photo }: { taskId: string; photo: PhotoRef }) {
-  const localUri = sentPhotoUri(photo.artifactId);
+function SentPhoto({
+  taskId,
+  photo,
+  savedUri,
+}: {
+  taskId: string;
+  photo: PhotoRef;
+  savedUri?: string;
+}) {
+  const localUri = sentPhotoUri(photo.artifactId) ?? savedUri;
   const [localFailed, setLocalFailed] = useState(false);
   const [remoteFailed, setRemoteFailed] = useState(false);
   const showLocal = !!localUri && !localFailed;
@@ -228,16 +236,23 @@ function SentPhoto({ taskId, photo }: { taskId: string; photo: PhotoRef }) {
 
 function BlockView({ block, taskId }: { block: Block; taskId: string }) {
   switch (block.kind) {
-    case "user":
+    case "user": {
+      // A saved chat keeps the picker URIs in photo order, and they outlive
+      // the in-memory list of sent photos when the app restarts.
+      const savedUris =
+        block.images?.length === block.photos?.length
+          ? block.images
+          : undefined;
       return (
         <View style={styles.userRow}>
           {block.photos?.length ? (
             <View style={styles.userImages}>
-              {block.photos.map((photo) => (
+              {block.photos.map((photo, index) => (
                 <SentPhoto
                   key={photo.artifactId}
                   taskId={taskId}
                   photo={photo}
+                  savedUri={savedUris?.[index]}
                 />
               ))}
             </View>
@@ -257,6 +272,7 @@ function BlockView({ block, taskId }: { block: Block; taskId: string }) {
           ) : null}
         </View>
       );
+    }
     case "agent":
       return (
         <View style={styles.agentRow}>
