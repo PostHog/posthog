@@ -2619,6 +2619,14 @@ jobs:
 
                   echo "OpenAPI types are out of date"
 
+                  # A push to a merge queue branch moves its head off the commit Trunk tests, which
+                  # ends the attempt, and the commit never reaches the pull request.
+                  if [[ "$BRANCH" == trunk-merge/* ]]; then
+                      echo "::error::OpenAPI types are out of date once this pull request is merged with master: $(git diff --name-only | tr '\n' ' ')"
+                      echo "Merge master into the pull request branch and push. CI regenerates the types on that branch."
+                      exit 1
+                  fi
+
                   # On non-PR builds or fork PRs, fail with instructions
                   if [ "$EVENT_NAME" != "pull_request" ] || \
                      [ "$HEAD_REPO" != "PostHog/posthog" ]; then
