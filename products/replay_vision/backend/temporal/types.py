@@ -269,7 +269,7 @@ class UploadedVideo(BaseModel, frozen=True):
     mime_type: str
     gemini_file_name: str  # opaque ID for `files.delete`
     # True when the scan sends the video bytes inline and nothing was uploaded. Workflow history records it, so a
-    # deploy between upload and scan cannot mix the two modes.
+    # forward deploy between upload and scan cannot mix the two modes.
     inline_video: bool = False
 
 

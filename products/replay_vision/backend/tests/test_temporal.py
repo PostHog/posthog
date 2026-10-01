@@ -3748,7 +3748,6 @@ class TestUploadedFileNotActive:
         assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
         assert run_scan.call_args.kwargs["file_uri"] == "gemini://files/fb"
         assert delete.call_args.args[1] == "files/fb"
-        # Its own heartbeats replace the stored details, so the marker must ride on them for the next retry.
         assert heartbeater.details == ("inline_too_large",)
 
     @pytest.mark.asyncio

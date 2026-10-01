@@ -132,7 +132,7 @@ _VERIFY_MODES = ("shadow", "enforce")
 _VERIFY_BUDGET_RESERVE_SECONDS = 60.0
 # Cache TTL: a scan is a handful of turns and finishes in minutes; well under this.
 _VIDEO_CACHE_TTL = "900s"
-# Heartbeat detail an attempt leaves when its inline request hit the gateway's body cap, so the retry skips inline.
+# Heartbeat detail set once an inline request hits the gateway's body cap, so retries skip inline.
 _INLINE_TOO_LARGE = "inline_too_large"
 
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
@@ -859,7 +859,7 @@ async def _run_mission_attempts(
 async def _run_pass(*, run: Any, cache: Any | None, model: str, inline_video: bool = False) -> dict[str, BaseModel]:
     """One mission pass over the cached prefix, falling back to an inline video when the cached request itself fails."""
     if cache is None:
-        # An inline video never has a cache, so it gets its own label rather than reading as a failed one.
+        # An inline video never has a cache; its own label keeps cache failures readable.
         record_mission_pass(model=model, path="inline_video" if inline_video else "inline")
         return await run(cache_name=None)
     record_mission_pass(model=model, path="cached")
