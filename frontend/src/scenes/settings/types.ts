@@ -300,6 +300,7 @@ export type SettingId =
     | 'ai-usage-spend'
     | 'ai-cloud-environments'
     | 'task-comments-slack-dm'
+    | 'task-agent-other-settings'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
