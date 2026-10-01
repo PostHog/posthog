@@ -213,6 +213,7 @@ dependencies = [
     "limits==5.8.0",
     "deltalite==0.1.9",
     "posthog-hogland==0.4.1",
+    "requests-oauthlib~=2.0.0",
 ]
 
 [dependency-groups]
