@@ -152,7 +152,7 @@ describe('ToolExecutor metrics', () => {
             // property exists for.
             expect(trackToolCallExtras('fail-tool')).toMatchObject({
                 $mcp_error_type: 'internal',
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['experimentId'],
             })
         })
 
@@ -448,7 +448,7 @@ describe('ToolExecutor metrics', () => {
             expect(call[1]).toBe(0)
             expect(trackToolCallExtras('strict-tool')).toMatchObject({
                 $mcp_error_type: 'validation',
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['requiredField'],
                 // `:undefined` is the received type — the param was absent, not
                 // mistyped, which is what separates an alias slip from a coercion bug.
                 $mcp_validation_fields: ['required_field:invalid_type:undefined'],
@@ -530,7 +530,7 @@ describe('ToolExecutor metrics', () => {
             )
 
             const extras = trackToolCallExtras('strict-tool')
-            expect(extras).toMatchObject({ $mcp_input_keys: ['[redacted]'] })
+            expect(extras).toMatchObject({ $mcp_input_keys: ['requiredField'] })
             expect(extras).not.toHaveProperty('$mcp_input_aliases_used')
         })
 
@@ -762,7 +762,7 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['cmd'],
                 $mcp_error_type: 'validation',
             })
             expect(call?.[4]).not.toHaveProperty('$mcp_exec_verb')
@@ -944,7 +944,7 @@ describe('ToolExecutor metrics', () => {
             expect(call?.[1]).toBe(0)
             expect(call?.[2]).toBe(true)
             expect(call?.[4]).toMatchObject({
-                $mcp_input_keys: ['[redacted]'],
+                $mcp_input_keys: ['toolName'],
                 $mcp_error_type: 'validation',
             })
         })
