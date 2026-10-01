@@ -1652,6 +1652,23 @@ class TestFinalMarker:
         boundaries.read.assert_not_called()
         boundaries.writer.assert_not_called()
 
+    def test_a_destination_failure_leaves_the_marker_job_running(self, marker_job: ExternalDataJob) -> None:
+        finalize_path = (
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3."
+            "destinations_load.delivery.finalize_empty_run_to_destinations"
+        )
+        with _marker_boundaries(None), patch(finalize_path, side_effect=RuntimeError("destination unavailable")):
+            with pytest.raises(RuntimeError, match="destination unavailable"):
+                process_message(_marker_message(marker_job))
+
+        marker_job.refresh_from_db()
+        schema = marker_job.schema
+        assert schema is not None
+        schema.refresh_from_db()
+        assert marker_job.status == ExternalDataJob.Status.RUNNING
+        assert "incremental_staged" in schema.sync_type_config
+        assert schema.sync_type_config.get(SOURCE_CURSOR_KEY) != _MARKER_CURSOR
+
     def test_a_marker_never_joins_a_set(self, marker_job: ExternalDataJob) -> None:
         data_batch = _message(run_uuid="queue-job-0-a1", batch_index=3, sync_type="incremental", is_resume=True)
         marker = _marker_message(marker_job, sync_type="incremental", is_resume=True)

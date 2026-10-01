@@ -555,6 +555,12 @@ def _finalize_from_marker(
         logger.info("final_marker_already_processed", external_data_job_id=export_signal.job_id)
         return
 
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+        finalize_empty_run_to_destinations,
+    )
+
+    report_phase("deliver")
+    finalize_empty_run_to_destinations(export_signal)
     logger.info("final_marker_received", external_data_job_id=export_signal.job_id, run_uuid=export_signal.run_uuid)
     prepared_queryable_folder = None
     if writes_warehouse:
