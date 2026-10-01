@@ -7,6 +7,7 @@ import pytest
 
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
+from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
 from products.signals.backend.report_generation.research import (
     MAX_LINKED_REPORT_CONTEXT_CHARS,
     FixVerificationOutput,
@@ -307,7 +308,8 @@ class TestBuildFixVerificationPrompt:
         assert '"current_state"' in prompt
         assert '"outcome"' in prompt
 
-    def test_formats_plan_as_a_note_with_the_expected_headings(self):
+    @pytest.mark.parametrize("with_check", [False, True])
+    def test_formats_plan_as_a_note_with_the_expected_headings(self, with_check: bool) -> None:
         current_state = (
             'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
             '"interval":"hour","series":[{"kind":"EventsNode","event":"upload_failed","math":"total"},'
@@ -320,23 +322,63 @@ class TestBuildFixVerificationPrompt:
             "upload_completed events supports recovery; any failure means the issue still occurs. "
             "No upload events or a failed query is inconclusive."
         )
-        result = FixVerificationOutput(current_state=f" {current_state} ", outcome=f" {outcome} ")
+        result = FixVerificationOutput.model_validate(
+            {
+                "current_state": f" {current_state} ",
+                "outcome": f" {outcome} ",
+                "checks": [
+                    {
+                        "title": "Uploads recover",
+                        "kind": "agent",
+                        "config": {"instructions": "Check that uploads succeed."},
+                        "soak_hours": 24,
+                    }
+                ]
+                if with_check
+                else [],
+            }
+        )
+        proposed = (
+            "\n\n_Proposed follow-up check: **Uploads recover**, with a minimum wait of "
+            "24 hours after this report is resolved._"
+            if with_check
+            else ""
+        )
 
         assert result.to_note().note == (
             f"## Verification plan\n\n"
             f"### Confirm the current state\n\n{current_state}\n\n"
-            f"### Confirm the outcome\n\n{outcome}"
+            f"### Confirm the outcome\n\n{outcome}{proposed}"
         )
+        assert result.checks is not None
 
-    def test_malformed_check_invalidates_the_verification_turn(self):
-        with pytest.raises(ValueError):
-            FixVerificationOutput.model_validate(
-                {
-                    "current_state": "Check the current issue.",
-                    "outcome": "Check it again after the fix.",
-                    "checks": [{"kind": "metric_threshold", "title": "A malformed check"}],
-                }
-            )
+    @pytest.mark.parametrize(
+        "checks",
+        [
+            [{"kind": "metric_threshold", "title": "A malformed check"}],
+            [
+                {"kind": "agent", "title": "Valid check", "config": {"instructions": "Check the error issue."}},
+                {"kind": "metric_threshold", "title": "A malformed check"},
+            ],
+            [{"kind": "agent", "title": "Valid check", "config": {"instructions": "Check the error issue."}}]
+            * (MAX_ACTIVE_CHECKS_PER_REPORT + 1),
+        ],
+    )
+    def test_invalid_checks_preserve_prose_without_requesting_reconciliation(
+        self, checks: list[dict[str, object]]
+    ) -> None:
+        result = FixVerificationOutput.model_validate(
+            {
+                "current_state": "Check the current issue.",
+                "outcome": "Check it again after the fix.",
+                "checks": checks,
+            }
+        )
+        assert result.checks is None
+        assert result.to_note().note == (
+            "## Verification plan\n\n### Confirm the current state\n\nCheck the current issue.\n\n"
+            "### Confirm the outcome\n\nCheck it again after the fix."
+        )
 
 
 def _make_chart() -> ReportChart:

@@ -6,7 +6,7 @@ import logging
 from html import escape
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, ValidatorFunctionWrapHandler, field_validator, model_validator
 
 from posthog.dataclasses import frozen
 
@@ -320,7 +320,7 @@ class FixVerificationOutput(BaseModel):
             "collect, the result that supports a conclusion, and the result that is inconclusive."
         ),
     )
-    checks: list[CheckSpec] = Field(
+    checks: list[CheckSpec] | None = Field(
         default_factory=list,
         max_length=MAX_ACTIVE_CHECKS_PER_REPORT,
         description=(
@@ -338,19 +338,30 @@ class FixVerificationOutput(BaseModel):
             raise ValueError("Verification plan sections must not be empty")
         return section
 
+    @field_validator("checks", mode="wrap")
+    @classmethod
+    def preserve_checks_on_invalid_proposals(
+        cls, value: object, handler: ValidatorFunctionWrapHandler
+    ) -> list[CheckSpec] | None:
+        try:
+            checks: list[CheckSpec] | None = handler(value)
+            return checks
+        except ValidationError:
+            logger.warning("fix verification check specs did not validate")
+            return None
+
     def to_note(self) -> NoteArtefact:
-        # The check is named in the note on purpose: the plan and the check are one thing in the
-        # report's timeline, and a reader who sees only the prose would go and re-measure by hand.
-        scheduled = "".join(
-            f"\n\n_Scheduled as a follow-up check: **{check.title}**, measured "
+        # The note is written before persistence can confirm which checks were scheduled.
+        proposed = "".join(
+            f"\n\n_Proposed follow-up check: **{check.title}**, with a minimum wait of "
             f"{check.soak_hours} hours after this report is resolved._"
-            for check in self.checks
+            for check in self.checks or []
         )
         return NoteArtefact(
             note=(
                 f"## Verification plan\n\n"
                 f"### Confirm the current state\n\n{self.current_state}\n\n"
-                f"### Confirm the outcome\n\n{self.outcome}{scheduled}"
+                f"### Confirm the outcome\n\n{self.outcome}{proposed}"
             )
         )
 
@@ -1499,7 +1510,11 @@ async def run_multi_turn_research(
                     label="fix_verification",
                 )
                 verification_note = verification_result.to_note()
-                if (metrics_enabled or agent_checks_enabled) and "checks" in verification_result.model_fields_set:
+                if (
+                    (metrics_enabled or agent_checks_enabled)
+                    and "checks" in verification_result.model_fields_set
+                    and verification_result.checks is not None
+                ):
                     checks = list(verification_result.checks)
             except Exception:
                 logger.exception(
