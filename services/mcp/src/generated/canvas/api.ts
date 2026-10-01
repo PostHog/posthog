@@ -496,11 +496,6 @@ export const CanvasesDraftsRetrieveParams = () => zod.object({
         ),
 })
 
-export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Publish file edits against the canvas's current source project.
  *

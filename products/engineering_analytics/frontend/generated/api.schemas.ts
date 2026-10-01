@@ -267,6 +267,17 @@ export interface WorkflowCostApi {
 }
 
 /**
+ * * `github_actions` - GitHub Actions
+ * * `depot_ci` - Depot CI
+ */
+export type CIEngineEnumApi = (typeof CIEngineEnumApi)[keyof typeof CIEngineEnumApi]
+
+export const CIEngineEnumApi = {
+    GithubActions: 'github_actions',
+    DepotCi: 'depot_ci',
+} as const
+
+/**
  * * `breaking_master` - BREAKING_MASTER
  * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
  * * `novel_burst` - NOVEL_BURST
@@ -286,6 +297,11 @@ export const BrokenTestRowStateEnumApi = {
 } as const
 
 export interface BrokenTestRowApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
     fingerprint: string
     /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
@@ -389,9 +405,14 @@ export interface CIFailureLogLineApi {
 }
 
 export interface CIJobFailureLogApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** The thinned failure-log lines in original order, with omission markers. */
     lines: CIFailureLogLineApi[]
-    /** GitHub Actions job id of the failed job. */
+    /** Integer job id of the failed job; unique only together with ci_engine. */
     job_id: number
     /** Workflow run id the job belongs to. */
     run_id: number
@@ -963,6 +984,11 @@ export interface WorkflowJobAggregateApi {
 }
 
 export interface MasterFailureGroupApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Repository the failures occurred in. */
     repo: RepoRefApi
     /** GitHub Actions workflow name the failing runs belong to. */
@@ -980,7 +1006,12 @@ export interface MasterFailureGroupApi {
 }
 
 export interface RunCostApi {
-    /** GitHub Actions run id this cost is for. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer run id this cost is for; unique only together with ci_engine. */
     run_id: number
     /** Re-run attempt number; 1 for the first attempt. */
     run_attempt: number
@@ -1083,6 +1114,11 @@ export const PRLifecycleEventKindEnumApi = {
 } as const
 
 export interface PRLifecycleEventApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
      *
      * * `opened` - OPENED
@@ -1134,11 +1170,16 @@ export interface PRLifecycleApi {
 }
 
 export interface WorkflowRunDetailApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Repository the run belongs to. */
     repo: RepoRefApi
-    /** GitHub Actions run id. */
+    /** Integer run id; unique only together with ci_engine. */
     id: number
-    /** GitHub Actions workflow name. */
+    /** CI workflow name. */
     workflow_name: string
     /** Commit SHA the run was triggered on. */
     head_sha: string
@@ -1177,6 +1218,16 @@ export interface WorkflowRunDetailApi {
     commit_pr_number: number | null
     /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
     is_merge_queue: boolean
+    /**
+     * Source-native run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_run_id?: string | null
+    /**
+     * Source-native workflow run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_workflow_run_id?: string | null
 }
 
 export interface PullRequestFrictionBreakdownApi {
@@ -1384,9 +1435,9 @@ export interface PullRequestTimelinesApi {
 }
 
 export interface PullRequestListApi {
-    /** Pull requests, newest first, capped at `limit`. */
+    /** This page of pull requests, newest first, capped at `limit`. */
     items: PullRequestListItemApi[]
-    /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+    /** True when more pull requests match after this page; call again with `offset` increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`. */
     truncated: boolean
     /** Maximum number of pull requests returned in `items`. */
     limit: number
@@ -1877,7 +1928,12 @@ export interface RepoOverviewApi {
 }
 
 export interface WorkflowRunActivityPointApi {
-    /** GitHub Actions run id. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer run id; unique only together with ci_engine. */
     run_id: number
     /**
      * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
@@ -1926,6 +1982,11 @@ export interface BranchPRMatchApi {
 }
 
 export interface RunFailureLogsApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
     /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
     jobs: CIJobFailureLogApi[]
     /** Workflow run id the failure logs are for. */
@@ -2134,6 +2195,11 @@ export interface WorkflowHealthBucketApi {
 }
 
 export interface WorkflowHealthItemApi {
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    latest_ci_engine?: CIEngineEnumApi | null
     /** Repository the workflow runs in. */
     repo: RepoRefApi
     /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
@@ -2206,7 +2272,12 @@ export interface WorkflowHealthItemApi {
 }
 
 export interface WorkflowJobApi {
-    /** GitHub Actions job id. */
+    /** CI execution engine; null when unknown.
+     *
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI */
+    ci_engine?: CIEngineEnumApi | null
+    /** Integer job id; unique only together with ci_engine. */
     id: number
     /** The workflow run id this job belongs to. */
     run_id: number
@@ -2243,6 +2314,26 @@ export interface WorkflowJobApi {
      * @nullable
      */
     estimated_cost_usd: number | null
+    /**
+     * Source-native run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_run_id?: string | null
+    /**
+     * Source-native workflow run id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_workflow_run_id?: string | null
+    /**
+     * Source-native job id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_job_id?: string | null
+    /**
+     * Source-native attempt id; use with ci_engine for identity.
+     * @nullable
+     */
+    native_attempt_id?: string | null
 }
 
 export interface WorkflowRunnerCostApi {
@@ -2671,6 +2762,18 @@ export type EngineeringAnalyticsPullRequestsParams = {
      */
     date_from?: string
     /**
+     * Optional exclusive upper bound for merged_at / closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.
+     */
+    date_to?: string
+    /**
+     * Page size, 1 to 1000. Defaults to 1000.
+     */
+    limit?: number
+    /**
+     * Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.
+     */
+    offset?: number
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2678,7 +2781,20 @@ export type EngineeringAnalyticsPullRequestsParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+    /**
+     * Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window.
+     */
+    state?: EngineeringAnalyticsPullRequestsState
 }
+
+export type EngineeringAnalyticsPullRequestsState =
+    (typeof EngineeringAnalyticsPullRequestsState)[keyof typeof EngineeringAnalyticsPullRequestsState]
+
+export const EngineeringAnalyticsPullRequestsState = {
+    Closed: 'closed',
+    Merged: 'merged',
+    Open: 'open',
+} as const
 
 export type EngineeringAnalyticsQuarantineParams = {
     /**
@@ -2758,6 +2874,10 @@ export type EngineeringAnalyticsResolveBranchParams = {
 
 export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsRunFailureLogsCiEngine
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2770,6 +2890,14 @@ export type EngineeringAnalyticsRunFailureLogsParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsRunFailureLogsCiEngine =
+    (typeof EngineeringAnalyticsRunFailureLogsCiEngine)[keyof typeof EngineeringAnalyticsRunFailureLogsCiEngine]
+
+export const EngineeringAnalyticsRunFailureLogsCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
 
 export type EngineeringAnalyticsTeamCiActivityParams = {
     /**
@@ -2894,6 +3022,10 @@ export const EngineeringAnalyticsWorkflowHealthRunScope = {
 
 export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowJobsCiEngine
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
@@ -2911,13 +3043,25 @@ export type EngineeringAnalyticsWorkflowJobsParams = {
     source_id?: string
 }
 
+export type EngineeringAnalyticsWorkflowJobsCiEngine =
+    (typeof EngineeringAnalyticsWorkflowJobsCiEngine)[keyof typeof EngineeringAnalyticsWorkflowJobsCiEngine]
+
+export const EngineeringAnalyticsWorkflowJobsCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
+
 export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowRunCiEngine
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
     /**
-     * GitHub Actions run id to inspect.
+     * Integer run id to inspect; unique only together with ci_engine.
      */
     run_id: number
     /**
@@ -2925,6 +3069,14 @@ export type EngineeringAnalyticsWorkflowRunParams = {
      */
     source_id?: string
 }
+
+export type EngineeringAnalyticsWorkflowRunCiEngine =
+    (typeof EngineeringAnalyticsWorkflowRunCiEngine)[keyof typeof EngineeringAnalyticsWorkflowRunCiEngine]
+
+export const EngineeringAnalyticsWorkflowRunCiEngine = {
+    DepotCi: 'depot_ci',
+    GithubActions: 'github_actions',
+} as const
 
 export type EngineeringAnalyticsWorkflowRunActivityParams = {
     /**

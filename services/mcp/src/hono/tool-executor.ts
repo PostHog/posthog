@@ -1097,7 +1097,7 @@ function recordedTargetTool(execShape: Record<string, unknown>): string | undefi
  * live as JSON inside `command`, so they are parsed with the dispatcher's own parser.
  * Verbs other than `call` carry no arguments and get no keys. The schema is looked up
  * only among the tools this connection can see. A gated or retired target has no schema,
- * so its keys become one `[redacted]` marker and its aliases stay absent.
+ * so every key it sent counts as undeclared and its aliases stay absent.
  */
 function execInputShapeAnalyticsProperties(
     execArgs: unknown,

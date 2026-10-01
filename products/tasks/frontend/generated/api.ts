@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelContextGenerationApi,
+    ChannelContributorsDTOApi,
     ChannelDTOApi,
     ChannelFeedMessageDTOApi,
     ChannelFeedMessageWriteApi,
@@ -148,6 +149,7 @@ import type {
     TaskUserBasicInfoApi,
     TaskWriteApi,
     TasksAIRunPreferencesApi,
+    TasksAgentInstructionsApi,
     TasksCommentsListParams,
     TasksCommentsRetrieveParams,
     TasksConfigListParams,
@@ -1187,6 +1189,24 @@ export const taskChannelsStarCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelStarWriteApi),
+    })
+}
+
+export const getTaskChannelsContributorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/task_channels/contributors/`
+}
+
+/**
+ * For each channel the requester can access, list the people who own at least one task or canvas in it, most recently active first. Channels with no owners are left out.
+ * @summary List who worked in each channel
+ */
+export const taskChannelsContributorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ChannelContributorsDTOApi[]> => {
+    return apiMutator<ChannelContributorsDTOApi[]>(getTaskChannelsContributorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -2838,6 +2858,26 @@ export const tasksMeConfigCreate = async (
     })
 }
 
+export const getTasksMeConfigAgentInstructionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`
+}
+
+/**
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
+ */
+export const tasksMeConfigAgentInstructionsCreate = async (
+    projectId: string,
+    tasksAgentInstructionsApi: TasksAgentInstructionsApi,
+    options?: RequestInit
+): Promise<TasksAgentInstructionsApi> => {
+    return apiMutator<TasksAgentInstructionsApi>(getTasksMeConfigAgentInstructionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAgentInstructionsApi),
+    })
+}
+
 export const getTasksActiveWizardRunRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tasks/active_wizard_run/`
 }
@@ -2903,6 +2943,26 @@ export const tasksConfigCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(tasksAIRunPreferencesApi),
+    })
+}
+
+export const getTasksConfigAgentInstructionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/config/agent_instructions/`
+}
+
+/**
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
+ */
+export const tasksConfigAgentInstructionsCreate = async (
+    projectId: string,
+    tasksAgentInstructionsApi: TasksAgentInstructionsApi,
+    options?: RequestInit
+): Promise<TasksAgentInstructionsApi> => {
+    return apiMutator<TasksAgentInstructionsApi>(getTasksConfigAgentInstructionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tasksAgentInstructionsApi),
     })
 }
 
