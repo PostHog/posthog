@@ -107,7 +107,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const numericEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_NUMERIC_EVALS]
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
-    const backfillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -502,19 +501,18 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                 />
                             ),
                         },
-                    !isNewEvaluation &&
-                        backfillsEnabled && {
-                            key: 'backfills',
-                            label: 'Backfills',
-                            'data-attr': 'llma-evaluation-backfills-tab',
-                            content: (
-                                <EvaluationBackfillsTab
-                                    evaluationId={evaluation.id}
-                                    userAccessLevel={evaluation.user_access_level ?? undefined}
-                                    onConfigurationClick={() => setActiveTab('configuration')}
-                                />
-                            ),
-                        },
+                    !isNewEvaluation && {
+                        key: 'backfills',
+                        label: 'Backfills',
+                        'data-attr': 'llma-evaluation-backfills-tab',
+                        content: (
+                            <EvaluationBackfillsTab
+                                evaluationId={evaluation.id}
+                                userAccessLevel={evaluation.user_access_level ?? undefined}
+                                onConfigurationClick={() => setActiveTab('configuration')}
+                            />
+                        ),
+                    },
                     {
                         key: 'configuration',
                         label: 'Configuration',
