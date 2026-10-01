@@ -97,7 +97,8 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
-            description: 'HTTP headers to send in the request.',
+            description:
+                'HTTP headers to send in the request. Put API tokens and other credentials in Secret headers instead.',
         },
         {
             key: 'secret_headers',

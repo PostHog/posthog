@@ -63,7 +63,7 @@ function buildWorkflowWithWebhookStep(): Record<string, any> {
     }
 }
 
-async function createWorkflowViaApi(page: Page, teamId: number): Promise<string> {
+async function createWorkflowViaApi(page: Page, teamId: string): Promise<string> {
     return await page.evaluate(
         async ({ teamId, payload }) => {
             const csrfToken =
