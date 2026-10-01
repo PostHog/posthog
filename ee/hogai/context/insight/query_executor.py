@@ -557,7 +557,7 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error))
+            raise MaxToolRetryableError(str(error), error_type="internal")
 
         total_elapsed = time.time() - start_time
         if debug_timing:

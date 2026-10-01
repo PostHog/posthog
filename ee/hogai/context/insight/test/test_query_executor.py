@@ -322,7 +322,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("max execution time", str(context.exception))
+        self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
