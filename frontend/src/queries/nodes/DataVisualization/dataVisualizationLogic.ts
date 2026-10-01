@@ -16,11 +16,13 @@ import {
 import type { BreakPointFunction } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
+import posthog from 'posthog-js'
 
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { retryImport } from 'lib/utils/retryImport'
@@ -1977,6 +1979,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             try {
                 actions.setHogVm(await retryImport(() => import('lib/hog')))
             } catch (error) {
+                // A chunk that fails to load is a network or stale-deploy problem, not a bug to report.
+                if (!isChunkLoadError(error)) {
+                    posthog.captureException(error)
+                }
                 actions.setHogVmLoadError(error)
             }
         },

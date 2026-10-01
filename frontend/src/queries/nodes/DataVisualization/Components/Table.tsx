@@ -170,11 +170,6 @@ export const Table = (props: TableProps): JSX.Element => {
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
-    // Throw in render so an error boundary shows the failure, and a stale chunk reloads the page.
-    if (hogVmLoadError) {
-        throw hogVmLoadError
-    }
-
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
@@ -342,6 +337,16 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <>
+            {hogVmLoadError ? (
+                <LemonBanner
+                    type="warning"
+                    className="mb-2"
+                    action={{ children: 'Reload page', onClick: () => window.location.reload() }}
+                >
+                    Couldn't load conditional formatting, so cells show without their colors. Reload the page to try
+                    again.
+                </LemonBanner>
+            ) : null}
             {hasSortedTable && hasMoreData && (
                 <LemonBanner type="info" className="mb-2" dismissKey="data-visual">
                     Sorting only reorders the rows already loaded, not the full dataset.
