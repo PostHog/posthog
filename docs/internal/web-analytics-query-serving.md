@@ -205,3 +205,20 @@ Percentage series contain fractions: a value of `0.42` displays as `42.0%` in th
 The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
 Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
 The component does not activate the five-section dashboard or change its queries.
+
+## Marketing analytics suggestion
+
+The Sources table can show a dismissible Marketing analytics suggestion behind `web-analytics-marketing-cross-sell`.
+The gate precedes the query and connection loaders, so disabled users incur no additional requests.
+The Channel, UTM source and UTM campaign table views share the dashboard's Channels data node, including its date range, filters, test-account exclusion, comparison and query cache.
+Channel therefore adds no analytics request; a direct visit to a UTM table may load Channels once through the normal optimized query runner.
+The suggestion requires a recognized paid channel with visitors in the current period.
+Organic source names and comparison-only traffic do not qualify.
+This is positive evidence from the returned top channels, not an exhaustive census: paid traffic below the table limit or under an arbitrary custom channel name may not trigger the suggestion.
+
+Connection metadata loads only after that evidence exists, without mounting the Marketing analytics dashboard or running its report queries.
+An enabled native ad integration or an existing external source mapping leads to Marketing analytics; otherwise the link opens source setup when that interface is enabled, or the existing dashboard onboarding flow.
+Sync health remains the destination's responsibility, so a failed integration does not prompt a duplicate connection.
+Loading and failed metadata requests leave the suggestion hidden.
+The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
+Dismissal persists per project in the browser.

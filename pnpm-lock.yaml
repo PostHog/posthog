@@ -5276,6 +5276,9 @@ importers:
         specifier: '*'
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/query-selector-shadow-dom':
         specifier: 'catalog:'
         version: 1.0.0
