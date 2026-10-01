@@ -323,6 +323,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text="Set to True when org deletion has been initiated. Blocks all UI access until the async task completes.",
     )
+    deletion_scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the scheduled organization deletion will run.",
+    )
 
     ## Managed by Billing
     customer_id = models.CharField(max_length=200, null=True, blank=True)
@@ -359,6 +364,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
     objects: OrganizationManager = OrganizationManager()
 
     is_platform = models.BooleanField(default=False, null=True, blank=True)
+
+    def can_cancel_deletion(self, *, at: datetime | None = None) -> bool:
+        return bool(
+            self.is_pending_deletion
+            and self.deletion_scheduled_at
+            and self.deletion_scheduled_at > (at or timezone.now())
+        )
 
     def __str__(self):
         return self.name

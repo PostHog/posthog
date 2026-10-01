@@ -174,6 +174,20 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
+export const getCancelDeletionCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/cancel-deletion/`
+}
+
+/**
+ * Cancel a scheduled organization deletion and restore access to the organization.
+ */
+export const cancelDeletionCreate = async (id: string, options?: RequestInit): Promise<OrganizationApi> => {
+    return apiMutator<OrganizationApi>(getCancelDeletionCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getRemoveBlockedMembersAndEnforceVerifiedDomainsCreateUrl = (id: string) => {
     return `/api/organizations/${id}/remove_blocked_members_and_enforce_verified_domains/`
 }

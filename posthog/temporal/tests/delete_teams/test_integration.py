@@ -103,6 +103,7 @@ async def _execute(workflow, inputs) -> None:
 
 async def test_organization_workflow_deletes_real_rows():
     org_id, team_id = await sync_to_async(_bootstrap_tenant)()
+    await Organization.objects.filter(id=org_id).aupdate(is_pending_deletion=True)
 
     before = await sync_to_async(_tenant_state)(org_id, team_id)
     assert before == {"org": True, "team": True, "early_access_feature": True, "async_deletion": False}

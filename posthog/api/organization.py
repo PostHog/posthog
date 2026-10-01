@@ -1,11 +1,14 @@
 from collections.abc import Callable
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
+import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -31,6 +34,7 @@ from posthog.event_usage import (
     groups,
     report_organization_action,
     report_organization_deleted,
+    report_organization_deletion_canceled,
     report_organization_deletion_initiated,
 )
 from posthog.exceptions_capture import capture_exception
@@ -96,6 +100,7 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
+logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
@@ -175,6 +180,9 @@ class OrganizationSerializer(
     has_signed_baa = serializers.SerializerMethodField(
         help_text="Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed."
     )
+    can_cancel_deletion = serializers.SerializerMethodField(
+        help_text="Whether the scheduled deletion of this organization can still be canceled."
+    )
 
     class Meta:
         model = Organization
@@ -212,6 +220,8 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "deletion_scheduled_at",
+            "can_cancel_deletion",
             "uses_most_specific_access_resolution",
         ]
         read_only_fields = [
@@ -230,6 +240,8 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "deletion_scheduled_at",
+            "can_cancel_deletion",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
@@ -240,6 +252,9 @@ class OrganizationSerializer(
                 "required": False,
             },  # slug is not required here as it's generated automatically for new organizations
         }
+
+    def get_can_cancel_deletion(self, organization: Organization) -> bool:
+        return organization.can_cancel_deletion()
 
     def validate_name(self, value: str) -> str:
         return validate_display_name(value)
@@ -591,29 +606,104 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("This organization is already being deleted.")
 
         user = cast(User, self.request.user)
-        report_organization_deleted(user, organization)
-        report_organization_deletion_initiated(user, organization)
         teams = list(organization.teams.only("id", "name").all())
         team_ids = [team.pk for team in teams]
         project_names = [team.name for team in teams]
         organization_id = organization.pk
         organization_name = organization.name
 
-        # Mark as pending deletion
+        from posthog.temporal.delete_teams.dispatch import (
+            ORGANIZATION_DELETION_DELAY,
+            start_delete_organization_workflow,
+        )
+
+        # Mark as pending deletion so the UI locks the organization out until the workflow removes it.
+        deletion_scheduled_at = timezone.now() + ORGANIZATION_DELETION_DELAY
+        claimed = Organization.objects.filter(pk=organization_id, is_pending_deletion=False).update(
+            is_pending_deletion=True, deletion_scheduled_at=deletion_scheduled_at
+        )
+        if not claimed:
+            raise exceptions.ValidationError("This organization is already being deleted.")
         organization.is_pending_deletion = True
-        organization.save(update_fields=["is_pending_deletion"])
+        organization.deletion_scheduled_at = deletion_scheduled_at
 
         # Hand off all deletion work (bulky postgres, batch exports, org/team records,
-        # ClickHouse, email) to the durable Temporal workflow.
-        from posthog.temporal.delete_teams.dispatch import start_delete_organization_workflow
+        # ClickHouse, email) to the durable Temporal workflow. It waits out the recovery window first.
+        try:
+            start_delete_organization_workflow(
+                team_ids=team_ids,
+                organization_id=str(organization_id),
+                user_id=user.id,
+                organization_name=organization_name,
+                project_names=project_names,
+                start_delay=max(deletion_scheduled_at - timezone.now(), timedelta()),
+            )
+        except Exception:
+            Organization.objects.filter(pk=organization_id, deletion_scheduled_at=deletion_scheduled_at).update(
+                is_pending_deletion=False, deletion_scheduled_at=None
+            )
+            organization.is_pending_deletion = False
+            organization.deletion_scheduled_at = None
+            raise
 
-        start_delete_organization_workflow(
-            team_ids=team_ids,
-            organization_id=str(organization_id),
-            user_id=user.id,
-            organization_name=organization_name,
-            project_names=project_names,
+        report_organization_deleted(user, organization)
+        report_organization_deletion_initiated(user, organization)
+
+    @extend_schema(
+        description="Cancel a scheduled organization deletion and restore access to the organization.",
+        request=None,
+        responses={200: OrganizationSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="cancel-deletion", required_scopes=["organization:write"])
+    def cancel_deletion(self, request: Request, **kwargs) -> Response:
+        organization = self.organization
+        self.check_object_permissions(request, organization)
+        user = cast(User, request.user)
+
+        now = timezone.now()
+        if not organization.is_pending_deletion:
+            raise exceptions.ValidationError("This organization is not scheduled for deletion.")
+        if not organization.can_cancel_deletion(at=now):
+            raise exceptions.ValidationError("The deletion of this organization has already started.")
+
+        # Move the scheduled time to now first. This closes the window for a second cancel request,
+        # and the original time comes back if Temporal refuses the cancellation.
+        deletion_scheduled_at = organization.deletion_scheduled_at
+        claimed = Organization.objects.filter(
+            pk=organization.pk,
+            is_pending_deletion=True,
+            deletion_scheduled_at=deletion_scheduled_at,
+            deletion_scheduled_at__gt=now,
+        ).update(deletion_scheduled_at=now)
+        if not claimed:
+            raise exceptions.ValidationError(
+                "The deletion of this organization can no longer be canceled. Refresh the page to see its status."
+            )
+
+        from posthog.temporal.delete_teams.dispatch import cancel_delete_organization_workflow
+
+        try:
+            workflow_found = cancel_delete_organization_workflow(organization_id=str(organization.pk))
+        except Exception:
+            Organization.objects.filter(pk=organization.pk, is_pending_deletion=True, deletion_scheduled_at=now).update(
+                deletion_scheduled_at=deletion_scheduled_at
+            )
+            logger.exception(
+                "Failed to cancel the organization deletion workflow", organization_id=str(organization.pk)
+            )
+            report_organization_deletion_canceled(user, organization, outcome="failed")
+            raise exceptions.ValidationError("The organization deletion could not be canceled. Please try again.")
+
+        Organization.objects.filter(pk=organization.pk, is_pending_deletion=True, deletion_scheduled_at=now).update(
+            is_pending_deletion=False, deletion_scheduled_at=None
         )
+        organization.is_pending_deletion = False
+        organization.deletion_scheduled_at = None
+        report_organization_deletion_canceled(
+            user, organization, outcome="canceled" if workflow_found else "workflow_not_running"
+        )
+
+        return Response(OrganizationSerializer(organization, context=self.get_serializer_context()).data)
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {

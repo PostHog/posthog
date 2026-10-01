@@ -188,6 +188,18 @@ def _delete_organization_record(organization_id: str, user_id: int) -> None:
     report_organization_deletion_completed(user_id=user_id, organization_id=organization_id)
 
 
+def _is_organization_pending_deletion(organization_id: str) -> bool:
+    from posthog.models.organization import Organization
+
+    return Organization.objects.filter(pk=organization_id, is_pending_deletion=True).exists()
+
+
+@temporalio.activity.defn
+async def check_organization_pending_deletion_activity(inputs: OrganizationRecordInputs) -> bool:
+    async with Heartbeater():
+        return await database_sync_to_async_pool(_is_organization_pending_deletion)(inputs.organization_id)
+
+
 @temporalio.activity.defn
 async def delete_organization_record_activity(inputs: OrganizationRecordInputs) -> None:
     async with Heartbeater():

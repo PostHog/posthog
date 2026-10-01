@@ -130,6 +130,13 @@ export interface OrganizationApi {
      */
     readonly is_pending_deletion: boolean | null
     /**
+     * When the scheduled organization deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /** Whether the scheduled deletion of this organization can still be canceled. */
+    readonly can_cancel_deletion: boolean
+    /**
      * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
      * @nullable
      */
@@ -237,6 +244,13 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled organization deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
+    /** Whether the scheduled deletion of this organization can still be canceled. */
+    readonly can_cancel_deletion?: boolean
     /**
      * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
      * @nullable

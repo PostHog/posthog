@@ -738,7 +738,104 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
+        assert self.organization.deletion_scheduled_at is not None
+        self.assertAlmostEqual(
+            self.organization.deletion_scheduled_at, timezone.now() + timedelta(hours=48), delta=timedelta(minutes=1)
+        )
         mock_delete_task.assert_called_once()
+        self.assertAlmostEqual(
+            mock_delete_task.call_args.kwargs["start_delay"], timedelta(hours=48), delta=timedelta(minutes=1)
+        )
+
+    @patch(
+        "posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow",
+        side_effect=RuntimeError("temporal unavailable"),
+    )
+    def test_delete_organization_unlocks_when_workflow_does_not_start(self, mock_delete_task):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_pending_deletion)
+        self.assertIsNone(self.organization.deletion_scheduled_at)
+
+    def _schedule_deletion(
+        self, scheduled_in: timedelta, level: OrganizationMembership.Level = OrganizationMembership.Level.ADMIN
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        self.organization.is_pending_deletion = True
+        self.organization.deletion_scheduled_at = timezone.now() + scheduled_in
+        self.organization.save(update_fields=["is_pending_deletion", "deletion_scheduled_at"])
+
+    @parameterized.expand(
+        [("workflow_canceled", True, "canceled"), ("workflow_missing", False, "workflow_not_running")]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_organization_workflow")
+    def test_cancel_deletion_restores_organization(
+        self, _name, workflow_found, expected_outcome, mock_cancel, mock_capture
+    ):
+        mock_cancel.return_value = workflow_found
+        self._schedule_deletion(timedelta(hours=47))
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(response.json()["is_pending_deletion"])
+        self.assertFalse(response.json()["can_cancel_deletion"])
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.is_pending_deletion)
+        self.assertIsNone(self.organization.deletion_scheduled_at)
+        mock_cancel.assert_called_once_with(organization_id=str(self.organization.id))
+        canceled_events = [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "organization deletion canceled"
+        ]
+        self.assertEqual(len(canceled_events), 1)
+        self.assertEqual(canceled_events[0]["properties"]["outcome"], expected_outcome)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_organization_workflow")
+    def test_cancel_deletion_requires_admin(self, mock_cancel):
+        self._schedule_deletion(timedelta(hours=47), level=OrganizationMembership.Level.MEMBER)
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_cancel.assert_not_called()
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_organization_workflow")
+    def test_cancel_deletion_rejected_after_window_closes(self, mock_cancel):
+        self._schedule_deletion(-timedelta(minutes=1))
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_cancel.assert_not_called()
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+
+    @patch(
+        "posthog.temporal.delete_teams.dispatch.cancel_delete_organization_workflow",
+        side_effect=RuntimeError("temporal unavailable"),
+    )
+    def test_cancel_deletion_keeps_schedule_when_temporal_fails(self, mock_cancel):
+        self._schedule_deletion(timedelta(hours=47))
+        scheduled_at = self.organization.deletion_scheduled_at
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.is_pending_deletion)
+        self.assertEqual(self.organization.deletion_scheduled_at, scheduled_at)
 
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_preserves_memberships(self, mock_delete_task):
