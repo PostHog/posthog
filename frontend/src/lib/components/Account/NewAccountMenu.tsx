@@ -46,6 +46,8 @@ import { PendingInviteDot } from './ProjectMenu'
 import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
+const CREATE_BUTTON_CLASSES = 'normal-case tracking-normal text-xs whitespace-nowrap'
+
 interface AccountMenuProps {
     isLayoutNavCollapsed: boolean
 }
@@ -62,7 +64,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
@@ -132,21 +134,27 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                     <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
 
                     <Menu.Positioner className="z-[var(--z-popover)]" sideOffset={4}>
-                        <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px] w-full">
+                        {/* 260px is the narrowest width that keeps "Organization" and "New organization" on one line */}
+                        <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[260px] w-full">
                             <ScrollableShadows
                                 direction="vertical"
                                 styledScrollbars
                                 className="flex flex-col gap-px overflow-x-hidden"
                                 innerClassName="primitive-menu-content-inner p-1 "
                             >
-                                <Label intent="menu" className="pl-2 relative">
+                                <Label intent="menu" className="flex items-center justify-between gap-2 pl-2 pr-1">
                                     Project
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
-                                            iconOnly
-                                            tooltip="Create a new project"
                                             size="xs"
-                                            className="absolute -right-[2px] -top-[2px]"
+                                            className={CREATE_BUTTON_CLASSES}
+                                            disabledReasons={
+                                                projectCreationForbiddenReason
+                                                    ? { [projectCreationForbiddenReason]: true }
+                                                    : undefined
+                                            }
+                                            tooltipPlacement="right"
+                                            // Stable autocapture contract: name stays icon-button even though the control now carries a label
                                             data-attr="new-account-menu-create-project-icon-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
@@ -160,6 +168,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             }}
                                         >
                                             <IconPlusSmall className="text-tertiary size-4" />
+                                            New project
                                         </ButtonPrimitive>
                                     )}
                                 </Label>
@@ -244,14 +253,13 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     />
                                 )}
 
-                                <Label intent="menu" className="px-2 mt-2 relative">
+                                <Label intent="menu" className="flex items-center justify-between gap-2 pl-2 pr-1 mt-2">
                                     Organization
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
-                                            iconOnly
-                                            tooltip="Create a new organization"
                                             size="xs"
-                                            className="absolute right-0 -top-1 p-0"
+                                            className={CREATE_BUTTON_CLASSES}
+                                            // Stable autocapture contract: name stays icon-button even though the control now carries a label
                                             data-attr="new-account-menu-create-organization-icon-button"
                                             onClick={() => {
                                                 guardAvailableFeature(
@@ -265,6 +273,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             }}
                                         >
                                             <IconPlusSmall className="text-tertiary size-4" />
+                                            New organization
                                         </ButtonPrimitive>
                                     )}
                                 </Label>
