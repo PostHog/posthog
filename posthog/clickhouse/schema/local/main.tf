@@ -7,6 +7,8 @@ terraform {
   required_providers {
     clickhousedbops = {
       source = "PostHog/clickhousedbops"
+      # Keep equal to provider-version.txt, which bin/clickhouse-schema downloads.
+      version = "0.5.1"
     }
   }
 

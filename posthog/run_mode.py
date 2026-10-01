@@ -23,7 +23,7 @@ class RunMode(StrEnum):
         """A cloud environment backed by deployed infrastructure: US, EU, or staging.
 
         Excludes E2E, which runs against a local single-node stack. This is the
-        distinction `apply_clickhouse_schema` gates on.
+        distinction ClickHouse migrations gate on.
         """
         return self.is_prod_cloud or self is RunMode.CLOUD_DEV
 

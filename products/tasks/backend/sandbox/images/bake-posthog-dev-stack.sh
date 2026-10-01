@@ -266,7 +266,7 @@ export PERSONS_DB_WRITER_URL="${PERSONS_DB_WRITER_URL:-postgres://posthog:postho
 # shellcheck disable=SC1091
 source .venv/bin/activate
 # ClickHouse runs strictly after Postgres: bin/migrate parallelizes the two scopes when
-# both are requested, but on a fresh database apply_clickhouse_schema crashes until Postgres
+# both are requested, but on a fresh database migrate_clickhouse crashes until Postgres
 # migrations have created posthog_instancesetting (the same race bin/mprocs.yaml gates
 # with wait-for-postgres-tables).
 bin/migrate --scope=postgres --scope=persons

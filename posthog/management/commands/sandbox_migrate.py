@@ -1,11 +1,11 @@
 """Run all database migrations in a single Django process.
 
-Combines migrate, apply_persons_migrations, and apply_clickhouse_schema into one
+Combines migrate, apply_persons_migrations, and migrate_clickhouse into one
 command to avoid three separate Django cold starts (~15s each). Used by the
 sandbox entrypoint to speed up boot time.
 
-The steps run sequentially because apply_clickhouse_schema queries ClickHouse
-through sync_execute, which reads the Django posthog_instancesetting table,
+Migrations run sequentially because ClickHouse migrations call
+get_instance_setting() which queries the Django posthog_instancesetting table,
 so ClickHouse must run after Django.
 """
 
@@ -41,7 +41,7 @@ class Command(BaseCommand):
                 "persons",
                 lambda: call_command("apply_persons_migrations", "--ensure-database"),
             ),
-            ("ClickHouse", lambda: call_command("apply_clickhouse_schema")),
+            ("ClickHouse", lambda: call_command("migrate_clickhouse")),
         ]
 
         for name, fn in tasks:

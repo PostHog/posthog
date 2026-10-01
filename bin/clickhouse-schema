@@ -87,6 +87,11 @@ if [ "${1:-}" = "install" ]; then
     exit 0
 fi
 
+if ! grep -q "version = \"$PROVIDER_VERSION\"" "$ROOT_DIR/main.tf"; then
+    echo "clickhouse-schema: the provider version in local/main.tf does not match provider-version.txt ($PROVIDER_VERSION)" >&2
+    exit 1
+fi
+
 host="${CLICKHOUSE_HOST:-localhost}"
 database="${CLICKHOUSE_DATABASE:-default}"
 if [ "${CLICKHOUSE_SECURE:-false}" = "true" ] || [ "${CLICKHOUSE_SECURE:-}" = "1" ]; then
@@ -131,7 +136,8 @@ export TF_DATA_DIR="$STATE_DIR/.terraform"
 if [ -n "${CLICKHOUSE_SCHEMA_PROVIDER_SRC:-}" ]; then
     rm -f "$ROOT_DIR/.terraform.lock.hcl"
 fi
-"$TOFU" -chdir="$ROOT_DIR" init -input=false -no-color -reconfigure \
+# -upgrade replaces a lock file left by an earlier provider version, which the pinned version rejects.
+"$TOFU" -chdir="$ROOT_DIR" init -input=false -no-color -reconfigure -upgrade \
     -backend-config="path=$STATE_DIR/terraform.tfstate" >"$STATE_DIR/init.log" 2>&1 || {
     cat "$STATE_DIR/init.log" >&2
     exit 1

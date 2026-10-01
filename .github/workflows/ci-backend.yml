@@ -162,7 +162,7 @@ jobs:
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
-            # What the replay gate in check-migrations keys off. An
+            # What the replay gate in check-migrations keys off. A ClickHouse or
             # async-migration change does not pay for a replay of a history the Django
             # planner never sees.
             migration_replay: ${{ steps.filter.outputs.migration_replay || 'true' }}
@@ -414,12 +414,13 @@ jobs:
                         - '**/migrations/*.py'
                       # Django migration files in any app, plus the routing files that decide
                       # which app labels land in which database. Both change the plan a
-                      # from-scratch migrate builds. Match everything and exclude the one
-                      # non-Django directory, so a new app is covered without an edit here.
+                      # from-scratch migrate builds. Match everything and exclude the two
+                      # non-Django directories, so a new app is covered without an edit here.
                       # An app missed by a positive list would leave the replay gate silently
                       # off for it.
                       migration_replay:
                         - '**/migrations/*.py'
+                        - '!posthog/clickhouse/migrations/*.py'
                         - '!posthog/async_migrations/migrations/*.py'
                         - 'products/db_routing.yaml'
                         - 'posthog/product_db_config.py'
@@ -676,7 +677,7 @@ jobs:
                   # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/async_migrations/migrations/' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
                   PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
@@ -1753,7 +1754,7 @@ jobs:
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/async_migrations/migrations/' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
                   # Routing decides which app labels are in the dump, so these inputs belong in the key.
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
@@ -2101,7 +2102,7 @@ jobs:
                     "Blocked")       CONCLUSION=failure; TITLE="❌ Blocked migrations" ;;
                     "none"|"null")
                       # Zero Django migrations to analyze. Publish success so
-                      # PRs that touch only async/rbac migrations
+                      # PRs that touch only ClickHouse/async/rbac migrations
                       # (which the analyzer doesn't cover) don't leave
                       # consumers waiting on a check that would never come.
                       CONCLUSION=success
@@ -2118,7 +2119,7 @@ jobs:
                   # marker. Stamphog parses this to scope its deny-list bypass
                   # to exactly the files the analyzer classified — heuristics
                   # over directory names produce false bypasses for unrelated
-                  # systems (async migrations) that share the
+                  # systems (ClickHouse, async migrations) that share the
                   # `migrations/` directory naming.
                   ANALYZED_PATHS=$(jq -c '[.migrations[].file_path | select(. != null)]' migration_analysis.json 2>/dev/null || echo '[]')
                   MARKER="<!-- stamphog:v1 ${ANALYZED_PATHS} -->"
@@ -2225,7 +2226,7 @@ jobs:
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/async_migrations/migrations/' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
                   # Routing decides which app labels are in the dump, so these inputs belong in the key.
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)

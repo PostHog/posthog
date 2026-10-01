@@ -175,8 +175,8 @@ Reference implementation: `products/web_analytics/backend/hogql_queries/web_over
 
 Roughly:
 
-1. **Schema** — new CH table. ReplacingMergeTree with `(team_id, job_id, time_window_start)` ORDER BY, sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`.
-2. **Schema declaration** — declare the sharded table (`storage`) and its Distributed tables (`read`, `write`) in a module under `posthog/clickhouse/schema/modules/`. Tests build their database from the same modules. See `posthog/clickhouse/schema/README.md`.
+1. **Schema** — new CH table under `posthog/clickhouse/preaggregation/`. ReplacingMergeTree with `(team_id, job_id, time_window_start)` ORDER BY, sharded by `sipHash64(job_id)`, partitioned by `toYYYYMMDD(expires_at)`. Register in `posthog/clickhouse/schema.py` test fixtures.
+2. **Migration** — `posthog/clickhouse/migrations/0XXX_<name>.py`. Sharded + distributed CREATE on `NodeRole.DATA`.
 3. **HogQL table** — `posthog/hogql/database/schema/<name>.py`. Register in `posthog/hogql/database/database.py`.
 4. **`LazyComputationTable` enum** — add a value in `products/analytics_platform/backend/lazy_computation/lazy_computation_executor.py`.
 5. **Insert query** — HogQL template using `{time_window_min}`/`{time_window_max}` placeholders. Add a session-boundary pad if the query has session-level joins.

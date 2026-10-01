@@ -41,7 +41,7 @@ If it fails on `migrate-postgres`, check Docker port forwarding (see troubleshoo
 hogli migrations:run
 ```
 
-ClickHouse schema failures are fine — batch imports only need Postgres.
+ClickHouse migration failures are fine — batch imports only need Postgres.
 
 ## 3. Verify DB connectivity from the Django shell
 

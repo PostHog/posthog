@@ -16,12 +16,12 @@ from collections.abc import Sequence
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-# The metrics view reads metrics4 from this instant on; it must match the cutover in the view in
-# posthog/clickhouse/schema/modules/metrics/read.tf.
-METRICS4_CUTOVER = dt.datetime(2026, 9, 14, tzinfo=dt.UTC)
+from posthog.clickhouse.metrics.metrics2 import DEFAULT_RETENTION_DAYS
+from posthog.clickhouse.metrics.metrics4 import METRICS4_VIEW_CUTOVER
 
-# The TTL of the metrics tables, in posthog/clickhouse/schema/modules/metrics/storage.tf.
-METRICS_RETENTION = dt.timedelta(days=30)
+METRICS4_CUTOVER = dt.datetime.fromisoformat(METRICS4_VIEW_CUTOVER).replace(tzinfo=dt.UTC)
+
+METRICS_RETENTION = dt.timedelta(days=DEFAULT_RETENTION_DAYS)
 
 # Each point column of `metrics` maps to one array of `metric_samples`.
 _POINT_ARRAYS: dict[str, str] = {

@@ -120,7 +120,7 @@ jobs:
                         - 'rust/persons_migrations/**'
                         # ClickHouse UDF copied in integration test setup
                         - 'posthog/user_scripts/latest_user_defined_function.xml'
-                        # ClickHouse schema that apply_clickhouse_schema applies in integration test setup
+                        # ClickHouse schema that migrate_clickhouse applies in integration test setup
                         - 'posthog/clickhouse/schema/**'
                         - bin/clickhouse-schema
                         # Composite actions used by the workflow
@@ -148,8 +148,8 @@ jobs:
                         #    setup_test_environment.
                         #  - '*_test.py' only under products/*/backend, where it is the
                         #    colocated-test convention. Under posthog/ that suffix names
-                        #    production code this suite runs (UDF scripts copied
-                        #    into ClickHouse during setup).
+                        #    production code this suite runs (ClickHouse migrations, UDF
+                        #    scripts copied into ClickHouse during setup).
                         #  - per-tree prefixes, because an exclude is tested against every file
                         #    the filter sees, not just the include it sits next to: a bare
                         #    '!**/conftest.py' would also veto tools/hogli/tests/conftest.py,
@@ -566,7 +566,7 @@ jobs:
                   # Shared migration-set key. Must match ci-backend.yml's save-side computation byte for byte or it never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/async_migrations/migrations/' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
                   PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
@@ -641,7 +641,7 @@ jobs:
                   # this only applies migrations added by the PR (the django_migrations
                   # table from the dump tells Django which ones are already applied).
                   python manage.py migrate --noinput
-                  python manage.py apply_clickhouse_schema
+                  python manage.py migrate_clickhouse
 
             - name: Start Rust flags service
               working-directory: rust

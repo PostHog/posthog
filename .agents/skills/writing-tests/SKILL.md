@@ -176,8 +176,8 @@ Escalating to the next rung is the last resort, not the default.
   `time_machine.travel` patches the clock inside your process; everything outside it still runs on the real one — ClickHouse TTL, Postgres `now()` defaults, S3 lifecycle rules, another service's token-expiry check.
   So freezing to an absolute date and then writing rows that something judges by age builds a **time bomb**: green for weeks, then red forever once wall-clock time drifts past the retention window.
   It fails on every branch at once, so it reads as though whichever PR is in front of you caused it — and that misattribution, not the fix, is where the time goes.
-  ClickHouse tables are safe from their table TTL: the test database is built with table TTLs off (`ttl = !var.test` in [`posthog/clickhouse/schema/local/modules.tf`](../../../posthog/clickhouse/schema/local/modules.tf)).
-  A column TTL is still applied. Check rather than assume: `grep -rn 'ttl = "' posthog/clickhouse/schema/modules/`.
+  Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
+  A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
   Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
 - **Two writes in a row are not ordered in time.**
   Don't derive a cutoff from one write's recorded timestamp and expect the next write to land after it.

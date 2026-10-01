@@ -67,9 +67,9 @@ still rejects an intentionally cross-slot transaction.
 | --- | --- |
 | Kafka cluster | `warpstream-shared` |
 | Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
-| ClickHouse Kafka table and MV | `ingest` component of `billing_usage_records`, on the small ingestion nodes |
-| ClickHouse storage table | `storage` component, on the aux cluster |
-| ClickHouse read table | `read` component, on the main cluster |
+| ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
+| ClickHouse storage table | `NodeRole.AUX` |
+| ClickHouse read table | `NodeRole.DATA` |
 | Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 
@@ -310,7 +310,7 @@ so run it from Cargo instead:
 
 ```sh
 docker compose -f docker-compose.dev.yml up -d db redis7 kafka clickhouse
-DEBUG=1 python manage.py apply_clickhouse_schema
+DEBUG=1 python manage.py migrate_clickhouse
 cd rust && USAGE_INGESTION_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog \\
   cargo run -p usage-ingestion
 ```

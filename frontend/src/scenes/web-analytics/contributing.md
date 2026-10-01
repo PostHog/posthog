@@ -117,11 +117,11 @@ Captured at session start and persisted for the session lifetime:
 
 ### Implementation details
 
-The table declarations and materialized view logic are in:
+The table definitions and materialized view logic are in:
 
-- [posthog/models/raw_sessions/sessions_v3.py](../../../../posthog/models/raw_sessions/sessions_v3.py) - Materialized view and backfill queries
+- [posthog/models/raw_sessions/sessions_v3.py](../../../../posthog/models/raw_sessions/sessions_v3.py) - SQL table definitions and materialized view queries
 - [posthog/hogql/database/schema/sessions_v3.py](../../../../posthog/hogql/database/schema/sessions_v3.py) - HogQL schema that exposes sessions table to queries
-- [posthog/clickhouse/schema/modules/raw_sessions/](../../../../posthog/clickhouse/schema/modules/raw_sessions/) - Terraform declaration of the `raw_sessions_v3` tables
+- [posthog/clickhouse/migrations/](../../../../posthog/clickhouse/migrations/) - Search for `sessions_v3` to find related migrations
 
 ## What is HogQL?
 

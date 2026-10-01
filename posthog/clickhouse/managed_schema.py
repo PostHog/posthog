@@ -46,6 +46,19 @@ class ClickHouseDatabase:
 
     def apply_schema(self, *, kafka: bool) -> None:
         """Creates every object the schema declares that the database does not have yet."""
+        result = self._run_schema_tool("apply", kafka=kafka)
+        if result.returncode != 0:
+            raise RuntimeError(f"bin/clickhouse-schema apply failed:\n{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
+
+    def plan_schema(self, *, kafka: bool) -> tuple[bool, str]:
+        """Whether the database differs from the declared schema, and the plan that shows how."""
+        result = self._run_schema_tool("plan", "-detailed-exitcode", kafka=kafka)
+        # -detailed-exitcode: 0 means no changes, 2 means changes, anything else is an error.
+        if result.returncode not in (0, 2):
+            raise RuntimeError(f"bin/clickhouse-schema plan failed:\n{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
+        return result.returncode == 2, result.stdout
+
+    def _run_schema_tool(self, *args: str, kafka: bool) -> subprocess.CompletedProcess[str]:
         env = {
             **os.environ,
             "CLICKHOUSE_HOST": settings.CLICKHOUSE_HOST,
@@ -59,14 +72,12 @@ class ClickHouseDatabase:
         if settings.TEST and not settings.IN_EVAL_TESTING:
             # Fixture DROP statements can still own paths after the next pytest process starts.
             env["TF_VAR_keeper_path"] = f"/clickhouse/test/{self.name}/{uuid4().hex}/{{table}}"
-        result = subprocess.run(
-            [str(REPO_ROOT / "bin" / "clickhouse-schema"), "apply", "-no-color"],
+        return subprocess.run(
+            [str(REPO_ROOT / "bin" / "clickhouse-schema"), *args, "-no-color"],
             env=env,
             capture_output=True,
             text=True,
         )
-        if result.returncode != 0:
-            raise RuntimeError(f"bin/clickhouse-schema apply failed:\n{result.stdout[-4000:]}\n{result.stderr[-4000:]}")
 
     def create_test_tables(self, *, kafka: bool) -> None:
         # Fixtures can replace tables and their Keeper paths. Restore the initial schema rather

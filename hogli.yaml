@@ -687,14 +687,9 @@ migrations:
             DEBUG: '1'
         services:
             - clickhouse
-    clickhouse:schema:plan:
-        cmd: bin/clickhouse-schema plan
-        description: Show the statements that would bring ClickHouse to the declared schema
-        services:
-            - clickhouse
-    clickhouse:schema:apply:
-        cmd: bin/clickhouse-schema apply
-        description: Create or update the ClickHouse objects so that they match the declared schema
+    clickhouse:schema:
+        bin_script: clickhouse-schema
+        description: Plan or apply the declared ClickHouse schema (`hogli clickhouse:schema plan`)
         services:
             - clickhouse
     migrations:check:
@@ -1288,8 +1283,4 @@ environment:
     rasterize:recording:file:
         bin_script: rasterize-recording-file
         description: 'Render a recording JSONL file to video with the rasterizer'
-        hidden: true
-    clickhouse:schema:
-        bin_script: clickhouse-schema
-        description: 'TODO: add description for clickhouse-schema'
         hidden: true

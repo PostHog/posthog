@@ -27,7 +27,6 @@ from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
-# Declared in posthog/clickhouse/schema/modules/platform_alert_events.
 PLATFORM_ALERT_EVENTS_TABLE = "platform_alert_events"
 
 

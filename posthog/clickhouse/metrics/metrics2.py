@@ -4,6 +4,8 @@ from posthog.clickhouse.kafka_engine import kafka_engine, kafka_num_consumers
 
 from .kafka_metrics import KAFKA_NAMED_COLLECTION, KAFKA_TOPIC
 
+DEFAULT_RETENTION_DAYS = 30
+
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE

@@ -423,8 +423,8 @@ which carries two origin allowlists and an optional default image:
 
 #### The prebaked dev-stack image
 
-`hogli start` on a fresh VM pays for multi-gigabyte docker pulls, the full Django + persons
-migration history and the ClickHouse schema apply — and dead-ends anyway, because the lean VM base lacks the dev
+`hogli start` on a fresh VM pays for multi-gigabyte docker pulls and the full Django + persons +
+ClickHouse migration history — and dead-ends anyway, because the lean VM base lacks the dev
 toolchain flox provides on dev machines (brotli, phrocs, Go, Rust). For runs on the PostHog
 monorepo we bake all of that ahead of time:
 the `bake-dev-stack-image` Temporal workflow boots a plain VM-base sandbox,

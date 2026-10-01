@@ -102,8 +102,7 @@ EMBEDDING_MODELS_1 = [
 # - Add the new models to a new list like the one above
 # - Create a new list like EMBEDDING_TABLES_1
 # - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
-# - Declare the tables and the materialized view of each new model in
-#   posthog/clickhouse/schema/modules/document_embeddings
+# - Declare the tables and the materialized view of each new model in the ClickHouse schema
 
 
 class ModelTableDefinitions:

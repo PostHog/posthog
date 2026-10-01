@@ -20,9 +20,6 @@ doesn't distort it):
 | `up-web`             | 2s       | create the web container                                                                         |
 | web `/_health`       | **117s** | Workers import `posthog.wsgi`, then serve                                                        |
 
-> The `migrate_clickhouse` rows predate the Terraform ClickHouse schema. That phase now runs
-> `manage.py apply_clickhouse_schema` and has not been re-measured.
->
 > Numbers predate temporal. `up-deps` now also starts `temporal` and `up-web`
 > also recreates `temporal-django-worker` (needed so the worker runs the PR's
 > code, not `:master`). Both are `up -d` calls that return immediately; the
