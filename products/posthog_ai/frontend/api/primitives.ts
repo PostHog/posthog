@@ -80,8 +80,6 @@ export { RunAlertActivity } from '../components/RunAlertActivity'
 export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
 export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 export { TaskListItem } from '../components/navigation/TaskListItem'
-export { getOriginProductMeta } from '../components/taskSourceMeta'
-export type { OriginProductMeta } from '../components/taskSourceMeta'
 export { TaskAssigneeFilterMenu } from '../components/navigation/TaskAssigneeFilterMenu'
 
 // Debug-logs overflow menu for hosts with no scene chrome (the PostHog AI scene and side panel).

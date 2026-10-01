@@ -29,7 +29,7 @@ import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
-import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/primitives'
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'

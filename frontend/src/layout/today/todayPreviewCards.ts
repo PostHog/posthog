@@ -1,4 +1,4 @@
-import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/primitives'
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
