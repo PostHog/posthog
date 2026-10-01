@@ -693,7 +693,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             },
         ],
         // Drops merge-queue gate attempts, whose head SHAs the author never pushed. Mirrors the
-        // backend's `runs_by_pr` rollup, so push counts agree between the PR list and this page.
+        // backend's push-activity query (`pull_request_list.py`), so push counts agree between the PR list and this page.
         authoredRuns: [
             (s) => [s.prRuns],
             (prRuns: WorkflowRunDetailApi[]): WorkflowRunDetailApi[] => prRuns.filter((run) => !run.is_merge_queue),
