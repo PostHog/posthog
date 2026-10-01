@@ -32,9 +32,13 @@ const statusTag = (proposal: ContentAutopilotProposalListApi): JSX.Element => {
 const pagePath = (proposal: ContentAutopilotProposalListApi): string =>
     proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : ''
 
-export const ContentAutopilotDrafts = (): JSX.Element => {
-    const { reviewQueue } = useValues(contentAutopilotLogic)
+export const ContentAutopilotDrafts = (): JSX.Element | null => {
+    const { reviewQueue, workspaceErrors } = useValues(contentAutopilotLogic)
     const { selectProposal, setWorkspaceTab } = useActions(contentAutopilotLogic)
+
+    if (reviewQueue.length === 0 && workspaceErrors.proposals) {
+        return null
+    }
 
     if (reviewQueue.length === 0) {
         return (

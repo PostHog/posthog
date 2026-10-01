@@ -141,7 +141,11 @@ export const ContentAutopilot = (): JSX.Element => {
                                     action={
                                         workspaceTab === 'drafts'
                                             ? undefined
-                                            : { children: 'View drafts', onClick: () => setWorkspaceTab('drafts') }
+                                            : {
+                                                  children: 'View drafts',
+                                                  onClick: () => setWorkspaceTab('drafts'),
+                                                  'data-attr': 'content-autopilot-view-failed-drafts',
+                                              }
                                     }
                                 >
                                     {pluralize(failedDraftCount, 'draft')} from the latest run didn't pass. Open a draft
