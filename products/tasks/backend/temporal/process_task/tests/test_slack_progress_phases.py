@@ -34,7 +34,52 @@ def _codex_mcp(server: str, tool: str, raw_input: dict[str, Any] | None = None) 
 class TestPhaseForToolCall:
     @parameterized.expand(
         [
-            ("posthog_sql", _claude("mcp__posthog__exec", {"command": "call execute-sql {}"}), "posthog_data"),
+            (
+                "sql_on_events",
+                _claude("mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT count() FROM events"}'}),
+                "posthog_events",
+            ),
+            (
+                "sql_schema_on_a_new_line",
+                _claude(
+                    "mcp__posthog__exec",
+                    {"command": 'call execute-sql {"query": "SELECT name\\nFROM system.information_schema.tables"}'},
+                ),
+                "posthog_schema",
+            ),
+            (
+                "sql_first_table_wins",
+                _claude(
+                    "mcp__posthog__exec",
+                    {"command": 'call execute-sql {"query": "SELECT 1 FROM persons JOIN events ON 1"}'},
+                ),
+                "posthog_people",
+            ),
+            (
+                "sql_system_object",
+                _claude(
+                    "mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT * FROM system.insights"}'}
+                ),
+                "posthog_dashboards",
+            ),
+            (
+                "sql_warehouse_table",
+                _claude(
+                    "mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT * FROM stripe_invoices"}'}
+                ),
+                "posthog_warehouse",
+            ),
+            (
+                "direct_sql_tool",
+                _claude("mcp__posthog__execute-sql", {"query": "SELECT 1 FROM sessions"}),
+                "posthog_sessions",
+            ),
+            ("schema_tool", _claude("mcp__posthog__exec", {"command": "call read-data-schema {}"}), "posthog_schema"),
+            (
+                "unknown_posthog_tool",
+                _claude("mcp__posthog__exec", {"command": "call annotation-list {}"}),
+                "posthog_other",
+            ),
             (
                 "posthog_errors",
                 _claude("mcp__posthog__exec", {"command": "call error-tracking-issues-list {}"}),
@@ -83,11 +128,12 @@ class TestPhaseForToolCall:
         [
             ("shell", _claude("Bash", {}, kind="execute")),
             ("posthog_exec", _claude("mcp__posthog__exec", {})),
+            ("direct_sql_tool", _claude("mcp__posthog__execute-sql", {})),
         ]
     )
     def test_call_waits_for_its_command(self, _name: str, update: dict[str, Any]) -> None:
         # Claude streams the call before its input. Classifying it then would file every test run
-        # under "Running commands" and every PostHog call under the generic data line.
+        # under "Running commands" and every PostHog query on the wrong line.
         assert tool_call_from_acp_update(update) is None
 
     @parameterized.expand(
@@ -112,29 +158,6 @@ class TestPhaseForToolCall:
 
         assert tool_call is not None
         assert tool_call.description == expected
-
-    @parameterized.expand(
-        [
-            (
-                "events",
-                'call execute-sql {"query": "SELECT count() FROM events WHERE event = \'$pageview\'"}',
-                "Querying events",
-            ),
-            (
-                "schema_on_a_new_line",
-                'call execute-sql {"query": "SELECT name\\nFROM system.information_schema.tables"}',
-                "Checking what data exists",
-            ),
-            ("people_join", 'call execute-sql {"query": "SELECT 1 FROM x JOIN persons ON 1"}', "Querying people"),
-            ("unknown_table", 'call execute-sql {"query": "SELECT 1"}', "Running a query"),
-            ("other_tool", 'call dashboard-get {"id": 1}', None),
-        ]
-    )
-    def test_labels_what_a_posthog_query_reads(self, _name: str, command: str, expected: str | None) -> None:
-        tool_call = tool_call_from_acp_update(_claude("mcp__posthog__exec", {"command": command}))
-
-        assert tool_call is not None
-        assert tool_call.hint == expected
 
 
 class TestIntentFromNarrative:

@@ -3,9 +3,11 @@
 The plan shows one line per kind of work, never tool names or tool arguments. A tool call
 maps to a phase here, and the relay counts calls per phase for the line's title.
 
-While a line is open it can also say what runs now, from the first of these that exists:
-the description Claude writes for a shell command, the last sentence the agent wrote
-before the call, or a fixed label for what a PostHog SQL query reads.
+PostHog work gets one line per product, and a SQL query goes on the line for the table it
+reads first, so a data question shows "Querying events" rather than one line for all of it.
+
+While a line is open it can also say what runs now: the description Claude writes for a
+shell command, else the last sentence the agent wrote before the call.
 """
 
 import re
@@ -25,7 +27,13 @@ class ProgressPhase:
 
 _LOOKUPS = ("lookup", "lookups")
 
-POSTHOG_DATA = ProgressPhase(key="posthog_data", title="Looking at PostHog data", counter=("query", "queries"))
+_QUERIES = ("query", "queries")
+
+POSTHOG_EVENTS = ProgressPhase(key="posthog_events", title="Querying events", counter=_QUERIES)
+POSTHOG_SESSIONS = ProgressPhase(key="posthog_sessions", title="Querying sessions", counter=_QUERIES)
+POSTHOG_PEOPLE = ProgressPhase(key="posthog_people", title="Looking up people and cohorts", counter=_LOOKUPS)
+POSTHOG_SCHEMA = ProgressPhase(key="posthog_schema", title="Checking what data exists", counter=_LOOKUPS)
+POSTHOG_WEB = ProgressPhase(key="posthog_web", title="Checking web analytics", counter=_LOOKUPS)
 POSTHOG_DASHBOARDS = ProgressPhase(key="posthog_dashboards", title="Checking dashboards and insights", counter=_LOOKUPS)
 POSTHOG_ERRORS = ProgressPhase(key="posthog_errors", title="Checking error tracking", counter=_LOOKUPS)
 POSTHOG_REPLAYS = ProgressPhase(key="posthog_replays", title="Checking session recordings", counter=_LOOKUPS)
@@ -34,6 +42,8 @@ POSTHOG_LOGS = ProgressPhase(key="posthog_logs", title="Checking logs and traces
 POSTHOG_AI = ProgressPhase(key="posthog_ai", title="Checking AI observability", counter=_LOOKUPS)
 POSTHOG_SURVEYS = ProgressPhase(key="posthog_surveys", title="Checking surveys", counter=_LOOKUPS)
 POSTHOG_WAREHOUSE = ProgressPhase(key="posthog_warehouse", title="Checking the data warehouse", counter=_LOOKUPS)
+# For a PostHog tool no product line covers yet. Add a line above when one shows up often.
+POSTHOG_OTHER = ProgressPhase(key="posthog_other", title="Checking PostHog", counter=_LOOKUPS)
 GETTING_CODE = ProgressPhase(key="getting_code", title="Getting the code", counter=None)
 READING_CODE = ProgressPhase(key="reading_code", title="Reading the code", counter=_LOOKUPS)
 SEARCHING_WEB = ProgressPhase(key="searching_web", title="Searching the web", counter=_LOOKUPS)
@@ -48,7 +58,11 @@ OTHER_WORK = ProgressPhase(key="other_work", title="Other work", counter=("step"
 PHASES: dict[str, ProgressPhase] = {
     phase.key: phase
     for phase in (
-        POSTHOG_DATA,
+        POSTHOG_EVENTS,
+        POSTHOG_SESSIONS,
+        POSTHOG_PEOPLE,
+        POSTHOG_SCHEMA,
+        POSTHOG_WEB,
         POSTHOG_DASHBOARDS,
         POSTHOG_ERRORS,
         POSTHOG_REPLAYS,
@@ -57,6 +71,7 @@ PHASES: dict[str, ProgressPhase] = {
         POSTHOG_AI,
         POSTHOG_SURVEYS,
         POSTHOG_WAREHOUSE,
+        POSTHOG_OTHER,
         GETTING_CODE,
         READING_CODE,
         SEARCHING_WEB,
@@ -139,7 +154,18 @@ _POSTHOG_TOOL_PREFIXES: tuple[tuple[str, ProgressPhase], ...] = (
     ("data-modeling", POSTHOG_WAREHOUSE),
     ("data-quality", POSTHOG_WAREHOUSE),
     ("batch-export", POSTHOG_WAREHOUSE),
+    ("persons", POSTHOG_PEOPLE),
+    ("cohort", POSTHOG_PEOPLE),
+    ("group", POSTHOG_PEOPLE),
+    ("read-data-schema", POSTHOG_SCHEMA),
+    ("event-definition", POSTHOG_SCHEMA),
+    ("property-definition", POSTHOG_SCHEMA),
+    ("action", POSTHOG_SCHEMA),
+    ("web-analytics", POSTHOG_WEB),
+    ("heatmap", POSTHOG_WEB),
+    ("query-", POSTHOG_EVENTS),
 )
+_POSTHOG_SQL_TOOL = "execute-sql"
 
 _PR_COMMAND = re.compile(r"\b(gh\s+pr\s+(create|edit|ready)|git\s+(commit|push))\b")
 _CHECK_COMMAND = re.compile(
@@ -156,18 +182,31 @@ _MIN_INTENT_LENGTH = 8
 
 _SQL_ESCAPED_WHITESPACE = re.compile(r"\\[ntr]")
 _SQL_TABLE = re.compile(r"\b(?:from|join)\s+([a-z_][\w.]*)")
-_SCHEMA_TOOLS = frozenset({"read-data-schema"})
-# What a query reads decides its label. First match wins.
-_SQL_TABLE_LABELS: tuple[tuple[str, str], ...] = (
-    ("system.", "Checking what data exists"),
-    ("information_schema", "Checking what data exists"),
-    ("events", "Querying events"),
-    ("persons", "Querying people"),
-    ("person", "Querying people"),
-    ("sessions", "Querying sessions"),
-    ("groups", "Querying groups"),
+# The first table a query reads decides its line. A table no entry names is a warehouse table.
+_SQL_TABLES: dict[str, ProgressPhase] = {
+    "events": POSTHOG_EVENTS,
+    "sessions": POSTHOG_SESSIONS,
+    "raw_sessions": POSTHOG_SESSIONS,
+    "persons": POSTHOG_PEOPLE,
+    "person": POSTHOG_PEOPLE,
+    "person_distinct_ids": POSTHOG_PEOPLE,
+    "groups": POSTHOG_PEOPLE,
+    "cohort_people": POSTHOG_PEOPLE,
+    "logs": POSTHOG_LOGS,
+}
+# PostHog objects the agent reads through `system.*` tables. First match wins.
+_SQL_SYSTEM_TABLE_PREFIXES: tuple[tuple[str, ProgressPhase], ...] = (
+    ("system.information_schema", POSTHOG_SCHEMA),
+    ("system.insight", POSTHOG_DASHBOARDS),
+    ("system.dashboard", POSTHOG_DASHBOARDS),
+    ("system.notebook", POSTHOG_DASHBOARDS),
+    ("system.feature_flag", POSTHOG_FLAGS),
+    ("system.experiment", POSTHOG_FLAGS),
+    ("system.survey", POSTHOG_SURVEYS),
+    ("system.cohort", POSTHOG_PEOPLE),
+    ("system.", POSTHOG_SCHEMA),
+    ("information_schema", POSTHOG_SCHEMA),
 )
-_SQL_DEFAULT_LABEL = "Running a query"
 
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 _OBJECT_TAG = re.compile(r"<[^>]*>")
@@ -188,8 +227,8 @@ class ToolCall:
     command: str | None
     # The plain-language description the agent gave a shell command, when it gave one.
     description: str | None = None
-    # A fixed label for what the call reads, used when the agent wrote nothing about it.
-    hint: str | None = None
+    # The SQL a PostHog query runs. What it reads decides the line.
+    sql: str | None = None
 
 
 def _phase_for_command(command: str) -> ProgressPhase:
@@ -214,11 +253,24 @@ def _posthog_tool_name(tool_name: str, command: str | None) -> str | None:
     return ""
 
 
-def _phase_for_posthog_tool(tool_name: str) -> ProgressPhase:
+def _phase_for_sql(sql: str) -> ProgressPhase:
+    tables = _SQL_TABLE.findall(_SQL_ESCAPED_WHITESPACE.sub(" ", sql).lower())
+    if not tables:
+        return POSTHOG_OTHER
+    table = tables[0]
+    for prefix, phase in _SQL_SYSTEM_TABLE_PREFIXES:
+        if table.startswith(prefix):
+            return phase
+    return _SQL_TABLES.get(table, POSTHOG_WAREHOUSE)
+
+
+def _phase_for_posthog_tool(tool_name: str, sql: str | None) -> ProgressPhase:
+    if tool_name == _POSTHOG_SQL_TOOL:
+        return _phase_for_sql(sql or "")
     for prefix, phase in _POSTHOG_TOOL_PREFIXES:
         if tool_name.startswith(prefix):
             return phase
-    return POSTHOG_DATA
+    return POSTHOG_OTHER
 
 
 def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
@@ -237,7 +289,7 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
     for prefix in _POSTHOG_MCP_PREFIXES:
         if name.startswith(prefix):
             posthog_tool = _posthog_tool_name(name.removeprefix(prefix), call.command)
-            return _phase_for_posthog_tool(posthog_tool) if posthog_tool is not None else None
+            return _phase_for_posthog_tool(posthog_tool, call.sql) if posthog_tool is not None else None
     if name in _WEB_TOOL_NAMES or call.kind == "fetch":
         return SEARCHING_WEB
     if name in _EDIT_TOOL_NAMES or call.kind == "edit":
@@ -251,7 +303,7 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
 
 
 def phase_line_title(phase: ProgressPhase, count: int, activity: str | None = None) -> str:
-    """The plan line for a phase, such as "Looking at PostHog data (7 queries)".
+    """The plan line for a phase, such as "Querying events (7 queries)".
 
     ``activity`` replaces the counter while the line is open, so the reader sees what runs now.
     The line carries everything in its title because Slack replaces a step's title on each
@@ -295,28 +347,15 @@ def intent_from_narrative(text: str) -> str | None:
     return _short_activity(sentence[0].upper() + sentence[1:])
 
 
-def _sql_hint(query: str) -> str:
-    tables = _SQL_TABLE.findall(_SQL_ESCAPED_WHITESPACE.sub(" ", query).lower())
-    for prefix, label in _SQL_TABLE_LABELS:
-        if any(table.startswith(prefix) for table in tables):
-            return label
-    return _SQL_DEFAULT_LABEL
-
-
-def _posthog_hint(name: str, command: str | None, raw_input: dict[str, Any]) -> str | None:
-    """A fixed label for a PostHog SQL or schema call. Other PostHog tools get none."""
+def _posthog_sql(name: str, command: str | None, raw_input: dict[str, Any]) -> str | None:
+    """The SQL of a PostHog SQL call, or None for any other call."""
     for prefix in _POSTHOG_MCP_PREFIXES:
         if name.startswith(prefix):
-            tool = _posthog_tool_name(name.removeprefix(prefix), command)
-            break
-    else:
-        return None
-    if tool in _SCHEMA_TOOLS:
-        return _SQL_TABLE_LABELS[0][1]
-    if tool != "execute-sql":
-        return None
-    query = raw_input.get("query")
-    return _sql_hint(query if isinstance(query, str) else command or "")
+            if _posthog_tool_name(name.removeprefix(prefix), command) != _POSTHOG_SQL_TOOL:
+                return None
+            query = raw_input.get("query")
+            return query if isinstance(query, str) and query else command
+    return None
 
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
@@ -335,8 +374,8 @@ def _short_activity(description: Any) -> str | None:
 def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     """Read the tool name, kind, command and description from an ACP ``tool_call``/``tool_call_update``.
 
-    Returns None while a Claude shell or PostHog call has no command yet: Claude streams the
-    call with an empty ``rawInput`` first, and the command decides the phase.
+    Returns None while a Claude shell, PostHog or SQL call has no input yet: Claude streams the
+    call with an empty ``rawInput`` first, and the input decides the phase.
     """
     meta = _dict_or_empty(update.get("_meta"))
     claude_tool_name = _dict_or_empty(meta.get("claudeCode")).get("toolName")
@@ -364,5 +403,7 @@ def tool_call_from_acp_update(update: dict[str, Any]) -> ToolCall | None:
     # Only Claude's shell tool writes its description for people. A description argument on
     # other tools is content, such as the text of a dashboard the agent creates.
     description = _short_activity(raw_input.get("description")) if lowered == "bash" else None
-    hint = _posthog_hint(lowered, command, raw_input)
-    return ToolCall(name=name, kind=kind, command=command, description=description, hint=hint)
+    sql = _posthog_sql(lowered, command, raw_input)
+    if sql is None and lowered.endswith(_POSTHOG_SQL_TOOL):
+        return None
+    return ToolCall(name=name, kind=kind, command=command, description=description, sql=sql)

@@ -93,10 +93,10 @@ class TestSlackAgentDesignSignalEmitter:
                 {"phase": "running_checks", "activity": "Run the tests"},
             ),
             (
-                "posthog_query_label",
+                "posthog_query",
                 "mcp__posthog__exec",
                 {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
-                {"phase": "posthog_data", "hint": "Querying events"},
+                {"phase": "posthog_events"},
             ),
         ]
     )

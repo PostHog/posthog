@@ -107,19 +107,19 @@ class TestSlackAgentDesignRelay:
         calls = await _run_relay(
             [
                 ("agent_text_delta", "Let me look at the data."),
-                ("agent_status_update", {"phase": "posthog_data"}),
-                ("agent_status_update", {"phase": "posthog_data"}),
+                ("agent_status_update", {"phase": "posthog_events"}),
+                ("agent_status_update", {"phase": "posthog_events"}),
                 ("agent_status_update", {"phase": "reading_code", "activity": "Search for callers"}),
                 ("agent_text_delta", "Now I need to look into this."),
-                ("agent_status_update", {"phase": "posthog_data"}),
+                ("agent_status_update", {"phase": "posthog_events"}),
                 ("agent_status_update", {"phase": "making_changes"}),
                 ("agent_text_delta", "Signups grew."),
             ]
         )
 
         assert sorted(calls.final_lines().values()) == [
-            ("Looking at PostHog data (3 queries)", None, "complete"),
             ("Making changes (1 edit)", None, "complete"),
+            ("Querying events (3 queries)", None, "complete"),
             ("Reading the code (1 lookup)", None, "complete"),
         ]
         assert calls.answer() == "Signups grew."
@@ -129,7 +129,7 @@ class TestSlackAgentDesignRelay:
         open_titles = [c.title for c in sent if c.status == "in_progress"]
         assert "Reading the code: Search for callers" in open_titles
         # With no shell description, the agent's own last sentence says what the call is for.
-        assert "Looking at PostHog data: Look into this" in open_titles
+        assert "Querying events: Look into this" in open_titles
         # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
         assert all(chunk.details is None for chunk in sent)
         assert all(stop.complete_task_details is None for stop in calls.stops)
@@ -146,7 +146,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.timeout(60, func_only=True)
     async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]]) -> None:
         calls = await _run_relay(
-            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog_data"}), *tail]
+            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog_events"}), *tail]
         )
 
         assert calls.answer() == "Answer."
@@ -154,7 +154,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.parametrize(
         "signals, expected_line",
         [
-            ([("agent_status_update", {"phase": "posthog_data"})], "Looking at PostHog data (1 query)"),
+            ([("agent_status_update", {"phase": "posthog_events"})], "Querying events (1 query)"),
             ([("agent_text_delta", "Hi! What should I look at?")], "Writing the answer"),
         ],
         ids=["first_work_line", "answer_without_tools"],
@@ -183,7 +183,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.timeout(60, func_only=True)
     async def test_phases_past_the_line_limit_fold_into_other_work(self) -> None:
         keys = [
-            "posthog_data",
+            "posthog_events",
             "posthog_dashboards",
             "posthog_errors",
             "posthog_replays",
