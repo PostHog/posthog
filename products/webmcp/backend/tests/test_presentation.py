@@ -3,8 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
@@ -20,7 +22,7 @@ class TestWebMCPViewSet(APIBaseTest):
         patcher = patch(
             "products.webmcp.backend.logic.tokens.get_or_create_cimd_application", return_value=create_webmcp_app()
         )
-        patcher.start()
+        self.get_cimd_application = patcher.start()
         self.addCleanup(patcher.stop)
 
     def test_exec_forwards_the_command_and_returns_the_tool_result(self, mock_post: MagicMock) -> None:
@@ -49,6 +51,25 @@ class TestWebMCPViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert response.json()["detail"] == "Header mismatch"
+
+    @parameterized.expand(
+        [
+            ("cimd_fetch_failed", CIMDFetchError("timed out"), "https://mcp.example.com/mcp"),
+            ("cimd_invalid", CIMDValidationError("missing redirect_uris"), "https://mcp.example.com/mcp"),
+            ("plain_http_url", None, "http://mcp.example.com/mcp"),
+        ]
+    )
+    def test_exec_reports_an_unusable_setup_as_bad_gateway(
+        self, mock_post: MagicMock, _name: str, cimd_error: Exception | None, url: str
+    ) -> None:
+        if cimd_error is not None:
+            self.get_cimd_application.side_effect = cimd_error
+
+        with override_settings(MCP_SERVER_URL=url):
+            response = self.client.post(f"/api/projects/{self.team.id}/webmcp/exec/", {"command": "tools"})
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        mock_post.assert_not_called()
 
     def test_exec_rejects_an_impersonated_session(self, mock_post: MagicMock) -> None:
         with patch("products.webmcp.backend.presentation.views.is_impersonated_session", return_value=True):

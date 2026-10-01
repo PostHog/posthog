@@ -108,6 +108,9 @@ class WebMCPProxy:
     def for_user(cls, user: User, team_id: int) -> "WebMCPProxy":
         if not settings.MCP_SERVER_URL:
             raise McpServerError("WebMCP is not available on this instance")
+        # Every request carries a bearer token for the user, so plain HTTP is for a local MCP server only.
+        if not settings.MCP_SERVER_URL.startswith("https://") and not settings.DEBUG:
+            raise McpServerError("WebMCP needs an HTTPS MCP server URL")
         return cls(user, team_id, issuer=WebMCPTokenIssuer.for_instance(), url=settings.MCP_SERVER_URL)
 
     def get_exec_tool(self) -> ExecTool:
