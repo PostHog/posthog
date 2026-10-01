@@ -42,7 +42,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
-from ci_backend_depot_failures import explain
+from ci_backend_depot_failures import depot_ci, explain
 
 DEPOT_APP_ID = 219785
 DEPOT_ORG = "ntsdt08fpt"
@@ -81,6 +81,8 @@ PREREQUISITES = ("Repo checks (depot-ubuntu-24.04)", "Validate OpenAPI types")
 GATE_JOB_KEY = "ci-backend.yml:django_tests"
 DEPOT_LIVE_STATES = frozenset({"queued", "waiting", "running"})
 DEPOT_JOB_CONCLUSIONS = {"finished": "success", "failed": "failure"}
+# Under the `timeout-minutes` of the `Django Tests Pass` job, so the relay reports before GitHub ends the job.
+GATE_DEADLINE_MINUTES = 90
 
 
 class ReadRefusedError(RuntimeError):
@@ -397,18 +399,10 @@ def poll(
         sleep(60 if current.phase == Phase.RUNNING else 30)
 
 
-def depot_ci(*args: str) -> Any:
-    result = subprocess.run(
-        ["depot", "ci", *args, "--output", "json"], capture_output=True, text=True, check=True, timeout=60
-    )
-    return json.loads(result.stdout)
-
-
 def retry_failed_jobs(
     org: str,
     workflow: str,
     *,
-    deadline_minutes: int = 90,
     depot: Callable[..., Any] = depot_ci,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -425,25 +419,30 @@ def retry_failed_jobs(
     executions_at_retry: int | None = None
     failures = 0
     while True:
+        sending = False
         try:
             shown = depot("workflow", "show", workflow, "--org", org)
             gate = next(job["status"] for job in shown["jobs"] if job["job_key"] == GATE_JOB_KEY)
             executions = len(shown["executions"])
-            sys.stdout.write(f"Depot workflow: {shown['workflow']['status']}, gate {gate}\n")
+            status = shown["workflow"]["status"]
+            sys.stdout.write(f"Depot workflow: {status}, gate {gate}\n")
             retried = executions_at_retry is not None and executions > executions_at_retry
             if gate == "finished" or (retried and gate not in DEPOT_LIVE_STATES):
-                return Progress(Phase.FINISHED, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
-            if executions_at_retry is None and shown["workflow"]["status"] not in DEPOT_LIVE_STATES:
+                phase = Phase.CANCELLED if gate == "cancelled" else Phase.FINISHED
+                return Progress(phase, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
+            failures = 0
+            if executions_at_retry is None and status not in DEPOT_LIVE_STATES:
+                sending = True
                 depot("retry", shown["run"]["run_id"], "--workflow", workflow, "--org", org, "--failed")
                 executions_at_retry = executions
                 sys.stdout.write(f"Depot retries the failed jobs: {url}\n")
-            failures = 0
         except (subprocess.SubprocessError, OSError, ValueError, LookupError, TypeError, StopIteration) as error:
             failures += 1
             sys.stdout.write(f"::warning::Depot CLI call failed: {type(error).__name__}\n")
-            if failures >= MAX_REFUSALS:
+            # A retry that failed is not sent again, because Depot can have accepted it.
+            if sending or failures >= MAX_REFUSALS:
                 return None
-        if clock() - start >= deadline_minutes * 60:
+        if clock() - start >= GATE_DEADLINE_MINUTES * 60:
             return Progress(Phase.RUNNING, details_url=url)
         sleep(30)
 
@@ -457,25 +456,34 @@ def gate_verdict(
 ) -> Progress:
     """The gate verdict that this attempt of the relay job reports.
 
-    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed
-    or was cancelled, the relay retries the failed Depot jobs and reports the new verdict.
+    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed,
+    the relay retries the failed Depot jobs and reports the new verdict. A failed prerequisite
+    is not retried, because it fails the same way until a commit fixes it.
     """
     if rerun:
         settled = poll(reader, event, GATE_CHECK, deadline_minutes=0, absent_minutes=0)
         target = DEPOT_RUN_URL.match(settled.details_url)
-        if target and settled.phase in (Phase.FINISHED, Phase.CANCELLED) and settled.state != "success":
-            return retry(*target.groups()) or settled
-    return poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
+        if target and settled.phase == Phase.FINISHED and settled.state != "success" and not settled.root_failure:
+            retried = retry(*target.groups())
+            if retried:
+                return retried
+            sys.stdout.write("::warning::Cannot retry on Depot CI. This is the earlier verdict.\n")
+            return settled
+    return poll(reader, event, GATE_CHECK, deadline_minutes=GATE_DEADLINE_MINUTES, absent_minutes=15)
 
 
-def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]:
+def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list[str]:
+    """The ways to run the tests again. A GitHub re-run retries a failed Depot run, so it is listed with a `run_id`."""
+    rerun = [
+        "Re-run this job on GitHub to retry the failed Depot jobs:",
+        f"  gh run rerun {run_id} --repo {event.repo} --failed",
+        "",
+    ]
     return [
         f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
         f"Depot run: {details_url or 'not found'}",
         "",
-        "Re-run this job on GitHub to retry the failed Depot jobs:",
-        f"  gh run rerun {run_id} --repo {event.repo} --failed",
-        "",
+        *(rerun if run_id else []),
         "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
         f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
         "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
@@ -499,7 +507,7 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url, run_id),
+            *retry_instructions(event, result.details_url),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]

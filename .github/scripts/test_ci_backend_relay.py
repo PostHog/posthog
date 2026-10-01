@@ -1,5 +1,6 @@
 import re
 import json
+import subprocess
 import http.client
 import urllib.error
 import urllib.parse
@@ -321,19 +322,21 @@ def shown(workflow: str, gate: str, executions: int) -> dict[str, Any]:
 class FakeDepot:
     def __init__(self, shows: Sequence[Any]) -> None:
         self._shows = list(shows)
-        self._live = False
+        self._last: dict[str, Any] = {}
         self.sent: list[tuple[str, ...]] = []
 
     def __call__(self, *args: str) -> Any:
         if args[0] != "workflow":
             # Depot refuses a retry of a workflow that still runs.
-            assert not self._live
+            assert self._last["workflow"]["status"] not in relay.DEPOT_LIVE_STATES
             self.sent.append(args)
+            if self._last.get("refuses_retry"):
+                raise subprocess.CalledProcessError(1, "depot")
             return {}
         answer = self._shows.pop(0) if len(self._shows) > 1 else self._shows[0]
         if isinstance(answer, Exception):
             raise answer
-        self._live = answer["workflow"]["status"] in relay.DEPOT_LIVE_STATES
+        self._last = answer
         return answer
 
 
@@ -343,12 +346,6 @@ RETRY_FAILED = ("retry", "r1", "--workflow", "w1", "--org", "o1", "--failed")
 @pytest.mark.parametrize(
     "shows,expected,sent",
     [
-        pytest.param(
-            [shown("failed", "failed", 1), shown("running", "queued", 2), shown("running", "finished", 2)],
-            (relay.Phase.FINISHED, "success"),
-            [RETRY_FAILED],
-            id="the failed jobs run again and the new gate decides",
-        ),
         pytest.param(
             [
                 shown("running", "failed", 1),
@@ -374,6 +371,12 @@ RETRY_FAILED = ("retry", "r1", "--workflow", "w1", "--org", "o1", "--failed")
             id="a retry that never finishes hits the deadline",
         ),
         pytest.param([OSError("no depot CLI")], None, [], id="an unreachable Depot gives no verdict"),
+        pytest.param(
+            [{**shown("failed", "failed", 1), "refuses_retry": True}],
+            None,
+            [RETRY_FAILED],
+            id="a refused retry is not sent again",
+        ),
     ],
 )
 def test_retry_relays_only_the_verdict_of_the_new_execution(
@@ -387,18 +390,26 @@ def test_retry_relays_only_the_verdict_of_the_new_execution(
 
 
 @pytest.mark.parametrize(
-    "rerun,polls,retry_answer,expected,retries",
+    "rerun,polls,prerequisite,retry_answer,expected,retries",
     [
-        pytest.param(False, [run(10, "failure")], "success", "failure", 0, id="a first attempt retries nothing"),
-        pytest.param(True, [run(10, "failure")], "success", "success", 1, id="a failed gate is retried"),
-        pytest.param(True, [run(10, "cancelled")], "success", "success", 1, id="a cancelled gate is retried"),
-        pytest.param(True, [run(10, "success")], "failure", "success", 0, id="a passed gate is relayed"),
-        pytest.param(True, [run(10, "failure")], None, "failure", 1, id="Depot unreachable"),
-        pytest.param(True, [None, run(10, "success")], "failure", "success", 0, id="a running gate is awaited"),
+        pytest.param(False, [run(10, "failure")], [], "success", "failure", 0, id="a first attempt retries nothing"),
+        pytest.param(True, [run(10, "failure")], [], "success", "success", 1, id="a failed gate is retried"),
+        pytest.param(True, [run(10, "success")], [], "failure", "success", 0, id="a passed gate is relayed"),
+        pytest.param(True, [run(10, "failure")], [], None, "failure", 1, id="Depot unreachable"),
+        pytest.param(True, [None, run(10, "success")], [], "failure", "success", 0, id="a running gate is awaited"),
+        pytest.param(
+            True,
+            [run(10, "cancelled")],
+            [run(20, "failure")],
+            "success",
+            "failure",
+            0,
+            id="a failed prerequisite is not retried",
+        ),
     ],
 )
 def test_only_a_rerun_with_a_failed_gate_retries_on_depot(
-    rerun: bool, polls: list[Any], retry_answer: str | None, expected: str, retries: int
+    rerun: bool, polls: list[Any], prerequisite: list[Any], retry_answer: str | None, expected: str, retries: int
 ) -> None:
     calls: list[tuple[str, str]] = []
 
@@ -406,7 +417,16 @@ def test_only_a_rerun_with_a_failed_gate_retries_on_depot(
         calls.append((org, workflow))
         return retry_answer and relay.Progress(relay.Phase.FINISHED, retry_answer)
 
-    reader = FakeReader([{EVENT_WAIT: [run(1, "success")], relay.GATE_CHECK: [gate] if gate else []} for gate in polls])
+    reader = FakeReader(
+        [
+            {
+                EVENT_WAIT: [run(1, "success")],
+                relay.GATE_CHECK: [gate] if gate else [],
+                f"{relay.DEPOT_WORKFLOW} / {relay.PREREQUISITES[0]}": prerequisite,
+            }
+            for gate in polls
+        ]
+    )
     result = relay.gate_verdict(reader, EVENT, rerun=rerun, retry=retry)
     assert result.state == expected
     assert calls == [(relay.DEPOT_ORG, "live")] * retries
