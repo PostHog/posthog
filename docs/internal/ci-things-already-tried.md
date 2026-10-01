@@ -522,6 +522,39 @@ The agent that opens the PR already knows this person. Thus the instruction move
 
 _Also asked as:_ auto-assign bot PRs, find the human behind an agent PR, nudge for ownership
 
+## CI failure triage
+
+### Use a small classifier model to route a failed CI job to the next investigation
+
+**Verdict: rejected** · Oct 2026 · measured, not built
+
+The idea was to send an excerpt of a failed job log to a fast classifier model.
+The model picks one next step from five: investigate the code, check the CI environment, compare reruns of the same commit, review the visual changes, or collect more evidence.
+The model was Jev 1.13 from TypeSafe. It returns a choice with probabilities and writes no text.
+
+The test used 48 failed jobs from six days in Sep 2026, one job for each commit, across 24 workflows.
+Two agent labelers read each full log and the rerun result, and they agreed on 46 of the 48. No person checked the labels.
+The 24 older jobs were for development. The 24 newer jobs were held out.
+
+A list of regular expressions over the same excerpt did at least as well.
+On the held-out jobs the rules gave a specific route for 20 and were correct for 18.
+The model gave a specific route for 18 and was correct for 14.
+Neither sent a code failure to the environment or rerun routes.
+With 24 jobs the difference is inside the noise. The result shows no advantage for the model. It does not show that the rules are better.
+
+Two things explain the result.
+The failed step name and the lines above the last `##[error]` annotation carry most of the signal, and a rule reads both.
+`products/engineering_analytics/backend/logic/job_logs/thinning.py` already keeps those lines. The first version of the test used a weaker excerpt, and 11 of 48 excerpts had none of the lines that show the cause.
+The three intermittent test failures in the held-out set were wrong for both systems. One attempt of an intermittent test reads the same as a real failure. The rerun result or the history of the test separates them, and the log does not.
+
+About a quarter of the jobs did not fit any of the five routes well: a PR title check, a check on which directories one PR may change, a gate that points at a run in another repository, a merge ref that was gone.
+
+If you try this again, give the model something a rule cannot read.
+Free text from a person is that kind of input. A log with a failed step name is not.
+Use a decision that already records its outcome, so that you do not have to make the labels.
+
+_Also asked as:_ classify CI failures with an LLM, AI triage for red CI, Jev, TypeSafe, System One model, flaky or real failure from the log, route CI failures automatically
+
 ## Dev environment
 
 ### Share the dev environment and the Docker containers across worktrees
