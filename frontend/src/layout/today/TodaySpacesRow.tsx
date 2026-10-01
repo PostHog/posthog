@@ -6,16 +6,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { TodayOverflowText } from './TodayOverflowText'
 
-// The label's right padding for the icon-sized slots that sit over the end of the row, at rest and on hover.
-const TRAILING_PADDING = ['', 'pr-8', 'pr-12', 'pr-16', 'pr-20', 'pr-24'] as const
-const HOVER_TRAILING_PADDING = [
-    '',
-    'group-hover/row:pr-8 group-focus-within/row:pr-8 group-has-[[data-popup-open]]/row:pr-8',
-    'group-hover/row:pr-12 group-focus-within/row:pr-12 group-has-[[data-popup-open]]/row:pr-12',
-    'group-hover/row:pr-16 group-focus-within/row:pr-16 group-has-[[data-popup-open]]/row:pr-16',
-    'group-hover/row:pr-20 group-focus-within/row:pr-20 group-has-[[data-popup-open]]/row:pr-20',
-    'group-hover/row:pr-24 group-focus-within/row:pr-24 group-has-[[data-popup-open]]/row:pr-24',
-] as const
+// The label's right padding for the icon-sized slots that sit over the end of the row.
+const TRAILING_PADDING = ['', 'pr-8', 'pr-12', 'pr-16', 'pr-20'] as const
 
 interface TodaySpacesRowProps {
     label: string
@@ -23,8 +15,7 @@ interface TodaySpacesRowProps {
     to: string
     active: boolean
     dataAttr: string
-    action?: JSX.Element | null
-    /** Stays visible at the end of the row, after the hover action. */
+    /** Stays visible at the end of the row. Like Desktop, the row has no hover buttons to make room for. */
     badge?: JSX.Element | null
     /** How many icon-sized slots `badge` takes, so the label truncates before them. */
     badgeCount?: 1 | 2 | 3
@@ -45,7 +36,6 @@ export function TodaySpacesRow({
     to,
     active,
     dataAttr,
-    action,
     badge,
     badgeCount = 1,
     unread = false,
@@ -57,7 +47,6 @@ export function TodaySpacesRow({
     const [hovered, setHovered] = useState(false)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
     const badgeSlots = badge ? badgeCount : 0
-    const actionSlots = action ? 1 : 0
     const showUnreadDot = unread && unreadDot && !active
     // Like PostHog Desktop, a row with badges shows its unread dot after them.
     const trailingDot = showUnreadDot && !!badge
@@ -86,8 +75,7 @@ export function TodaySpacesRow({
                     'min-w-0 text-xs font-medium text-foreground',
                     // Like Desktop, the open row takes a stronger tint than the other selected rows.
                     selected ? (active ? 'bg-primary/20' : 'bg-primary/10') : active && 'bg-fill-selected',
-                    TRAILING_PADDING[restSlots],
-                    HOVER_TRAILING_PADDING[restSlots + actionSlots]
+                    TRAILING_PADDING[restSlots]
                 )}
             >
                 <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
@@ -114,9 +102,8 @@ export function TodaySpacesRow({
                     )
                 )}
             </Button>
-            {(action || badge) && (
-                // Like PostHog Desktop, the badges sit at the end of the row and move left for the hover action.
-                // The action stays while its menu is open, so the menu keeps its anchor after the pointer leaves.
+            {badge && (
+                // Like PostHog Desktop, the badges sit at the end of the row.
                 <div className="absolute right-1 flex min-w-0 items-center gap-0.5">
                     {/* Desktop's spacing between the faces and the unread dot. */}
                     <span className="flex shrink-0 items-center gap-1.5">
@@ -129,11 +116,6 @@ export function TodaySpacesRow({
                             />
                         )}
                     </span>
-                    {action && (
-                        <div className="hidden group-focus-within/row:flex group-hover/row:flex group-has-[[data-popup-open]]/row:flex">
-                            {action}
-                        </div>
-                    )}
                 </div>
             )}
         </div>

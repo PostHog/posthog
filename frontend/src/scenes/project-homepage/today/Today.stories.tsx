@@ -429,7 +429,8 @@ export const SpacesPane: Story = {
     },
 }
 
-// Hovering a space row shows only its "…" menu, so the faces and the unread dot keep their place.
+// A hovered space row shows no buttons, so the faces and the unread dot keep their place.
+// Its actions, New session first, are in the hover card that opens beside it.
 export const SpacesPaneHoveringSpaceRow: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -438,6 +439,8 @@ export const SpacesPaneHoveringSpaceRow: Story = {
         const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
         if (row) {
             await userEvent.hover(row)
+            // The card opens in a portal outside the story's canvas.
+            await within(document.body).findByText('New session')
         }
     },
 }
@@ -528,6 +531,8 @@ export const NarrowWindowWithSidebar: Story = {
 }
 
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
+const noop = (): void => {}
+
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
@@ -559,8 +564,13 @@ export const SessionHoverCard: Story = {
                         pinned: true,
                         pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
                         spaceNames: { 'space-checkout': 'checkout' },
+                        menuId: 'story-card',
+                        // The author, who can hand the session off, so the card lists every action a finished session has.
+                        userId: 179,
                     }
                 )}
+                onAction={noop}
+                onSubmenuOpenChange={noop}
             />
         </HoverCardFrame>
     ),
@@ -579,6 +589,7 @@ export const SpaceHoverCard: Story = {
                     { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
                     '2026-09-28T18:28:00Z'
                 )}
+                onAction={noop}
             />
         </HoverCardFrame>
     ),

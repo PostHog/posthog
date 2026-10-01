@@ -1,0 +1,80 @@
+import { ReactNode } from 'react'
+
+import { IconChevronRight } from '@posthog/icons'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+export interface TodayMenuItemProps {
+    children: ReactNode
+    dataAttr: string
+    onClick?: () => void
+    /** Navigates instead of acting. */
+    to?: string
+}
+
+export interface TodayMenuSubProps {
+    label: ReactNode
+    dataAttr: string
+    children: ReactNode
+}
+
+/**
+ * What a row's action list draws with. Each kind of row writes its actions once against these parts,
+ * like PostHog Desktop, so its hover card and its menus can't drift apart.
+ */
+export interface TodayMenuParts {
+    Item: (props: TodayMenuItemProps) => JSX.Element
+    Separator: () => JSX.Element | null
+    Sub: (props: TodayMenuSubProps) => JSX.Element
+}
+
+const SUB_CONTENT_CLASS = 'max-h-80 w-64'
+
+/**
+ * The parts for a hover card's action list. The card is not a menu, so its rows are plain buttons.
+ * `onAction` closes the card after a choice. `onSubmenuOpenChange` reports "File to…", whose menu opens
+ * outside the card, so the card stays open while the pointer is in it. Desktop drops the separators here.
+ */
+export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
+    return {
+        Item: ({ children, dataAttr, onClick, to }) => (
+            <Button
+                left
+                className="w-full"
+                onClick={() => {
+                    onClick?.()
+                    onAction()
+                }}
+                {...(to ? { render: <LinkPrimitive to={to} /> } : {})}
+                data-attr={dataAttr}
+            >
+                {children}
+            </Button>
+        ),
+        Separator: () => null,
+        Sub: ({ label, dataAttr, children }) => (
+            <DropdownMenu
+                onOpenChange={(open, details) => {
+                    onSubmenuOpenChange(open)
+                    if (!open && details.reason === 'item-press') {
+                        onAction()
+                    }
+                }}
+            >
+                <DropdownMenuTrigger
+                    openOnHover
+                    delay={150}
+                    closeDelay={100}
+                    render={<Button left className="w-full" data-attr={dataAttr} />}
+                >
+                    <span className="flex flex-1 items-center gap-2">{label}</span>
+                    <IconChevronRight />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="right" align="start" className={SUB_CONTENT_CLASS}>
+                    {children}
+                </DropdownMenuContent>
+            </DropdownMenu>
+        ),
+    }
+}
