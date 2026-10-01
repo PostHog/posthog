@@ -1,6 +1,6 @@
 import uuid
 import contextlib
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -1732,6 +1732,44 @@ class TestExternalDataSchema(APIBaseTest):
                 400,
                 (3, datetime(2026, 9, 26, tzinfo=UTC)),
             ),
+            (
+                "setting_a_time_moves_the_next_refresh_to_it",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 10, 1, 3, tzinfo=UTC)),
+                None,
+                time(3, 0),
+            ),
+            (
+                "resaving_the_same_time_keeps_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (7, datetime(2026, 9, 26, tzinfo=UTC)),
+                time(3, 0),
+                time(3, 0),
+            ),
+            (
+                "a_time_without_an_interval_is_not_stored",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+            ),
+            (
+                "clearing_the_interval_clears_the_time",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": None, "full_refresh_time_of_day": "03:00:00"},
+                200,
+                (None, None),
+                time(3, 0),
+                None,
+            ),
         ]
     )
     def test_full_refresh_interval_schedules_the_next_full_refresh(
@@ -1742,6 +1780,8 @@ class TestExternalDataSchema(APIBaseTest):
         payload: dict[str, Any],
         expected_status: int,
         expected: tuple[int | None, datetime | None],
+        initial_time: time | None = None,
+        expected_time: time | None = None,
     ) -> None:
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1756,6 +1796,7 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=sync_type,
             sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
             full_refresh_interval_days=initial_days,
+            full_refresh_time_of_day=initial_time,
             next_full_refresh_at=datetime(2026, 9, 26, tzinfo=UTC) if initial_days else None,
         )
 
@@ -1773,6 +1814,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == expected_status, response.content
         schema.refresh_from_db()
         assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
+        assert schema.full_refresh_time_of_day == expected_time
 
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the

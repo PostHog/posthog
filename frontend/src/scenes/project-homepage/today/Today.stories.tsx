@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { ReactNode } from 'react'
 
@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
 import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
 import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
@@ -22,6 +23,7 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
     id: 1,
@@ -177,6 +179,44 @@ const TEAM_SESSIONS = [
     ...RECENT_SESSIONS,
 ]
 
+function canvas(
+    id: string,
+    name: string,
+    description: string,
+    updatedAt: string,
+    author: typeof ADA
+): Record<string, unknown> {
+    return {
+        id,
+        name,
+        kind: 'freeform',
+        description,
+        channel: 'space-checkout',
+        template_id: '',
+        generation_task_id: null,
+        pinned: false,
+        pinned_at: null,
+        current_version_id: null,
+        published_build_id: null,
+        component_meta: null,
+        created_by: author,
+        created_at: '2026-09-20T09:00:00Z',
+        updated_at: updatedAt,
+        url: `/canvases/${id}`,
+    }
+}
+
+const CANVASES = [
+    canvas(
+        'canvas-funnel',
+        'Checkout funnel board',
+        'Conversion from cart to paid, split by plan and country.',
+        '2026-09-28T17:10:00Z',
+        GRACE
+    ),
+    canvas('canvas-refunds', 'Refund tracker', '', '2026-09-26T08:45:00Z', ADA),
+]
+
 const LIBRARY = [
     { id: 'fs-1', path: 'Unfiled/Insights/Checkout funnel', type: 'insight', ref: 'abc123' },
     { id: 'fs-2', path: 'Unfiled/Dashboards/Growth overview', type: 'dashboard', ref: '12' },
@@ -225,6 +265,97 @@ const REPORTS = [
     }),
 ]
 
+function briefingItem(overrides: Partial<BriefingItemApi> & Pick<BriefingItemApi, 'key' | 'label'>): BriefingItemApi {
+    return {
+        title: overrides.label,
+        signal: '',
+        url: '/project/1/inbox',
+        rank: 1,
+        group: 'report',
+        source: 'self_driving',
+        reason: 'waiting_for_you',
+        state: 'open',
+        source_product: null,
+        ...overrides,
+    }
+}
+
+const PERSONAL_BRIEFING: BriefingApi = {
+    id: 'briefing-1',
+    local_day: '2026-09-28',
+    headline: 'Five items need your attention',
+    paragraphs: [
+        [
+            { text: 'The ', item_key: null, highlight: false },
+            { text: 'signup form rejects plus-addressed emails', item_key: 'report:report-1', highlight: true },
+            { text: ', and a fix is waiting for your review. ', item_key: null, highlight: false },
+            { text: 'LLM costs doubled', item_key: 'report:report-3', highlight: false },
+            { text: ' for the summarize tool after the prompt change.', item_key: null, highlight: false },
+        ],
+        [
+            { text: 'Trial starts on ', item_key: null, highlight: false },
+            { text: 'the growth dashboard', item_key: 'dashboard:12', highlight: false },
+            { text: ' fell 18% week over week, and ', item_key: null, highlight: false },
+            { text: 'the error rate alert', item_key: 'alert:5', highlight: false },
+            { text: ' is firing. ', item_key: null, highlight: false },
+            { text: 'Ticket #1042', item_key: 'ticket:t-1', highlight: false },
+            { text: ' has 3 unread messages.', item_key: null, highlight: false },
+        ],
+    ],
+    items: [
+        briefingItem({
+            key: 'report:report-1',
+            label: 'Plus-addressed signups fail',
+            signal: 'P1, fix ready for review',
+            rank: 1,
+            source_product: 'error_tracking',
+        }),
+        briefingItem({
+            key: 'report:report-3',
+            label: 'Summarize tool costs doubled',
+            signal: 'P2, claimed by you',
+            rank: 2,
+            source_product: 'llm_analytics',
+        }),
+        briefingItem({
+            key: 'dashboard:12',
+            label: 'Growth overview',
+            signal: 'Trial starts down 18%',
+            url: '/project/1/dashboard/12',
+            rank: 3,
+            group: 'dashboard',
+            source: 'product_analytics',
+            reason: 'dashboard_you_viewed',
+        }),
+        briefingItem({
+            key: 'alert:5',
+            label: 'Error rate alert',
+            signal: 'Firing since 07:10',
+            url: '/project/1/insights/abc123/alerts?alert_id=5',
+            rank: 4,
+            group: 'dashboard',
+            source: 'alerts',
+            reason: 'alert_firing',
+        }),
+        briefingItem({
+            key: 'ticket:t-1',
+            label: 'Ticket #1042',
+            signal: '3 unread messages',
+            url: '/project/1/support/tickets/t-1',
+            rank: 5,
+            group: 'other',
+            source: 'support',
+            reason: 'assigned_ticket',
+        }),
+    ],
+    more_reports_count: 4,
+    open_reports_count: 37,
+    status: 'ready',
+    writer: 'agent',
+    created_at: '2026-09-28T06:00:00Z',
+    ready_at: '2026-09-28T06:00:21Z',
+}
+
 // Today keeps sample mode, the open pane, the sidebar width and the space feed view in local storage, which outlives
 // a story. Clearing it makes each story start clean, so only the sample stories show sample reports.
 function clearTodayStorage(Story: () => JSX.Element): JSX.Element {
@@ -269,6 +400,7 @@ const meta: Meta = {
                         ),
                     },
                 ],
+                '/api/projects/:team_id/today/briefing/': () => [404, { detail: 'Not found.' }],
                 '/api/projects/:team_id/task_channels/': SPACES,
                 '/api/projects/:team_id/task_channels/:id/': (req) => [
                     200,
@@ -283,6 +415,11 @@ const meta: Meta = {
                           : params.get('channel')
                             ? []
                             : TEAM_SESSIONS
+                    return [200, { results, count: results.length, next: null, previous: null }]
+                },
+                '/api/projects/:team_id/canvases/': ({ request }) => {
+                    const results =
+                        new URL(request.url).searchParams.get('channel') === 'space-checkout' ? CANVASES : []
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -348,6 +485,37 @@ type Story = StoryObj<{}>
 
 export const Home: Story = {}
 
+export const HomeWithPersonalBriefing: Story = {
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/briefing/': PERSONAL_BRIEFING } })],
+}
+
+export const HomeWithNothingForYou: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/today/briefing/': {
+                    ...PERSONAL_BRIEFING,
+                    headline: 'Nothing needs you right now',
+                    paragraphs: [],
+                    items: [],
+                    more_reports_count: 0,
+                    open_reports_count: 0,
+                    writer: 'agent',
+                },
+            },
+        }),
+    ],
+}
+
+// While a newer briefing is written, the API returns the last ready one as `writing`.
+export const HomeWhileWriting: Story = {
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:team_id/today/briefing/': { ...PERSONAL_BRIEFING, status: 'writing' } },
+        }),
+    ],
+}
+
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }
@@ -386,7 +554,8 @@ export const SpacesPane: Story = {
     },
 }
 
-// Hovering a space row shows only its "…" menu, so the faces and the unread dot keep their place.
+// A hovered space row shows no buttons, so the faces keep their place.
+// Its actions, New session first, are in the hover card that opens beside it.
 export const SpacesPaneHoveringSpaceRow: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -395,6 +564,8 @@ export const SpacesPaneHoveringSpaceRow: Story = {
         const row = labels.find((label) => label.closest('[data-attr="today-space-row"]'))
         if (row) {
             await userEvent.hover(row)
+            // The card opens in a portal outside the story's canvas.
+            await within(document.body).findByText('New session')
         }
     },
 }
@@ -422,8 +593,23 @@ export const SpacesPaneWithRecentFilterMenu: Story = {
     },
 }
 
+export const SpacePageListView: Story = {
+    decorators: [withSpaceFeedView({ view: 'list' })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
 export const SpacePagePullRequests: Story = {
     decorators: [withSpaceFeedView({ types: ['pr'] })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacePageCanvases: Story = {
+    decorators: [withSpaceFeedView({ types: ['canvas'] })],
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+export const SpacePageCanvasesListView: Story = {
+    decorators: [withSpaceFeedView({ types: ['canvas'], view: 'list' })],
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
@@ -434,6 +620,65 @@ export const SpacePageFiltered: Story = {
         }),
     ],
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
+}
+
+// Right-click at the target's corner, where a person would, so the menu opens beside it.
+function rightClick(target: Element): void {
+    const { left, top } = target.getBoundingClientRect()
+    fireEvent.contextMenu(target, { clientX: left + 8, clientY: top + 8 })
+}
+
+async function sidebarRow(canvasElement: HTMLElement, label: string, rowAttr: string): Promise<Element> {
+    return await waitFor(() => {
+        const labels = within(canvasElement).getAllByText(label)
+        const row = labels.find((element) => element.closest(`[data-attr="${rowAttr}"]`))
+        if (!row) {
+            throw new Error(`No "${label}" text inside a [data-attr="${rowAttr}"] row`)
+        }
+        return row
+    })
+}
+
+// Right-clicking a session row opens the same actions as its hover card.
+export const SpacesPaneSessionContextMenu: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
+    },
+}
+
+// Right-clicking a space row opens its actions, New session first, like its hover card.
+export const SpacesPaneSpaceContextMenu: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        const row = await sidebarRow(canvasElement, 'checkout', 'today-space-row')
+        rightClick(row)
+        await within(document.body).findByText('New session')
+    },
+}
+
+// With two sessions picked, right-clicking one of them offers the selection's actions instead of the row's.
+export const SpacesPaneSelectedSessionsContextMenu: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-recent-session')
+        rightClick(row)
+        await within(document.body).findByText('Pin 2 sessions')
+    },
+}
+
+// Right-clicking a card in a space's feed opens the same actions as its "…" menu.
+export const SpaceFeedCardContextMenu: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        const row = await sidebarRow(canvasElement, 'Add a retry to the billing webhook', 'today-space-feed-card')
+        rightClick(row)
+        await within(document.body).findByText('Open in new tab')
+    },
 }
 
 export const SpacesBrowse: Story = {
@@ -470,6 +715,8 @@ export const NarrowWindowWithSidebar: Story = {
 }
 
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
+const noop = (): void => {}
+
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
@@ -501,8 +748,13 @@ export const SessionHoverCard: Story = {
                         pinned: true,
                         pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
                         spaceNames: { 'space-checkout': 'checkout' },
+                        menuId: 'story-card',
+                        // The author, who can hand the session off, so the card lists every action a finished session has.
+                        userId: 179,
                     }
                 )}
+                onAction={noop}
+                onSubmenuOpenChange={noop}
             />
         </HoverCardFrame>
     ),
@@ -521,7 +773,28 @@ export const SpaceHoverCard: Story = {
                     { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
                     '2026-09-28T18:28:00Z'
                 )}
+                onAction={noop}
             />
         </HoverCardFrame>
     ),
+}
+
+// The details are picked through the logic, where the dialog saves them, so each session row shows a second line.
+export const SpacesPaneWithListItemDetails: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['repository', 'activity'])
+    },
+}
+
+export const ListItemAppearanceDialog: Story = {
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Spaces'))
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todayListAppearanceLogic.actions.setFields(['space', 'branch'])
+        todayListAppearanceLogic.actions.openAppearanceDialog()
+        // The dialog opens in a portal outside the story's canvas.
+        await within(document.body).findByText('Edit list item appearance')
+    },
 }

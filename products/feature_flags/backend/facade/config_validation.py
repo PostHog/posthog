@@ -7,7 +7,9 @@ detectors read, or ``ConfigValidationError`` carrying every field error in a fix
 (root fields, then each rule's fields in rule order), so the same document always yields
 the same list. Nothing here reads or writes the database, assigns ids or seeds, checks
 permissions, or mutates the input: a validated config says the document is well formed
-and admitted, not that the caller may store it. The later trusted write path resolves
+and admitted, not that the caller may store it. The cache builders call this too, so it
+should admit exactly what the flags service's parser admits; restrictions on what a writer
+may store live in ``config_writes.check_writer_rules``. The later trusted write path resolves
 request input into the final document, calls ``rule_warnings.review_config`` (which
 validates through this module and reports warnings) and persists under the existing row
 lock. No production caller exists yet.
@@ -30,7 +32,6 @@ from dataclasses import field
 from decimal import Decimal
 from typing import Any, Literal, TypeGuard, get_args
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
 from posthog.hogql.property import parse_semver
 
 from posthog.dataclasses import frozen
@@ -130,6 +131,14 @@ _PROPERTY_FIELDS = frozenset(
     {"key", "value", "type", "operator", "group_type_index", "negation", "cohort_name", "group_key_names", "label"}
 )
 _UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_SEMVER_PRERELEASE_ID = r"(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)"
+# SemVer 2.0.0, as the flags service's semver parser reads it; numbers are unsigned 64-bit.
+_STRICT_SEMVER = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    rf"(?:-{_SEMVER_PRERELEASE_ID}(?:\.{_SEMVER_PRERELEASE_ID})*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+)
+_MAX_SEMVER_NUMBER = 2**64 - 1
 
 
 @frozen
@@ -457,14 +466,28 @@ def _property_value_error(operator: str, value: Any) -> str | None:
         return "Must be a number or a string."
     if operator in _LIST_VALUE_OPERATORS and not isinstance(value, list):
         return "Must be an array."
-    if operator in _SEMVER_OPERATORS:
-        if not isinstance(value, str):
-            return "Must be a semver string."
-        try:
-            parse_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
-        except (ValueError, IndexError):
-            return "Must be a semver string."
+    if operator in _SEMVER_OPERATORS and not (
+        isinstance(value, str) and _is_semver(value.rstrip(".*") if operator == "semver_wildcard" else value)
+    ):
+        return "Must be a semver string."
     return None
+
+
+def _is_semver(value: str) -> bool:
+    """The flags service's check: numeric major, minor and patch, and a version its semver
+    parser reads once missing components are padded and leading zeros stripped. ``parse_semver``
+    alone also admits values that parser rejects, such as ``1.2.3.4`` and ``1.2.3-``.
+    """
+    try:
+        parse_semver(value)
+    except (ValueError, IndexError):
+        return False
+    version = value.strip()
+    core_end = next((index for index, char in enumerate(version) if char in "-+"), len(version))
+    core = version[:core_end].split(".")
+    parts = [(part.lstrip("0") or "0") if part.isascii() and part.isdigit() else part for part in core]
+    match = _STRICT_SEMVER.fullmatch(".".join(parts + ["0"] * (3 - len(parts))) + version[core_end:])
+    return match is not None and all(int(number) <= _MAX_SEMVER_NUMBER for number in match.groups())
 
 
 def _validate_metadata(metadata: object, path: str, limits: ValidationLimits, errors: list[ConfigError]) -> None:
@@ -550,11 +573,7 @@ def _is_nested_value(value: object, *, depth: int) -> bool:
 
 _VALUE_CHECKS: dict[str, _Check] = {
     "boolean": (lambda v: isinstance(v, bool), "Must be true or false."),
-    # A string is served as the variant, and `$false` is the event-storage sentinel that v1 reserves as a variant key.
-    "string": (
-        lambda v: isinstance(v, str) and v not in ("", FEATURE_FLAG_FALSE_VARIANT_SENTINEL),
-        f"Must be a non-empty string other than {FEATURE_FLAG_FALSE_VARIANT_SENTINEL}.",
-    ),
+    "string": (lambda v: isinstance(v, str) and v != "", "Must be a non-empty string."),
     "number": (_is_safe_number, f"Must be a number from -{MAX_SAFE_INTEGER} to {MAX_SAFE_INTEGER}."),
     "object": (
         _is_object_value,

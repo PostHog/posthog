@@ -191,12 +191,12 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(runner.run(), [])
 
     def test_lookback_excludes_old_data(self):
-        old = timezone.now().replace(microsecond=0) - dt.timedelta(days=14)
+        old = timezone.now().replace(microsecond=0) - dt.timedelta(days=2)
         recent = timezone.now().replace(microsecond=0) - dt.timedelta(hours=1)
         _seed_point(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=old)
         _seed_point(team_id=self.team.id, metric_name="recent.metric", value=2.0, timestamp=recent)
 
-        runner = MetricNamesQueryRunner(team=self.team, lookback=dt.timedelta(days=7))
+        runner = MetricNamesQueryRunner(team=self.team)
         names = [row["name"] for row in runner.run()]
         self.assertIn("recent.metric", names)
         self.assertNotIn("old.metric", names)

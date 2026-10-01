@@ -1,5 +1,4 @@
-import { IconSpinner } from '@posthog/icons'
-import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Spinner, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { TodaySessionDot } from './todaySessionDot'
 
@@ -17,8 +16,12 @@ export function TodaySessionStatusDot({ dot }: { dot: TodaySessionDot }): JSX.El
                 render={<span className="relative flex size-2 shrink-0 items-center justify-center" />}
             >
                 {dot.mark === 'spinner' ? (
-                    <span role="img" aria-label={dot.label} className="relative size-2">
-                        <IconSpinner className="absolute -inset-0.5 size-3 text-muted-foreground motion-safe:animate-spin" />
+                    <span className="relative size-2">
+                        <Spinner
+                            role="img"
+                            aria-label={dot.label}
+                            className="absolute -inset-0.5 size-3 text-muted-foreground motion-reduce:animate-none"
+                        />
                     </span>
                 ) : (
                     <span
