@@ -104,12 +104,7 @@ export function TodaySpacesRow({
                         <span className={cn('min-w-0 truncate', unread && 'font-semibold')}>{label}</span>
                     )}
                     {details.length > 0 && (
-                        <span
-                            className={cn(
-                                'truncate text-xxs text-muted-foreground/70',
-                                active && 'text-muted-foreground'
-                            )}
-                        >
+                        <span className="truncate text-xxs text-muted-foreground">
                             {details.map((detail, index) => (
                                 // Every part is its own element, so a page translator can't break the line when the details change.
                                 <Fragment key={detail.field}>
