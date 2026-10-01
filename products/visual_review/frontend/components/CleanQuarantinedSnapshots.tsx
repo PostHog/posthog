@@ -1,9 +1,11 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { SnapshotApi } from '../generated/api.schemas'
 
 interface CleanQuarantinedSnapshotsProps {
     snapshots: SnapshotApi[]
+    loading: boolean
+    loadFailed: boolean
     selectedSnapshotId: string | null
     onSelect: (snapshotId: string) => void
 }
@@ -11,9 +13,26 @@ interface CleanQuarantinedSnapshotsProps {
 /** Quarantined stories this run rendered exactly as their baseline, which the changes-only strip leaves out. */
 export function CleanQuarantinedSnapshots({
     snapshots,
+    loading,
+    loadFailed,
     selectedSnapshotId,
     onSelect,
 }: CleanQuarantinedSnapshotsProps): JSX.Element | null {
+    if (loading) {
+        return (
+            <div className="px-3 pb-3">
+                <LemonSkeleton className="h-4 w-1/3" />
+            </div>
+        )
+    }
+    if (loadFailed) {
+        return (
+            <div className="px-3 pb-3 text-xs text-muted" data-attr="visual-review-clean-quarantined-error">
+                Couldn't load the quarantined stories of this run. Reload the page to lift a quarantine when this pull
+                request merges.
+            </div>
+        )
+    }
     if (snapshots.length === 0) {
         return null
     }

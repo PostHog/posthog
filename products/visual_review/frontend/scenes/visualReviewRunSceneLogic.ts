@@ -69,6 +69,7 @@ export interface visualReviewRunSceneLogicValues {
     quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
     quarantinedIdentifiersLoading: boolean
     quarantinedRunSnapshots: SnapshotApi[]
+    quarantinedRunSnapshotsLoadFailed: boolean
     quarantinedRunSnapshotsLoading: boolean
     recentTolerations: RecentTolerations | null
     repo: RepoApi | null
@@ -468,6 +469,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 loadQuarantineLifts: () => false,
                 loadQuarantineLiftsSuccess: () => false,
                 loadQuarantineLiftsFailure: () => true,
+            },
+        ],
+        quarantinedRunSnapshotsLoadFailed: [
+            false,
+            {
+                loadQuarantinedRunSnapshots: () => false,
+                loadQuarantinedRunSnapshotsSuccess: () => false,
+                loadQuarantinedRunSnapshotsFailure: () => true,
             },
         ],
         failedThumbnails: [

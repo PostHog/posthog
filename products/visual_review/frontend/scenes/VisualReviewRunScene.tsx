@@ -229,6 +229,8 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
         cleanQuarantinedSnapshots,
+        quarantinedRunSnapshotsLoading,
+        quarantinedRunSnapshotsLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -597,6 +599,8 @@ export function VisualReviewRunScene(): JSX.Element {
                     {!isReportingOnly && (
                         <CleanQuarantinedSnapshots
                             snapshots={cleanQuarantinedSnapshots}
+                            loading={quarantinedRunSnapshotsLoading}
+                            loadFailed={quarantinedRunSnapshotsLoadFailed}
                             selectedSnapshotId={selectedSnapshotId}
                             onSelect={setSelectedSnapshotId}
                         />

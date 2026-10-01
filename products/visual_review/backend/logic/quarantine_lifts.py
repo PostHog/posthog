@@ -54,10 +54,17 @@ def _active_quarantine(run: Run, identifier: str, now: datetime) -> QuarantinedI
 def _expected_hash(snapshot: RunSnapshot) -> str:
     """The picture the default branch must render for the lift to apply.
 
-    An unchanged snapshot rendered its baseline. A changed or new picture counts only once a
-    reviewer approved it, because finalize commits the approved hash as the baseline entry.
+    An unchanged snapshot counts only when it rendered its baseline byte for byte: `unchanged`
+    also covers tolerated variants and diffs under the threshold, which are other pictures. A
+    changed or new picture counts only once a reviewer approved it, because finalize commits the
+    approved hash as the baseline entry.
     """
     if snapshot.result == SnapshotResult.UNCHANGED and snapshot.baseline_hash:
+        if snapshot.current_hash != snapshot.baseline_hash:
+            raise ValueError(
+                "This run rendered a tolerated variant, not the baseline itself. "
+                "Request the lift from a run that renders the baseline exactly."
+            )
         return snapshot.baseline_hash
     if (
         snapshot.result in (SnapshotResult.CHANGED, SnapshotResult.NEW)
@@ -100,9 +107,15 @@ def request_lift_on_merge(
         # Lock the quarantine row before reading the pending request, in the same order as `_apply`.
         # Two concurrent requests for one PR then run one after the other, and the second updates
         # the row the first created instead of breaking the one-pending-request constraint.
-        QuarantinedIdentifier.objects.using(WRITER_DB).select_for_update().filter(
-            id=quarantine.id, team_id=team_id
-        ).first()
+        locked_quarantine = (
+            QuarantinedIdentifier.objects.using(WRITER_DB)
+            .select_for_update()
+            .filter(id=quarantine.id, team_id=team_id)
+            .first()
+        )
+        # A lift or a re-quarantine can land between the lookup above and the lock.
+        if locked_quarantine is None or not _is_active(locked_quarantine, timezone.now()):
+            raise ValueError("This snapshot has no active quarantine to lift.")
         request = (
             QuarantineLiftRequest.objects.using(WRITER_DB)
             .select_for_update()
@@ -219,7 +232,13 @@ def _apply(request: QuarantineLiftRequest, run: Run, merge_commit_sha: str) -> b
         locked_request = (
             QuarantineLiftRequest.objects.using(WRITER_DB)
             .select_for_update()
-            .filter(id=request.id, team_id=request.team_id, state=QuarantineLiftState.PENDING)
+            .filter(
+                id=request.id,
+                team_id=request.team_id,
+                state=QuarantineLiftState.PENDING,
+                # A reviewer can change the picture after reconcile verified it. Lift only for the verified one.
+                expected_hash=request.expected_hash,
+            )
             .first()
         )
         if locked_request is None:
@@ -338,6 +357,11 @@ def reconcile_lift_requests(run_id: UUID) -> None:
     if run.status != RunStatus.COMPLETED or run.is_partial or run.pr_number is not None:
         return
 
+    if not has_pending_lift_requests(run.repo_id, run.team_id, run.run_type):
+        return
+    if github_api.default_branch_name(run.repo) != run.branch:
+        return
+
     pending = list(
         QuarantineLiftRequest.objects.using(WRITER_DB)
         .filter(
@@ -349,7 +373,7 @@ def reconcile_lift_requests(run_id: UUID) -> None:
         .select_related("quarantine")
         .order_by("created_at")
     )
-    if not pending or github_api.default_branch_name(run.repo) != run.branch:
+    if not pending:
         return
 
     snapshots_by_identifier = {

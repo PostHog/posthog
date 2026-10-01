@@ -102,18 +102,38 @@ class TestRequestLiftOnMerge:
         assert RunSnapshot.objects.get(id=snapshot.id).review_state == review_state
 
     @pytest.mark.parametrize(
-        ("name", "pr_number", "stale", "has_quarantine", "result", "requested_identifier", "expected_error"),
+        (
+            "name",
+            "pr_number",
+            "stale",
+            "has_quarantine",
+            "result",
+            "baseline_hash",
+            "requested_identifier",
+            "expected_error",
+        ),
         [
-            ("no_active_quarantine", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
-            ("no_pull_request", None, False, True, SnapshotResult.UNCHANGED, IDENTIFIER, ValueError),
-            ("stale_run", PR_NUMBER, True, True, SnapshotResult.UNCHANGED, IDENTIFIER, errors.StaleRunError),
-            ("changed_not_approved", PR_NUMBER, False, True, SnapshotResult.CHANGED, IDENTIFIER, ValueError),
+            ("no_active_quarantine", PR_NUMBER, False, False, SnapshotResult.UNCHANGED, "new", IDENTIFIER, ValueError),
+            ("no_pull_request", None, False, True, SnapshotResult.UNCHANGED, "new", IDENTIFIER, ValueError),
+            ("stale_run", PR_NUMBER, True, True, SnapshotResult.UNCHANGED, "new", IDENTIFIER, errors.StaleRunError),
+            ("changed_not_approved", PR_NUMBER, False, True, SnapshotResult.CHANGED, "base", IDENTIFIER, ValueError),
+            (
+                "unchanged_tolerated_variant",
+                PR_NUMBER,
+                False,
+                True,
+                SnapshotResult.UNCHANGED,
+                "base",
+                IDENTIFIER,
+                ValueError,
+            ),
             (
                 "identifier_not_in_run",
                 PR_NUMBER,
                 False,
                 True,
                 SnapshotResult.UNCHANGED,
+                "new",
                 "other--story",
                 errors.RunNotFoundError,
             ),
@@ -129,6 +149,7 @@ class TestRequestLiftOnMerge:
         stale,
         has_quarantine,
         result,
+        baseline_hash,
         requested_identifier,
         expected_error,
     ):
@@ -142,7 +163,7 @@ class TestRequestLiftOnMerge:
         _snapshot(
             run,
             current_hash="new",
-            baseline_hash="base" if result == SnapshotResult.CHANGED else "new",
+            baseline_hash=baseline_hash,
             result=result,
             review_state=ReviewState.PENDING if result == SnapshotResult.CHANGED else "",
             is_quarantined=True,
@@ -238,6 +259,24 @@ class TestReconcileLiftRequests:
         assert pending_request.resolved_at is not None
         sibling.refresh_from_db()
         assert sibling.state == QuarantineLiftState.SUPERSEDED
+
+    def test_keeps_the_quarantine_when_the_requested_picture_changes_during_the_check(
+        self, repo, quarantine_row, pending_request, github
+    ):
+        def reviewer_changes_the_picture(*args, **kwargs):
+            QuarantineLiftRequest.objects.filter(id=pending_request.id).update(expected_hash="newer")
+            return True
+
+        github["commit_contains"].side_effect = reviewer_changes_the_picture
+        run = _run(repo, branch="master", pr_number=None, commit_sha=MASTER_SHA)
+        _snapshot(run, current_hash="fixed", baseline_hash="fixed")
+
+        quarantine_lifts.reconcile_lift_requests(run.id)
+
+        quarantine_row.refresh_from_db()
+        assert quarantine_row.expires_at is None
+        pending_request.refresh_from_db()
+        assert pending_request.state == QuarantineLiftState.PENDING
 
     @pytest.mark.parametrize(
         ("name", "pull_request", "contains_merge", "current_hash", "baseline_hash", "state", "detail"),
