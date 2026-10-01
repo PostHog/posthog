@@ -108,9 +108,10 @@ export function AlertAdvancedOptionsSection({
                                     fullWidth
                                     label="Check ongoing period"
                                     disabledReason={
-                                        (alertForm.evaluation_delay_intervals ?? 0) > 0
+                                        ongoing.disabledReason ??
+                                        ((alertForm.evaluation_delay_intervals ?? 0) > 0
                                             ? 'Set Evaluation delay to 0 to check the ongoing period.'
-                                            : ongoing.disabledReason
+                                            : undefined)
                                     }
                                 />
                             </LemonField>
