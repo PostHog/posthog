@@ -559,8 +559,9 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
             )
         return
 
-    if _is_session_update(event):
-        await redis_stream.set_agent_active(True)
+    activity_started = False
+    if _is_session_update(event) or is_agent_generation_event(event):
+        activity_started = not await redis_stream.set_agent_active(True)
         agent_active = True
     else:
         agent_active = await redis_stream.get_agent_active()
@@ -568,13 +569,13 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
     if not agent_active:
         return
 
-    if not await redis_stream.claim_agent_active_heartbeat(HEARTBEAT_THROTTLE_SECONDS):
+    if not await redis_stream.claim_agent_active_heartbeat(HEARTBEAT_THROTTLE_SECONDS) and not activity_started:
         return
 
-    await sync_to_async(_heartbeat_workflow, thread_sensitive=True)(run_id, agent_active)
+    await sync_to_async(_heartbeat_workflow, thread_sensitive=True)(run_id, agent_active, force=activity_started)
 
 
-def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
+def _heartbeat_workflow(run_id: str, agent_active: bool, *, force: bool = False) -> None:
     # This runs on a sync_to_async thread that Django never health-checks (the ASGI wrapper
     # intercepts the request before Django's connection lifecycle runs), so a pooled connection
     # Postgres has since closed can be reused. Mirror push_dispatcher/custom_prompt_internals and
@@ -589,7 +590,7 @@ def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
         logger.warning("task_run_event_ingest_heartbeat_run_missing", run_id=run_id)
         return
 
-    task_run.heartbeat_workflow(agent_active=agent_active)
+    task_run.heartbeat_workflow(agent_active=agent_active, force=force)
 
 
 def _signal_agent_boot_milestone(

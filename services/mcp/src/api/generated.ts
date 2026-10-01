@@ -8520,6 +8520,7 @@ export namespace Schemas {
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
+      TwitterAds: 'twitter-ads',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -18102,6 +18103,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `github_actions` - GitHub Actions
+     * * `depot_ci` - Depot CI
+     */
+    export type CIEngineEnum = typeof CIEngineEnum[keyof typeof CIEngineEnum];
+
+
+    export const CIEngineEnum = {
+      GithubActions: 'github_actions',
+      DepotCi: 'depot_ci',
+    } as const;
+
+    /**
      * * `breaking_master` - BREAKING_MASTER
      * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
      * * `novel_burst` - NOVEL_BURST
@@ -18122,6 +18135,11 @@ export namespace Schemas {
     } as const;
 
     export interface BrokenTestRow {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Stable identity of this distinct failure: the failing test's node id plus a normalized error signature, so the same failure across runs groups into one row. */
       fingerprint: string;
       /** The pytest node id from the CI 'FAILED <id>' line: the failing test. */
@@ -18672,9 +18690,14 @@ export namespace Schemas {
     }
 
     export interface CIJobFailureLog {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
-      /** GitHub Actions job id of the failed job. */
+      /** Integer job id of the failed job; unique only together with ci_engine. */
       job_id: number;
       /** Workflow run id the job belongs to. */
       run_id: number;
@@ -21307,6 +21330,16 @@ export namespace Schemas {
       hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
       /** @nullable */
       role_at_organization?: string | null;
+    }
+
+    /**
+     * The people who own at least one task or canvas in a channel.
+     */
+    export interface ChannelContributorsDTO {
+      /** The channel these people worked in. */
+      channel: string;
+      /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+      people: TaskUserBasicInfo[];
     }
 
     /**
@@ -56637,6 +56670,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -56690,6 +56724,7 @@ export namespace Schemas {
       Postgresql: 'postgresql',
       Posthog: 'posthog',
       RedditAds: 'reddit-ads',
+      TwitterAds: 'twitter-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
       Salesforce: 'salesforce',
@@ -56743,6 +56778,7 @@ export namespace Schemas {
        * * `postgresql` - Postgresql
        * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
+       * * `twitter-ads` - Twitter Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
        * * `salesforce` - Salesforce
@@ -62328,6 +62364,11 @@ export namespace Schemas {
     }
 
     export interface MasterFailureGroup {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the failures occurred in. */
       repo: RepoRef;
       /** GitHub Actions workflow name the failing runs belong to. */
@@ -65737,7 +65778,12 @@ export namespace Schemas {
     }
 
     export interface RunCost {
-      /** GitHub Actions run id this cost is for. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer run id this cost is for; unique only together with ci_engine. */
       run_id: number;
       /** Re-run attempt number; 1 for the first attempt. */
       run_attempt: number;
@@ -65841,6 +65887,11 @@ export namespace Schemas {
     } as const;
 
     export interface PRLifecycleEvent {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Event kind: opened, ready_for_review, converted_to_draft, ci_started, ci_finished, merged, or closed.
        *
        * * `opened` - OPENED
@@ -91599,6 +91650,11 @@ export namespace Schemas {
     }
 
     export interface RunFailureLogs {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
       jobs: CIJobFailureLog[];
       /** Workflow run id the failure logs are for. */
@@ -94508,6 +94564,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly task_id: string | null;
+    }
+
+    export interface SignalReportsForYouResponse {
+      /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns. The Today briefing ranks reports the same way. */
+      results: SignalReportList[];
+      /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. */
+      count: number;
     }
 
     /**
@@ -106788,6 +106851,11 @@ export namespace Schemas {
     }
 
     export interface WorkflowHealthItem {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      latest_ci_engine?: CIEngineEnum | null;
       /** Repository the workflow runs in. */
       repo: RepoRef;
       /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
@@ -106860,7 +106928,12 @@ export namespace Schemas {
     }
 
     export interface WorkflowJob {
-      /** GitHub Actions job id. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */
       run_id: number;
@@ -106897,6 +106970,26 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+      /**
+         * Source-native run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_run_id?: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_workflow_run_id?: string | null;
+      /**
+         * Source-native job id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_job_id?: string | null;
+      /**
+         * Source-native attempt id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_attempt_id?: string | null;
     }
 
     export interface WorkflowJobAggregate {
@@ -107032,7 +107125,12 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunActivityPoint {
-      /** GitHub Actions run id. */
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
+      /** Integer run id; unique only together with ci_engine. */
       run_id: number;
       /**
          * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
@@ -107064,11 +107162,16 @@ export namespace Schemas {
     }
 
     export interface WorkflowRunDetail {
+      /** CI execution engine; null when unknown.
+       *
+       * * `github_actions` - GitHub Actions
+       * * `depot_ci` - Depot CI */
+      ci_engine?: CIEngineEnum | null;
       /** Repository the run belongs to. */
       repo: RepoRef;
-      /** GitHub Actions run id. */
+      /** Integer run id; unique only together with ci_engine. */
       id: number;
-      /** GitHub Actions workflow name. */
+      /** CI workflow name. */
       workflow_name: string;
       /** Commit SHA the run was triggered on. */
       head_sha: string;
@@ -107107,6 +107210,16 @@ export namespace Schemas {
       commit_pr_number: number | null;
       /** True when a merge queue pushed this run to gate pr_number, rather than the author pushing it. Count it when measuring CI; drop it when counting what the author did. */
       is_merge_queue: boolean;
+      /**
+         * Source-native run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_run_id?: string | null;
+      /**
+         * Source-native workflow run id; use with ci_engine for identity.
+         * @nullable
+         */
+      native_workflow_run_id?: string | null;
     }
 
     export interface WorkflowRunnerCost {
@@ -114848,6 +114961,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsRunFailureLogsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsRunFailureLogsCiEngine;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -114860,6 +114977,14 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsRunFailureLogsCiEngine = typeof EngineeringAnalyticsRunFailureLogsCiEngine[keyof typeof EngineeringAnalyticsRunFailureLogsCiEngine];
+
+
+    export const EngineeringAnalyticsRunFailureLogsCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
 
     export type EngineeringAnalyticsTeamCiActivityParams = {
     /**
@@ -114984,6 +115109,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowJobsCiEngine;
+    /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
@@ -115001,13 +115130,25 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsWorkflowJobsCiEngine = typeof EngineeringAnalyticsWorkflowJobsCiEngine[keyof typeof EngineeringAnalyticsWorkflowJobsCiEngine];
+
+
+    export const EngineeringAnalyticsWorkflowJobsCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
+
     export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * CI engine. Required when run_id exists in both engines.
+     */
+    ci_engine?: EngineeringAnalyticsWorkflowRunCiEngine;
     /**
      * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string;
     /**
-     * GitHub Actions run id to inspect.
+     * Integer run id to inspect; unique only together with ci_engine.
      */
     run_id: number;
     /**
@@ -115015,6 +115156,14 @@ export namespace Schemas {
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowRunCiEngine = typeof EngineeringAnalyticsWorkflowRunCiEngine[keyof typeof EngineeringAnalyticsWorkflowRunCiEngine];
+
+
+    export const EngineeringAnalyticsWorkflowRunCiEngine = {
+      DepotCi: 'depot_ci',
+      GithubActions: 'github_actions',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowRunActivityParams = {
     /**
@@ -118015,6 +118164,7 @@ export namespace Schemas {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -118089,6 +118239,7 @@ export namespace Schemas {
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
+      TwitterAds: 'twitter-ads',
       Vercel: 'vercel',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
@@ -120862,6 +121013,15 @@ export namespace Schemas {
       /** Member's email address. */
       email: string;
     }};
+
+    export type SignalsReportsForYouRetrieveParams = {
+    /**
+     * How many of the top reports to return, 1 to 20. Defaults to 5.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    };
 
     export type SignalsReportsPrCiStatusesParams = {
     /**

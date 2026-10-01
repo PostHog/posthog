@@ -18,7 +18,6 @@ import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
@@ -426,6 +425,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/for_you/': { results: REPORTS, count: 7 },
                 '/api/projects/:team_id/signals/reports/:id/': (req) => [
                     200,
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
@@ -567,7 +567,7 @@ export const SampleReportPage: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -575,7 +575,7 @@ export const HomeWithNoReports: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
