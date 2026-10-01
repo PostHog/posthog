@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from time import perf_counter
-from typing import TYPE_CHECKING, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -132,7 +132,7 @@ class SignalsDecision:
 @frozen
 class _ShadowModelExperiment:
     prompt: SystemOnePrompt
-    variant: str | None = None
+    variant: Literal["jevk", "jeeves"] | None = None
     status: str = "not_enrolled"
     flags: "FeatureFlagEvaluations | None" = None
 
@@ -152,6 +152,7 @@ async def _shadow_model_experiment(team_id: int, trace_id: str, prompt: SystemOn
         variant = flags.get_flag(SHADOW_MODEL_FLAG)
         if not isinstance(variant, str) or variant not in SHADOW_MODELS:
             return _ShadowModelExperiment(prompt=prompt, flags=flags)
+        variant = cast(Literal["jevk", "jeeves"], variant)
         payload = flags.get_flag_payload(SHADOW_MODEL_FLAG)
         versions = payload.get("prompt_versions") if isinstance(payload, dict) else None
         version = versions.get(prompt.name) if isinstance(versions, dict) else None
