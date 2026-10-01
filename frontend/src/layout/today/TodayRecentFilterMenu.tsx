@@ -3,7 +3,13 @@ import { useActions, useValues } from 'kea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { TodayFilterMenuTrigger } from './TodayFilterMenuTrigger'
-import { DEFAULT_RECENT_FILTERS, RECENT_CREATED_BY_OPTIONS } from './todayRecentFilters'
+import {
+    DEFAULT_RECENT_FILTERS,
+    RECENT_CREATED_BY_OPTIONS,
+    RECENT_ENVIRONMENT_OPTIONS,
+    RECENT_PINNED_OPTIONS,
+    RECENT_STATUS_OPTIONS,
+} from './todayRecentFilters'
 import {
     DEFAULT_RECENT_GROUPING,
     DEFAULT_RECENT_SORT,
@@ -14,6 +20,10 @@ import { TodayRecentRadioSubmenu } from './TodayRecentRadioSubmenu'
 import { TodayRecentSourceSubmenu } from './TodayRecentSourceSubmenu'
 import { todaySpacesLogic } from './todaySpacesLogic'
 
+/**
+ * Recent's sort, grouping and filters, in PostHog Desktop's order. Desktop's Type filter is left out,
+ * because Recent holds no canvases.
+ */
 export function TodayRecentFilterMenu(): JSX.Element {
     const {
         recentFilters: filters,
@@ -46,12 +56,36 @@ export function TodayRecentFilterMenu(): JSX.Element {
                 />
                 <DropdownMenuSeparator />
                 <TodayRecentRadioSubmenu
+                    label="Status"
+                    options={RECENT_STATUS_OPTIONS}
+                    value={filters.status}
+                    defaultValue={DEFAULT_RECENT_FILTERS.status}
+                    onChange={(status) => setRecentFilters({ ...filters, status })}
+                    dataAttr="today-recent-filter-status"
+                />
+                <TodayRecentRadioSubmenu
                     label="Created by"
                     options={RECENT_CREATED_BY_OPTIONS}
                     value={filters.createdBy}
                     defaultValue={DEFAULT_RECENT_FILTERS.createdBy}
                     onChange={(createdBy) => setRecentFilters({ ...filters, createdBy })}
                     dataAttr="today-recent-filter-created-by"
+                />
+                <TodayRecentRadioSubmenu
+                    label="Pinned"
+                    options={RECENT_PINNED_OPTIONS}
+                    value={filters.pinned}
+                    defaultValue={DEFAULT_RECENT_FILTERS.pinned}
+                    onChange={(pinned) => setRecentFilters({ ...filters, pinned })}
+                    dataAttr="today-recent-filter-pinned"
+                />
+                <TodayRecentRadioSubmenu
+                    label="Environment"
+                    options={RECENT_ENVIRONMENT_OPTIONS}
+                    value={filters.environment}
+                    defaultValue={DEFAULT_RECENT_FILTERS.environment}
+                    onChange={(environment) => setRecentFilters({ ...filters, environment })}
+                    dataAttr="today-recent-filter-environment"
                 />
                 <TodayRecentSourceSubmenu
                     selected={filters.sources}

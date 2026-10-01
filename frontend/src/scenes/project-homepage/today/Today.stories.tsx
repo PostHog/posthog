@@ -10,9 +10,11 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
+import { DEFAULT_RECENT_FILTERS } from '~/layout/today/todayRecentFilters'
 import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
 import { todaySessionSelectionLogic } from '~/layout/today/todaySessionSelectionLogic'
 import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
@@ -375,6 +377,16 @@ export const SpacesPaneWithSelectedSessions: Story = {
     play: async ({ canvasElement }) => {
         await within(canvasElement).findAllByText('Add a retry to the billing webhook')
         todaySessionSelectionLogic.actions.setSelection({ ids: ['task-pinned', 'task-1'], anchorId: 'task-1' })
+    },
+}
+
+// The narrowed filters show their values in the primary color, and Clear filters shows at the end.
+export const SpacesPaneWithRecentFilterMenu: Story = {
+    parameters: { pageUrl: urls.taskSpace('space-checkout') },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findAllByText('Add a retry to the billing webhook')
+        todaySpacesLogic.actions.setRecentFilters({ ...DEFAULT_RECENT_FILTERS, status: 'unread', environment: 'cloud' })
+        await userEvent.click(await within(canvasElement).findByLabelText('Filters on'))
     },
 }
 
