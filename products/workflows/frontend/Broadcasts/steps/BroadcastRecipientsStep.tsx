@@ -11,6 +11,7 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 import { PropertyFilterType } from '~/types'
 
 import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../Workflows/hogflows/filters/HogFlowFilters'
+import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function AudienceSizePreview(): JSX.Element | null {
@@ -56,7 +57,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
             <div>
                 <h2 className="m-0 text-xl font-semibold">Who should receive this email?</h2>
                 <p className="m-0 text-secondary">
-                    Filter by person properties or static cohorts. Without filters, the broadcast goes to everyone.
+                    Filter by person properties or cohorts. Without filters, the broadcast goes to everyone.
                 </p>
             </div>
             <div>
@@ -86,6 +87,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 hasRowOperator={false}
                 operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
             />
+            <BroadcastAudienceCohorts />
         </div>
     )
 }
