@@ -380,13 +380,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ): boolean => {
                 // Eligibility first: reading the experiment flag records exposure, so users who
                 // could never see the step (AI subscriptions unavailable) must not reach that read.
-                // Both gates hold for new users by default — the ai-subscriptions flag is GA at 100%
-                // and new orgs default is_ai_data_processing_approved=true — so this only excludes
-                // orgs that explicitly opted out of AI data processing.
-                if (
-                    !featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT] ||
-                    !currentOrganization?.is_ai_data_processing_approved
-                ) {
+                // New orgs default is_ai_data_processing_approved=true, so this only excludes orgs
+                // that explicitly opted out of AI data processing.
+                if (!currentOrganization?.is_ai_data_processing_approved) {
                     return false
                 }
                 return featureFlags[FEATURE_FLAGS.ONBOARDING_AI_REPORTS] === 'test'

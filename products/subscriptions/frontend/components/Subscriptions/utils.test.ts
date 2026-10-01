@@ -382,7 +382,7 @@ describe('getNextDeliveryDate', () => {
 })
 
 describe('getAiSubscriptionGate', () => {
-    // Fully-enabled baseline (insight flow, new sub, consent + cloud + flag all on); each case overrides.
+    // Fully-enabled baseline (insight flow, new sub, consent + cloud on); each case overrides.
     const base = {
         isAiPrompt: false,
         isParentless: false,
@@ -390,17 +390,11 @@ describe('getAiSubscriptionGate', () => {
         aiConsentApproved: true,
         isCloud: true,
         isDebug: false,
-        aiFlagEnabled: true,
     } as const
 
     it.each([
         [
-            'flag off hides every AI affordance',
-            { aiFlagEnabled: false },
-            { aiAllowed: false, showResourceTypeToggle: false, showConsentHint: false, showAiFormConsentBanner: false },
-        ],
-        [
-            'flag on + consent + cloud fully enables AI',
+            'consent + cloud fully enables AI',
             {},
             {
                 aiAllowed: true,
@@ -411,7 +405,7 @@ describe('getAiSubscriptionGate', () => {
             },
         ],
         [
-            'flag on + no consent greys AI and shows the consent hint (insight flow)',
+            'no consent greys AI and shows the consent hint (insight flow)',
             { aiConsentApproved: false },
             { aiAllowed: false, showResourceTypeToggle: true, aiOptionEnabled: false, showConsentHint: true },
         ],
@@ -426,11 +420,6 @@ describe('getAiSubscriptionGate', () => {
             { showAiFormConsentBanner: false, submitBlocked: false, showResourceTypeToggle: false },
         ],
         ['debug mode satisfies the cloud requirement locally', { isCloud: false, isDebug: true }, { aiAllowed: true }],
-        [
-            'flag off shows no misleading consent banner on the AI-only form (but still blocks submit)',
-            { isParentless: true, isAiPrompt: true, aiFlagEnabled: false, aiConsentApproved: false },
-            { showAiFormConsentBanner: false, submitBlocked: true },
-        ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
     })

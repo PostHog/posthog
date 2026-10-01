@@ -1,13 +1,9 @@
-import { IconCalendar, IconOpenSidebar } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { urls } from 'scenes/urls'
+import { IconCalendar } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { PA_RECURRING_REPORTS, PARecurringReport, urlForRecurringReport } from './recurringReportDefinitions'
 
-function ReportCard({ report, enabled }: { report: PARecurringReport; enabled: boolean }): JSX.Element {
+function ReportCard({ report }: { report: PARecurringReport }): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-2 p-3">
             <div className="flex items-start justify-between gap-2">
@@ -20,17 +16,15 @@ function ReportCard({ report, enabled }: { report: PARecurringReport; enabled: b
                     </div>
                     <p className="m-0 text-xs text-muted">{report.lead}</p>
                 </div>
-                {enabled && (
-                    <LemonButton
-                        type="primary"
-                        size="xsmall"
-                        icon={<IconCalendar />}
-                        to={urlForRecurringReport(report)}
-                        data-attr={`product-analytics-recurring-report-${report.key}`}
-                    >
-                        Set up
-                    </LemonButton>
-                )}
+                <LemonButton
+                    type="primary"
+                    size="xsmall"
+                    icon={<IconCalendar />}
+                    to={urlForRecurringReport(report)}
+                    data-attr={`product-analytics-recurring-report-${report.key}`}
+                >
+                    Set up
+                </LemonButton>
             </div>
 
             {/* The report itself is written by an LLM each run, so there's nothing faithful to preview.
@@ -49,8 +43,6 @@ function ReportCard({ report, enabled }: { report: PARecurringReport; enabled: b
  * so they stay useful on a quiet project and can't flood a channel the way a per-event alert can.
  */
 export function ProductAnalyticsRecurringReports(): JSX.Element {
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
-
     return (
         <section className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -62,19 +54,9 @@ export function ProductAnalyticsRecurringReports(): JSX.Element {
                 about regularly rather than react to.
             </p>
 
-            {!aiSubscriptionsEnabled && (
-                <p className="m-0 text-xs text-muted">
-                    AI reports are in early access.{' '}
-                    <Link to={urls.featurePreview(FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT)}>
-                        Turn them on for your account <IconOpenSidebar />
-                    </Link>{' '}
-                    to set one up.
-                </p>
-            )}
-
             <div className="grid gap-2 md:grid-cols-2">
                 {PA_RECURRING_REPORTS.map((report) => (
-                    <ReportCard key={report.key} report={report} enabled={aiSubscriptionsEnabled} />
+                    <ReportCard key={report.key} report={report} />
                 ))}
             </div>
         </section>

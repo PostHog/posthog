@@ -267,7 +267,6 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
     const slackGalleryEnabled = useFeatureFlag('SUBSCRIPTION_SLACK_GALLERY')
     const slackReconnectRestriction = useIntegrationManagementRestriction()
 
@@ -286,7 +285,6 @@ export function EditSubscription({
         aiConsentApproved: Boolean(currentOrganization?.is_ai_data_processing_approved),
         isCloud: Boolean(preflight?.cloud),
         isDebug: Boolean(preflight?.is_debug),
-        aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
     const subscriptionLoaded = !!subscription?.target_type
 

@@ -3,8 +3,6 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_USER_UUID } from 'li
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -99,7 +97,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             await expectLogic(logic, () => {
                 logic.actions.setCurrentTab(SubscriptionsTab.AI)
@@ -113,6 +110,10 @@ describe('subscriptionsSceneLogic', () => {
         it('ignores an AI reports URL when AI subscriptions are unavailable', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
             subscriptionRequestUrls.length = 0
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
 
             await expectLogic(logic, () => {
                 router.actions.push(`${urls.subscriptions()}?tab=ai_prompt`)
@@ -260,9 +261,8 @@ describe('subscriptionsSceneLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
                 organizationLogic.actions.loadCurrentOrganizationSuccess({
                     ...MOCK_DEFAULT_ORGANIZATION,
-                    is_ai_data_processing_approved: true,
+                    is_ai_data_processing_approved: aiAvailable,
                 })
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: aiAvailable })
                 const targetLogic = newSubscriptionTargetLogic()
                 targetLogic.mount()
 
@@ -277,6 +277,10 @@ describe('subscriptionsSceneLogic', () => {
 
         it('picks the AI report target once AI subscriptions become available after the deep link opened', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
             const targetLogic = newSubscriptionTargetLogic()
             targetLogic.mount()
 
@@ -289,7 +293,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             expect(targetLogic.values.target).toEqual({ kind: 'ai' })
             targetLogic.unmount()
@@ -307,7 +310,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             expect(targetLogic.values.target).toEqual({ kind: 'insight', shortId: 'abc123', name: 'Weekly signups' })
             targetLogic.unmount()
@@ -319,14 +321,16 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
             const targetLogic = newSubscriptionTargetLogic()
             targetLogic.mount()
 
             router.actions.push(`${urls.subscriptionNew()}?resource_type=ai_prompt`)
             expect(targetLogic.values.target).toEqual({ kind: 'ai' })
 
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: false })
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: false,
+            })
             expect(targetLogic.values.target).toBeNull()
             targetLogic.unmount()
         })
@@ -337,7 +341,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
             preflightLogic.actions.loadPreflightSuccess({
                 ...(preflightJson as unknown as PreflightStatus),
                 cloud: false,
@@ -359,7 +362,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
             const targetLogic = newSubscriptionTargetLogic()
             targetLogic.mount()
 
@@ -377,7 +379,6 @@ describe('subscriptionsSceneLogic', () => {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
             const targetLogic = newSubscriptionTargetLogic()
             targetLogic.mount()
 
