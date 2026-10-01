@@ -47,6 +47,9 @@ Run responses omit internal cost accounting, including gateway request IDs.
 
 ## Model selection
 
+Claude runs default to `claude-sonnet-5-5` when no run, user, or project model choice applies.
+The PostHog AI composer uses the same default.
+
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.

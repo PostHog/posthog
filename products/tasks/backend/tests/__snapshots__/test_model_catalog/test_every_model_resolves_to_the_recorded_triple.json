@@ -134,7 +134,7 @@
   ],
   "runtime_adapters": {
     "claude": {
-      "default_model": "claude-sonnet-5",
+      "default_model": "claude-sonnet-5-5",
       "fallback_reasoning_efforts": [],
       "models": {
         "@cf/zai-org/glm-5.2": {
