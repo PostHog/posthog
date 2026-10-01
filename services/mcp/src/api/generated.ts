@@ -48012,7 +48012,7 @@ export namespace Schemas {
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
-         * Last time this feature flag was called, from $feature_flag_called events stored in the events or flag_evaluations table. A periodic sync updates it, so it can trail the most recent call.
+         * Last time this feature flag was called (from $feature_flag_called events)
          * @nullable
          */
       readonly last_called_at: string | null;
@@ -48415,7 +48415,7 @@ export namespace Schemas {
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
       /**
-         * Last time this feature flag was called, from $feature_flag_called events stored in the events or flag_evaluations table. A periodic sync updates it, so it can trail the most recent call.
+         * Last time this feature flag was called (from $feature_flag_called events)
          * @nullable
          */
       last_called_at?: string | null;
