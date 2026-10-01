@@ -17,7 +17,11 @@ from posthog.egress.limiter.policies import Priority
 from products.growth.backend.enrichment.tools import (
     DEFAULT_SEARCH_RESULTS,
     MAX_PACED_ATTEMPTS,
+    MAX_PACED_WAIT_SECONDS,
     MAX_SEARCH_QUERY_CHARS,
+    PACED_BUDGET_FRACTION,
+    SEARCH_BUDGET_COST,
+    FirecrawlPacer,
     run_tool,
 )
 
@@ -41,7 +45,7 @@ class TestRunToolWebSearch(SimpleTestCase):
         }
         assert outcome.urls == ("https://techcrunch.com/acme",)
         search_mock.assert_called_once_with(
-            '"Acme" AI', source="growth_ai_enrichment", limit=DEFAULT_SEARCH_RESULTS, priority=Priority.BATCH
+            '"Acme" AI', source="growth_ai_enrichment", limit=DEFAULT_SEARCH_RESULTS, priority=Priority.NORMAL
         )
 
     @parameterized.expand([("above_the_limit", 99, 10), ("negative", -5, 1)])
@@ -86,12 +90,13 @@ class TestRunToolWebSearch(SimpleTestCase):
         ]
     )
     def test_every_firecrawl_failure_kind_maps_to_the_right_error(self, _name, error, expected_error, expected_message):
-        with patch(f"{_TOOLS_MODULE}.search", side_effect=error("boom")):
+        with patch(f"{_TOOLS_MODULE}.search", side_effect=error("boom")) as search_mock:
             outcome = run_tool("web_search", {"query": "x"})
 
         assert outcome.error == expected_error
         assert outcome.result == {"error": expected_message}
         assert outcome.urls == ()
+        assert search_mock.call_count == 1
 
 
 class TestRunToolFetchPage(SimpleTestCase):
@@ -111,7 +116,7 @@ class TestRunToolFetchPage(SimpleTestCase):
             "https://acme.example/pricing",
             source="growth_ai_enrichment",
             formats=("markdown",),
-            priority=Priority.BATCH,
+            priority=Priority.NORMAL,
         )
 
     @parameterized.expand(
@@ -181,19 +186,20 @@ class TestRunToolFetchPage(SimpleTestCase):
         ]
     )
     def test_every_firecrawl_failure_kind_maps_to_the_right_error(self, _name, error, expected_error, expected_message):
-        with patch(f"{_TOOLS_MODULE}.scrape", side_effect=error("boom")):
+        with patch(f"{_TOOLS_MODULE}.scrape", side_effect=error("boom")) as scrape_mock:
             outcome = run_tool("fetch_page", {"url": "https://acme.example"})
 
         assert outcome.error == expected_error
         assert outcome.result == {"error": expected_message}
         assert outcome.urls == ()
+        assert scrape_mock.call_count == 1
 
 
 class TestPacedFirecrawlCalls(SimpleTestCase):
-    def _limiter(self, pace_seconds: float) -> MagicMock:
+    def _limiter(self, *, pace_seconds: float = 0.0, interval_seconds: float = 0.0) -> MagicMock:
         limiter = MagicMock()
         limiter.pace_seconds.return_value = pace_seconds
-        limiter.admission_interval_seconds.return_value = 0.0
+        limiter.admission_interval_seconds.return_value = interval_seconds
         return limiter
 
     @parameterized.expand(
@@ -221,19 +227,47 @@ class TestPacedFirecrawlCalls(SimpleTestCase):
                 side_effect=[FirecrawlEgressBudgetExhausted("full"), success],
             ) as client_mock,
         ):
-            outcome = run_tool(tool, arguments, paced=True)
+            outcome = run_tool(tool, arguments, pacer=FirecrawlPacer())
 
         assert outcome.error is None
         assert client_mock.call_count == 2
+        assert client_mock.call_args.kwargs["priority"] == Priority.BATCH
         sleep_mock.assert_called_with(1.5)
+
+    def test_consecutive_paced_calls_are_spaced_by_the_admission_interval(self):
+        found = FirecrawlSearch(query="x", results=(FirecrawlSearchResult(url="https://x.example"),))
+        pacer = FirecrawlPacer()
+        with (
+            patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=self._limiter(interval_seconds=4.0)),
+            patch(f"{_TOOLS_MODULE}.time.monotonic", return_value=1000.0),
+            patch(f"{_TOOLS_MODULE}.time.sleep") as sleep_mock,
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            run_tool("web_search", {"query": "x"}, pacer=pacer)
+            run_tool("web_search", {"query": "y"}, pacer=pacer)
+
+        sleep_mock.assert_called_once_with(SEARCH_BUDGET_COST * 4.0 / PACED_BUDGET_FRACTION)
+
+    def test_a_wait_past_the_cap_defers_without_sleeping_or_calling_firecrawl(self):
+        limiter = self._limiter(pace_seconds=MAX_PACED_WAIT_SECONDS + 1)
+        with (
+            patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=limiter),
+            patch(f"{_TOOLS_MODULE}.time.sleep") as sleep_mock,
+            patch(f"{_TOOLS_MODULE}.search") as search_mock,
+        ):
+            outcome = run_tool("web_search", {"query": "x"}, pacer=FirecrawlPacer())
+
+        assert outcome.error == "busy"
+        sleep_mock.assert_not_called()
+        search_mock.assert_not_called()
 
     def test_a_paced_call_stops_retrying_after_the_attempt_cap(self):
         with (
-            patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=self._limiter(pace_seconds=0.0)),
+            patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=self._limiter()),
             patch(f"{_TOOLS_MODULE}.time.sleep"),
             patch(f"{_TOOLS_MODULE}.search", side_effect=FirecrawlEgressBudgetExhausted("full")) as search_mock,
         ):
-            outcome = run_tool("web_search", {"query": "x"}, paced=True)
+            outcome = run_tool("web_search", {"query": "x"}, pacer=FirecrawlPacer())
 
         assert outcome.error == "busy"
         assert search_mock.call_count == MAX_PACED_ATTEMPTS
