@@ -10,6 +10,10 @@ import {
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
 import packageJson from "../package.json" with { type: "json" };
+import {
+  type ContextSelectionResponse,
+  contextSelectionResponseSchema,
+} from "./context-selection/schemas";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
 import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
 
@@ -98,6 +102,50 @@ export class PostHogAPIClient {
     options: RequestInit = {},
   ): Promise<Response> {
     return this.http.performRequestWithRetry(endpoint, options);
+  }
+
+  async prepareContextSelection(input: {
+    run_id: string;
+    message_id: string;
+    prompt: string;
+    prompt_char_count: number;
+    history: string;
+    history_source: string;
+    runtime_version: string;
+    baseline: string;
+  }): Promise<ContextSelectionResponse> {
+    const response = await this.apiRequest<unknown>(
+      `/api/projects/${this.getTeamId()}/context_layer/selection/prepare/`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(4_000),
+      },
+    );
+    return contextSelectionResponseSchema.parse(response);
+  }
+
+  async recordContextSelectionReceipt(input: {
+    run_id: string;
+    selection_id: string;
+    delivery_id: string;
+    status: "dispatching" | "completed" | "failed";
+    context_included: boolean;
+    prompt_hash: string;
+    prompt: unknown;
+    usage: unknown;
+    adapter_elapsed_ms?: number;
+    stop_reason: string;
+    trace_id?: string;
+  }): Promise<void> {
+    await this.apiRequest(
+      `/api/projects/${this.getTeamId()}/context_layer/selection/receipt/`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+        signal: AbortSignal.timeout(1_000),
+      },
+    );
   }
 
   async getApiKey(forceRefresh = false): Promise<string> {

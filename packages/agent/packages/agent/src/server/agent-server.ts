@@ -130,6 +130,7 @@ import { redactSecrets, SecretEventRedactor } from "../utils/redact-secrets";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
 import { AgentBootTracker } from "./boot-phases";
 import {
+  hiddenTextBlock,
   normalizeCloudPromptContent,
   promptBlocksToText,
 } from "./cloud-prompt";
@@ -137,6 +138,7 @@ import {
   CodexSubscriptionTokenClient,
   codexSubscriptionRefreshFailureMessage,
 } from "./codex-subscription-token";
+import { ContextSelection } from "./context-selection";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import {
@@ -363,14 +365,6 @@ const SUBSCRIPTION_TOKEN_FAILURE = {
   },
 } as const;
 
-function hiddenTextBlock(text: string): ContentBlock {
-  return {
-    type: "text",
-    text,
-    _meta: { ui: { hidden: true } },
-  } as ContentBlock;
-}
-
 function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   const meta = block._meta as
     | { ui?: Record<string, unknown>; [key: string]: unknown }
@@ -537,6 +531,7 @@ export class AgentServer {
   private session: ActiveSession | null = null;
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
+  private contextSelection: ContextSelection;
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
@@ -700,6 +695,17 @@ export class AgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
+    this.contextSelection = new ContextSelection(
+      this.posthogAPI,
+      (event) =>
+        this.emitConsoleLog(
+          "debug",
+          "context_selection",
+          "context_selection",
+          event,
+        ),
+      config.version ?? packageJson.version,
+    );
     if (config.eventIngestToken) {
       this.eventStreamSender = new TaskRunEventStreamSender({
         apiUrl: config.apiUrl,
@@ -1602,17 +1608,25 @@ export class AgentServer {
             } else {
               const runPrompt = () => {
                 this.emitFirstCommandDispatched();
-                const promptResult = commandSession.clientConnection.prompt({
-                  sessionId: commandSession.acpSessionId,
+                return this.contextSelection.dispatch(
+                  commandSession.payload.run_id,
+                  manualCompactPrompt ? undefined : messageId,
                   prompt,
-                  ...(Object.keys(promptMeta).length > 0
-                    ? { _meta: promptMeta }
-                    : {}),
-                });
-                if (!promptResult) {
-                  throw new Error("Agent connection did not accept the prompt");
-                }
-                return promptResult;
+                  (selectedPrompt) => {
+                    const result = commandSession.clientConnection.prompt({
+                      sessionId: commandSession.acpSessionId,
+                      prompt: selectedPrompt,
+                      ...(Object.keys(promptMeta).length > 0
+                        ? { _meta: promptMeta }
+                        : {}),
+                    });
+                    if (!result)
+                      throw new Error(
+                        "Agent connection did not accept the prompt",
+                      );
+                    return result;
+                  },
+                );
               };
               const runTurn = () => {
                 if (this.prewarmedStartupTurnPending) {
@@ -1722,6 +1736,8 @@ export class AgentServer {
             assistantMessage = commandSession.logWriter.getFullAgentResponse(
               commandSession.payload.run_id,
             );
+            if (assistantMessage)
+              this.contextSelection.recordAssistant(assistantMessage);
           } catch {
             this.logger.debug("Failed to extract assistant message from logs");
           }
@@ -2978,6 +2994,9 @@ export class AgentServer {
         "Could not load task run to determine its initial prompt",
       );
     }
+    this.contextSelection.enabled =
+      taskRun.state.context_selection_eligible === true &&
+      this.getRuntimeAdapter() === "claude";
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =
@@ -3115,11 +3134,17 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: initialPrompt,
-        ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-      });
+      const result = await this.contextSelection.dispatch(
+        payload.run_id,
+        initialPromptMessageId ?? `initial:${payload.run_id}`,
+        initialPrompt,
+        (selectedPrompt) =>
+          this.promptWithUpstreamRetry({
+            sessionId: acpSessionId,
+            prompt: selectedPrompt,
+            ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+          }),
+      );
 
       this.logger.debug("Initial task message completed", {
         stopReason: result.stopReason,
@@ -3131,6 +3156,9 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
+      this.contextSelection.recordAssistant(
+        this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
+      );
       this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
@@ -3507,11 +3535,17 @@ export class AgentServer {
       this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
-      const result = await this.promptWithUpstreamRetry({
-        sessionId: acpSessionId,
-        prompt: builtPrompt.prompt,
-        ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-      });
+      const result = await this.contextSelection.dispatch(
+        payload.run_id,
+        builtPrompt.messageId,
+        builtPrompt.prompt,
+        (selectedPrompt) =>
+          this.promptWithUpstreamRetry({
+            sessionId: acpSessionId,
+            prompt: selectedPrompt,
+            ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+          }),
+      );
 
       this.logger.debug(`${logLabel} completed`, {
         stopReason: result.stopReason,
@@ -3527,6 +3561,9 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
+      this.contextSelection.recordAssistant(
+        this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
+      );
       this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);

@@ -682,6 +682,45 @@ the run's saved `pending_user_message` when logs do not yet contain it. This is 
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
 
+## Context selection experiment
+
+Cloud Claude runs started from PostHog AI web or Slack can opt into `phai-context-selection`.
+The flag must return `shadow`, `control`, or `treatment`; boolean enablement does not enroll a run.
+Assignment uses the task ID and persists across its runs. Turning the flag off stops selection on the next human turn.
+Runs booted while disabled require a new run to enroll. Pi, desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
+
+The default `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` is empty. Configure only projects containing synthetic or PostHog-owned data; the current actor must also be staff.
+`CONTEXT_SELECTION_PROVIDER` explicitly selects `typesafe` (default, existing NORMAL egress lane) or `gateway`.
+`CONTEXT_SELECTION_MODEL` defaults to `jev-latest`; pin a model for a stable experiment. There is no provider fallback.
+
+Skill descriptions and Data Catalog metadata use a project projection in the existing Django cache.
+A cache miss schedules a Celery refresh and skips the current turn. Projections refresh after two minutes and expire after ten minutes.
+Each source pool is capped at 2,000 records, with truncation recorded. Versioned projections of project-shared metadata are archived before serving, so skills and semantic retrieval can be replayed after cache expiry. Weighted token matching shortlists sources separately, then current source rows and permissions are checked before scoring and dispatch.
+Customized shared-resource access is conservatively excluded, including object-restricted skills. Full skill bodies remain available through the existing tools.
+Business Knowledge uses its existing safe hybrid search, with a bounded worker pool; a timeout can leave one search running but cannot create an unbounded queue.
+The server selection budget is three seconds and the client preparation deadline is four seconds. Receipt calls each have a one-second deadline; these add to selection latency.
+
+The experiment gate skips at probability 0.30 or below. Candidates need 0.70 or above, and the rendered bundle is limited to five records and 8,000 characters.
+Shadow runs select and archive without injection; controls archive the baseline without selection.
+A retry of an already recorded message does not repeat selection and proceeds without context. Each actual dispatch has a separate receipt.
+A failed receipt write removes context before dispatch. Preparation and receipt failures also emit diagnostics into the existing run logs.
+
+Selection records retain authorized candidate snapshots, source revisions, projection identity, model requests and normalized responses, decisions, stage timings, rendered context, bounded request/history, and relevant run configuration.
+Receipts include exact submitted ACP prompt blocks (up to 256 KiB), their SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
+A dispatching receipt alone does not prove adapter acceptance. Terminal receipt failures remain unknown; task/run joins remain usable without a trace ID.
+Provider responses completing after the deadline are not collected. Their candidates are marked timed out. The source search is lexical plus Business Knowledge hybrid retrieval, not the prototype's SQLite FTS implementation.
+
+Records expire after 90 days; projection snapshots expire 91 days after their last refresh; a daily Celery task deletes them. Assignment survives until task deletion. Evidence is private and never exposed as a normal chat artifact.
+Operators can export a task before retention or task deletion:
+
+```sh
+python manage.py export_context_selections --team-id TEAM_ID --task-id TASK_UUID > context-evidence.json
+```
+
+The export includes every persisted run log for the task, without the default resume-depth limit or lossy event parsing. Missing, malformed, and nonterminal logs are marked explicitly.
+It is a persisted-log dataset, not a complete provider-native transcript: tools or native sessions may have their own truncation, and existing log retention still applies.
+Feedback is joined later using web `run_id` or Slack `task_run_id`, with `task_id` and `$ai_trace_id` where available. Do not interpret absent feedback as a negative result.
+
 ## Local development
 
 To set up sandboxed agents for local development:

@@ -268,6 +268,14 @@ def add_periodic_task_with_expiry(
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
+    from products.context_layer.backend.tasks import purge_context_selection_attempts
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="17"),
+        purge_context_selection_attempts.s(),
+        name="purge expired context selections",
+    )
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
     # These are fine because they run more frequently than beat restarts.
     if not settings.DEBUG:

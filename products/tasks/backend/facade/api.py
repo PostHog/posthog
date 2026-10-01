@@ -212,6 +212,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "is_current_task_run_actor",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -538,7 +539,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
 # filter drops never reaches the agent server, so the gate would silently do nothing.
 # `store_skills` is the acting user's skills-store listing, so it is for their sandbox only.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt"})
+_TASK_RUN_AGENT_STATE_KEYS = frozenset(
+    {"end_run_when_done", "initial_prompt_override", "store_skills", "systemPrompt", "context_selection_eligible"}
+)
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -2607,6 +2610,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "context_selection_eligible",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -11563,3 +11567,13 @@ def accept_github_event_for_loops(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.loop_github_events import handle_github_event_for_loops  # noqa: PLC0415
 
     handle_github_event_for_loops(delivery.event_type, dict(delivery.payload), delivery.delivery_id or "")
+
+
+def is_current_task_run_actor(run: TaskRun, user: User) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user.id and user_has_current_team_access(actor, run.team)

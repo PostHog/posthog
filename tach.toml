@@ -573,6 +573,7 @@ layer = "modules"
 [[modules]]
 path = "products.context_layer"
 depends_on = [
+    "products.skills", "products.data_catalog", "products.business_knowledge",
     "ee",
     "posthog",
     "products.tasks", "products.access_control",
@@ -1440,6 +1441,7 @@ layer = "modules"
 
 [[interfaces]]
 expose = [
+    "backend\\.facade.*",
     "backend\\.api.*",
     "backend\\.logic.*",
     "backend\\.constants.*",
