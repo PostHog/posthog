@@ -17,6 +17,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SYNC_DISABLED_JOB_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -317,6 +320,30 @@ class TestProcessSingle:
             await consumer._process_single(batch)
 
         mock_fail.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
+        # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
+        # subclass) is retryable in principle, so it must still reach error tracking only via
+        # the classification made further down the stack, not get captured just because this
+        # batch's own retry budget ran out.
+        consumer = _make_consumer(max_attempts=2)
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock(side_effect=TransientObjectStoreError("Generic S3 error"))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        mock_capture.assert_not_called()
 
 
 class TestProcessGroup:
