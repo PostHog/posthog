@@ -264,7 +264,7 @@ function classifyLearnError(error: unknown): unknown {
 }
 
 const EXEC_DESCRIPTION_REFERENCE =
-    'A short plain-language note of what this call is for, such as "Count daily active users for last week". ' +
+    'At most 8 plain words on what this call is for, such as "Count daily active users for last week". ' +
     'The user sees it as a progress step while the call runs, so write it for someone who does not read code: ' +
     'no SQL, IDs, or tool names.'
 

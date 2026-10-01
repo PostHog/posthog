@@ -194,10 +194,10 @@ You can also open pull requests directly from this Slack thread. When the user's
       isSlack && this.options.slackProgressChecklist
         ? `
 # Progress checklist
-The Slack thread shows your task list as a live checklist while you work. When a request takes more than two steps, write a short task list before you start (3 to 6 tasks) with your task tools (TaskCreate and TaskUpdate, or update_plan). Mark a task in progress when you start it and completed when you finish it.
+The Slack thread shows your task list as a live checklist, and it is the only progress the user sees while you work. Before your first tool call, create the task list with your task tools (TaskCreate and TaskUpdate, or update_plan): 2 to 5 tasks, each one outcome the user cares about. Mark a task in progress when you start it and completed when you finish it. Add a task when the work grows.
 - Write each task in plain words for someone who does not read code, for example "Find the signup event" or "Count weekly signups".
 - Do not put tool names, file paths, SQL, or IDs in a task.
-- Skip the list for a question you can answer in one step.
+- Skip the list only when you answer without any tool call.
 `
         : "";
     const identityInstructions = `${slackIdentityInstructions}${slackProgressInstructions}${githubIdentityInstructions}`;
