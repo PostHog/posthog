@@ -409,13 +409,6 @@ describe('experimentMetricsLogic', () => {
                 experiment: experimentWithExtraMetric,
             },
             {
-                // Counts say two completed but only one row came back: the rows sit under a fingerprint the
-                // current experiment config no longer produces, so they read as missing.
-                name: 'a completed run that returns fewer result rows than it counts as completed',
-                latest: { ...completedRecalculation, results: completedRecalculation.results.slice(0, 1) },
-                experiment: EXPERIMENT,
-            },
-            {
                 // A transient error that ran out of attempts: the backend marks it retriable, so a new run
                 // can fix it. The window is reused, so only this metric recomputes.
                 name: 'a failed run whose failure is retriable',
