@@ -63,6 +63,24 @@ def count_unresolved(run: Run) -> int:
     )
 
 
+def count_gating(run: Run) -> int:
+    """How many snapshots fail the CI job that completes the run: `_post_status`'s verdict as a count.
+
+    Approved changes fail it too until finalize commits them, because the baseline on the PR
+    branch does not hold them yet. Without this, a re-run of that job passes a run whose
+    approvals were never committed.
+    """
+    unresolved = count_unresolved(run)
+    if run.approved or run.purpose == RunPurpose.OBSERVE:
+        return unresolved
+    awaiting_commit = RunSnapshot.objects.filter(
+        run_id=run.id,
+        review_state=ReviewState.APPROVED,
+        result__in=(SnapshotResult.NEW, SnapshotResult.CHANGED),
+    ).count()
+    return unresolved + awaiting_commit
+
+
 def _changes_summary(run: Run) -> str:
     """Change summary from the run's denormalized (quarantine-excluded) counts."""
     return comment_markdown._format_change_counts(run.changed_count, run.new_count, run.removed_count)
