@@ -487,22 +487,6 @@ tools:
             email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends
             with open/click tracking off, which can never register an open or a click. This reads the workflow's whole
             history; for one published version, call workflows-version-stats.
-    workflows-version-stats:
-        operation: hog_flows_metrics_version_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get workflow stats for one version
-        description: >
-            Execution stats for a single published version of a workflow, in the same shape as workflows-stats. That is
-            how you tell whether a change helped: compare the version before it with the version after it. The
-            unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it
-            is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step
-            you are reading, or several steps share one denominator.
     workflows-suggest:
         operation: hog_flows_proposals_create
         enabled: true
@@ -590,3 +574,19 @@ tools:
         description: >
             Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence
             reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.
+    workflows-version-stats:
+        operation: hog_flows_metrics_version_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow stats for one version
+        description: >
+            Execution stats for a single published version of a workflow, in the same shape as workflows-stats. That is
+            how you tell whether a change helped: compare the version before it with the version after it. The
+            unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it
+            is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step
+            you are reading, or several steps share one denominator.
