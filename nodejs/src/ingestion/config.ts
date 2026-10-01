@@ -190,12 +190,9 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
-    // source person row (is_deleted = true, version stamped in the same transaction, properties
-    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
-    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
-    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
-    // teams; empty means no teams.
+    // Teams whose merges and deletes tombstone the person row instead of hard-deleting it, and
+    // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
+    // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
     // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
@@ -378,7 +375,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,
