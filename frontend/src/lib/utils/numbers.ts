@@ -79,12 +79,17 @@ export function significantDecimalPlaces(value: number, minimum?: number | null)
     return Math.min(Math.max(floor, 1 - Math.floor(Math.log10(Math.abs(value)))), MAX_SIGNIFICANT_DECIMAL_PLACES)
 }
 
-/** Format number with comma as the thousands separator. */
+/** Format number with comma as the thousands separator. Renders during a component's render pass,
+ *  so a missing value has to come back as a string rather than throw and unmount the whole view.
+ *  `NaN` and the infinities still format themselves, and are left to do so. */
 export function humanFriendlyNumber(
-    d: number,
+    d: number | null | undefined,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
+    if (d == null) {
+        return '-'
+    }
     return d.toLocaleString('en-US', {
         maximumFractionDigits: validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES),
         minimumFractionDigits: validateFractionDigits(minimumFractionDigits, 0),
