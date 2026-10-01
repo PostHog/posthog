@@ -1129,7 +1129,7 @@ export interface ErrorTrackingIssueQueryRequestApi {
     /** When true, exclude internal/test account data from results. Defaults to true. */
     filterTestAccounts?: boolean
     /**
-     * Volume buckets. Maximum 200.
+     * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.
      * @minimum 0
      * @maximum 200
      */
@@ -1636,7 +1636,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      */
     offset?: number
     /**
-     * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
+     * Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
      * @minimum 0
      * @maximum 200
      */
