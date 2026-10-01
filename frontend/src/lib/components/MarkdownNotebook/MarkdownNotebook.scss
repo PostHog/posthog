@@ -2285,9 +2285,11 @@ button.MarkdownNotebook__component-title:focus-visible {
     --jupyter-selected-background: color-mix(in sRGB, var(--jupyter-paper-background) 88%, var(--color-blue-300));
 
     // The notebook sits on a sheet of its own, centered on the page, as in classic Jupyter.
+    // Its left edge needs no gutter: a cell drags from its prompt column and comments sit on the right.
     .MarkdownNotebook__canvas {
         padding-top: 1rem;
         padding-bottom: 1rem;
+        padding-left: 0.5rem;
         background: var(--jupyter-paper-background);
         border: 1px solid var(--color-border-primary);
         border-radius: 2px;
@@ -2305,9 +2307,9 @@ button.MarkdownNotebook__component-title:focus-visible {
     }
 
     .MarkdownNotebook__text-group {
-        width: calc(100% - var(--markdown-notebook-content-offset));
+        width: 100%;
         padding: 0.3125rem 0.5rem 0.3125rem calc(var(--jupyter-prompt-width) + 0.5rem);
-        margin: 0.125rem 0 0.125rem var(--markdown-notebook-content-offset);
+        margin: 0.125rem 0;
         background: none;
         border: none;
         border-radius: 0;
@@ -2344,14 +2346,30 @@ button.MarkdownNotebook__component-title:focus-visible {
     // Comment threads keep their own placement in the margin.
     .MarkdownNotebook__row:not(.MarkdownNotebook__row--margin-comment)
         > .MarkdownNotebook__component-shell:not(.MarkdownNotebook__jupyter-cell) {
-        margin-left: calc(var(--markdown-notebook-content-offset) + var(--jupyter-prompt-width) + 0.5rem);
+        margin-left: calc(var(--jupyter-prompt-width) + 0.5rem);
+    }
+
+    // Row controls: the comment button sits right of the sheet's content, past the source and
+    // output, and a text row's drag handle sits in the prompt column its text leaves empty.
+    .MarkdownNotebook__block-comment-button {
+        right: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.25rem);
+        left: auto;
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__block-comment-button {
+        right: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.75rem);
+        left: auto;
+    }
+
+    .MarkdownNotebook__text-group .MarkdownNotebook__drag-handle {
+        left: calc(-1 * var(--markdown-notebook-inline-control-width) - 0.25rem);
     }
 }
 
 .MarkdownNotebook__jupyter-cell {
     position: relative;
     padding: 0.3125rem 0.5rem 0.3125rem 0;
-    margin: 0.125rem 0 0.125rem var(--markdown-notebook-content-offset);
+    margin: 0.125rem 0;
     overflow: visible;
     background: none;
     border: none;
@@ -2385,6 +2403,20 @@ button.MarkdownNotebook__component-title:focus-visible {
     left: 0;
     width: 3px;
     border-radius: 1px;
+}
+
+.MarkdownNotebook__jupyter-drag-area {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    width: calc(var(--jupyter-prompt-width) - 0.25rem);
+    cursor: grab;
+
+    &:active {
+        cursor: grabbing;
+    }
 }
 
 .MarkdownNotebook__jupyter-cell--active .MarkdownNotebook__jupyter-collapser {
@@ -2601,9 +2633,9 @@ button.MarkdownNotebook__component-title:focus-visible {
 
 .MarkdownNotebook__jupyter-add-cell {
     display: block;
-    width: calc(100% - var(--markdown-notebook-content-offset) - var(--jupyter-prompt-width) - 0.5rem);
+    width: calc(100% - var(--jupyter-prompt-width) - 0.5rem);
     padding: 0.625rem 0.75rem;
-    margin: 0.5rem 0 0 calc(var(--markdown-notebook-content-offset) + var(--jupyter-prompt-width) + 0.5rem);
+    margin: 0.5rem 0 0 calc(var(--jupyter-prompt-width) + 0.5rem);
     font-size: 0.75rem;
     color: var(--color-text-secondary);
     text-align: left;

@@ -5949,6 +5949,8 @@ function MarkdownNotebookEditor({
             }
         },
         getCellKind: (cellId) => findJupyterCell(cellId)?.kind ?? null,
+        startCellDrag: (event, nodeId) => handleBlockDragStart(event, nodeId),
+        endCellDrag: () => handleBlockDragEnd(),
     }
 
     const jupyterCommands = useMemo<NotebookJupyterCommands | null>(() => {
@@ -5967,6 +5969,8 @@ function MarkdownNotebookEditor({
             moveEditFocus: (...args) => impl().moveEditFocus(...args),
             deleteEmptyCell: (...args) => impl().deleteEmptyCell(...args),
             getCellKind: (...args) => impl().getCellKind(...args),
+            startCellDrag: (...args) => impl().startCellDrag(...args),
+            endCellDrag: () => impl().endCellDrag(),
         }
     }, [jupyterMode, jupyterStore])
 
@@ -6861,6 +6865,7 @@ function MarkdownNotebookEditor({
                     isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
                     isAIWritingNode && 'MarkdownNotebook__row--ai-writing',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
+                    isJupyterCellNode(node) && 'MarkdownNotebook__row--jupyter-cell',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
                 onMouseEnter={(event) => updateActiveBoundaryFromRow(event, index)}
@@ -6868,7 +6873,8 @@ function MarkdownNotebookEditor({
                 onFocusCapture={() => handleRowFocus(index)}
                 onBlurCapture={(event) => handleRowBlur(event, index)}
             >
-                {isDraggableRow ? (
+                {/* A Jupyter code cell drags from its whole prompt column instead. */}
+                {isDraggableRow && !isJupyterCellNode(node) ? (
                     <div
                         className="MarkdownNotebook__drag-handle"
                         contentEditable={false}
@@ -7081,6 +7087,7 @@ function MarkdownNotebookEditor({
             allowViewModeFilters,
             mergedRegistry,
             insertCommands,
+            jupyterMode,
         ]
         const cached = rowElementCacheRef.current.get(node.id)
         if (cached && cached.node === node && arraysShallowEqual(cached.inputs, inputs)) {

@@ -632,6 +632,19 @@ export function NotebookComponentShell({
                     </div>
                 ) : null}
                 <div className="MarkdownNotebook__jupyter-collapser" aria-hidden />
+                {canEditCells ? (
+                    // Covers the prompts and the bar beside them, so the cell drags from anywhere
+                    // left of its source and output, the way JupyterLab cells move.
+                    <div
+                        className="MarkdownNotebook__jupyter-drag-area"
+                        draggable
+                        role="button"
+                        aria-label="Drag to move cell"
+                        data-attr="notebook-jupyter-cell-drag"
+                        onDragStart={(event) => jupyter.startCellDrag(event, node.id)}
+                        onDragEnd={() => jupyter.endCellDrag()}
+                    />
+                ) : null}
                 <NotebookComponentToolbarExtrasContext.Provider value={setToolbarExtras}>
                     <ComponentPanelContext.Provider value={componentPanelState}>
                         <div className="MarkdownNotebook__jupyter-input">

@@ -1,4 +1,4 @@
-import { createContext, useContext, useSyncExternalStore } from 'react'
+import { DragEvent, createContext, useContext, useSyncExternalStore } from 'react'
 
 import type { NotebookComponentRunHandler } from './componentRunHandlers'
 import type { NotebookJupyterCompletions } from './jupyterEditorKeys'
@@ -273,6 +273,9 @@ export type NotebookJupyterCommands = {
     /** Removes a cell whose editor was emptied with Backspace, and edits the end of the cell above. */
     deleteEmptyCell: (cellId: string) => void
     getCellKind: (cellId: string | null) => 'code' | 'markdown' | 'block' | null
+    /** Starts moving a cell by drag, from anywhere its prompt column covers. */
+    startCellDrag: (event: DragEvent<HTMLDivElement>, nodeId: string) => void
+    endCellDrag: () => void
 }
 
 export const NotebookJupyterContext = createContext<NotebookJupyterCommands | null>(null)
