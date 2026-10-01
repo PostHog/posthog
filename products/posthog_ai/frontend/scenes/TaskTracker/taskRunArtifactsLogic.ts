@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -104,6 +105,13 @@ export interface taskRunArtifactsLogicActions {
         chainRuns: TaskRunDetailDTOApi[]
         payload?: string[]
     }
+    openFromUrl: (
+        fileName: string,
+        versionId: string | null
+    ) => {
+        fileName: string
+        versionId: string | null
+    }
     selectArtifact: (fileName: string) => {
         fileName: string
     }
@@ -155,6 +163,15 @@ export function artifactDownloadUrl(projectId: number | null, taskId: string, ar
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
 
+// A shared link opens the tab on one file, and on one version when it is not the latest.
+const ARTIFACT_PARAM = 'artifact'
+const VERSION_PARAM = 'artifact_version'
+
+/** The standalone page puts the task in the path, an embedded runner in `?task=`. */
+function urlIsForTask(pathname: string, searchParams: Record<string, any>, taskId: string): boolean {
+    return searchParams.task === taskId || pathname.split('/').includes(taskId)
+}
+
 export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     props({} as TaskRunArtifactsLogicProps),
     key((props) => props.taskId),
@@ -176,6 +193,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
+        openFromUrl: (fileName: string, versionId: string | null) => ({ fileName, versionId }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -228,11 +246,21 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
     })),
     reducers({
-        activeTab: ['conversation' as TaskRunTab, { setActiveTab: (_, { tab }) => tab }],
-        selectedFileName: [null as string | null, { selectArtifact: (_, { fileName }) => fileName }],
+        activeTab: [
+            'conversation' as TaskRunTab,
+            { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
+        ],
+        selectedFileName: [
+            null as string | null,
+            { selectArtifact: (_, { fileName }) => fileName, openFromUrl: (_, { fileName }) => fileName },
+        ],
         selectedVersionId: [
             null as string | null,
-            { selectArtifact: () => null, selectVersion: (_, { artifactId }) => artifactId },
+            {
+                selectArtifact: () => null,
+                selectVersion: (_, { artifactId }) => artifactId,
+                openFromUrl: (_, { versionId }) => versionId,
+            },
         ],
         textsById: [
             {} as Record<string, ArtifactText>,
@@ -339,8 +367,49 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             downloadArtifact: ({ artifact }) => {
                 posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
             },
+            openFromUrl: ({ versionId }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact link opened', { has_version: !!versionId })
+            },
         }
     }),
+    actionToUrl(({ values, props }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: true }] | undefined => {
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (!urlIsForTask(pathname, searchParams, props.taskId)) {
+                return undefined
+            }
+            const next = { ...searchParams }
+            delete next[ARTIFACT_PARAM]
+            delete next[VERSION_PARAM]
+            const fileName = values.selectedFileName ?? values.selectedFile?.name
+            if (values.activeTab === 'artifacts' && fileName) {
+                next[ARTIFACT_PARAM] = fileName
+                if (values.selectedVersionId) {
+                    next[VERSION_PARAM] = values.selectedVersionId
+                }
+            }
+            return [pathname, next, hashParams, { replace: true }]
+        }
+        return { setActiveTab: syncUrl, selectArtifact: syncUrl, selectVersion: syncUrl }
+    }),
+    urlToAction(({ actions, values, props }) => ({
+        '*': (_, searchParams, __, { pathname }) => {
+            const fileName = searchParams[ARTIFACT_PARAM]
+            if (typeof fileName !== 'string' || !fileName || !urlIsForTask(pathname, searchParams, props.taskId)) {
+                return
+            }
+            const versionId = typeof searchParams[VERSION_PARAM] === 'string' ? searchParams[VERSION_PARAM] : null
+            // Our own `actionToUrl` writes land here too. Those match the state already.
+            if (
+                values.activeTab !== 'artifacts' ||
+                values.selectedFileName !== fileName ||
+                values.selectedVersionId !== versionId
+            ) {
+                actions.openFromUrl(fileName, versionId)
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         if (values.runs.length > 0) {
             actions.loadChainRuns(values.runs.map((run) => run.id))
