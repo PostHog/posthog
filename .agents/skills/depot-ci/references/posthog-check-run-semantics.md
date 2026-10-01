@@ -62,30 +62,6 @@ Depot creates a job's check run when it resolves the job, not when it creates th
 
 Retrying a failed Depot job created a new check run with the same name and left the failed one behind in the measured 2026-09-17 run `jb7zh5rvnk`: the retried cell got check run `105270302262` while `105262890457` stayed `completed/failure`; only `filter=all` on the check-runs API listed both. GitHub Actions does the same per attempt, which is why a superseded run can show a stale red check beside a green one of the same name. Read the latest check run per name when you script against either engine: the API's default `filter=latest` returns only the newest, and `max_by(.id)` does the same on a full listing. Two details matter when the read decides something: a GitHub Actions rerun queues a fresh check run for every job before any of them runs, so a script that wants the last verdict filters on `status == "completed"` before it takes the newest; and the check-runs API lists every pull request's checks for a head SHA, so a script that acts for one pull request filters on `pull_requests[].number` when it is present.
 
-### A GitHub re-run of a Depot-routed run
-
-A GitHub re-run delivers nothing to Depot.
-GitHub runs the selected jobs again with the same event payload and a higher [`github.run_attempt`](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#github-context), and [`workflow_run` `requested` does not occur on a re-run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
-So the relay starts the retry.
-When `Django Tests Pass` runs in an attempt after the first and the Depot gate already failed, `.github/scripts/ci_backend_relay.py` runs [`depot ci retry <run> --workflow <id> --failed`](https://depot.dev/docs/ci/how-to-guides/manage-workflow-runs#retry-failed-jobs) and reports the new gate.
-"Re-run failed jobs" and "Re-run all jobs" do the same thing, because both run the relay job again.
-
-A re-run starts nothing on Depot in four cases:
-
-- The gate already passed. The relay reports it.
-- The Depot run is still going. The relay follows it.
-- Repo checks or OpenAPI types failed. The failure repeats until a commit fixes it, so the relay reports it again.
-- Depot cancelled the run. The relay reports it as it does on a first attempt, and `/merging-prs` has the recipe for a cancelled run on the head.
-
-Measured 2026-10-01 on PR 110049:
-
-- `depot ci retry --failed` on workflow `hww0dp54s6` answered with seven job ids: the failed shard and every job downstream of it, the gate included. One second later the workflow was `running`, a second entry sat in `executions`, and those jobs were `queued`. The gate's second attempt started 8 seconds after the shard's second attempt finished. The retry read the current value of a Depot variable. A retried job of workflow `dtdn5j0kns` saw `GITHUB_RUN_ATTEMPT=2`.
-- The workflow stayed `running` for about a minute after the gate finished, while jobs behind the gate ran. Depot's [API reference](https://depot.dev/docs/api/ci/reference#errors) answers `failed_precondition` to a retry before a workflow finishes, so the relay waits for a terminal workflow before it retries. That refusal was not measured here.
-- GitHub run `36879068481`: attempt 2 ("Re-run all jobs", test still failing) retried on Depot and failed again, attempt 3 ("Re-run failed jobs", test passing) passed 3.5 minutes after the click, and attempt 4 ("Re-run all jobs" on the passing run) passed with no new Depot execution.
-- GitHub run `36882300404`, cancelled while Depot ran and then re-run: the relay followed the same Depot execution and passed.
-- Depot does not act on GitHub's re-run request for its own checks. A Depot check's page offers only "Re-run all checks". GitHub answered "You have successfully requested checks from Depot Code Access", and three minutes later Depot had no new run and no new execution for the commit.
-- A "Re-run failed jobs" attempt lists every job of the run under the new attempt number, with new job ids and a fresh `Hand off backend tests to Depot CI` check, although only the failed jobs ran. The jobs API cannot tell the two re-run kinds apart.
-
 Depot's list can still be empty. The [check suites API](https://docs.github.com/en/rest/checks/suites) says a suite is created when code is pushed and an app usually receives one suite event per commit SHA even if that SHA is pushed to multiple branches. On commit `f786b640f2f0`, Depot's suite `97293642167` names a `posthog/rewrite-tmp/` branch and has `pull_requests: []`, while GitHub Actions suites on the same commit name PR 104868's branch and list that PR. Commit `749f24dd5b7a` shows the same split with a `-rebase-1` branch. This is consistent with the suite retaining an earlier push branch, but the suite records do not establish push order. Filtering those Depot checks by `pull_requests[].number` finds no check for the PR.
 
 ## Cancelled runs
