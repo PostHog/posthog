@@ -4959,7 +4959,7 @@
         "feature": "sql",
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
-        "required_scopes": ["query:read", "insight:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
