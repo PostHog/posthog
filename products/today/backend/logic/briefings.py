@@ -1,7 +1,7 @@
 """Reading and starting briefings for the API and the MCP tools."""
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from django.conf import settings
 from django.utils import timezone
@@ -23,6 +23,8 @@ from ..temporal.inputs import GENERATE_WORKFLOW_NAME, GenerateBriefingInputs, ge
 from .content import BriefingContent
 from .eligibility import EditionSlot, current_edition, resolve_timezone
 from .fact_sheet import FactSheet, FactSheetItem, stored_fact_sheet
+
+VIEW_STAMP_EVERY = timedelta(hours=1)
 
 logger = structlog.get_logger(__name__)
 
@@ -110,20 +112,34 @@ def get_or_start_briefing(
             team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN
         )
         start_generation(briefing)
-        current = _current(team, user, slot) or CurrentBriefing(shown=briefing, generating=True)
-    DailyBriefing.objects.for_team(team.id).filter(id=current.shown.id).update(
-        last_viewed_at=timezone.now(), timezone=tz
-    )
+        current = CurrentBriefing(shown=briefing, generating=False)
+    now = timezone.now()
+    # The scheduler only asks who viewed in the last 14 days, so the stamp does not need every poll.
+    if current.shown.last_viewed_at is None or current.shown.last_viewed_at < now - VIEW_STAMP_EVERY:
+        DailyBriefing.objects.for_team(team.id).filter(id=current.shown.id).update(last_viewed_at=now, timezone=tz)
     return current
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> DailyBriefing:
-    """Regenerate the current edition. The ready briefing stays on screen until the new one is written."""
+    """Regenerate the current edition, unless one is already being written. The ready briefing stays
+    on screen until the new one is written."""
     tz = resolve_timezone(timezone_name, team)
     slot = current_edition(timezone.now(), tz)
+    current = _current(team, user, slot)
+    if current is not None and (current.generating or current.shown.status in _PENDING):
+        return current.shown
     briefing = create_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
     start_generation(briefing)
     return briefing
+
+
+def recent_ready_briefings(briefing: DailyBriefing, limit: int) -> list[DailyBriefing]:
+    """The person's latest ready briefings before this one, newest first."""
+    return list(
+        DailyBriefing.objects.for_team(briefing.team_id)
+        .filter(user_id=briefing.user_id, status=BriefingStatus.READY, created_at__lt=briefing.created_at)
+        .order_by("-created_at")[:limit]
+    )
 
 
 def store_briefing(briefing: DailyBriefing, fact_sheet: FactSheet, content: BriefingContent) -> None:
@@ -181,8 +197,8 @@ def to_contract(
     page gets the last ready one as `writing`, so it keeps showing the text and keeps polling.
     """
     fact_sheet = stored_fact_sheet(briefing)
-    shown = fact_sheet.text_items if fact_sheet else []
-    content = BriefingContent.model_validate(briefing.content or briefing.draft or {})
+    shown = fact_sheet.items if fact_sheet else []
+    content = BriefingContent.model_validate(briefing.content or {})
     states = _live_states(team, shown)
     counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(
@@ -223,7 +239,7 @@ def to_contract(
 
 
 def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: User) -> contracts.CandidateList:
-    counts = _inbox_counts(team, user, fact_sheet.text_items)
+    counts = _inbox_counts(team, user, fact_sheet.items)
     return contracts.CandidateList(
         local_day=day,
         candidates=[
@@ -235,17 +251,11 @@ def _facts_to_candidates(fact_sheet: FactSheet, day: date, *, team: Team, user: 
                 title=item.title,
                 url=item.url,
                 rank=item.rank,
-                in_text=item.in_text,
-                facts=[
-                    contracts.CandidateFact(name=name, value=str(value))
-                    for name, value in item.facts.items()
-                    if value is not None
-                ],
+                facts=[contracts.CandidateFact(name=name, value=value) for name, value in item.facts.items()],
             )
             for item in fact_sheet.items
         ],
         more_reports_count=counts.more_for_you,
-        failed_sources=fact_sheet.failed_sources,
     )
 
 
@@ -256,5 +266,5 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     current = _current(team, user, slot)
     fact_sheet = stored_fact_sheet(current.shown) if current is not None else None
     if fact_sheet is None:
-        return contracts.CandidateList(local_day=slot.local_day, candidates=[], more_reports_count=0, failed_sources=[])
+        return contracts.CandidateList(local_day=slot.local_day, candidates=[], more_reports_count=0)
     return _facts_to_candidates(fact_sheet, slot.local_day, team=team, user=user)

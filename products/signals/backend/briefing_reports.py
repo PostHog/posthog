@@ -32,10 +32,17 @@ PR_MERGED_HEAD = "pr_merged"
 
 
 class BriefingReportRelation(StrEnum):
-    CLAIMED = "claimed"
+    """How a report relates to the person, strongest first: what blocks on them, what they own,
+    what names them, then what nobody owns. A report keeps the first relation that matches."""
+
     WAITING_FOR_YOU = "waiting_for_you"
+    CLAIMED = "claimed"
     SUGGESTED_REVIEWER = "suggested_reviewer"
     URGENT_UNOWNED = "urgent_unowned"
+
+
+_RELATION_ORDER = {relation: index for index, relation in enumerate(BriefingReportRelation)}
+_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
 
 
 @frozen
@@ -139,11 +146,29 @@ def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[
     return {report_id: meta.source_products for report_id, meta in metadata.items()}
 
 
-def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int = 5) -> list[BriefingReport]:
-    """Open, actionable reports for one person, each tagged with its strongest relation to them.
+def _briefing_order(
+    relation: BriefingReportRelation, priority: str | None, merge_chance: float | None, updated_at: datetime
+) -> tuple[float, ...]:
+    """Relation first. Inside a relation: P0, then the higher chance of a merged PR, then priority,
+    then newest. A report without a score follows the scored ones, so with no scores at all the
+    order falls back to priority."""
+    return (
+        _RELATION_ORDER[relation],
+        0 if priority == "P0" else 1,
+        0 if merge_chance is not None else 1,
+        -(merge_chance or 0.0),
+        _PRIORITY_ORDER.get(priority or "", 5),
+        -updated_at.timestamp(),
+    )
 
-    A report appears once, under the first relation that matches in this order: claimed by the
-    person, waiting for their input, naming them as a reviewer, then a P0 that nobody owns.
+
+def reports_for_briefing(
+    *, team_id: int, user_id: int, limit_per_relation: int = 5, limit: int | None = None
+) -> list[BriefingReport]:
+    """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
+
+    A report appears once, under the first `BriefingReportRelation` that matches. `limit` keeps the
+    best ones after sorting, so the per-report lookups run only for those.
     """
     open_reports = _open_reports(team_id)
     names_me = _names_person(team_id, User.objects.get(id=user_id))
@@ -152,8 +177,8 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
         team_id=team_id, active_only=True
     )
     buckets: list[tuple[BriefingReportRelation, Q]] = [
-        (BriefingReportRelation.CLAIMED, claimed),
         (BriefingReportRelation.WAITING_FOR_YOU, names_me & Q(status=SignalReport.Status.PENDING_INPUT)),
+        (BriefingReportRelation.CLAIMED, claimed),
         (BriefingReportRelation.SUGGESTED_REVIEWER, names_me & Q(status=SignalReport.Status.READY)),
         (
             BriefingReportRelation.URGENT_UNOWNED,
@@ -189,6 +214,14 @@ def reports_for_briefing(*, team_id: int, user_id: int, limit_per_relation: int 
         chosen.append((relation, report))
     chosen_ids = [str(report.id) for _, report in chosen]
     merge_chances = _pr_merged_probabilities(chosen_ids)
+    chosen.sort(
+        key=lambda pair: _briefing_order(
+            pair[0], priorities.get(str(pair[1].id)), merge_chances.get(str(pair[1].id)), pair[1].updated_at
+        )
+    )
+    if limit is not None:
+        chosen = chosen[:limit]
+        chosen_ids = [str(report.id) for _, report in chosen]
     source_products = _source_products(team_id, chosen_ids)
     with_pr = set(
         SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)

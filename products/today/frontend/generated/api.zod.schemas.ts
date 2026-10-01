@@ -68,7 +68,7 @@ export const BriefingItemApi = zod.object({
     label: zod.string().describe('Short left-bar label of at most 6 words.'),
     signal: zod.string().describe("Short fact under the label, at most 40 characters, for example 'Spend down 37%'."),
     url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
-    rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
+    rank: zod.number().describe('Position in the briefing, 1 is the top item.'),
     source_product: zod
         .string()
         .nullable()
@@ -115,9 +115,7 @@ export const BriefingStatusEnumApi = zod
 export type BriefingStatusEnumApi = zod.input<typeof BriefingStatusEnumApi>
 export type BriefingStatusEnumApiOutput = zod.output<typeof BriefingStatusEnumApi>
 
-export const WriterEnumApi = zod
-    .enum(['agent', 'llm', 'template'])
-    .describe('\* `agent` - AGENT\n\* `llm` - LLM\n\* `template` - TEMPLATE')
+export const WriterEnumApi = zod.enum(['agent']).describe('\* `agent` - AGENT')
 
 export type WriterEnumApi = zod.input<typeof WriterEnumApi>
 export type WriterEnumApiOutput = zod.output<typeof WriterEnumApi>
@@ -157,7 +155,7 @@ export const BriefingApi = zod.object({
                     .string()
                     .describe("Short fact under the label, at most 40 characters, for example 'Spend down 37%'."),
                 url: zod.string().describe('Where the item opens: an app path, or a GitHub URL for pull requests.'),
-                rank: zod.number().describe('Position in the full ranked list, 1 is the most important.'),
+                rank: zod.number().describe('Position in the briefing, 1 is the top item.'),
                 source_product: zod
                     .string()
                     .nullable()
@@ -202,10 +200,7 @@ export const BriefingApi = zod.object({
     status: zod
         .enum(['collecting', 'writing', 'ready', 'failed'])
         .describe('\* `collecting` - COLLECTING\n\* `writing` - WRITING\n\* `ready` - READY\n\* `failed` - FAILED'),
-    writer: zod.union([
-        zod.enum(['agent', 'llm', 'template']).describe('\* `agent` - AGENT\n\* `llm` - LLM\n\* `template` - TEMPLATE'),
-        zod.null(),
-    ]),
+    writer: zod.union([zod.enum(['agent']).describe('\* `agent` - AGENT'), zod.null()]),
     edition: zod
         .enum(['morning', 'midday'])
         .describe('\* `morning` - MORNING\n\* `midday` - MIDDAY')
@@ -231,8 +226,7 @@ export const CandidateApi = zod.object({
     key: zod.string().describe('Stable item key, for example report:<uuid> or dashboard:<id>.'),
     title: zod.string().describe("The item's own title."),
     url: zod.string().describe('Where the item opens.'),
-    rank: zod.number().describe('Position in the ranked list, 1 is the most important.'),
-    in_text: zod.boolean().describe('True when the item is one of the top 5 the briefing text covers.'),
+    rank: zod.number().describe('Position in the briefing, 1 is the top item.'),
     facts: zod
         .array(
             zod.object({
@@ -240,7 +234,7 @@ export const CandidateApi = zod.object({
                 value: zod.string().describe('Fact value as text.'),
             })
         )
-        .describe('The numbers and short facts the ranking used.'),
+        .describe('The numbers and short facts the briefing text rests on.'),
     group: zod
         .enum(['report', 'dashboard', 'other'])
         .describe('\* `report` - REPORT\n\* `dashboard` - DASHBOARD\n\* `other` - OTHER'),
@@ -281,8 +275,7 @@ export const CandidateListApi = zod.object({
                 key: zod.string().describe('Stable item key, for example report:<uuid> or dashboard:<id>.'),
                 title: zod.string().describe("The item's own title."),
                 url: zod.string().describe('Where the item opens.'),
-                rank: zod.number().describe('Position in the ranked list, 1 is the most important.'),
-                in_text: zod.boolean().describe('True when the item is one of the top 5 the briefing text covers.'),
+                rank: zod.number().describe('Position in the briefing, 1 is the top item.'),
                 facts: zod
                     .array(
                         zod.object({
@@ -290,7 +283,7 @@ export const CandidateListApi = zod.object({
                             value: zod.string().describe('Fact value as text.'),
                         })
                     )
-                    .describe('The numbers and short facts the ranking used.'),
+                    .describe('The numbers and short facts the briefing text rests on.'),
                 group: zod
                     .enum(['report', 'dashboard', 'other'])
                     .describe('\* `report` - REPORT\n\* `dashboard` - DASHBOARD\n\* `other` - OTHER'),
@@ -320,9 +313,8 @@ export const CandidateListApi = zod.object({
                     ),
             })
         )
-        .describe('Up to 10 items in rank order.'),
+        .describe("The briefing's items in rank order, up to 5."),
     more_reports_count: zod.number().describe('Other open reports for the person not in the list.'),
-    failed_sources: zod.array(zod.string()).describe('Sources that failed, so their items are missing.'),
 })
 
 export type CandidateListApi = zod.input<typeof CandidateListApi>

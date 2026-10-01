@@ -37,7 +37,7 @@ function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
         more_reports_count: 0,
         open_reports_count: 0,
         status: 'ready',
-        writer: 'llm',
+        writer: 'agent',
         created_at: '2026-09-30T06:00:00Z',
         ready_at: '2026-09-30T06:00:20Z',
         ...overrides,
@@ -89,12 +89,12 @@ describe('todayLogic', () => {
         })
     })
 
-    it('shows the draft at once, polls while the text is written, and stops when it is ready', async () => {
+    it('keeps the last briefing on screen, polls while the next is written, and stops when it is ready', async () => {
         jest.useFakeTimers()
-        const draft = makeBriefing({ status: 'writing', writer: 'template', ready_at: null })
+        const previous = makeBriefing({ id: 'b-previous', status: 'writing' })
         const ready = makeBriefing()
         briefingResponses = [
-            [200, draft],
+            [200, previous],
             [200, ready],
         ]
         const logic = todayLogic()
@@ -103,7 +103,7 @@ describe('todayLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess']).toMatchValues({
             showPersonalBriefing: true,
             briefingWaiting: true,
-            personalBriefing: draft,
+            personalBriefing: previous,
         })
 
         await expectLogic(logic, () => {

@@ -44,11 +44,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("facts", models.JSONField(default=dict)),
-                ("draft", models.JSONField(default=dict)),
                 ("content", models.JSONField(default=dict)),
                 (
                     "writer",
-                    models.CharField(choices=[("llm", "llm"), ("template", "template")], max_length=16, null=True),
+                    models.CharField(choices=[("agent", "agent")], max_length=16, null=True),
                 ),
                 ("error", models.TextField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),

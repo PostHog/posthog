@@ -9,7 +9,7 @@
 import * as zod from 'zod'
 
 /**
- * Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet; while it writes, the template draft is returned with status 'writing'.
+ * Today's personal briefing: a short text about up to 5 items and the same items for the left bar. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet and returns it as 'collecting'. While a newer edition is being written, the day's last ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds.
  * @summary Get today's briefing
  */
 export const TodayBriefingRetrieveParams = () => zod.object({
@@ -33,7 +33,7 @@ export const TodayBriefingRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * The ranked items behind today's briefing, with the facts and the reason for each, without the written text.
+ * The items behind today's briefing, with the facts and the reason for each, without the written text.
  * @summary List today's ranked items
  */
 export const TodayCandidatesRetrieveParams = () => zod.object({

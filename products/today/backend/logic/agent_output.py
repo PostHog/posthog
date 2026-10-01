@@ -2,15 +2,13 @@
 
 from typing import Any
 
+import openai
 from pydantic import BaseModel, ConfigDict
 
-from posthog.models import User
-
 from ..facade.enums import ItemGroup, ItemReason, ItemSource
-from ..models import DailyBriefing
 from .checks import check_content
 from .content import BriefingContent, ContentSegment
-from .fact_sheet import FactSheet, FactSheetCounts, FactSheetItem
+from .fact_sheet import FactSheet, FactSheetItem
 
 MAX_ITEMS = 5
 
@@ -58,32 +56,12 @@ class BriefingOutput(BaseModel):
 
 
 def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
-    """The model's JSON schema in the strict form OpenAI structured outputs accept: every object
-    closed with `additionalProperties: false` and every property required."""
-
-    def close(node: Any) -> None:
-        if isinstance(node, dict):
-            if node.get("type") == "object" and "properties" in node:
-                node["additionalProperties"] = False
-                node["required"] = list(node["properties"])
-            for value in node.values():
-                close(value)
-        elif isinstance(node, list):
-            for value in node:
-                close(value)
-
-    schema = model.model_json_schema()
-    close(schema)
-    return schema
+    """The model's JSON schema in the strict form OpenAI structured outputs accept."""
+    return openai.pydantic_function_tool(model)["function"]["parameters"]
 
 
-def to_fact_sheet(output: BriefingOutput, briefing: DailyBriefing, user: User) -> FactSheet:
+def to_fact_sheet(output: BriefingOutput) -> FactSheet:
     return FactSheet(
-        first_name=user.first_name,
-        local_day=briefing.local_day,
-        counts=FactSheetCounts(items_in_text=len(output.items)),
-        failed_sources=[],
-        reason_glossary={},
         items=[
             FactSheetItem(
                 key=item.key,
@@ -94,13 +72,11 @@ def to_fact_sheet(output: BriefingOutput, briefing: DailyBriefing, user: User) -
                 url=item.url,
                 rank=rank,
                 urgency=item.urgency,
-                in_text=True,
-                top=rank == 1,
                 source_product=item.source_product,
                 facts={fact.name: fact.value for fact in item.facts},
             )
             for rank, item in enumerate(output.items, start=1)
-        ],
+        ]
     )
 
 
@@ -116,9 +92,9 @@ def to_content(output: BriefingOutput) -> BriefingContent:
     )
 
 
-def problems_with(output: BriefingOutput, briefing: DailyBriefing, user: User) -> list[str]:
-    """Every rule the answer breaks. The agent gathered the facts itself, so the number check stays off."""
+def problems_with(output: BriefingOutput) -> list[str]:
+    """Every rule the answer breaks."""
     problems = []
     if len(output.items) > MAX_ITEMS:
         problems.append(f"at most {MAX_ITEMS} items, got {len(output.items)}")
-    return problems + check_content(to_fact_sheet(output, briefing, user), to_content(output), check_numbers=False)
+    return problems + check_content(to_fact_sheet(output), to_content(output))

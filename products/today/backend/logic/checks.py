@@ -1,7 +1,4 @@
-"""Checks the LLM output must pass before it is shown. The draft is the fallback when it does not."""
-
-import re
-from typing import Any
+"""The rules a written briefing must pass before it is stored. The problems go back to the writer."""
 
 from .content import BriefingContent
 from .fact_sheet import FactSheet
@@ -10,41 +7,14 @@ MAX_WORDS = 130
 MAX_LINK_WORDS = 8
 MAX_LABEL_WORDS = 6
 MAX_SIGNAL_CHARS = 40
-_NUMBER = re.compile(r"\d[\d,]*\.?\d*")
 _DASHES = ("—", "–")
 
 
-def _numbers(value: Any, out: set[float]) -> None:
-    if isinstance(value, bool):
-        return
-    if isinstance(value, int | float):
-        out.add(abs(float(value)))
-    elif isinstance(value, dict):
-        for inner in value.values():
-            _numbers(inner, out)
-    elif isinstance(value, list):
-        for inner in value:
-            _numbers(inner, out)
-    elif isinstance(value, str):
-        for match in _NUMBER.findall(value):
-            out.add(float(match.replace(",", "")))
-
-
-def _backed(number: float, known: set[float]) -> bool:
-    return any(abs(number - value) < 0.51 for value in known)
-
-
-def check_content(fact_sheet: FactSheet, content: BriefingContent, *, check_numbers: bool = True) -> list[str]:
-    """Every rule the output breaks, or an empty list when it passes.
-
-    `check_numbers` compares every number in the text with the fact sheet. Off when the writer
-    gathered the facts itself, since then the sheet is its own account of them.
-    """
+def check_content(fact_sheet: FactSheet, content: BriefingContent) -> list[str]:
+    """Every rule the briefing breaks, or an empty list when it passes."""
     problems: list[str] = []
-    text_keys = [item.key for item in fact_sheet.text_items]
-    top_key = next((item.key for item in fact_sheet.items if item.top), None)
-    known: set[float] = set()
-    _numbers(fact_sheet.model_dump(mode="json"), known)
+    keys = [item.key for item in fact_sheet.items]
+    top_key = keys[0] if keys else None
 
     linked: list[str] = []
     highlighted: list[str | None] = []
@@ -65,17 +35,17 @@ def check_content(fact_sheet: FactSheet, content: BriefingContent, *, check_numb
                     problems.append(f"link has more than {MAX_LINK_WORDS} words: {text!r}")
             if segment.highlight:
                 highlighted.append(segment.item_key)
-    for key in text_keys:
+    for key in keys:
         if linked.count(key) != 1:
             problems.append(f"item {key} is linked {linked.count(key)} times, expected once")
-    for key in set(linked) - set(text_keys):
-        problems.append(f"link to an item that is not in the text: {key}")
+    for key in set(linked) - set(keys):
+        problems.append(f"link to an item that is not in the list: {key}")
     if top_key is not None and highlighted != [top_key]:
         problems.append(f"only {top_key} may be highlighted, got {highlighted}")
     if words > MAX_WORDS:
         problems.append(f"paragraphs have {words} words, the limit is {MAX_WORDS}")
 
-    for item in fact_sheet.text_items:
+    for item in fact_sheet.items:
         label = content.labels.get(item.key, "")
         signal = content.signals.get(item.key, "")
         if not label or len(label.split()) > MAX_LABEL_WORDS:
@@ -87,9 +57,4 @@ def check_content(fact_sheet: FactSheet, content: BriefingContent, *, check_numb
     for text in texts:
         if any(dash in text for dash in _DASHES):
             problems.append(f"em or en dash in {text!r}")
-        if not check_numbers:
-            continue
-        for match in _NUMBER.findall(text):
-            if not _backed(float(match.replace(",", "")), known):
-                problems.append(f"number {match} in {text!r} is not in the fact sheet")
     return problems

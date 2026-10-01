@@ -9,6 +9,7 @@ from temporalio.exceptions import ActivityError
 from posthog.temporal.common.base import PostHogWorkflow
 
 with temporalio.workflow.unsafe.imports_passed_through():
+    from ..logic.generate import RUN_TIMEOUT
     from .activities import mark_failed_activity, run_agent_activity, start_due_briefings_activity
     from .inputs import (
         GENERATE_WORKFLOW_NAME,
@@ -18,8 +19,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
         SchedulerInputs,
     )
 
-# The agent's own budget plus the sandbox boot; the activity heartbeats while the agent works.
-AGENT_TIMEOUT = timedelta(minutes=30)
 MARK_FAILED_TIMEOUT = timedelta(seconds=30)
 SCHEDULER_TIMEOUT = timedelta(minutes=10)
 
@@ -41,7 +40,7 @@ class GenerateTodayBriefingWorkflow(PostHogWorkflow):
             await temporalio.workflow.execute_activity(
                 run_agent_activity,
                 inputs,
-                start_to_close_timeout=AGENT_TIMEOUT,
+                start_to_close_timeout=RUN_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
             )

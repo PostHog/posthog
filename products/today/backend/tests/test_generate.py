@@ -96,7 +96,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             status=BriefingStatus.READY,
             content={"headline": "Yesterday's headline", "paragraphs": [], "labels": {}, "signals": {}},
         )
-        self.previous.facts = to_fact_sheet(_output(), self.previous, self.user).model_dump(mode="json")
+        self.previous.facts = to_fact_sheet(_output()).model_dump(mode="json")
         self.previous.save(update_fields=["facts"])
         self.briefing = DailyBriefing.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -137,8 +137,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         prompt, context = start.call_args.args
         assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "read_only", MODEL)
         assert start.call_args.kwargs["model"] is BriefingOutput
-        # The pre-ranked reports go in best first, and the previous briefing is there to avoid repeats.
-        assert prompt.index("report:a") < prompt.index("report:b")
+        assert prompt.index("report:b") < prompt.index("report:a")
         assert "Yesterday's headline" in prompt
         assert start.call_args.kwargs.get("internal", False) is False
         session.end.assert_awaited_once_with()

@@ -51,13 +51,18 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert morning["id"] != midday["id"]
         assert sync_connect.return_value.start_workflow.call_count == 2
 
-    def test_refresh_starts_a_new_generation_every_time(self, sync_connect: MagicMock) -> None:
+    def test_a_refresh_while_one_is_being_written_starts_nothing_new(self, sync_connect: MagicMock) -> None:
         sync_connect.return_value.start_workflow = AsyncMock()
         with self._flag(True):
-            responses = [self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/") for _ in range(4)]
+            responses = [self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/") for _ in range(3)]
+            DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id).update(
+                status=BriefingStatus.READY
+            )
+            after_ready = self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/")
 
-        assert [response.status_code for response in responses] == [200, 200, 200, 200]
-        assert sync_connect.return_value.start_workflow.call_count == 4
+        assert [response.status_code for response in [*responses, after_ready]] == [200, 200, 200, 200]
+        # The first refresh starts a run; the next two find it still writing; the last starts a second one.
+        assert sync_connect.return_value.start_workflow.call_count == 2
 
     def test_a_refresh_keeps_the_ready_briefing_on_screen_until_the_new_one_is_written(
         self, sync_connect: MagicMock

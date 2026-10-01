@@ -33,9 +33,9 @@ import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
-export const BRIEFING_POLL_MS = 5_000
-// The agent run has a 20 minute budget. Stop asking a little after that and show what there is.
-const MAX_BRIEFING_POLLS = 260
+export const BRIEFING_POLL_MS = 10_000
+// The agent run's budget is 30 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
+const MAX_BRIEFING_POLLS = 190
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
@@ -105,7 +105,7 @@ export interface todayLogicValues {
     briefingItems: BriefingItemApi[]
     briefingPolls: number
     briefingWaiting: boolean
-    gaveUpWaiting: boolean
+    gaveUpWaitingFor: string | null
     greeting: string
     hour: number
     hoveredItemKey: string | null
@@ -239,8 +239,8 @@ export interface todayLogicActions {
     setUseSampleData: (useSampleData: boolean) => {
         useSampleData: boolean
     }
-    stopWaitingForBriefing: () => {
-        value: true
+    stopWaitingForBriefing: (briefingId: string) => {
+        briefingId: string
     }
     tick: () => {
         value: true
@@ -258,15 +258,11 @@ export interface todayLogicMeta {
         greeting: (hour: number, user: UserType | null) => string
         reportSummary: (hour: number, reports: SignalReport[]) => string
         showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
-        inboxMore: (
-            showPersonalBriefing: boolean,
-            personalBriefing: BriefingApi | null,
-            moreReportCount: number
-        ) => TodayInboxMore | null
+        inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
-            gaveUpWaiting: boolean,
+            gaveUpWaitingFor: string | null,
             refreshedBriefingLoading: boolean
         ) => boolean
     }
@@ -291,7 +287,7 @@ export const todayLogic = kea<todayLogicType>([
         openItem: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
         itemOpened: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
         pollBriefing: true,
-        stopWaitingForBriefing: true,
+        stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
     }),
     loaders(({ values }) => ({
         topReports: [
@@ -373,13 +369,12 @@ export const todayLogic = kea<todayLogicType>([
                 loadPersonalBriefingFailure: () => true,
             },
         ],
-        gaveUpWaiting: [
-            false,
+        // The briefing the page stopped waiting for after the poll budget ran out, so a later edition still polls.
+        gaveUpWaitingFor: [
+            null as string | null,
             {
-                stopWaitingForBriefing: () => true,
-                refreshBriefingSuccess: () => false,
-                loadPersonalBriefingSuccess: (state, { personalBriefing }) =>
-                    personalBriefing && isBriefingSettled(personalBriefing) ? false : state,
+                stopWaitingForBriefing: (_, { briefingId }) => briefingId,
+                refreshBriefingSuccess: () => null,
             },
         ],
         briefingPolls: [
@@ -425,15 +420,8 @@ export const todayLogic = kea<todayLogicType>([
                 !useSampleData && hasBriefingText(personalBriefing),
         ],
         inboxMore: [
-            (s) => [s.showPersonalBriefing, s.personalBriefing, s.moreReportCount],
-            (
-                showPersonalBriefing: boolean,
-                personalBriefing: BriefingApi | null,
-                moreReportCount: number
-            ): TodayInboxMore | null => {
-                if (!showPersonalBriefing) {
-                    return moreReportCount > 0 ? { count: moreReportCount, scope: 'project' } : null
-                }
+            (s) => [s.personalBriefing],
+            (personalBriefing: BriefingApi | null): TodayInboxMore | null => {
                 if (!personalBriefing) {
                     return null
                 }
@@ -445,7 +433,6 @@ export const todayLogic = kea<todayLogicType>([
                     : null
             },
         ],
-        // Nothing to show yet, but a briefing is on its way. A failed request falls back to the report list.
         briefingItems: [
             (s) => [s.personalBriefing, s.showPersonalBriefing],
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
@@ -454,14 +441,16 @@ export const todayLogic = kea<todayLogicType>([
         // While a newer briefing is written, the server returns the shown one as `writing`, so the
         // text stays on screen and the page keeps asking until the new one is ready.
         briefingWaiting: [
-            (s) => [s.personalBriefing, s.gaveUpWaiting, s.refreshedBriefingLoading],
+            (s) => [s.personalBriefing, s.gaveUpWaitingFor, s.refreshedBriefingLoading],
             (
                 personalBriefing: BriefingApi | null,
-                gaveUpWaiting: boolean,
+                gaveUpWaitingFor: string | null,
                 refreshedBriefingLoading: boolean
             ): boolean =>
                 refreshedBriefingLoading ||
-                (!gaveUpWaiting && !!personalBriefing && !isBriefingSettled(personalBriefing)),
+                (!!personalBriefing &&
+                    personalBriefing.id !== gaveUpWaitingFor &&
+                    !isBriefingSettled(personalBriefing)),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
@@ -493,7 +482,7 @@ export const todayLogic = kea<todayLogicType>([
             }
             if (values.briefingWaiting) {
                 if (values.briefingPolls >= MAX_BRIEFING_POLLS) {
-                    actions.stopWaitingForBriefing()
+                    actions.stopWaitingForBriefing(personalBriefing.id)
                     return
                 }
                 cache.disposables.add(() => {

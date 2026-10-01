@@ -32,8 +32,8 @@ from .inputs import (
 SCHEDULE_WINDOW_MINUTES = 15
 ACTIVE_VIEWER_DAYS = 14
 MAX_STARTS_PER_RUN = 500
-# Longer than the agent's budget, so a sweep never fails a run that is still inside it.
-STUCK_AFTER = generate.AGENT_TIMEOUT + timedelta(minutes=15)
+# Longer than the run's budget, so a sweep never fails a run that is still inside it.
+STUCK_AFTER = generate.RUN_TIMEOUT + timedelta(minutes=5)
 
 
 @temporalio.activity.defn

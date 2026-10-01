@@ -1,1 +1,1 @@
-"""Business logic for today: sources, ranking, drafting, writing and generation."""
+"""Business logic for today: reading, starting and generating briefings."""

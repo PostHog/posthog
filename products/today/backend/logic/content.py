@@ -1,4 +1,4 @@
-"""The briefing text as it is stored: the template draft and the LLM text share this shape."""
+"""The briefing text as it is stored."""
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,8 +13,7 @@ class ContentSegment(BaseModel):
 
 
 class BriefingContent(BaseModel):
-    """Stored in `DailyBriefing.draft` and `DailyBriefing.content`. Empty content validates, so a row
-    written before the text exists still reads."""
+    """Stored in `DailyBriefing.content`. Empty content validates, so a row the agent has not written yet still reads."""
 
     model_config = ConfigDict(frozen=True)
 

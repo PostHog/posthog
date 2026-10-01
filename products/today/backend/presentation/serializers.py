@@ -37,7 +37,7 @@ class BriefingItemSerializer(DataclassSerializer):
         help_text="Short fact under the label, at most 40 characters, for example 'Spend down 37%'."
     )
     url = serializers.CharField(help_text="Where the item opens: an app path, or a GitHub URL for pull requests.")
-    rank = serializers.IntegerField(help_text="Position in the full ranked list, 1 is the most important.")
+    rank = serializers.IntegerField(help_text="Position in the briefing, 1 is the top item.")
     source_product = serializers.CharField(
         allow_null=True,
         help_text="For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
@@ -84,9 +84,8 @@ class CandidateSerializer(DataclassSerializer):
     key = serializers.CharField(help_text="Stable item key, for example report:<uuid> or dashboard:<id>.")
     title = serializers.CharField(help_text="The item's own title.")
     url = serializers.CharField(help_text="Where the item opens.")
-    rank = serializers.IntegerField(help_text="Position in the ranked list, 1 is the most important.")
-    in_text = serializers.BooleanField(help_text="True when the item is one of the top 5 the briefing text covers.")
-    facts = CandidateFactSerializer(many=True, help_text="The numbers and short facts the ranking used.")
+    rank = serializers.IntegerField(help_text="Position in the briefing, 1 is the top item.")
+    facts = CandidateFactSerializer(many=True, help_text="The numbers and short facts the briefing text rests on.")
 
     class Meta:
         dataclass = Candidate
@@ -94,15 +93,8 @@ class CandidateSerializer(DataclassSerializer):
 
 class CandidateListSerializer(DataclassSerializer):
     local_day = serializers.DateField(help_text="The day the list is for, in the person's timezone.")
-    candidates = CandidateSerializer(many=True, help_text="Up to 10 items in rank order.")
+    candidates = CandidateSerializer(many=True, help_text="The briefing's items in rank order, up to 5.")
     more_reports_count = serializers.IntegerField(help_text="Other open reports for the person not in the list.")
-    failed_sources = serializers.ListField(
-        child=serializers.CharField(), help_text="Sources that failed, so their items are missing."
-    )
 
     class Meta:
         dataclass = CandidateList
-
-
-class TodayErrorSerializer(serializers.Serializer):
-    detail = serializers.CharField(help_text="What went wrong.")

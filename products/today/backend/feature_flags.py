@@ -1,7 +1,7 @@
 """Feature-flag gate for the Today briefing.
 
 The briefing is part of the new navigation, so it uses the same flag: a person gets a briefing
-only when `today-rail-nav` is on for them. The API, the scheduler and the draft step all check it.
+only when `today-rail-nav` is on for them. The API, the scheduler and the agent run all check it.
 """
 
 import structlog

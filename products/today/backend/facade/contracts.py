@@ -61,7 +61,6 @@ class Candidate:
     title: str
     url: str
     rank: int
-    in_text: bool
     facts: list[CandidateFact]
 
 
@@ -70,4 +69,3 @@ class CandidateList:
     local_day: date
     candidates: list[Candidate]
     more_reports_count: int
-    failed_sources: list[str]

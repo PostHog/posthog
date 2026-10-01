@@ -107,8 +107,16 @@ function TodayBriefingReports(): JSX.Element {
 }
 
 export function TodayBriefing(): JSX.Element {
-    const { greeting, topReports, topReportsLoading, reportsFailed, reports, showPersonalBriefing, briefingWaiting } =
-        useValues(todayLogic)
+    const {
+        greeting,
+        topReports,
+        topReportsLoading,
+        reportsFailed,
+        reports,
+        showPersonalBriefing,
+        personalBriefing,
+        briefingWaiting,
+    } = useValues(todayLogic)
     const { loadTopReports, refreshBriefing } = useActions(todayLogic)
 
     return (
@@ -123,7 +131,7 @@ export function TodayBriefing(): JSX.Element {
                             <Spinner textColored />
                             <span>Writing your briefing…</span>
                         </span>
-                    ) : showPersonalBriefing ? (
+                    ) : showPersonalBriefing || personalBriefing?.status === 'failed' ? (
                         <LemonButton
                             size="xsmall"
                             icon={<IconRefresh />}

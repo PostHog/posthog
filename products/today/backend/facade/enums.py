@@ -25,8 +25,6 @@ class BriefingEdition(StrEnum):
 
 class BriefingWriter(StrEnum):
     AGENT = "agent"
-    LLM = "llm"
-    TEMPLATE = "template"
 
 
 class ItemGroup(StrEnum):

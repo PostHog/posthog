@@ -18,18 +18,23 @@ from ..facade.enums import BriefingStatus
 from ..feature_flags import is_enabled_for
 from ..models import DailyBriefing
 from .agent_output import BriefingOutput, problems_with, strict_schema, to_content, to_fact_sheet
-from .briefings import store_briefing
-from .prompt import build_prompt, recent_briefings
+from .briefings import recent_ready_briefings, store_briefing
+from .prompt import PRERANKED_REPORTS, build_prompt
 
 logger = structlog.get_logger(__name__)
 
 MODEL = "gpt-6-luna"
 RUNTIME_ADAPTER = "codex"
 REASONING_EFFORT = "medium"
-# A briefing is a few tool calls and a short text; a run past this is stuck.
-AGENT_TIMEOUT = timedelta(minutes=20)
 # Answers the agent gets to fix a briefing that broke the writing rules, the first one included.
 WRITE_ATTEMPTS = 3
+# The poll budget of one agent turn. The first turn does the reading; a fix-up turn is short.
+TURN_TIMEOUT = timedelta(minutes=8)
+# The whole run: every turn at its budget plus the sandbox boot. The workflow, the stuck sweep
+# and the page's polling all derive from this.
+RUN_TIMEOUT = TURN_TIMEOUT * WRITE_ATTEMPTS + timedelta(minutes=6)
+# How many of the person's previous briefings the agent sees, so it does not repeat itself.
+RECENT_BRIEFINGS = 3
 SANDBOX_ENV_NAME = "today-briefing"
 
 
@@ -52,7 +57,7 @@ def _title(briefing: DailyBriefing) -> str:
 def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
     """The reports PostHog already ranked for the person. A failure here costs the agent its head start, not the run."""
     try:
-        return signals.reports_for_briefing(team_id=team.id, user_id=user.id)
+        return signals.reports_for_briefing(team_id=team.id, user_id=user.id, limit=PRERANKED_REPORTS)
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return []
@@ -86,7 +91,9 @@ def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext
         # Headless: the agent's read tools must run without anyone approving them.
         initial_permission_mode="full-access",
     )
-    prompt = build_prompt(briefing, user, _preranked_reports(team, user), recent_briefings(briefing))
+    prompt = build_prompt(
+        briefing, user, _preranked_reports(team, user), recent_ready_briefings(briefing, RECENT_BRIEFINGS)
+    )
     return context, prompt, _title(briefing)
 
 
@@ -99,10 +106,10 @@ def _fix_message(problems: list[str]) -> str:
 
 def _store(team_id: int, briefing_id: str, output: BriefingOutput) -> list[str]:
     """Store the agent's answer, or return the rules it broke so the agent can fix them."""
-    briefing, _team, user = _load(team_id, briefing_id)
-    problems = problems_with(output, briefing, user)
+    problems = problems_with(output)
     if not problems:
-        store_briefing(briefing, to_fact_sheet(output, briefing, user), to_content(output))
+        briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
+        store_briefing(briefing, to_fact_sheet(output), to_content(output))
     return problems
 
 
@@ -132,7 +139,7 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
         ai_stage="today_briefing",
         ai_agent_name="today-briefing",
         on_task_run_created=name_the_task,
-        max_poll_seconds=int(AGENT_TIMEOUT.total_seconds()),
+        max_poll_seconds=int(TURN_TIMEOUT.total_seconds()),
         output_schema=strict_schema(BriefingOutput),
     )
     try:

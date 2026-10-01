@@ -245,7 +245,7 @@ const PERSONAL_BRIEFING: BriefingApi = {
     id: 'briefing-1',
     local_day: '2026-09-28',
     edition: 'morning',
-    headline: 'Two reports need your input',
+    headline: 'Five items need your attention',
     paragraphs: [
         [
             { text: 'The ', item_key: null, highlight: false },
@@ -313,7 +313,7 @@ const PERSONAL_BRIEFING: BriefingApi = {
     more_reports_count: 4,
     open_reports_count: 37,
     status: 'ready',
-    writer: 'llm',
+    writer: 'agent',
     created_at: '2026-09-28T06:00:00Z',
     ready_at: '2026-09-28T06:00:21Z',
 }
@@ -457,24 +457,18 @@ export const HomeWithNothingForYou: Story = {
                     items: [],
                     more_reports_count: 0,
                     open_reports_count: 0,
-                    writer: 'template',
+                    writer: 'agent',
                 },
             },
         }),
     ],
 }
 
-export const HomeWithPersonalBriefingDraft: Story = {
+// While a newer briefing is written, the API returns the last ready one as `writing`.
+export const HomeWhileWriting: Story = {
     decorators: [
         mswDecorator({
-            get: {
-                '/api/projects/:team_id/today/briefing/': {
-                    ...PERSONAL_BRIEFING,
-                    status: 'writing',
-                    writer: 'template',
-                    ready_at: null,
-                },
-            },
+            get: { '/api/projects/:team_id/today/briefing/': { ...PERSONAL_BRIEFING, status: 'writing' } },
         }),
     ],
 }

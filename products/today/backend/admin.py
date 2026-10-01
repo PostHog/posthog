@@ -42,7 +42,6 @@ class DailyBriefingAdmin(admin.ModelAdmin):
         "ready_at",
         "last_viewed_at",
         "facts_pretty",
-        "draft_pretty",
         "content_pretty",
     )
     readonly_fields = fields
@@ -50,10 +49,6 @@ class DailyBriefingAdmin(admin.ModelAdmin):
     @admin.display(description="Facts")
     def facts_pretty(self, obj: DailyBriefing) -> str:
         return _pretty(obj.facts)
-
-    @admin.display(description="Draft")
-    def draft_pretty(self, obj: DailyBriefing) -> str:
-        return _pretty(obj.draft)
 
     @admin.display(description="Content")
     def content_pretty(self, obj: DailyBriefing) -> str:

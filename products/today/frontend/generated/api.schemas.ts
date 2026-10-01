@@ -106,7 +106,7 @@ export interface BriefingItemApi {
     signal: string
     /** Where the item opens: an app path, or a GitHub URL for pull requests. */
     url: string
-    /** Position in the full ranked list, 1 is the most important. */
+    /** Position in the briefing, 1 is the top item. */
     rank: number
     /**
      * For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.
@@ -136,15 +136,11 @@ export const BriefingStatusEnumApi = {
 
 /**
  * * `agent` - AGENT
- * * `llm` - LLM
- * * `template` - TEMPLATE
  */
 export type WriterEnumApi = (typeof WriterEnumApi)[keyof typeof WriterEnumApi]
 
 export const WriterEnumApi = {
     Agent: 'agent',
-    Llm: 'llm',
-    Template: 'template',
 } as const
 
 /**
@@ -199,11 +195,9 @@ export interface CandidateApi {
     title: string
     /** Where the item opens. */
     url: string
-    /** Position in the ranked list, 1 is the most important. */
+    /** Position in the briefing, 1 is the top item. */
     rank: number
-    /** True when the item is one of the top 5 the briefing text covers. */
-    in_text: boolean
-    /** The numbers and short facts the ranking used. */
+    /** The numbers and short facts the briefing text rests on. */
     facts: CandidateFactApi[]
     group: TodayItemGroupEnumApi
     source: TodayItemSourceEnumApi
@@ -213,12 +207,10 @@ export interface CandidateApi {
 export interface CandidateListApi {
     /** The day the list is for, in the person's timezone. */
     local_day: string
-    /** Up to 10 items in rank order. */
+    /** The briefing's items in rank order, up to 5. */
     candidates: CandidateApi[]
     /** Other open reports for the person not in the list. */
     more_reports_count: number
-    /** Sources that failed, so their items are missing. */
-    failed_sources: string[]
 }
 
 export type TodayBriefingRetrieveParams = {

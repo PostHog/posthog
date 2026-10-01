@@ -9,8 +9,6 @@ interface TodayNavItemProps {
     /** Highlighted because the matching report is hovered elsewhere on the page. */
     active?: boolean
     current?: boolean
-    /** Bold, because the briefing text names this item. */
-    emphasized?: boolean
     /** Crossed out, because the item was resolved after the briefing was written. */
     done?: boolean
     onClick?: () => void
@@ -26,7 +24,6 @@ export function TodayNavItem({
     to,
     active = false,
     current = false,
-    emphasized = false,
     done = false,
     onClick,
     onHoverChange,
@@ -39,7 +36,6 @@ export function TodayNavItem({
             className="TodayNavItem"
             data-active={active || current}
             aria-current={current ? 'page' : undefined}
-            data-emphasized={emphasized}
             data-done={done}
             data-attr={dataAttr}
             onClick={onClick}

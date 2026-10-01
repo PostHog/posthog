@@ -32,7 +32,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TodayQuerySerializer,
         responses={200: OpenApiResponse(response=BriefingSerializer)},
         summary="Get today's briefing",
-        description="Today's personal briefing: a short text about the top 5 items and a left bar with the top 10. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet; while it writes, the template draft is returned with status 'writing'.",
+        description="Today's personal briefing: a short text about up to 5 items and the same items for the left bar. There are two editions a day, from 8:00 and from 12:00 local time. Starts generating the current edition when there is none yet and returns it as 'collecting'. While a newer edition is being written, the day's last ready briefing is returned as 'writing', so it can stay on screen; poll again after a few seconds.",
     )
     @action(detail=False, methods=["get"], url_path="briefing")
     def briefing(self, request: Request, **kwargs) -> Response:
@@ -60,7 +60,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=TodayQuerySerializer,
         responses={200: OpenApiResponse(response=CandidateListSerializer)},
         summary="List today's ranked items",
-        description="The ranked items behind today's briefing, with the facts and the reason for each, without the written text.",
+        description="The items behind today's briefing, with the facts and the reason for each, without the written text.",
     )
     @action(detail=False, methods=["get"], url_path="candidates")
     def candidates(self, request: Request, **kwargs) -> Response:

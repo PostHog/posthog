@@ -21,11 +21,9 @@ class DailyBriefing(ProductTeamModel):
     status = models.CharField(
         max_length=16, choices=[(s.value, s.value) for s in BriefingStatus], default=BriefingStatus.COLLECTING
     )
-    # The ranked list of up to 10 items with the facts the writer may use.
+    # The items the briefing names, with the facts its text rests on (`FactSheet`).
     facts = models.JSONField(default=dict)
-    # The template text, stored before the LLM call so the page has something to show.
-    draft = models.JSONField(default=dict)
-    # What the page shows: the LLM text when it passed the checks, else the draft.
+    # The text the page shows (`BriefingContent`).
     content = models.JSONField(default=dict)
     writer = models.CharField(max_length=16, choices=[(w.value, w.value) for w in BriefingWriter], null=True)
     error = models.TextField(null=True, blank=True)

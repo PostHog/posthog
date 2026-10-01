@@ -10,49 +10,30 @@ from posthog.models import User
 
 from products.signals.backend.facade import api as signals
 
-from ..facade.enums import BriefingStatus
+from ..facade.enums import ItemReason
 from ..models import DailyBriefing
+from .agent_output import MAX_ITEMS
+from .checks import MAX_LABEL_WORDS, MAX_LINK_WORDS, MAX_SIGNAL_CHARS, MAX_WORDS
 from .content import BriefingContent
 from .fact_sheet import stored_fact_sheet
 
 # How many pre-ranked reports the agent gets handed; it chooses from these and from what it finds itself.
 PRERANKED_REPORTS = 10
-# How many of the person's previous briefings the agent sees, so it does not repeat itself.
-RECENT_BRIEFINGS = 3
 
-_RELATION_ORDER = {
-    signals.BriefingReportRelation.WAITING_FOR_YOU: 0,
-    signals.BriefingReportRelation.CLAIMED: 1,
-    signals.BriefingReportRelation.SUGGESTED_REVIEWER: 2,
-    signals.BriefingReportRelation.URGENT_UNOWNED: 3,
+# The relation signals gives a report, as the reason the agent must put on the item.
+_REASON_FOR_RELATION = {
+    signals.BriefingReportRelation.WAITING_FOR_YOU: ItemReason.WAITING_FOR_YOU,
+    signals.BriefingReportRelation.CLAIMED: ItemReason.CLAIMED_BY_YOU,
+    signals.BriefingReportRelation.SUGGESTED_REVIEWER: ItemReason.SUGGESTED_REVIEWER,
+    signals.BriefingReportRelation.URGENT_UNOWNED: ItemReason.URGENT_FOR_PROJECT,
 }
-_PRIORITY_ORDER = {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}
-
-
-def rank_reports(reports: Sequence[signals.BriefingReport]) -> list[signals.BriefingReport]:
-    """The reports in the order the agent should prefer them: what waits for the person, then what
-    they claimed, then what names them, then unowned urgencies; inside that, P0, the better chance
-    of a merged PR, priority, newest."""
-
-    def key(report: signals.BriefingReport) -> tuple[float, ...]:
-        chance = report.pr_merged_probability
-        return (
-            _RELATION_ORDER[report.relation],
-            0 if report.priority == "P0" else 1,
-            0 if chance is not None else 1,
-            -(chance or 0.0),
-            _PRIORITY_ORDER.get(report.priority or "", 5),
-            -report.updated_at.timestamp(),
-        )
-
-    return sorted(reports, key=key)[:PRERANKED_REPORTS]
 
 
 def _report_rows(reports: Sequence[signals.BriefingReport], team_id: int) -> list[dict[str, object]]:
     return [
         {
             "key": f"report:{report.report_id}",
-            "relation": report.relation.value,
+            "reason": _REASON_FOR_RELATION[report.relation].value,
             "priority": report.priority,
             "status": report.status,
             "source_product": report.source_products[0] if report.source_products else None,
@@ -63,15 +44,6 @@ def _report_rows(reports: Sequence[signals.BriefingReport], team_id: int) -> lis
         }
         for report in reports
     ]
-
-
-def recent_briefings(briefing: DailyBriefing) -> list[DailyBriefing]:
-    """The person's latest ready briefings before this one, newest first."""
-    return list(
-        DailyBriefing.objects.for_team(briefing.team_id)
-        .filter(user_id=briefing.user_id, status=BriefingStatus.READY, created_at__lt=briefing.created_at)
-        .order_by("-created_at")[:RECENT_BRIEFINGS]
-    )
 
 
 def _recent_rows(briefings: Sequence[DailyBriefing]) -> list[dict[str, object]]:
@@ -90,7 +62,7 @@ def _recent_rows(briefings: Sequence[DailyBriefing]) -> list[dict[str, object]]:
                         "label": content.labels.get(item.key, item.title),
                         "signal": content.signals.get(item.key, ""),
                     }
-                    for item in (fact_sheet.text_items if fact_sheet else [])
+                    for item in (fact_sheet.items if fact_sheet else [])
                 ],
             }
         )
@@ -110,14 +82,19 @@ def build_prompt(
     briefing: DailyBriefing,
     user: User,
     reports: Sequence[signals.BriefingReport],
-    previous: Sequence[DailyBriefing] = (),
+    previous: Sequence[DailyBriefing],
 ) -> str:
+    """The prompt for one briefing: `reports` already in briefing order, `previous` the person's latest ones."""
     return _environment.get_template("briefing.md.j2").render(
         first_name=user.first_name or "there",
         team_id=briefing.team_id,
         local_day=briefing.local_day.isoformat(),
         edition=briefing.edition,
-        briefing_id=str(briefing.id),
-        reports_json=json.dumps(_report_rows(rank_reports(reports), briefing.team_id), ensure_ascii=False, indent=2),
+        max_items=MAX_ITEMS,
+        max_words=MAX_WORDS,
+        max_link_words=MAX_LINK_WORDS,
+        max_label_words=MAX_LABEL_WORDS,
+        max_signal_chars=MAX_SIGNAL_CHARS,
+        reports_json=json.dumps(_report_rows(reports, briefing.team_id), ensure_ascii=False, indent=2),
         recent_json=json.dumps(_recent_rows(previous), ensure_ascii=False, indent=2),
     )
