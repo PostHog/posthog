@@ -57,10 +57,11 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import import_data_sync as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
+    _parse_sync_type,
     _resolve_reset_pipeline,
     import_data_activity_sync,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, IncrementalFieldType
 
 
 class _FakeAsyncCM:
@@ -1541,3 +1542,16 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         assert (
             _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
         )
+
+
+@parameterized.expand(
+    [
+        ("valid", "append", ExternalDataSchema.SyncType.APPEND),
+        ("unset", None, None),
+        ("legacy_value", "full", None),
+    ]
+)
+def test_parse_sync_type_ignores_values_outside_the_enum(
+    _name: str, stored: str | None, expected: ExternalDataSchemaSyncType | None
+):
+    assert _parse_sync_type(stored) == expected

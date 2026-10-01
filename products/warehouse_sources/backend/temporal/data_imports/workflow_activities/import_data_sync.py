@@ -99,7 +99,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -250,6 +250,13 @@ async def _warehouse_parent_reuse_available(
             return False
 
     return True
+
+
+def _parse_sync_type(value: str | None) -> ExternalDataSchemaSyncType | None:
+    """Return None for a stored value outside the enum, so a legacy value does not fail every source's sync."""
+    if value is None or value not in ExternalDataSchemaSyncType.values:
+        return None
+    return ExternalDataSchemaSyncType(value)
 
 
 def _import_held_for_repartition(schema: ExternalDataSchema | None, logger: FilteringBoundLogger) -> bool:
@@ -537,9 +544,13 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 new_source, schema.sync_type_config if use_stored_cursors else None, logger
             )
 
+            sync_type = _parse_sync_type(schema.sync_type)
+            if sync_type is None and schema.sync_type is not None:
+                await logger.awarning("Ignoring unknown sync type on schema", sync_type=schema.sync_type)
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
-                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
+                sync_type=sync_type,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
