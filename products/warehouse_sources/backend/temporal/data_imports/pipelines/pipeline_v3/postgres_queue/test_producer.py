@@ -229,6 +229,33 @@ class TestPostgresProducerSupersede:
         mock_supersede.assert_not_called()
 
 
+class TestPostgresProducerFinalMarker:
+    @pytest.mark.parametrize("is_resume", [False, True])
+    def test_the_marker_is_a_final_row_without_data(self, is_resume: bool) -> None:
+        producer = _make_producer(is_resume=is_resume)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.send_final_marker(data_folder="s3://data")
+
+        # The marker stands in for batch 0, so it retires other runs of a fresh attempt as batch 0 does.
+        assert mock_supersede.called is not is_resume
+        params = _mock_conn(producer).execute.call_args.args[1]
+        assert (
+            params["batch_index"],
+            params["s3_path"],
+            params["row_count"],
+            params["byte_size"],
+            params["is_final_batch"],
+            params["total_batches"],
+            params["total_rows"],
+        ) == (0, "", 0, 0, True, 0, 0)
+        metadata = json.loads(params["metadata"])
+        assert (metadata["marker_only"], metadata["data_folder"]) == (True, "s3://data")
+
+
 class TestPostgresProducerProperties:
     def test_sync_type_property(self) -> None:
         producer = _make_producer(sync_type="incremental")
@@ -347,8 +374,11 @@ class TestPostgresProducerNextAttempt:
     # A full refresh never checks for shutdown, so a shutdown cancels its task with a batch still
     # held in memory. The attempt's inserted rows then have no final row, and only the next
     # attempt of the same job retires them.
+    @pytest.mark.parametrize("next_has_rows", [True, False], ids=["next_has_rows", "next_sends_only_a_marker"])
     @pytest.mark.parametrize("loader_state", [None, "executing"], ids=["not_claimed", "mid_load"])
-    def test_the_next_attempt_supersedes_a_cancelled_attempt(self, queue_db_url: str, loader_state: str | None) -> None:
+    def test_the_next_attempt_supersedes_a_cancelled_attempt(
+        self, queue_db_url: str, loader_state: str | None, next_has_rows: bool
+    ) -> None:
         queue_job_id = "queue-job-1"
         # The pipeline names each attempt's run as `<workflow_run_id>-a<attempt>`.
         first_run, next_run = f"{queue_job_id}-a1", f"{queue_job_id}-a2"
@@ -364,10 +394,17 @@ class TestPostgresProducerNextAttempt:
             asyncio.run(_write_status(queue_db_url, str(row[0]), loader_state))
 
         next_attempt = PostgresProducer(**_default_kwargs(database_url=queue_db_url, run_uuid=next_run))
-        next_attempt.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
-        next_attempt.send_final_batch(
-            _make_batch_result(batch_index=0), total_batches=1, total_rows=100, data_folder="s3://d", schema_path=None
-        )
+        if next_has_rows:
+            next_attempt.hold_batch(_make_batch_result(batch_index=0), cumulative_row_count=100)
+            next_attempt.send_final_batch(
+                _make_batch_result(batch_index=0),
+                total_batches=1,
+                total_rows=100,
+                data_folder="s3://d",
+                schema_path=None,
+            )
+        else:
+            next_attempt.send_final_marker(data_folder="s3://d")
         next_attempt.close()
 
         assert _run_states(queue_db_url, first_run) == [(0, False, "failed")]

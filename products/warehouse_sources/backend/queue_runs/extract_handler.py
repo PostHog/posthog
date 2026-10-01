@@ -1,9 +1,10 @@
 """The `sync.extract` handler: one extraction run of one schema, on the queue.
 
 The handler does what `ExternalDataJobWorkflow` does for a V3 run up to the loader handoff. It
-creates the job row, runs the extraction body, and hands the run to the loader. A run with no
-batch never reaches the loader, so the handler completes that run itself. When the queue engine
-fails the queue job without the handler, `on_engine_failed` fails the run's job row.
+creates the job row, runs the extraction body, and hands the run to the loader. The pipeline
+sends a final marker for a run without batches, so the loader finalizes every run that reaches
+the pipeline. When the queue engine fails the queue job without the handler, `on_engine_failed`
+fails the run's job row.
 
 Job row identity: `workflow_run_id` on the job row is the queue job id, so every attempt of one
 queue job finds the same job row. `workflow_id` comes from the payload.
@@ -346,6 +347,7 @@ class SyncExtractHandler:
             workflow_run_id=run.job.id,
             verify_v3_lock=False,
             on_rows_extracted=ROWS_EXTRACTED_TOTAL.labels(source_type=plan.source_type).inc,
+            always_final_marker=True,
         )
         inputs = ImportDataActivityInputs(
             team_id=payload.team_id,
@@ -389,8 +391,9 @@ class SyncExtractHandler:
                 outcome=Success(), run_outcome=RunOutcome.HANDED_TO_LOADER, source_type=plan.source_type
             )
 
-        # No batch reached the loader, so the loader never hears about this run. Finish it the
-        # way the workflow does for such a run: the post-extraction work, then the finalizer.
+        # Only a run that returned before the pipeline gets here (a fast return, a repartition
+        # hold). No marker exists for it, so finish it the way the workflow does: the
+        # post-extraction work, then the finalizer.
         await start_post_extraction_work(self._starter, payload=payload, plan=plan, result=result, logger=logger)
         await self._finalize(
             payload, run.job.id, job_id=plan.job_id, status=ExternalDataJob.Status.COMPLETED, logger=logger
