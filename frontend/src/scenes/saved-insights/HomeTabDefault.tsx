@@ -13,7 +13,7 @@ import { HomeTabExplore } from 'products/product_analytics/frontend/insights/hom
 
 import { HomeTabChartCard } from './HomeTabChartCard'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
-import { getHomeTabBreakdownOptions, getHomeTabChartOptions } from './homeTabDefaultTiles'
+import { getHomeTabAudienceOptions, getHomeTabBreakdownOptions, getHomeTabChartOptions } from './homeTabDefaultTiles'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
@@ -23,6 +23,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
     const { setDates, setCompare, setSelectedMetric, setSelectedContentKey } = useActions(homeTabDefaultLogic)
 
     const metricCharts = getHomeTabChartOptions(dateRange, compare)
+    const audienceCharts = getHomeTabAudienceOptions(dateRange)
     const breakdownCharts = getHomeTabBreakdownOptions(dateRange)
     const primaryChart = metricCharts.find((option) => option.key === selectedMetric) ?? metricCharts[0]
     const retentionChart =
@@ -112,6 +113,21 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                     />
                     <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" />
                 </div>
+            </section>
+
+            <section className="flex flex-col gap-3" aria-label="Your audience">
+                <h2 className="m-0 text-base font-semibold">Your audience</h2>
+                <div className="grid min-w-0 grid-cols-1 gap-3 @min-[56rem]/home-overview:grid-cols-[2fr_1fr]">
+                    {audienceCharts.slice(0, 2).map((option) => (
+                        <HomeTabChartCard
+                            key={option.key}
+                            option={option}
+                            size="supporting"
+                            source="Pageviews and screen views"
+                        />
+                    ))}
+                </div>
+                <HomeTabChartCard option={audienceCharts[2]} size="heatmap" source="Pageviews and screen views" />
             </section>
 
             <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
