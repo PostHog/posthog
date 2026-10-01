@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -48,7 +47,7 @@ def list_quarantined_identifiers(
 
 def active_quarantined_identifiers(
     repo_id: UUID, team_id: int, run_type: str, using: str
-) -> QuerySet[QuarantinedIdentifier, dict[str, Any]]:
+) -> QuerySet[QuarantinedIdentifier, str]:
     """Identifiers under an active quarantine, as a subquery that filters snapshot rows in SQL.
 
     `using` must name the database of the outer query, because Django refuses a subquery
@@ -58,7 +57,7 @@ def active_quarantined_identifiers(
         QuarantinedIdentifier.objects.using(using)
         .filter(repo_id=repo_id, team_id=team_id, run_type=run_type)
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
-        .values("identifier")
+        .values_list("identifier", flat=True)
     )
 
 
