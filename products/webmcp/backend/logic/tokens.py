@@ -2,10 +2,12 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from posthog.api.oauth.cimd import get_or_create_cimd_application
+from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, get_or_create_cimd_application
 from posthog.models import OAuthAccessToken, OAuthApplication, User
 from posthog.models.utils import generate_random_oauth_access_token
 from posthog.scopes import effective_ceiling
+
+from ..facade.contracts import McpServerError
 
 # The CIMD document lives in the posthog.com repo, so one client_id serves every region.
 WEBMCP_OAUTH_CLIENT_ID = "https://posthog.com/.well-known/oauth/webmcp/client-metadata.json"
@@ -26,7 +28,10 @@ class WebMCPTokenIssuer:
 
     @classmethod
     def for_instance(cls) -> "WebMCPTokenIssuer":
-        return cls(get_or_create_cimd_application(WEBMCP_OAUTH_CLIENT_ID))
+        try:
+            return cls(get_or_create_cimd_application(WEBMCP_OAUTH_CLIENT_ID))
+        except (CIMDFetchError, CIMDValidationError) as error:
+            raise McpServerError("Could not load the WebMCP client metadata") from error
 
     def get_or_mint(self, user: User, team_id: int) -> str:
         # Reuse keeps one token row per user and team per hour, rather than one per tool call.
