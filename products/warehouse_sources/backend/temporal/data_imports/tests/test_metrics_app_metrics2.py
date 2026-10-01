@@ -47,7 +47,18 @@ def _make_job(
     return job
 
 
-class TestDestinationScopedAppMetrics(TestCase):
+class WarehouseDestinationFallbackTestCase(TestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        patcher = mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.metrics.get_or_create_warehouse_destination"
+        )
+        self.mock_get_warehouse_destination = patcher.start()
+        self.mock_get_warehouse_destination.return_value.id = "warehouse-destination"
+        self.addCleanup(patcher.stop)
+
+
+class TestDestinationScopedAppMetrics(WarehouseDestinationFallbackTestCase):
     def _payloads(self, job) -> list[dict]:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.metrics.get_producer"
@@ -55,9 +66,21 @@ class TestDestinationScopedAppMetrics(TestCase):
             emit_data_import_app_metrics(job)
         return [call.kwargs["data"] for call in mock_producer_cls.return_value.produce.call_args_list]
 
-    def test_a_run_without_destinations_emits_what_it_always_did(self) -> None:
-        # Every existing chart filters instance_id by a bare schema id. Emitting anything else for
-        # these runs would change what they already show.
+    def test_a_run_without_destinations_is_attributed_to_the_warehouse(self) -> None:
+        job = _make_job(status=ExternalDataJob.Status.COMPLETED)
+
+        payloads = self._payloads(job)
+
+        assert len(payloads) == 6
+        assert {p["instance_id"] for p in payloads} == {
+            str(job.schema_id),
+            f"{job.schema_id}/warehouse-destination",
+            "warehouse-destination",
+        }
+        self.mock_get_warehouse_destination.assert_called_once_with(job.team_id)
+
+    def test_a_warehouse_destination_lookup_error_keeps_schema_metrics(self) -> None:
+        self.mock_get_warehouse_destination.side_effect = RuntimeError("database unavailable")
         job = _make_job(status=ExternalDataJob.Status.COMPLETED)
 
         payloads = self._payloads(job)
@@ -122,7 +145,7 @@ class TestDestinationScopedAppMetrics(TestCase):
         ]
 
 
-class TestEmitDataImportAppMetrics(TestCase):
+class TestEmitDataImportAppMetrics(WarehouseDestinationFallbackTestCase):
     @parameterized.expand(
         [
             (ExternalDataJob.Status.COMPLETED, "success", "succeeded"),
@@ -141,7 +164,7 @@ class TestEmitDataImportAppMetrics(TestCase):
             emit_data_import_app_metrics(job)
 
         produce_calls = mock_producer.produce.call_args_list
-        assert len(produce_calls) == 2
+        assert len(produce_calls) == 6
 
         status_payload = produce_calls[0].kwargs["data"]
         assert produce_calls[0].kwargs["topic"] == KAFKA_APP_METRICS2
@@ -171,7 +194,7 @@ class TestEmitDataImportAppMetrics(TestCase):
         status_calls = [
             call for call in mock_producer.produce.call_args_list if call.kwargs["data"]["metric_kind"] == "failure"
         ]
-        assert len(status_calls) == 2
+        assert len(status_calls) == 6
         assert all(call.kwargs["data"]["metric_name"] == "billing_limited" for call in status_calls)
 
     @parameterized.expand(
@@ -190,8 +213,8 @@ class TestEmitDataImportAppMetrics(TestCase):
             emit_data_import_app_metrics(job)
 
         produce_calls = mock_producer.produce.call_args_list
-        assert len(produce_calls) == 1
-        assert produce_calls[0].kwargs["data"]["metric_kind"] == "success"
+        assert len(produce_calls) == 3
+        assert all(call.kwargs["data"]["metric_kind"] == "success" for call in produce_calls)
 
     def test_non_terminal_status_emits_nothing(self):
         job = _make_job(status=ExternalDataJob.Status.RUNNING)
