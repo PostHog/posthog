@@ -33,8 +33,10 @@ import {
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
+import type { ThreadSkin } from '../quill/quillThreadContext'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -79,6 +81,11 @@ interface PickerSectionProps {
 }
 
 /** One `label … current ›` row of the cascade, opening a radio list. */
+const PICKER_CHROME: Record<ThreadSkin, { triggerVariant: 'outline' | 'default'; icons: boolean }> = {
+    lemon: { triggerVariant: 'outline', icons: true },
+    quill: { triggerVariant: 'default', icons: false },
+}
+
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
     return (
         <DropdownMenuSub>
@@ -119,6 +126,7 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
 }: ComposerModelEffortPickersProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
     const [advanced, setAdvanced] = useState(false)
     // Frozen when the Advanced view is entered rather than derived from the ladder: a model pick that steps off a
@@ -212,12 +220,12 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant="outline" size="sm">
+                    <Button variant={chrome.triggerVariant} size="sm">
                         {isDefaultSelection ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
-                        <IconChevronDown />
+                        {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
             />
@@ -321,7 +329,7 @@ export function ComposerModelEffortPickers({
                             )
                         }
                     >
-                        <IconRevert />
+                        {chrome.icons && <IconRevert />}
                         Reset to default
                     </DropdownMenuItem>
                 )}
@@ -330,7 +338,7 @@ export function ComposerModelEffortPickers({
                     you disagree with is the moment you want to change it. */}
                 {onOpenDefaultSettings && (
                     <DropdownMenuItem onClick={() => selectAndClose(onOpenDefaultSettings)}>
-                        <IconGear />
+                        {chrome.icons && <IconGear />}
                         Change default
                     </DropdownMenuItem>
                 )}

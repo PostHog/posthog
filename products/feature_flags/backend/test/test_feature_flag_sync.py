@@ -11,6 +11,7 @@ from django.utils import timezone as tz
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManyBytes, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
@@ -24,7 +25,8 @@ def mock_redis_client() -> Mock:
     mock = Mock()
     mock.storage = {}
     mock.get = lambda k: mock.storage.get(k)
-    mock.set = lambda k, v: mock.storage.update({k: v}) or None
+    # redis-py encodes a str value on write, so the real client stores and returns bytes
+    mock.set = lambda k, v: mock.storage.update({k: v.encode() if isinstance(v, str) else v}) or None
     return mock
 
 
@@ -239,13 +241,13 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
-    def test_redis_error_falls_back_to_lookback_days(
+    def test_unparseable_checkpoint_falls_back_to_lookback_days(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        """When checkpoint cannot be retrieved, fall back to lookback_days"""
+        """When the stored checkpoint cannot be parsed, fall back to lookback_days"""
         redis_mock = mock_redis_client()
-        # Make redis.get() raise an exception
-        redis_mock.get = Mock(side_effect=Exception("Redis error"))
+        # A malformed stored value, not a transport failure: those have to raise and retry instead
+        redis_mock.storage["posthog:feature_flag_last_called_sync:last_timestamp"] = b"not-a-timestamp"
         mock_get_client.return_value = redis_mock
         mock_sync_execute.return_value = []
 
@@ -259,6 +261,26 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         assert last_sync.year == 2024
         assert last_sync.month == 6
         assert last_sync.day == 14
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
+    def test_checkpoint_read_transport_error_raises_and_keeps_checkpoint(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        redis_mock = mock_redis_client()
+        checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
+        checkpoint_time = tz.make_aware(datetime(2024, 6, 13, 12, 0, 0))
+        redis_mock.storage[checkpoint_key] = checkpoint_time.isoformat().encode()
+        redis_mock.get = Mock(side_effect=RedisConnectionError("redis is down"))
+        mock_get_client.return_value = redis_mock
+        mock_sync_execute.return_value = []
+
+        with self.assertRaises(RedisConnectionError):
+            sync_feature_flag_last_called()
+
+        mock_sync_execute.assert_not_called()
+        assert redis_mock.storage[checkpoint_key] == checkpoint_time.isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.tasks.tasks.get_client")
@@ -310,6 +332,19 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
     @patch("posthog.tasks.tasks.get_client")
+    def test_failed_lock_release_does_not_mask_original_error(
+        self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
+    ) -> None:
+        mock_get_client.return_value = mock_redis_client()
+        mock_sync_execute.side_effect = ClickHouseAtCapacity()
+
+        with patch("django.core.cache.cache.delete", side_effect=RedisConnectionError("redis is down")):
+            with self.assertRaises(ClickHouseAtCapacity):
+                sync_feature_flag_last_called()
+
+    @time_machine.travel("2024-06-15 12:00:00", tick=False)
+    @patch("posthog.clickhouse.client.sync_execute")
+    @patch("posthog.tasks.tasks.get_client")
     def test_handles_invalid_timestamps(self, mock_get_client: MagicMock, mock_sync_execute: MagicMock) -> None:
         """Should handle None or invalid timestamps from ClickHouse"""
         redis_mock = mock_redis_client()
@@ -355,8 +390,8 @@ class TestSyncFeatureFlagLastCalled(BaseTest):
         checkpoint_key = "posthog:feature_flag_last_called_sync:last_timestamp"
         stored_timestamp = redis_mock.storage.get(checkpoint_key)
         assert stored_timestamp is not None
-        assert "2024-06-15" in stored_timestamp
-        assert "2024-06-15T11:59:00" in stored_timestamp
+        assert b"2024-06-15" in stored_timestamp
+        assert b"2024-06-15T11:59:00" in stored_timestamp
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -490,7 +525,7 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint stops at the end of the first chunk, so the unread window from 11:50
         # onwards is retried next run rather than skipped
         stored = redis_mock.storage.get(checkpoint_key)
-        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat()
+        assert stored == tz.make_aware(datetime(2024, 6, 15, 11, 50, 0)).isoformat().encode()
 
     @time_machine.travel("2024-06-15 12:00:00", tick=False)
     @patch("posthog.clickhouse.client.sync_execute")
@@ -635,14 +670,13 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # Checkpoint should still be updated
         stored = redis_mock.storage.get(checkpoint_key)
         assert stored is not None
-        assert "2024-06-15T11:59:00" in stored
+        assert b"2024-06-15T11:59:00" in stored
 
         # Flag should remain unchanged
         self.flag1.refresh_from_db()
         assert self.flag1.last_called_at is None
 
     def test_autoretry_for_membership(self) -> None:
-        """CHQueryErrorTooManyBytes should not be in the autoretry_for tuple"""
         autoretry_for = sync_feature_flag_last_called.autoretry_for
         assert CHQueryErrorTooManyBytes not in autoretry_for
         # Transient errors should still be retried
@@ -651,6 +685,9 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         # sync_execute wraps capacity errors (code 202) into ClickHouseAtCapacity,
         # so the wrapped form must be retryable too
         assert ClickHouseAtCapacity in autoretry_for
+        # The lock and the checkpoint live in Redis. Celery retries the run on a Redis error instead of
+        # waiting for the next scheduled run
+        assert issubclass(RedisConnectionError, autoretry_for)
         # A desynced pooled socket is retryable for this task, which only reads from ClickHouse,
         # but it has to stay out of the shared tuple: the driver can raise it after the server ran
         # the query, so a write caller retrying it would land the write twice
@@ -699,7 +736,8 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
     def test_run_that_completes_on_a_retry_is_counted(
         self, mock_get_client: MagicMock, mock_sync_execute: MagicMock
     ) -> None:
-        mock_get_client.return_value = mock_redis_client()
+        redis_mock = mock_redis_client()
+        mock_get_client.return_value = redis_mock
         mock_sync_execute.return_value = []
         recoveries_metric = "posthog_feature_flag_last_called_at_sync_retry_recoveries_total"
         recoveries_before = REGISTRY.get_sample_value(recoveries_metric) or 0.0
@@ -719,6 +757,9 @@ class TestSyncFeatureFlagLastCalledChunking(BaseTest):
         assert (REGISTRY.get_sample_value(recoveries_metric) or 0.0) == recoveries_before + 1
 
         cache.clear()
+        # The run before moved the checkpoint to the frozen now. Without a reset, this run has no chunk
+        # to query and never reaches the error
+        redis_mock.storage.clear()
         mock_sync_execute.side_effect = CHQueryErrorUnknownTable("boom")
         sync_feature_flag_last_called.push_request(retries=1)
         try:

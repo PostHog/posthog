@@ -64,10 +64,14 @@ def get_batch_job(*, team_id: int, batch_job_id: str, hog_flow_id: UUID | None =
 
 
 def set_batch_job_status(
-    *, batch_job_id: UUID, status: HogFlowBatchJobState, from_statuses: Collection[HogFlowBatchJobState] | None = None
+    *,
+    team_id: int,
+    batch_job_id: UUID,
+    status: HogFlowBatchJobState,
+    from_statuses: Collection[HogFlowBatchJobState] | None = None,
 ) -> None:
     """Write the status. With from_statuses, only a job still in one of them changes."""
-    jobs = HogFlowBatchJob.objects.filter(id=batch_job_id)
+    jobs = HogFlowBatchJob.objects.filter(id=batch_job_id, team_id=team_id)
     if from_statuses is not None:
         jobs = jobs.filter(status__in=from_statuses)
     # `.update()` bypasses auto_now, so stamp updated_at explicitly.

@@ -61,7 +61,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=("posthog/object_tags/*",),
         outputs=(
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
+            "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
         ),
     ),
@@ -71,7 +71,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=("products/tasks/backend/model_catalog.py",),
         outputs=(
             "products/tasks/frontend/modelCatalog.generated.ts",
-            "products/desktop/packages/shared/src/model-catalog.generated.ts",
+            "packages/agent/packages/agent-contracts/src/model-catalog.generated.ts",
         ),
     ),
     Projection(

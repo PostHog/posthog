@@ -64,7 +64,8 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     what the rest of this page reports. Cached briefly because the endpoint reloads on every search
     keystroke while these two aggregations do not depend on the search.
     """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
+    # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
+    cache_key = f"workflows_email_sending_allowance_v2_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached

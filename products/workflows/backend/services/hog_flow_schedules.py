@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -40,7 +41,8 @@ def _to_schedule(schedule: HogFlowSchedule) -> WorkflowSchedule:
 def _get_schedule_row(team_id: int, hog_flow_id: UUID, schedule_id: str | UUID) -> HogFlowSchedule:
     try:
         return HogFlowSchedule.objects.get(id=schedule_id, hog_flow_id=hog_flow_id, team_id=team_id)
-    except HogFlowSchedule.DoesNotExist:
+    except (HogFlowSchedule.DoesNotExist, ValidationError, ValueError):
+        # ValidationError and ValueError fire when the id is not a parseable UUID.
         raise WorkflowScheduleNotFound()
 
 
