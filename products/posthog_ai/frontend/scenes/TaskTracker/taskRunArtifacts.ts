@@ -103,3 +103,32 @@ export function parseCsv(text: string): string[][] {
     }
     return rows.filter((cells) => cells.some((cell) => cell !== ''))
 }
+
+/** A file the agent wrote, with the run that holds it. Downloads must name that run, not the open one. */
+export interface RunArtifact extends TaskRunArtifactResponseApi {
+    runId: string
+}
+
+interface RunWithArtifacts {
+    id: string
+    artifacts?: readonly TaskRunArtifactResponseApi[] | null
+}
+
+/**
+ * Agent files from every run of a task. A resumed task keeps writing new runs, so the files from earlier
+ * runs in the chain are only on those runs. The first run that lists an id wins, so pass the live run first.
+ */
+export function collectRunArtifacts(runs: readonly (RunWithArtifacts | null | undefined)[]): RunArtifact[] {
+    const byId = new Map<string, RunArtifact>()
+    for (const run of runs) {
+        if (!run) {
+            continue
+        }
+        for (const artifact of visibleRunArtifacts(run.artifacts ?? [])) {
+            if (artifact.id && !byId.has(artifact.id)) {
+                byId.set(artifact.id, { ...artifact, runId: run.id })
+            }
+        }
+    }
+    return [...byId.values()].sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at))
+}
