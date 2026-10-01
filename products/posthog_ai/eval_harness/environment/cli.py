@@ -42,7 +42,8 @@ if TYPE_CHECKING:
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MAX_ARCHIVE_BYTES = 2 * 1024**3
 MAX_ARCHIVE_MEMBERS = 10_000
-APP_PORTS = (8000, 8010, 8234)
+# The proxy on 8010 can run before the backend and frontend start.
+APP_PORTS = (8000, 8234)
 
 
 def relative_member(name: str) -> PurePosixPath:
