@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -390,10 +391,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             for name in ("elements_chain", "person_mode"):
                 flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
             # Group property filters, including test account filters, read group_N.properties as they do on events.
-            for index in range(5):
+            groups = context.database.get_table("groups")
+            for index in range(GROUP_TYPES_LIMIT):
                 flag_evaluations.fields[f"group_{index}"] = LazyJoin(
                     from_field=[f"$group_{index}"],
-                    join_table=context.database.get_table("groups"),
+                    join_table=groups,
                     resolver=GROUP_N,
                     resolver_params={"group_index": index},
                 )
