@@ -28,16 +28,22 @@ class TestClassify(SimpleTestCase):
             *[(f"exempt_user_{user.value}", QueryTags(kind="request"), user, None) for user in EXEMPT_USERS],
             ("router_load_poll", QueryTags(kind="request", feature=Feature.QUERY_ROUTER), ClickHouseUser.DEFAULT, None),
             (
-                "async_query_task",
+                "query_task_for_a_person_in_the_app",
                 QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID),
                 ClickHouseUser.APP,
-                QueryClass.ASYNC,
+                QueryClass.INTERACTIVE,
             ),
             (
-                "async_query_task_before_request_rules",
-                QueryTags(kind="request", id=PROCESS_QUERY_TASK_ID, access_method=AccessMethod.PERSONAL_API_KEY),
+                "query_task_for_an_api_key_caller",
+                QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID, access_method=AccessMethod.PERSONAL_API_KEY),
                 ClickHouseUser.API,
-                QueryClass.ASYNC,
+                QueryClass.API,
+            ),
+            (
+                "query_task_for_an_ai_feature_keeps_the_callers_class",
+                QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID, feature=Feature.POSTHOG_AI),
+                ClickHouseUser.APP,
+                QueryClass.INTERACTIVE,
             ),
             ("alert", QueryTags(kind="celery", feature=Feature.ALERTING), ClickHouseUser.DEFAULT, QueryClass.ASYNC),
             (

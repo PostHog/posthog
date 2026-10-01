@@ -40,16 +40,16 @@ class ClassPolicy:
     # Fraction of the pool limit below which this class may start a query.
     share: float
     max_wait_seconds: float
-    max_queue_depth: int
 
 
-# A waiting query holds a web thread or a worker slot, so the waits are short and the queues are bounded.
+# A waiting query holds a web thread or a worker slot, so the waits are short and a query joins the queue
+# only when it is likely to start within its wait.
 # Shares must not rise with the class number, or a waiter that cannot fit its share blocks every later class behind it.
 CLASS_POLICIES: dict[QueryClass, ClassPolicy] = {
-    QueryClass.INTERACTIVE: ClassPolicy(share=1.0, max_wait_seconds=2.0, max_queue_depth=200),
-    QueryClass.API: ClassPolicy(share=0.9, max_wait_seconds=5.0, max_queue_depth=500),
-    QueryClass.ASYNC: ClassPolicy(share=0.7, max_wait_seconds=10.0, max_queue_depth=200),
-    QueryClass.BACKGROUND: ClassPolicy(share=0.5, max_wait_seconds=10.0, max_queue_depth=200),
+    QueryClass.INTERACTIVE: ClassPolicy(share=1.0, max_wait_seconds=2.0),
+    QueryClass.API: ClassPolicy(share=0.9, max_wait_seconds=5.0),
+    QueryClass.ASYNC: ClassPolicy(share=0.7, max_wait_seconds=10.0),
+    QueryClass.BACKGROUND: ClassPolicy(share=0.5, max_wait_seconds=10.0),
 }
 
 
@@ -71,6 +71,15 @@ RANK_CLASS_MULTIPLIER = 10**13
 
 # A waiter that has not polled for this long is treated as gone and stops blocking the waiters behind it.
 STALE_WAITER_MS = 3_000
+
+# Admission estimates how fast a pool frees slots from the releases and arrivals of this window. A short
+# window makes the estimate follow a pool that stops draining within seconds.
+DRAIN_WINDOW_MS = 5_000
+
+# A query joins the queue only when its estimated wait is at most this fraction of its class's
+# max_wait_seconds. The estimate is rough, and a query that waits its full time and is dropped holds a
+# worker for nothing, so the router refuses a doubtful query on arrival instead.
+QUEUE_WAIT_MARGIN = 0.5
 
 # The controller rewrites the limit every second. The expiry makes admission fall back to the pool
 # ceiling when the controller stops.
@@ -98,6 +107,14 @@ def waiting_key(pool: Pool) -> str:
 
 def waiting_seen_key(pool: Pool) -> str:
     return _key(pool, "waiting_seen")
+
+
+def released_key(pool: Pool) -> str:
+    return _key(pool, "released")
+
+
+def arrivals_key(pool: Pool) -> str:
+    return _key(pool, "arrivals")
 
 
 def limit_key(pool: Pool) -> str:

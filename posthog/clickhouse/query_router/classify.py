@@ -42,11 +42,11 @@ def pool_for(*, workload: Workload, team_id: int | None, explicit_client: bool) 
 def classify_query(tags: QueryTags, ch_user: ClickHouseUser) -> QueryClass | None:
     if ch_user in _EXEMPT_USERS or tags.feature == Feature.QUERY_ROUTER:
         return None
-    if tags.id == _PROCESS_QUERY_TASK_ID:
-        return QueryClass.ASYNC
-    # The request rule comes before the other async rules because a person who calls PostHog AI or
-    # MCP over HTTP waits for the answer.
-    if tags.kind == "request":
+    # The app loads most insights through the query task, which runs a request's query for a caller
+    # that polls for the result. The task carries the tags of that request, so its query keeps the
+    # caller's class. This rule comes before the other async rules because a person who calls
+    # PostHog AI or MCP over HTTP waits for the answer.
+    if tags.kind == "request" or tags.id == _PROCESS_QUERY_TASK_ID:
         return QueryClass.API if is_api_key_access_method(tags.access_method) else QueryClass.INTERACTIVE
     if tags.feature in _ASYNC_FEATURES or tags.product == Product.MAX_AI:
         return QueryClass.ASYNC

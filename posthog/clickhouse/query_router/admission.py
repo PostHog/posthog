@@ -17,13 +17,17 @@ from redis.exceptions import RedisError
 from posthog.clickhouse.query_router import config
 from posthog.clickhouse.query_router.config import (
     CLASS_POLICIES,
+    DRAIN_WINDOW_MS,
+    QUEUE_WAIT_MARGIN,
     RANK_CLASS_MULTIPLIER,
     STALE_WAITER_MS,
     ClassPolicy,
     Pool,
     QueryClass,
     RouterMode,
+    arrivals_key,
     limit_key,
+    released_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -71,23 +75,32 @@ _ERROR_LOG_INTERVAL_SECONDS = 60
 _REDIS_TIMEOUT_SECONDS = 1.0
 
 # KEYS[1] to KEYS[4] are the running sets in class order, so KEYS[my_class] is the caller's own set.
-# KEYS[5] is waiting, KEYS[6] is waiting_seen and KEYS[7] is the limit. Ranks and rank bounds arrive
-# as strings and go to Redis unchanged, because Lua numbers are doubles.
+# KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is the limit, KEYS[8] is released and KEYS[9]
+# is arrivals. A rank arrives as a string and goes to Redis unchanged, and the script builds rank
+# bounds with string.format('%.0f'), because Lua numbers are doubles and Lua prints a large number in
+# scientific notation.
 _TRY_ENTER_LUA = """
 local now = tonumber(ARGV[1])
 local slot = ARGV[2]
 local my_class = tonumber(ARGV[3])
 local rank = ARGV[4]
-local class_rank_min = ARGV[5]
-local next_class_rank_min = ARGV[6]
-local ceiling = ARGV[7]
-local share_per_mille = tonumber(ARGV[8])
-local ttl_ms = tonumber(ARGV[9])
-local stale_ms = tonumber(ARGV[10])
-local enforcing = ARGV[11] == '1'
-local max_queue_depth = tonumber(ARGV[12])
+local rank_class_multiplier = tonumber(ARGV[5])
+local ceiling = ARGV[6]
+local share_per_mille = tonumber(ARGV[7])
+local ttl_ms = tonumber(ARGV[8])
+local stale_ms = tonumber(ARGV[9])
+local enforcing = ARGV[10] == '1'
+local first_attempt = ARGV[11] == '1'
+local window_ms = tonumber(ARGV[12])
+local wait_budget_ms = tonumber(ARGV[13])
 local waiting = KEYS[5]
 local waiting_seen = KEYS[6]
+local released = KEYS[8]
+local arrivals = KEYS[9]
+
+local function rank_of(query_class, ms)
+    return string.format('%.0f', query_class * rank_class_multiplier + ms)
+end
 
 for i = 1, 4 do
     redis.call('ZREMRANGEBYSCORE', KEYS[i], '-inf', now)
@@ -97,6 +110,14 @@ local stale = redis.call('ZRANGEBYSCORE', waiting_seen, '-inf', now - stale_ms)
 for _, stale_slot in ipairs(stale) do
     redis.call('ZREM', waiting, stale_slot)
     redis.call('ZREM', waiting_seen, stale_slot)
+end
+
+-- Arrivals share the rank's score, so each class's arrivals in the window are one score range.
+if first_attempt then
+    for i = 1, 4 do
+        redis.call('ZREMRANGEBYSCORE', arrivals, rank_of(i, 0), '(' .. rank_of(i, now - window_ms))
+    end
+    redis.call('ZADD', arrivals, rank, slot)
 end
 
 local limit = tonumber(redis.call('GET', KEYS[7]) or ceiling)
@@ -118,18 +139,29 @@ if total + ahead < allowed then
     return {'admitted', total, limit, ahead}
 end
 
+-- The estimate runs once, on arrival. A query already in the queue keeps its place until its deadline.
+local refused = false
+if first_attempt then
+    -- The pool must free this many slots, net, before this query fits.
+    local deficit = total + ahead - allowed + 1
+    local recent_releases = redis.call('ZCOUNT', released, now - window_ms, '+inf')
+    -- A higher class takes a freed slot before this query, whether it starts at once or queues ahead.
+    local higher_arrivals = redis.call('ZCOUNT', arrivals, '-inf', '(' .. rank_of(my_class, 0))
+    local net = recent_releases - higher_arrivals
+    -- Without a positive net drain the wait has no bound, so the query is refused.
+    refused = net <= 0 or deficit * window_ms / net > wait_budget_ms
+end
+
 if not enforcing then
     redis.call('ZADD', KEYS[my_class], now + ttl_ms, slot)
+    if refused then
+        return {'would_drop', total, limit, ahead}
+    end
     return {'would_wait', total, limit, ahead}
 end
 
-if redis.call('ZSCORE', waiting, slot) then
-    redis.call('ZADD', waiting_seen, now, slot)
-    return {'wait', total, limit, ahead}
-end
-
-if redis.call('ZCOUNT', waiting, class_rank_min, '(' .. next_class_rank_min) >= max_queue_depth then
-    return {'queue_full', total, limit, ahead}
+if refused then
+    return {'refused', total, limit, ahead}
 end
 
 redis.call('ZADD', waiting, rank, slot)
@@ -137,13 +169,18 @@ redis.call('ZADD', waiting_seen, now, slot)
 return {'wait', total, limit, ahead}
 """
 
-# KEYS are the slot's running set, waiting and waiting_seen. One script for release and for leaving
-# the queue keeps the two waiting sets consistent: a waiting entry without a waiting_seen entry is
-# never found stale and would block every waiter behind it.
+# KEYS are the slot's running set, waiting, waiting_seen and released. One script for release and for
+# leaving the queue keeps the two waiting sets consistent: a waiting entry without a waiting_seen entry
+# is never found stale and would block every waiter behind it. Only a slot that left the running set
+# counts as released, because a waiter that leaves the queue frees nothing.
 _REMOVE_LUA = """
-for i = 1, 3 do
-    redis.call('ZREM', KEYS[i], ARGV[1])
+local now = tonumber(ARGV[2])
+if redis.call('ZREM', KEYS[1], ARGV[1]) == 1 then
+    redis.call('ZADD', KEYS[4], ARGV[2], ARGV[1])
 end
+redis.call('ZREM', KEYS[2], ARGV[1])
+redis.call('ZREM', KEYS[3], ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now - tonumber(ARGV[3]))
 return 0
 """
 
@@ -155,16 +192,24 @@ class AdmissionOutcome(StrEnum):
     ADMITTED_AFTER_WAIT = "admitted_after_wait"
     # Observe mode: the query would have waited, but it runs and holds a slot.
     WOULD_WAIT = "would_wait"
+    # Observe mode: the query would have been dropped on arrival, but it runs and holds a slot.
+    WOULD_DROP = "would_drop"
     DROPPED_WAIT_TIMEOUT = "dropped_wait_timeout"
-    DROPPED_QUEUE_FULL = "dropped_queue_full"
+    # The pool drained too slowly for the query to start well within its class's max wait.
+    DROPPED_ON_ARRIVAL = "dropped_on_arrival"
     # Redis or the pool bounds failed, so the query runs without a slot.
     ERROR = "error"
 
 
 _SLOT_HOLDING_OUTCOMES = frozenset(
-    {AdmissionOutcome.ADMITTED, AdmissionOutcome.ADMITTED_AFTER_WAIT, AdmissionOutcome.WOULD_WAIT}
+    {
+        AdmissionOutcome.ADMITTED,
+        AdmissionOutcome.ADMITTED_AFTER_WAIT,
+        AdmissionOutcome.WOULD_WAIT,
+        AdmissionOutcome.WOULD_DROP,
+    }
 )
-_DROPPED_OUTCOMES = frozenset({AdmissionOutcome.DROPPED_WAIT_TIMEOUT, AdmissionOutcome.DROPPED_QUEUE_FULL})
+_DROPPED_OUTCOMES = frozenset({AdmissionOutcome.DROPPED_WAIT_TIMEOUT, AdmissionOutcome.DROPPED_ON_ARRIVAL})
 
 
 @frozen
@@ -184,8 +229,9 @@ _SlotOperation = Literal["release", "renew"]
 class _Answer(StrEnum):
     ADMITTED = "admitted"
     WOULD_WAIT = "would_wait"
+    WOULD_DROP = "would_drop"
     WAIT = "wait"
-    QUEUE_FULL = "queue_full"
+    REFUSED = "refused"
 
 
 @frozen
@@ -264,8 +310,13 @@ class QueryRouter:
 
     def _remove(self, slot: _Slot) -> None:
         self._remove_script(
-            keys=[running_key(slot.pool, slot.query_class), waiting_key(slot.pool), waiting_seen_key(slot.pool)],
-            args=[slot.slot_id],
+            keys=[
+                running_key(slot.pool, slot.query_class),
+                waiting_key(slot.pool),
+                waiting_seen_key(slot.pool),
+                released_key(slot.pool),
+            ],
+            args=[slot.slot_id, int(self.get_time() * 1000), DRAIN_WINDOW_MS],
         )
 
     def _release(self, slot: _Slot) -> None:
@@ -274,28 +325,32 @@ class QueryRouter:
         except RedisError:
             self._record_slot_error("release")
 
-    def _try_enter(self, slot: _Slot, *, policy: ClassPolicy, rank: int, ceiling: int, enforcing: bool) -> _Reply:
-        class_rank_min = int(slot.query_class) * RANK_CLASS_MULTIPLIER
+    def _try_enter(
+        self, slot: _Slot, *, policy: ClassPolicy, rank: int, ceiling: int, enforcing: bool, first_attempt: bool
+    ) -> _Reply:
         answer, total, limit, ahead = self._try_enter_script(
             keys=[
                 *(running_key(slot.pool, query_class) for query_class in QueryClass),
                 waiting_key(slot.pool),
                 waiting_seen_key(slot.pool),
                 limit_key(slot.pool),
+                released_key(slot.pool),
+                arrivals_key(slot.pool),
             ],
             args=[
                 int(self.get_time() * 1000),
                 slot.slot_id,
                 int(slot.query_class),
                 rank,
-                class_rank_min,
-                class_rank_min + RANK_CLASS_MULTIPLIER,
+                RANK_CLASS_MULTIPLIER,
                 ceiling,
                 round(policy.share * 1000),
                 _SLOT_TTL_SECONDS * 1000,
                 STALE_WAITER_MS,
                 int(enforcing),
-                policy.max_queue_depth,
+                int(first_attempt),
+                DRAIN_WINDOW_MS,
+                round(policy.max_wait_seconds * 1000 * QUEUE_WAIT_MARGIN),
             ],
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
@@ -307,14 +362,18 @@ class QueryRouter:
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
-            reply = self._try_enter(slot, policy=policy, rank=rank, ceiling=ceiling, enforcing=enforcing)
+            reply = self._try_enter(
+                slot, policy=policy, rank=rank, ceiling=ceiling, enforcing=enforcing, first_attempt=not queued
+            )
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
                 return _Decision(outcome=outcome, reply=reply, queued=queued)
             if reply.answer == _Answer.WOULD_WAIT:
                 return _Decision(outcome=AdmissionOutcome.WOULD_WAIT, reply=reply, queued=False)
-            if reply.answer == _Answer.QUEUE_FULL:
-                return _Decision(outcome=AdmissionOutcome.DROPPED_QUEUE_FULL, reply=reply, queued=queued)
+            if reply.answer == _Answer.WOULD_DROP:
+                return _Decision(outcome=AdmissionOutcome.WOULD_DROP, reply=reply, queued=False)
+            if reply.answer == _Answer.REFUSED:
+                return _Decision(outcome=AdmissionOutcome.DROPPED_ON_ARRIVAL, reply=reply, queued=False)
 
             queued = True
             remaining = deadline - self.get_time()

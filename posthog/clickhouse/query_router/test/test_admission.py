@@ -1,6 +1,5 @@
 import queue
 import threading
-import dataclasses
 from contextlib import AbstractContextManager, ExitStack
 
 from unittest.mock import MagicMock, patch
@@ -20,12 +19,15 @@ from posthog.clickhouse.query_router.admission import (
 )
 from posthog.clickhouse.query_router.config import (
     CLASS_POLICIES,
+    DRAIN_WINDOW_MS,
     STALE_WAITER_MS,
     Pool,
     PoolBounds,
     QueryClass,
     RouterMode,
+    arrivals_key,
     limit_key,
+    released_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -36,6 +38,9 @@ from posthog.redis import get_client
 # With a limit of 2, INTERACTIVE may run 2 queries and every other class 1, so one held slot is a
 # full pool for API and BACKGROUND.
 SMALL_LIMIT = 2
+
+# Enough releases in the drain window for every query these tests queue to pass the arrival estimate.
+DRAINING_RELEASES = 10
 
 
 def _sample_value(name: str, labels: dict[str, str]) -> float:
@@ -117,14 +122,22 @@ class TestQueryRouterAdmission(SimpleTestCase):
                 waiting_key(pool),
                 waiting_seen_key(pool),
                 limit_key(pool),
+                released_key(pool),
+                arrivals_key(pool),
             )
 
     def _admit(self, query_class: QueryClass) -> AbstractContextManager[Admission]:
         return self.router.admit(pool=Pool.OFFLINE, query_class=query_class)
 
-    def _hold(self, stack: ExitStack, count: int) -> None:
+    def _hold(self, stack: ExitStack, count: int, query_class: QueryClass = QueryClass.INTERACTIVE) -> None:
         for _ in range(count):
-            stack.enter_context(self._admit(QueryClass.INTERACTIVE))
+            stack.enter_context(self._admit(query_class))
+
+    def _drain(self, releases: int = DRAINING_RELEASES) -> None:
+        # No class ranks below BACKGROUND, so these arrivals use up none of the drain they record.
+        for _ in range(releases):
+            with self._admit(QueryClass.BACKGROUND):
+                pass
 
     def _running(self, query_class: QueryClass) -> int:
         return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
@@ -132,6 +145,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_class_waits_above_its_share_while_a_higher_class_is_admitted(self) -> None:
         self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
         self.redis.set(limit_key(Pool.OFFLINE), 10)
+        self._drain()
         background = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
 
         with ExitStack() as held:
@@ -152,6 +166,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_freed_slot_goes_to_the_waiter_ranked_first(
         self, _name: str, early_class: QueryClass, late_class: QueryClass, early_wins: bool
     ) -> None:
+        self._drain()
         early = _ParkedWaiter(self.clock, early_class)
         late = _ParkedWaiter(self.clock, late_class)
         with ExitStack() as held:
@@ -171,6 +186,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     def test_waiter_polls_less_often_the_further_it_is_from_the_head(self) -> None:
         self.enterContext(patch("posthog.clickhouse.query_router.admission.random.uniform", return_value=1.0))
+        self._drain()
         waiters = [_ParkedWaiter(self.clock, QueryClass.BACKGROUND) for _ in range(4)]
         with ExitStack() as held:
             self._hold(held, 1)
@@ -186,6 +202,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             waiter.finish()
 
     def test_waiter_is_dropped_after_its_max_wait_and_leaves_the_queue(self) -> None:
+        self._drain()
         started_at = self.clock.now
         with ExitStack() as held:
             self._hold(held, 1)
@@ -201,6 +218,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     def test_waiter_that_wakes_after_its_max_wait_is_dropped_even_when_the_pool_has_freed(self) -> None:
         max_wait_seconds = CLASS_POLICIES[QueryClass.API].max_wait_seconds
+        self._drain()
         with ExitStack() as held:
             self._hold(held, 1)
 
@@ -224,6 +242,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             raise Interrupted
 
         self.router.sleep = interrupt
+        self._drain()
         with ExitStack() as held:
             self._hold(held, 1)
             with self.assertRaises(Interrupted):
@@ -233,26 +252,46 @@ class TestQueryRouterAdmission(SimpleTestCase):
             assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
             assert self.redis.zcard(waiting_seen_key(Pool.OFFLINE)) == 0
 
-    def test_query_is_dropped_at_once_when_its_class_queue_is_full(self) -> None:
-        one_deep = dataclasses.replace(CLASS_POLICIES[QueryClass.BACKGROUND], max_queue_depth=1)
-        self.enterContext(patch.dict(CLASS_POLICIES, {QueryClass.BACKGROUND: one_deep}))
-        queued = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
-
+    @parameterized.expand(
+        [
+            ("nothing_released", QueryClass.API, 0, 0, False),
+            ("estimate_above_half_the_max_wait", QueryClass.API, 1, 0, False),
+            ("estimate_within_half_the_max_wait", QueryClass.API, 2, 0, True),
+            ("releases_older_than_the_window", QueryClass.API, 2, DRAIN_WINDOW_MS + 1, False),
+            ("higher_class_arrivals_use_up_the_drain", QueryClass.BACKGROUND, 2, 0, False),
+        ]
+    )
+    def test_query_queues_only_when_the_pool_drains_fast_enough_to_start_it_within_half_its_max_wait(
+        self, _name: str, query_class: QueryClass, releases: int, releases_age_ms: int, queues: bool
+    ) -> None:
+        # With a limit of 3 and two API queries running, an API query needs one freed slot and a
+        # BACKGROUND query needs two.
+        self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
+        self.redis.set(limit_key(Pool.OFFLINE), 3)
+        self._drain(releases)
+        self.clock.now += releases_age_ms / 1000
+        started_at = self.clock.now
         with ExitStack() as held:
-            self._hold(held, 1)
-            assert queued.start() == "waiting"
-            started_at = self.clock.now
-            with self.assertRaises(ClickHouseAtCapacity):
-                with self._admit(QueryClass.BACKGROUND):
-                    pass
-            assert self.clock.now == started_at
-            assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 1
+            self._hold(held, 2, QueryClass.API)
 
-        queued.finish()
+            def free_the_pool_and_sleep(seconds: float) -> None:
+                held.close()
+                self.clock.sleep(seconds)
+
+            self.router.sleep = free_the_pool_and_sleep
+            if queues:
+                with self._admit(query_class) as admission:
+                    assert admission.outcome == AdmissionOutcome.ADMITTED_AFTER_WAIT
+            else:
+                with self.assertRaises(ClickHouseAtCapacity):
+                    with self._admit(query_class):
+                        pass
+                assert self.clock.now == started_at
+                assert self.redis.zcard(waiting_key(Pool.OFFLINE)) == 0
 
     @parameterized.expand(
         [
-            ("renewed_by_its_process", True, 2 * 3600, AdmissionOutcome.WOULD_WAIT),
+            ("renewed_by_its_process", True, 2 * 3600, AdmissionOutcome.WOULD_DROP),
             (
                 "left_by_a_dead_process",
                 False,
@@ -280,6 +319,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             assert self._running(QueryClass.API) == 0
 
     def test_waiter_that_stopped_polling_stops_blocking_after_stale_ms(self) -> None:
+        self._drain()
         stuck = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
         with ExitStack() as held:
             self._hold(held, 1)
@@ -293,13 +333,22 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
         stuck.finish()
 
-    def test_observe_mode_admits_over_the_limit_and_holds_a_slot(self) -> None:
+    @parameterized.expand(
+        [
+            ("pool_not_draining", 0, AdmissionOutcome.WOULD_DROP),
+            ("pool_draining", DRAINING_RELEASES, AdmissionOutcome.WOULD_WAIT),
+        ]
+    )
+    def test_observe_mode_admits_over_the_limit_and_holds_a_slot(
+        self, _name: str, releases: int, expected_outcome: AdmissionOutcome
+    ) -> None:
         self.get_mode.return_value = RouterMode.OBSERVE
+        self._drain(releases)
         with ExitStack() as held:
             self._hold(held, SMALL_LIMIT)
             started_at = self.clock.now
             with self._admit(QueryClass.BACKGROUND) as admission:
-                assert admission.outcome == AdmissionOutcome.WOULD_WAIT
+                assert admission.outcome == expected_outcome
                 assert self.clock.now == started_at
                 assert self._running(QueryClass.BACKGROUND) == 1
             assert self._running(QueryClass.BACKGROUND) == 0
