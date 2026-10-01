@@ -13,7 +13,7 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 from posthog.errors import CHQueryErrorNoCommonType
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
@@ -148,15 +148,23 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "hogql",
-                "HogQL column `missing_property` could not be resolved",
-                None,
+                ExposedHogQLError("HogQL column `missing_property` could not be resolved"),
                 "HogQL column `missing_property` could not be resolved",
                 None,
             ),
             (
+                "unknown_table",
+                QueryError("Unknown table `missing_campaign_stats`."),
+                "Unknown table `missing_campaign_stats`.",
+                None,
+            ),
+            (
                 "clickhouse",
-                "DB::Exception: There is no supertype for types String, UInt64 because some of them are String/FixedString and some of them are not\nStack trace: internal frame",
-                "no_common_type",
+                CHQueryErrorNoCommonType(
+                    "DB::Exception: There is no supertype for types String, UInt64 because some of them are String/FixedString and some of them are not\nStack trace: internal frame",
+                    code=386,
+                    code_name="no_common_type",
+                ),
                 "There is no supertype for types String, UInt64",
                 "Stack trace",
             ),
@@ -165,8 +173,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     def test_exposed_query_errors_return_safe_detail(
         self,
         _name: str,
-        message: str,
-        code_name: str | None,
+        error: Exception,
         expected_detail: str,
         forbidden_detail: str | None,
     ):
@@ -177,15 +184,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
-        error = (
-            CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
-            if code_name
-            else ExposedHogQLError(message)
-        )
-
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
             mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
         ):
             response = self.client.post(
@@ -198,6 +199,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+        mock_capture.assert_not_called()
 
     def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
         endpoint = create_endpoint_with_version(
