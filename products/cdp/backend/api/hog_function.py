@@ -38,8 +38,8 @@ from posthog.cdp.validation import (
     InputsSchemaSerializer,
     InputsSerializer,
     MappingsSerializer,
+    added_duplicate_input_keys,
     compile_hog,
-    duplicate_input_keys,
     generate_template_bytecode,
     masked_secret_input_keys,
     reserved_functions_used,
@@ -361,6 +361,14 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
         return super().validate(attrs)
 
 
+def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) -> Optional[dict]:
+    # Match by name so that removing or reordering mappings keeps each one's allowance.
+    named = [stored for stored in stored_mappings if mapping.get("name") and stored.get("name") == mapping.get("name")]
+    if len(named) == 1:
+        return named[0]
+    return stored_mappings[index] if index < len(stored_mappings) else None
+
+
 class HogFunctionSerializer(HogFunctionMinimalSerializer):
     template = HogFunctionTemplateSerializer(read_only=True)
     base_updated_at = serializers.DateTimeField(
@@ -654,15 +662,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # itself cannot reject duplicate keys: a row saved before the rule could no longer be
         # disabled or deleted. Only keys this request adds a duplicate of are rejected.
         existing = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        stored_duplicates = duplicate_input_keys(existing.inputs_schema if existing else None)
-        if duplicate_input_keys(attrs.get("inputs_schema")) - stored_duplicates:
+        if added_duplicate_input_keys(attrs.get("inputs_schema"), existing.inputs_schema if existing else None):
             raise serializers.ValidationError({"inputs_schema": DUPLICATE_INPUT_KEYS_ERROR})
-        stored_mapping_duplicates: set[str] = set()
-        for stored_mapping in (existing.mappings if existing else None) or []:
-            if isinstance(stored_mapping, dict):
-                stored_mapping_duplicates |= duplicate_input_keys(stored_mapping.get("inputs_schema"))
+        stored_mappings = [m for m in (existing.mappings if existing else None) or [] if isinstance(m, dict)]
         for index, mapping in enumerate(attrs.get("mappings") or []):
-            if duplicate_input_keys(mapping.get("inputs_schema")) - stored_mapping_duplicates:
+            stored_mapping = _stored_mapping_for(mapping, index, stored_mappings)
+            if added_duplicate_input_keys(mapping.get("inputs_schema"), (stored_mapping or {}).get("inputs_schema")):
                 raise serializers.ValidationError(
                     {"mappings": {str(index): {"inputs_schema": [DUPLICATE_INPUT_KEYS_ERROR]}}}
                 )
