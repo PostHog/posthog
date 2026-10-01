@@ -19,6 +19,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     SlackFileDeliveryResult,
+    attach_streamed_slack_files,
     stream_pending_slack_attachments,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
@@ -699,6 +700,39 @@ class TestRelaySlackMessage(TestCase):
         assert len(canvas_cards) == (1 if append_ok else 2)
         artifact.refresh_from_db()
         self.assertEqual(artifact.location["delivery_status"], expected_status)
+
+    @parameterized.expand([("slack_attaches", True, [None]), ("slack_refuses", False, [None, "C123"])])
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts._upload_slack_file", return_value=("F1", {"id": "F1"})
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts.object_storage.read_bytes",
+        return_value=b"week,signups\n2026-09-21,42\n",
+    )
+    def test_streamed_reply_attaches_its_files_after_the_stream(
+        self, _name, attach_ok, expected_upload_channels, _mock_read_bytes, mock_integration_for_mapping, mock_upload
+    ):
+        # A file shared to the thread lands as its own message under the reply. It must attach to
+        # the reply instead, and still reach the thread when Slack refuses the update.
+        artifact, _storage_path = self._create_pending_slack_file_artifact(
+            name="Weekly signups", filename="signups.v1.csv", content_type="text/csv", metadata={}
+        )
+        mock_integration_for_mapping.return_value.client = unittest.mock.MagicMock()
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+        attached: list[list[str]] = []
+
+        def attach_files(file_ids: list[str]) -> bool:
+            attached.append(file_ids)
+            return attach_ok
+
+        result = stream_pending_slack_attachments(self.task_run, append_blocks=lambda blocks: True)
+        attach_streamed_slack_files(self.task_run, result, attach_files=attach_files)
+
+        assert attached == [["F1"]]
+        assert [call.kwargs["channel"] for call in mock_upload.call_args_list] == expected_upload_channels
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], "delivered")
 
 
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):

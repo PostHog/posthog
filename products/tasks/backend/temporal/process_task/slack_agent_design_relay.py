@@ -367,6 +367,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     async def _close_stream(self, input: SlackAgentDesignRelayInput) -> None:
         final_answer = self._final_answer()
         final_for_stop: Optional[str] = final_answer or None
+        mention_sent = False
         # Slack marks a step still open at the end as failed. A finished turn completes the setup
         # and agent steps left open, and a stopped one leaves every unfinished step failed.
         final_status = "complete" if self._turn_complete else "error"
@@ -382,6 +383,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 plan_title=PLAN_TITLE_WORKING if pending else None,
             )
             final_for_stop = None
+            mention_sent = bool(final_answer)
             pending = []
         if self._stream is None:
             return
@@ -418,6 +420,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 run_id=input.run_id,
                 trace_id=self._trace_id,
                 plan_title=self._closing_plan_title(),
+                mention_sent=mention_sent,
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

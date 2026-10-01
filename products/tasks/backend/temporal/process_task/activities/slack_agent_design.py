@@ -66,6 +66,8 @@ class StopSlackAgentDesignStreamInput:
     # report against that turn.
     trace_id: Optional[str] = None
     plan_title: Optional[str] = None
+    # The stream opened with the answer, which already carried the @-mention.
+    mention_sent: bool = False
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -129,19 +131,26 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
     """Mark the last step complete, stream the final answer and the turn's attachments,
     append the @-mention, close."""
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
-    from products.tasks.backend.logic.services.living_artifacts import stream_pending_slack_attachments
+    from products.tasks.backend.logic.services.living_artifacts import (
+        SlackFileDeliveryResult,
+        attach_streamed_slack_files,
+        stream_pending_slack_attachments,
+    )
     from products.tasks.backend.models import TaskRun
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler.for_run(context, input.run_id, turn_trace_id=input.trace_id)
+        task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None
+        deliveries: list[SlackFileDeliveryResult] = []
 
         def _append_attachments() -> None:
-            if not input.run_id:
+            if task_run is None:
                 return
-            task_run = TaskRun.objects.get(id=input.run_id)
-            stream_pending_slack_attachments(
-                task_run, append_blocks=lambda blocks: handler.append_status_blocks(input.ts, blocks)
+            deliveries.append(
+                stream_pending_slack_attachments(
+                    task_run, append_blocks=lambda blocks: handler.append_status_blocks(input.ts, blocks)
+                )
             )
 
         handler.stop_status_stream(
@@ -152,6 +161,13 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             final_markdown=_rewrite_object_tags(input.final_markdown, handler.project_url),
             plan_title=input.plan_title,
             append_attachments=_append_attachments,
+            mention_sent=input.mention_sent,
         )
+        # Files attach only once the stream has closed, because a streaming message cannot take one.
+        for delivery in deliveries:
+            if task_run is not None:
+                attach_streamed_slack_files(
+                    task_run, delivery, attach_files=lambda file_ids: handler.attach_files(input.ts, file_ids)
+                )
     except Exception as e:
         logger.warning("slack_app_stop_agent_design_stream_failed", error=str(e))

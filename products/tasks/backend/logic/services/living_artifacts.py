@@ -9,7 +9,7 @@ import zipfile
 import mimetypes
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -839,11 +839,23 @@ def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
     return any(_pending_slack_file_version(artifact) is not None for artifact in artifacts)
 
 
+@dataclass(frozen=True)
+class UploadedSlackFile:
+    """A file uploaded with no channel share, waiting to be attached to a streamed reply."""
+
+    artifact: TaskArtifact
+    version_number: int
+    file_id: str | None
+    file_response: dict[str, Any] | None
+
+
 # Mutable: delivery accumulates into it as each card is posted.
 @dataclass(frozen=False)
 class SlackFileDeliveryResult:
     answer_posted: bool = False
     delivered_count: int = 0
+    # Non-image files of a streamed reply, uploaded but not yet visible in the thread.
+    unattached_files: list[UploadedSlackFile] = field(default_factory=list)
 
 
 def has_pending_slack_image_artifacts(run: TaskRun) -> bool:
@@ -878,7 +890,9 @@ def deliver_pending_slack_file_artifacts(
     composed message so it isn't posted twice.
 
     With ``append_blocks`` the chart cards go into a message the caller is streaming,
-    under the answer it already streamed, instead of a message of their own.
+    under the answer it already streamed, instead of a message of their own. Non-image
+    files then upload with no channel share, and ``unattached_files`` lists them for
+    ``attach_streamed_slack_files`` once the stream has closed.
     """
     result = SlackFileDeliveryResult()
     mapping = _get_slack_mapping(run, raise_if_missing=False)
@@ -1007,6 +1021,17 @@ def deliver_pending_slack_file_artifacts(
             continue
         payload = _read_pending_slack_file_bytes(artifact, version_payload)
         if payload is None:
+            continue
+        version_number = int(version_payload.get("version") or artifact.current_version or 0)
+        if append_blocks is not None:
+            try:
+                file_id, file_response = _upload_slack_file(
+                    slack, channel=None, thread_ts=None, name=artifact.name, content=payload, content_type=content_type
+                )
+            except Exception:
+                logger.warning("task_artifact.slack_file_delivery_failed", artifact_id=str(artifact.id), exc_info=True)
+                continue
+            result.unattached_files.append(UploadedSlackFile(artifact, version_number, file_id, file_response))
             continue
         try:
             file_id, file_response = _upload_slack_file(
@@ -1621,11 +1646,37 @@ def stream_pending_slack_attachments(
     """Deliver the run's pending attachments into the reply the caller is streaming.
 
     Chart and image cards and canvas notices go into the streamed message. Other files
-    still post as file shares in the thread, because Slack shows a file only as its own message.
+    upload now and attach to the message after its stream closes (see
+    ``attach_streamed_slack_files``), because a message cannot take a file while it streams.
     """
     result = deliver_pending_slack_file_artifacts(run, append_blocks=append_blocks)
     _append_pending_canvas_notices(run, append_blocks)
     return result
+
+
+def attach_streamed_slack_files(
+    run: TaskRun, result: SlackFileDeliveryResult, *, attach_files: Callable[[list[str]], bool]
+) -> None:
+    """Attach the files a streamed reply uploaded to that reply, once its stream has closed.
+
+    When Slack refuses the update, the files post as their own messages in the thread, so
+    the user still gets them."""
+    uploaded = [file for file in result.unattached_files if file.file_id]
+    if not uploaded:
+        return
+    if not attach_files([file.file_id for file in uploaded if file.file_id]):
+        logger.warning("task_artifact.slack_file_attach_failed", task_run_id=str(run.id))
+        deliver_pending_slack_file_artifacts(run)
+        return
+    for file in uploaded:
+        if _mark_slack_file_artifact_delivered(
+            artifact=file.artifact,
+            version_number=file.version_number,
+            file_id=file.file_id,
+            file_response=file.file_response,
+        ):
+            result.delivered_count += 1
+    result.unattached_files = []
 
 
 def _append_pending_canvas_notices(run: TaskRun, append_blocks: Callable[[list[dict[str, Any]]], bool]) -> None:

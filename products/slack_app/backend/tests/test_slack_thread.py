@@ -80,9 +80,20 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         assert _streamed_text(mock_client).count("<@U123>") == 1
 
+    @parameterized.expand(
+        [
+            ("answer", "Signups grew.", False, ["plan_update", "<@U123> Signups grew.", "blocks"]),
+            # The answer went out when the stream opened, and carried the mention there.
+            ("answer_streamed_at_start", None, True, ["plan_update", "blocks"]),
+            # A stopped run has no answer, so the mention alone notifies the requester.
+            ("no_answer", None, False, ["plan_update", "blocks", "\n\n<@U123>"]),
+        ]
+    )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_stop_status_stream_puts_attachments_between_answer_and_mention(self, mock_get_client):
-        # Chart cards describe the answer above them, and the mention closes the reply with one ping.
+    def test_stop_status_stream_mentions_the_requester_once_before_the_answer(
+        self, _name, final_markdown, mention_sent, expected_order, mock_get_client
+    ):
+        # Chart cards describe the answer above them, and the reply pings the requester once.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         context = SlackThreadContext(
@@ -94,7 +105,11 @@ class TestSlackThreadHandler(SimpleTestCase):
             handler.append_status_blocks("1234.9999", [{"type": "image"}])
 
         handler.stop_status_stream(
-            ts="1234.9999", final_markdown="Signups grew.", plan_title="Done", append_attachments=append_attachments
+            ts="1234.9999",
+            final_markdown=final_markdown,
+            plan_title="Done",
+            append_attachments=append_attachments,
+            mention_sent=mention_sent,
         )
 
         order = [
@@ -102,7 +117,7 @@ class TestSlackThreadHandler(SimpleTestCase):
             for call in mock_client.chat_appendStream.call_args_list
             for chunk in call.kwargs["chunks"]
         ]
-        assert order[: order.index("\n\n<@U123>") + 1] == ["plan_update", "Signups grew.", "blocks", "\n\n<@U123>"]
+        assert order == expected_order
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
