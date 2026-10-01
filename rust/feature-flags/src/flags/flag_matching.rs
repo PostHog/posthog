@@ -1235,25 +1235,17 @@ impl FeatureFlagMatcher {
     /// analysis so group-typed filters resolve against the group's properties (and the
     /// `$group_key` injected into overrides) rather than the person's. Every referenced
     /// group type index is included, backed by an empty map if no properties were found.
-    fn merged_group_properties_for_flag(
+    pub(crate) fn merged_group_properties_for_flag(
         &self,
         flag: &FeatureFlag,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
-        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
-        for group in &flag.filters.groups {
-            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
-            // an explicit person aggregation (`Some(None)`) does not fall back to the
-            // flag-level group index here.
-            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
-            if let Some(properties) = &group.properties {
-                for property in properties {
-                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
-                        referenced_indexes.insert(gti);
-                    }
-                }
-            }
-        }
+        let referenced_indexes: HashSet<GroupTypeIndex> = flag
+            .filters
+            .requirements()
+            .group_property_type_indexes
+            .into_iter()
+            .collect();
 
         let mut merged = HashMap::new();
         for gti in referenced_indexes {
@@ -2528,23 +2520,11 @@ impl FeatureFlagMatcher {
     pub(crate) fn referenced_group_type_indexes(
         flag: &FeatureFlag,
     ) -> impl Iterator<Item = GroupTypeIndex> + '_ {
-        flag.get_group_type_index()
+        let requirements = flag.filters.requirements();
+        requirements
+            .aggregation_group_type_indexes
             .into_iter()
-            .chain(flag.get_conditions().iter().flat_map(|condition| {
-                condition
-                    .aggregation_group_type_index
-                    .flatten()
-                    .into_iter()
-                    .chain(
-                        condition
-                            .properties
-                            .iter()
-                            .flatten()
-                            // No aggregation fallback here: the arms above already chain
-                            // every aggregation index, so only explicit indexes are added.
-                            .filter_map(|prop| prop.group_filter_index(None)),
-                    )
-            }))
+            .chain(requirements.group_property_type_indexes)
     }
 
     /// Builds a paired mapping from group type index to group key for flag
