@@ -32,12 +32,7 @@ impl AppContext {
             } else {
                 &config.database_read_url
             };
-            Some(
-                PgPoolOptions::new()
-                    .max_connections(config.max_pg_connections)
-                    .max_lifetime(jittered_max_lifetime(config.pg_max_lifetime_secs))
-                    .connect_lazy(read_url)?,
-            )
+            Some(read_pool_options(config).connect_lazy(read_url)?)
         } else {
             None
         };
@@ -82,6 +77,25 @@ async fn build_write_pool(config: &Config) -> Result<PgPool, sqlx::Error> {
         .await
 }
 
+/// Options for the read-before-write pool. The client drops a probe at
+/// `read_before_write_timeout_ms`, but Postgres keeps running it, so the same budget is set as
+/// the server-side `statement_timeout` to cancel the abandoned query on the reader too.
+fn read_pool_options(config: &Config) -> PgPoolOptions {
+    let statement_timeout_ms = config.read_before_write_timeout_ms;
+    PgPoolOptions::new()
+        .max_connections(config.max_pg_connections)
+        .max_lifetime(jittered_max_lifetime(config.pg_max_lifetime_secs))
+        .after_connect(move |conn, _meta| {
+            Box::pin(async move {
+                // SET takes no bind parameters; the value is a u64, so format! is safe.
+                sqlx::query(&format!("SET statement_timeout = {statement_timeout_ms}"))
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+}
+
 /// Spreads connection expiry across pods. sqlx compares age against `max_lifetime` exactly, so
 /// without jitter every pod reconnects in lockstep. Drawn once per process.
 fn jittered_max_lifetime(base_secs: u64) -> Duration {
@@ -97,6 +111,24 @@ fn jittered_max_lifetime(base_secs: u64) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[sqlx::test(migrations = false)]
+    async fn read_pool_cancels_probes_that_outlive_the_budget(db: PgPool) {
+        let mut config = Config::init_with_defaults().unwrap();
+        config.read_before_write_timeout_ms = 100;
+        let read_pool = read_pool_options(&config)
+            .connect_with((*db.connect_options()).clone())
+            .await
+            .unwrap();
+
+        let err = sqlx::query("SELECT pg_sleep(5)")
+            .execute(&read_pool)
+            .await
+            .unwrap_err();
+
+        let code = err.as_database_error().and_then(|e| e.code());
+        assert_eq!(code.as_deref(), Some("57014"), "{err}");
+    }
 
     #[test]
     fn jitter_stays_within_a_fifth_above_the_base() {
