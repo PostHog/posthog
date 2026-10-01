@@ -10,10 +10,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import type { DataOpsVariant } from './dataOpsVariant'
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import { MonitoringTab } from './tabs/MonitoringTab'
 import { OverviewTab } from './tabs/OverviewTab'
 import { SettingsTab } from './tabs/SettingsTab'
+import { TrinoMonitoringTab } from './tabs/TrinoMonitoringTab'
 
 export const scene: SceneExport = {
     component: DataWarehouseScene,
@@ -27,12 +29,12 @@ const TAB_LABELS: Record<DataWarehouseTab, string> = {
     [DataWarehouseTab.SETTINGS]: 'Settings',
 }
 
-function tabContent(tab: DataWarehouseTab): JSX.Element {
+function tabContent(tab: DataWarehouseTab, variant: DataOpsVariant): JSX.Element {
     switch (tab) {
         case DataWarehouseTab.OVERVIEW:
             return <OverviewTab />
         case DataWarehouseTab.MONITORING:
-            return <MonitoringTab />
+            return variant === 'trino' ? <TrinoMonitoringTab /> : <MonitoringTab />
         case DataWarehouseTab.SETTINGS:
             return <SettingsTab />
     }
@@ -71,11 +73,11 @@ export function DataWarehouseScene(): JSX.Element {
                     tabs={availableTabs.map((tab) => ({
                         key: tab,
                         label: TAB_LABELS[tab],
-                        content: tabContent(tab),
+                        content: tabContent(tab, dataOpsVariant),
                     }))}
                 />
             ) : (
-                tabContent(activeTab)
+                tabContent(activeTab, dataOpsVariant)
             )}
         </SceneContent>
     )
