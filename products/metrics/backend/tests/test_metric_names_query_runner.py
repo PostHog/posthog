@@ -197,7 +197,6 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 [],
                 ["b.http.x", "a.http.x", "c.http.x", "http", "http.requests", "other", "server.http"],
             ),
-            # Only the selected services count, so `b.http.x` loses its lead over `a.http.x`.
             (
                 "service scope counts the selected services only",
                 "",
@@ -532,6 +531,5 @@ class TestMetricCatalogQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
             rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
 
-        # One query for the names and one for their details, none for the samples.
         self.assertEqual(execute.call_count, 2)
         self.assertEqual(rows[0]["sparkline"], [])
