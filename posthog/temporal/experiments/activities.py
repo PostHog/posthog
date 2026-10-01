@@ -36,7 +36,7 @@ from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
-    metric_calculation_keys,
+    metric_calculation_keys_for_experiments,
     record_daily_metric_failure,
     record_daily_metric_result,
     resolve_saved_metric_definition,
@@ -74,19 +74,24 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
 
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).exclude(
-        Q(metrics__isnull=True) | Q(metrics=[]),
-        Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+    experiments = list(
+        Experiment.objects.filter(
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        ).exclude(
+            Q(metrics__isnull=True) | Q(metrics=[]),
+            Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
+        )
+    )
+    keys_by_experiment = metric_calculation_keys_for_experiments(
+        {experiment.id: experiment.team_id for experiment in experiments}
     )
 
     for experiment in experiments:
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
-        calculation_keys = metric_calculation_keys(experiment.id, team_id=experiment.team_id).inline
+        calculation_keys = keys_by_experiment[experiment.id].inline
 
         for metric in all_metrics:
             metric_uuid = metric.get("uuid")
@@ -354,20 +359,24 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
 
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
-    experiments = Experiment.objects.filter(
-        recalculation_hour_filter(hour),
-        deleted=False,
-        status=Experiment.Status.RUNNING,
-        start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
-    ).prefetch_related("experimenttosavedmetric_set__saved_metric")
+    experiments = [
+        experiment
+        for experiment in Experiment.objects.filter(
+            recalculation_hour_filter(hour),
+            deleted=False,
+            status=Experiment.Status.RUNNING,
+            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+        ).prefetch_related("experimenttosavedmetric_set__saved_metric")
+        if experiment.experimenttosavedmetric_set.all()
+    ]
+    keys_by_experiment = metric_calculation_keys_for_experiments(
+        {experiment.id: experiment.team_id for experiment in experiments}
+    )
 
     for experiment in experiments:
-        saved_metric_links = experiment.experimenttosavedmetric_set.all()
-        if not saved_metric_links:
-            continue
-        calculation_keys = metric_calculation_keys(experiment.id, team_id=experiment.team_id).saved
+        calculation_keys = keys_by_experiment[experiment.id].saved
 
-        for exp_to_saved_metric in saved_metric_links:
+        for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
             saved_metric = exp_to_saved_metric.saved_metric
             metric_uuid = saved_metric.query.get("uuid")
 
