@@ -6,6 +6,7 @@ import {
     personhogStoreShadowComparedCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
+    personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
 import { logger } from '~/common/utils/logger'
@@ -27,6 +28,7 @@ jest.mock('~/common/persons/metrics', () => ({
     personhogStoreShadowComparedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCompareFailedCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowFoldRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personhogStoreShadowMergeRedriveCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowDurationSeconds: {
         labels: jest.fn().mockReturnValue({ startTimer: jest.fn(() => mockShadowTimerStop) }),
     },
@@ -94,7 +96,7 @@ describe('RoutingPersonsStore', () => {
         // The personhog store implements PersonsStore, so the same
         // compile-checked factory serves; the cast to the concrete class
         // is the constructor's requirement, not an escape from checking.
-        const personhogMock = Object.assign(mockStore(), { abandonBatch: jest.fn() })
+        const personhogMock = Object.assign(mockStore(), { abandonBatch: jest.fn(), holdEventOps: jest.fn() })
         const personhog = personhogMock as unknown as PersonhogPersonsStore
         return { pg, personhogMock, personhog }
     }
@@ -834,6 +836,43 @@ describe('RoutingPersonsStore', () => {
             expect(personhogStoreShadowErrorsCounter.labels).not.toHaveBeenCalled()
         })
 
+        it.each([
+            ['settles at the re-drive', 3, 4, 'settled'],
+            ['stays unsettled at the re-drive', 6, 6, 'unsettled'],
+        ])(
+            'a shadow merge unsettled through its retries is re-driven once at flush and %s',
+            async (_name, unsettledAttempts, expectedCalls, outcome) => {
+                const stores = makeStores()
+                stores.pg.mergePersons.mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                })
+                for (let i = 0; i < unsettledAttempts; i++) {
+                    stores.personhogMock.mergePersons.mockResolvedValueOnce({
+                        survivor: person(1, '1'),
+                        results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
+                    })
+                }
+                stores.personhogMock.mergePersons.mockResolvedValue({
+                    survivor: person(1, '1'),
+                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+                })
+                const store = makeStore(stores, 'shadow')
+                const request = mergeRequest() as never
+                await store.mergePersons(request, 0)
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(3)
+
+                await store.flush()
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
+                expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome })
+                // One re-drive per deferral: the next flush does not run it again.
+                await store.flush()
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+            }
+        )
+
         it('prefetch warms both worlds', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'shadow')
@@ -883,7 +922,7 @@ describe('RoutingPersonsStore', () => {
             expect((shadowArgs[0] as InternalPerson).id).toBe('99')
         })
 
-        it('skips the shadow write, counted, when the person does not exist in the personhog backend', async () => {
+        it('holds the ops for a resolve at flush when the person does not exist in the personhog backend', async () => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
@@ -893,7 +932,22 @@ describe('RoutingPersonsStore', () => {
 
             expect(result.id).toBe('7')
             expect(stores.personhogMock.applyEventOps).not.toHaveBeenCalled()
-            expect(personhogStoreShadowSkipsCounter.labels).toHaveBeenCalledWith({ verb: 'applyEventOps' })
+            expect(stores.personhogMock.holdEventOps).toHaveBeenCalledWith(1, 'd1', ops, 0)
+            expect(personhogStoreShadowSkipsCounter.labels).not.toHaveBeenCalled()
+        })
+
+        it('skips a direct diff update, counted, when the person does not exist in the personhog backend', async () => {
+            const stores = makeStores()
+            stores.pg.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '7'), [], true])
+            stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
+            const store = makeStore(stores, 'shadow')
+
+            await store.updatePersonWithPropertiesDiffForUpdate(person(1, '7'), { a: '1' }, [], {}, 'd1', 0)
+
+            expect(stores.personhogMock.updatePersonWithPropertiesDiffForUpdate).not.toHaveBeenCalled()
+            expect(personhogStoreShadowSkipsCounter.labels).toHaveBeenCalledWith({
+                verb: 'updatePersonWithPropertiesDiffForUpdate',
+            })
         })
     })
 
