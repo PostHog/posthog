@@ -171,7 +171,7 @@ export function isActionCapableReport(report: SignalReport): boolean {
 }
 
 /** Why Ask AI got the question: a dedicated surface that frames the run for one job. */
-export type ReportDiscussionIntent = 'measurement_plan' | 'merge_pr'
+export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr'
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
 export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI, then use the repository's merge process. Ask me before you make a decision I did not make.`
@@ -182,8 +182,8 @@ export function buildDiscussReportPrompt(
     question: string,
     intent?: ReportDiscussionIntent
 ): string {
-    if (intent === 'measurement_plan' && report !== null) {
-        return `A person asked you to revise the proposed measurement on the PostHog Inbox report at ${reportUrl}. Their description of success is:\n\n${question.trim()}\n\nRead the report and its impact_measurement_plan artefacts first. Investigate which data can test this outcome. Use inbox-report-artefacts-create to append one impact_measurement_plan per measurable outcome, with a stable metric_id, a bounded live Trends query, goal_value, goal_direction, goal_grain, and decision_window_days. Set minimum_data_points only if you also supply an eligibility_query counting qualifying opportunities (not failures). To revise a plan, append a new version with the same metric_id; keep other plans. Do not activate a plan: a person reviews it. If the requested outcome is not measurable, explain what is missing instead of inventing a query or threshold. Do not create a check, start monitoring, change the report state, or open a PR. You may use inbox-reports-update to clarify the Expected impact prose without changing other sections.\n\n${NO_CHECKOUT_INSTRUCTIONS}`
+    if (intent === 'check_metrics' && report !== null) {
+        return `A person asked you to suggest better metrics for the expected impact on the PostHog Inbox report at ${reportUrl}. Their description of success is:\n\n${question.trim()}\n\nRead the report, its follow-up checks, and their check results first. Investigate which available data can test the intended outcome. If you find a sounder measure, use inbox-report-checks-replace on each relevant open metric check with a bounded live Trends query or report metric ID, a measured baseline, an explicit comparison, and a suitable soak window. Keep unrelated checks unchanged. The replacement starts unapproved but runs without approval. If you cannot establish a credible metric or threshold, explain what is missing and leave the existing checks running. Do not change the report state or open a PR. You may use inbox-reports-update to clarify the Expected impact prose without changing other sections.\n\n${NO_CHECKOUT_INSTRUCTIONS}`
     }
     // Merging is an action on a report that already has a PR, which `isActionCapableReport` answers
     // only. The fresh state must still show the approved, open PR: the approval is what the person

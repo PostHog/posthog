@@ -1128,9 +1128,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
             data.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
         ):
-            raise serializers.ValidationError(
-                "Write proposed goals as impact_measurement_plan artefacts, not report metrics."
-            )
+            raise serializers.ValidationError("Write proposed goals as follow-up checks, not report metrics.")
         return super().to_internal_value(data)
 
 

@@ -44,6 +44,7 @@ from products.signals.backend.report_check_agent import (
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     arm_pending_checks,
+    cancel_check,
     create_check,
     create_checks_from_specs,
     replace_metric_check,
@@ -2312,6 +2313,54 @@ class TestResearchAuthoredChecks(APIBaseTest):
         older[0].refresh_from_db()
         newer[0].refresh_from_db()
         assert older[0].status == SignalReportCheck.Status.CANCELLED
+        assert newer[0].status == SignalReportCheck.Status.CANCELLED
+
+    @parameterized.expand([("current_config", False), ("config_written_before_display_fields", True)])
+    def test_unchanged_research_check_keeps_approval_and_schedule(self, _name: str, legacy_config: bool) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+        approved_at = timezone.now()
+        stored_config = existing.config
+        if legacy_config:
+            stored_config = {
+                key: value for key, value in stored_config.items() if key not in {"metric_kind", "value_format", "unit"}
+            }
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
+            approved_at=approved_at, config=stored_config
+        )
+
+        assert (
+            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
+            == []
+        )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.approved_at == approved_at
+        assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+
+    def test_terminal_check_during_reconciliation_does_not_drop_new_specs(self) -> None:
+        older = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+
+        def expire_before_cancel(check: SignalReportCheck, **kwargs) -> bool:
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+                status=SignalReportCheck.Status.EXPIRED
+            )
+            return cancel_check(check, **kwargs)
+
+        with patch("products.signals.backend.report_check_authoring.cancel_check", side_effect=expire_before_cancel):
+            newer = create_checks_from_specs(
+                report=self.report,
+                specs=[self._spec(title="Replacement goal")],
+                attribution=ArtefactAttribution.system(),
+            )
+        older.refresh_from_db()
+        assert older.status == SignalReportCheck.Status.EXPIRED
+        assert len(newer) == 1
+        assert newer[0].title == "Replacement goal"
         assert newer[0].status == SignalReportCheck.Status.PENDING
 
     @parameterized.expand(
@@ -2371,6 +2420,21 @@ class TestResearchAuthoredChecks(APIBaseTest):
 
         assert list(checks.values()) == selected_state
         assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+
+    def test_research_keeps_a_check_with_a_minute_level_soak(self) -> None:
+        existing = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )[0]
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(soak_minutes=1450)
+
+        assert (
+            create_checks_from_specs(report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system())
+            == []
+        )
+
+        existing.refresh_from_db()
+        assert existing.status == SignalReportCheck.Status.PENDING
+        assert existing.soak_minutes == 1450
 
     def test_a_spec_naming_a_metric_the_report_does_not_have_is_dropped(self) -> None:
         written = create_checks_from_specs(

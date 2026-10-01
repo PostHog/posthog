@@ -92,39 +92,47 @@ const detailMocks = mswDecorator({
     get: {
         '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
             const reportId = req.params.reportId as string
-            const artefacts = mockArtefacts(reportId)
-            if (reportId !== reportTabReports[0].id) {
-                return [200, artefacts]
-            }
-            return [
-                200,
-                {
-                    ...artefacts,
-                    count: artefacts.count + 1,
-                    results: [
-                        {
-                            id: `${reportId}-impact`,
-                            type: 'impact_measurement_plan',
-                            content: {
-                                metric_id: reportMetricsFixture[0].metric_id,
-                                title: reportMetricsFixture[0].title,
-                                kind: reportMetricsFixture[0].kind,
-                                query: reportMetricsFixture[0].query,
-                                value_format: reportMetricsFixture[0].value_format,
-                                unit: reportMetricsFixture[0].unit,
-                                goal_value: 50,
-                                goal_direction: 'at_most',
-                                goal_grain: 'per_interval',
-                                decision_window_days: 7,
-                                activated: false,
-                            },
-                            created_at: '2026-08-29T00:00:00Z',
-                        },
-                        ...artefacts.results,
-                    ],
-                },
-            ]
+            return [200, mockArtefacts(reportId)]
         },
+        '/api/projects/:id/signals/reports/:reportId/checks/': (req) => [
+            200,
+            {
+                count: req.params.reportId === reportTabReports[0].id ? 1 : 0,
+                results:
+                    req.params.reportId === reportTabReports[0].id
+                        ? [
+                              {
+                                  id: 'expected-outcome-check',
+                                  title: 'API key validation errors fall to at most 50 in 14 days',
+                                  rationale: 'The form should show users why their key could not be created.',
+                                  kind: 'metric_threshold',
+                                  status: 'pending',
+                                  config: {
+                                      metric_id: reportMetricsFixture[0].metric_id,
+                                      query: reportMetricsFixture[0].query,
+                                      metric_kind: reportMetricsFixture[0].kind,
+                                      value_format: reportMetricsFixture[0].value_format,
+                                      unit: reportMetricsFixture[0].unit,
+                                      comparison: { operator: 'lte', value: 50 },
+                                      baseline_value: 80,
+                                  },
+                                  approved_at: null,
+                                  next_run_at: '2026-09-12T00:00:00Z',
+                                  soak_minutes: 20160,
+                                  run_interval_minutes: null,
+                                  runs_remaining: 1,
+                                  expires_at: '2026-10-12T00:00:00Z',
+                                  last_run_at: null,
+                                  last_outcome: null,
+                                  dispatched_at: null,
+                                  consecutive_errors: 0,
+                                  created_at: '2026-08-29T00:00:00Z',
+                                  updated_at: '2026-08-29T00:00:00Z',
+                              },
+                          ]
+                        : [],
+            },
+        ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
         '/api/projects/:id/signals/reports/:reportId/signals': (req) => [
             200,
@@ -170,7 +178,11 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+        },
     },
     decorators: [detailMocks],
 }
@@ -273,7 +285,7 @@ export const ReportWithMetrics: Story = {
     ),
 }
 
-export const ReportWithExpectedImpact: Story = {
+export const ReportWithFollowUpMetric: Story = {
     parameters: {
         mockDate: '2026-08-29',
         featureFlags: {
@@ -304,11 +316,22 @@ export const ReportWithExpectedImpact: Story = {
     ),
 }
 
-export const ReportExpectedImpactPending: Story = {
+export const ReportWithFollowUpMetricHidden: Story = {
+    ...ReportWithFollowUpMetric,
+    parameters: {
+        mockDate: '2026-08-29',
+        featureFlags: {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
+        },
+    },
+}
+
+export const ReportFollowUpPending: Story = {
     parameters: {
         featureFlags: {
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
         },
     },
     render: () => (
