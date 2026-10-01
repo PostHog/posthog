@@ -746,6 +746,9 @@ importers:
       marked:
         specifier: 16.4.2
         version: 16.4.2
+      mermaid:
+        specifier: ^11.17.0
+        version: 11.17.0
       react:
         specifier: 19.2.6
         version: 19.2.6
