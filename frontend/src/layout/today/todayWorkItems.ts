@@ -6,6 +6,8 @@ import {
     TaskActivityDTOApi,
     TaskActivityReadMarkerApi,
     TaskListItemApi,
+    TaskRunDetailDTOApi,
+    TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
@@ -20,6 +22,7 @@ export interface TodayWorkItem {
     status: string | null
     channel: string | null
     createdById: number | null
+    author: TaskUserBasicInfoApi | null
     latestRunId: string | null
     runEnvironment: string | null
     originProduct: string | null
@@ -27,6 +30,8 @@ export interface TodayWorkItem {
     source: string | null
     repository: string | null
     pullRequests: TaskPullRequest[]
+    /** The closing prose a cloud run saves when it finishes. */
+    finalMessage: string | null
 }
 
 export interface TodayWorkGroup {
@@ -58,6 +63,11 @@ export function activeCloudRunId(item: TodayWorkItem): string | null {
         : null
 }
 
+function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string | null {
+    const message = output?.final_message
+    return typeof message === 'string' && message.trim() ? message.trim() : null
+}
+
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
     return {
         kind: 'session',
@@ -68,12 +78,14 @@ export function sessionItem(task: TaskListItemApi): TodayWorkItem {
         status: task.latest_run?.status ?? null,
         channel: task.channel ?? null,
         createdById: task.created_by?.id ?? null,
+        author: task.created_by ?? null,
         latestRunId: task.latest_run?.id ?? null,
         runEnvironment: task.latest_run?.environment ?? null,
         originProduct: task.origin_product ?? null,
         source: task.origin_product || null,
         repository: task.repository || null,
         pullRequests: taskPullRequests(task.latest_run?.output),
+        finalMessage: finalMessage(task.latest_run?.output),
     }
 }
 
@@ -87,12 +99,14 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
+        author: null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,
         source: 'posthog_ai',
         repository: null,
         pullRequests: [],
+        finalMessage: null,
     }
 }
 

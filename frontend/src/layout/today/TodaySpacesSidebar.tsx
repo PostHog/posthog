@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconChat, IconLock, IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
+import { IconChat, IconPlus, IconSearch, IconTableOfContents } from '@posthog/icons'
 import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -12,10 +12,12 @@ import { newSpaceLogic } from 'products/tasks/frontend/spaces/newSpaceLogic'
 import { SpacePresenceAvatars } from 'products/tasks/frontend/spaces/SpacePresenceAvatars'
 
 import { TodayPaneSection, TodayPaneSectionProps } from './TodayPaneSection'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodayRecentFilterMenu } from './TodayRecentFilterMenu'
 import { TodayRecentSearchField } from './TodayRecentSearchField'
 import { TodaySessionRow } from './TodaySessionRow'
 import { TodaySpaceActions } from './TodaySpaceActions'
+import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 import { TodayWorkSectionId, isLockedSpace, spaceLabel, todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem } from './todayWorkItems'
@@ -37,6 +39,7 @@ export function TodaySpacesSidebar(): JSX.Element {
         unreadSessionIds,
         unreadSpaceIds,
         spacePresence,
+        spacePreviews,
     } = useValues(todaySpacesLogic)
     const { loadSpaces, loadRecentTasks, toggleSection, setRecentSearchOpen, clearRecentSearchAndFilters } =
         useActions(todaySpacesLogic)
@@ -272,27 +275,25 @@ export function TodaySpacesSidebar(): JSX.Element {
                                 {visibleSpaces.map((space) => {
                                     const presence = spacePresence[space.id]
                                     return (
-                                        <TodaySpacesRow
-                                            key={space.id}
-                                            label={spaceLabel(space)}
-                                            icon={
-                                                isLockedSpace(space) ? (
-                                                    <IconLock className="text-muted-foreground" />
-                                                ) : (
-                                                    <span aria-hidden className="font-mono text-muted-foreground">
-                                                        #
-                                                    </span>
-                                                )
-                                            }
-                                            to={urls.taskSpace(space.id)}
-                                            active={location.pathname.includes(urls.taskSpace(space.id))}
-                                            dataAttr="today-space-row"
-                                            action={<TodaySpaceActions space={space} />}
-                                            actionCount={2}
-                                            badge={presence ? <SpacePresenceAvatars presence={presence} /> : null}
-                                            badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
-                                            unread={unreadSpaceIds.has(space.id)}
-                                        />
+                                        <TodayPreviewTrigger key={space.id} payload={spacePreviews[space.id]}>
+                                            <TodaySpacesRow
+                                                label={spaceLabel(space)}
+                                                icon={
+                                                    <TodaySpaceGlyph
+                                                        locked={isLockedSpace(space)}
+                                                        className="text-muted-foreground"
+                                                    />
+                                                }
+                                                to={urls.taskSpace(space.id)}
+                                                active={location.pathname.includes(urls.taskSpace(space.id))}
+                                                dataAttr="today-space-row"
+                                                action={<TodaySpaceActions space={space} />}
+                                                actionCount={2}
+                                                badge={presence ? <SpacePresenceAvatars presence={presence} /> : null}
+                                                badgeCount={Math.min(presence?.people.length ?? 1, 3) as 1 | 2 | 3}
+                                                unread={unreadSpaceIds.has(space.id)}
+                                            />
+                                        </TodayPreviewTrigger>
                                     )
                                 })}
                                 {visibleSpaces.length <= 1 && (

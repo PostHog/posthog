@@ -28,9 +28,15 @@ import {
     TaskActivityReadMarkerApi,
     TaskListItemApi,
 } from 'products/tasks/frontend/generated/api.schemas'
-import { SpacePresence, presenceBySpace } from 'products/tasks/frontend/spaces/spacePresence'
+import {
+    SpaceActivity,
+    SpacePresence,
+    lastActivityBySpace,
+    presenceBySpace,
+} from 'products/tasks/frontend/spaces/spacePresence'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { TodaySpacePreview, spacePreview } from './todayPreviewCards'
 import {
     DEFAULT_RECENT_FILTERS,
     TodayRecentFilters,
@@ -146,9 +152,11 @@ export interface todaySpacesLogicValues {
     recentTasksUnavailable: boolean
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     sortedSpaces: ChannelDTOApi[]
+    spaceActivity: SpaceActivity
+    spaceActivityLoading: boolean
     spaceNames: Record<string, string>
     spacePresence: Record<string, SpacePresence>
-    spacePresenceLoading: boolean
+    spacePreviews: Record<string, TodaySpacePreview>
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -224,19 +232,19 @@ export interface todaySpacesLogicActions {
         recentTasks: TaskListItemApi[]
         payload?: any
     }
-    loadSpacePresence: () => any
-    loadSpacePresenceFailure: (
+    loadSpaceActivity: () => any
+    loadSpaceActivityFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadSpacePresenceSuccess: (
-        spacePresence: Record<string, SpacePresence>,
+    loadSpaceActivitySuccess: (
+        spaceActivity: SpaceActivity,
         payload?: any
     ) => {
-        spacePresence: Record<string, SpacePresence>
+        spaceActivity: SpaceActivity
         payload?: any
     }
     loadSpaces: () => any
@@ -353,6 +361,11 @@ export interface todaySpacesLogicMeta {
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
         unreadSessionIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
         unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
+        spacePreviews: (
+            visibleSpaces: ChannelDTOApi[],
+            spaceActivity: SpaceActivity
+        ) => Record<string, TodaySpacePreview>
     }
 }
 
@@ -442,19 +455,22 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
-        spacePresence: [
-            {} as Record<string, SpacePresence>,
+        spaceActivity: [
+            { presence: {}, lastActivityAt: {} } as SpaceActivity,
             {
-                loadSpacePresence: async () => {
+                loadSpaceActivity: async () => {
                     if (!values.currentTeamId) {
-                        return {}
+                        return { presence: {}, lastActivityAt: {} }
                     }
                     const response = await tasksList(String(values.currentTeamId), {
                         ordering: '-last_activity_at',
                         basic: true,
                         limit: SPACE_PRESENCE_FETCH_LIMIT,
                     })
-                    return presenceBySpace(response.results, Date.now())
+                    return {
+                        presence: presenceBySpace(response.results, Date.now()),
+                        lastActivityAt: lastActivityBySpace(response.results),
+                    }
                 },
             },
         ],
@@ -617,6 +633,26 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.taskActivity],
             (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
         ],
+        spacePresence: [
+            (s) => [s.spaceActivity],
+            (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
+        ],
+        // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
+        spacePreviews: [
+            (s) => [s.visibleSpaces, s.spaceActivity],
+            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+                Object.fromEntries(
+                    visibleSpaces.map((space) => [
+                        space.id,
+                        spacePreview(
+                            space,
+                            spaceLabel(space),
+                            spaceActivity.presence[space.id],
+                            spaceActivity.lastActivityAt[space.id]
+                        ),
+                    ])
+                ),
+        ],
     }),
     listeners(({ actions, values }) => {
         // Reading a session anywhere in the app clears it, so the rail follows the open session rather than clicks.
@@ -683,8 +719,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         actions.loadRecentTasks()
         // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
         cache.disposables.add(() => {
-            actions.loadSpacePresence()
-            const pollTimer = window.setInterval(() => actions.loadSpacePresence(), SPACE_PRESENCE_POLL_INTERVAL_MS)
+            actions.loadSpaceActivity()
+            const pollTimer = window.setInterval(() => actions.loadSpaceActivity(), SPACE_PRESENCE_POLL_INTERVAL_MS)
             return () => clearInterval(pollTimer)
         }, 'spacePresencePoll')
     }),
