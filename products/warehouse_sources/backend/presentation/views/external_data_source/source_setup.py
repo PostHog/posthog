@@ -1289,6 +1289,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "Schemas given do not exist in source"},
             )
 
+        invalid_sync_types = sorted(
+            {
+                str(schema["sync_type"])
+                for schema in payload_schemas
+                if schema.get("sync_type") is not None and schema["sync_type"] not in ExternalDataSchema.SyncType.values
+            }
+        )
+        if invalid_sync_types:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": (
+                        f"Unknown sync type: {', '.join(invalid_sync_types)}. "
+                        f"Use one of: {', '.join(ExternalDataSchema.SyncType.values)}."
+                    )
+                },
+            )
+
         # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_resources`
         # would be skipped, leaving the source with no replication slot/publication.
         if not cdc_enabled:
