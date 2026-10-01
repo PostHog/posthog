@@ -403,7 +403,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         description=(
             "Validate a proposed pipeline's target event and population before creating it. "
             "Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: "
-            "'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other "
+            "'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other "
             "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
         ),
     )

@@ -238,6 +238,16 @@ class TestBuildInitialResearchPrompt:
         if steering_section:
             assert steering_section in prompt
 
+    # Research never edits, so the harness's repository-conventions trigger may not fire. The protocol
+    # itself must make the agent check for deliberate behavior, inside the same tool-call budget.
+    def test_protocol_checks_intent_before_calling_behavior_a_defect(self):
+        prompt = build_initial_research_prompt(_make_signal({}), 1)
+        intent = prompt.index("**Intent of the current behavior:**")
+        assert "`gh pr list --state merged --search <sha>`" in prompt
+        assert "A variant that won a test is a decision, not a bug." in prompt
+        assert "lean toward `not_actionable` or `requires_human_input`" in prompt
+        assert intent < prompt.index("**Budget:** Spend no more than ~10 tool calls per signal.")
+
     @pytest.mark.parametrize("has_previous_finding", [False, True])
     def test_uses_stable_finding_response_envelope(self, has_previous_finding):
         signal = _make_signal({})

@@ -291,14 +291,16 @@ class PullRequestListItemSerializer(DataclassSerializer):
 
 
 class PullRequestListSerializer(DataclassSerializer):
-    items = PullRequestListItemSerializer(many=True, help_text="Pull requests, newest first, capped at `limit`.")
+    items = PullRequestListItemSerializer(
+        many=True, help_text="This page of pull requests, newest first, capped at `limit`."
+    )
 
     class Meta:
         dataclass = PullRequestList
         extra_kwargs = {
             "truncated": {
-                "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
-                "and the aggregate counts in ci_cards can exceed it.",
+                "help_text": "True when more pull requests match after this page; call again with `offset` "
+                "increased by `limit` to read them. The aggregate counts in ci_cards can exceed `items`.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }
