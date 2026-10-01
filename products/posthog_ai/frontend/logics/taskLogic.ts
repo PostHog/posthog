@@ -159,6 +159,11 @@ export const taskLogic = kea<taskLogicType>([
         ],
     })),
     reducers({
+        // A rename shows its new title at once. A failed save reloads the task, which restores the saved title.
+        task: {
+            updateTask: (state, { data }) =>
+                state && data.title !== undefined ? { ...state, title: data.title } : state,
+        },
         taskNotFound: [
             false,
             {
@@ -220,6 +225,11 @@ export const taskLogic = kea<taskLogicType>([
             // unmeasurable — capture it rather than leaving it to session recordings.
             posthog.capture('task_run_start_failed', { task_id: props.taskId, error: message })
         },
+        updateTask: () => {
+            if (values.task) {
+                tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
         updateTaskSuccess: () => {
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
@@ -228,6 +238,7 @@ export const taskLogic = kea<taskLogicType>([
         // The title field keeps what the user typed, so without this a rejected rename reads as saved.
         updateTaskFailure: ({ error, errorObject }) => {
             lemonToast.error(loadErrorMessage(error, errorObject) || "Couldn't save the task. Try again.")
+            actions.loadTask()
         },
     })),
 ])
