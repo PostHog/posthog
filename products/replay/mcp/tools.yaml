@@ -168,6 +168,9 @@ tools:
     session-recordings-list:
         operation: session_recordings_list
         enabled: false
+    session-recordings-live-count-retrieve:
+        operation: session_recordings_live_count_retrieve
+        enabled: false
     session-recordings-partial-update:
         operation: session_recordings_partial_update
         enabled: false
