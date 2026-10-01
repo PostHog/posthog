@@ -396,8 +396,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     inputs = recorder.pending_inputs if target == "pending" else recorder.ready_inputs
     assert len(inputs) == 1
     assert inputs[0].metrics == metrics
-    if target == "ready":
-        assert recorder.ready_inputs[0].checks_snapshot == snapshot
+    assert inputs[0].checks_snapshot == snapshot
 
 
 # ---------------------------------------------------------------------------
