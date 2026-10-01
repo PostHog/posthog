@@ -566,7 +566,7 @@ class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
     detail: str | None = None
-    # Compatible run id for ci_* events; qualify it with the engine.
+    # Integer run id for ci_* events. It is unique only together with ci_engine.
     run_id: int | None = None
     ci_engine: CIEngine | None = None
 

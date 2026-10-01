@@ -60,7 +60,13 @@ def query_workflow_jobs(
     if jobs_source is None:
         # The optional job-level source isn't synced for this team yet.
         return []
-    latest_attempt = _latest_run_attempt(curated=curated, run_id=run_id, ci_engine=ci_engine)
+    # The runs read also rejects a run id that two engines share, so it is skipped only when the
+    # caller names both the engine and the attempt.
+    latest_attempt = (
+        _latest_run_attempt(curated=curated, run_id=run_id, ci_engine=ci_engine)
+        if run_attempt is None or ci_engine is None
+        else None
+    )
     response = curated.run(
         _SELECT.replace("__JOBS_SOURCE__", jobs_source),
         query_type="engineering_analytics.workflow_jobs",

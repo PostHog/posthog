@@ -46,6 +46,10 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 from products.engineering_analytics.backend.tests._logic_helpers import _job_row
 
 
+def _github_runs(runs_table: str) -> str:
+    return depot_ci.with_depot_runs(runs_table, None, None, None)
+
+
 class TestListGithubSourcesAccessControl(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -229,7 +233,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         rows = self._select(
             "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name, "
             "pr_number, is_merge_queue "
-            f"FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+            f"FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r ORDER BY id"
         )
 
         # completed runs carry a duration; in-progress run has null duration and null conclusion
@@ -463,7 +467,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         # 80213453736890 is the GITHUB_RUN_ID Depot CI gave run 427q556wmn, as its per-test traces report it.
         assert self._select(
             "SELECT id, workflow_name, conclusion, pr_number, head_branch, duration_seconds, repo_owner, run_attempt "
-            f"FROM ({workflow_runs.build_query(runs, normalized=True)}) AS r ORDER BY id"
+            f"FROM ({workflow_runs.build_query(runs)}) AS r ORDER BY id"
         ) == [
             (902, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
             (903, "Backend CI", "success", 101991, "main", 900, "PostHog", 1),
@@ -478,7 +482,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             (244340689655172, "Timing", "failure", 0, "master", 600, "PostHog", 1),
         ]
         assert self._select(
-            f"SELECT DISTINCT run_id FROM ({workflow_jobs.build_query(jobs, normalized=True)}) AS j ORDER BY run_id"
+            f"SELECT DISTINCT run_id FROM ({workflow_jobs.build_query(jobs)}) AS j ORDER BY run_id"
         ) == [
             (902,),
             (903,),
@@ -494,7 +498,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         assert self._select(
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
-            f"FROM ({workflow_jobs.build_query(jobs, normalized=True)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
         ) == [
             (80213453736890, 1, "Wait for GitHub Actions to hand off backend tests", "success", 10, 0),
             (80213453736890, 2, "Wait for GitHub Actions to hand off backend tests", "success", 10, 1),
@@ -506,17 +510,17 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         assert self._select(
             "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch, is_rerun_copy "
-            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS c WHERE run_id = 80213453736890 "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890 "
             "ORDER BY is_rerun_copy"
         ) == [("depot", 2, 1, "feature/depot", 0), ("depot", 2, 0, "feature/depot", 1)]
         assert self._select(
             "SELECT DISTINCT head_branch "
-            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS h WHERE run_id = 80213453736890"
+            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs)}) AS h WHERE run_id = 80213453736890"
         ) == [("feature/depot",)]
 
         assert self._select(
             "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id "
-            f"FROM ({workflow_runs.build_query(runs, normalized=True)}) AS r "
+            f"FROM ({workflow_runs.build_query(runs)}) AS r "
             "WHERE id IN (902, 80213453736890, 223978965517241) ORDER BY id"
         ) == [
             ("github_actions", "902", "902"),
@@ -526,7 +530,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         for view in (job_costs, ci_job_history):
             assert self._select(
                 "SELECT DISTINCT ci_engine, native_run_id, native_workflow_run_id, native_attempt_id "
-                f"FROM ({view.build_query(jobs_table=jobs, runs_table=runs, normalized=True)}) AS j "
+                f"FROM ({view.build_query(jobs_table=jobs, runs_table=runs)}) AS j "
                 "WHERE native_attempt_id = '3v4pbsqvfc'"
             ) == [("depot_ci", "427q556wmn", "6n4tghls33", "3v4pbsqvfc")]
 
@@ -567,7 +571,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "'2026-01-20 10:00:00' AS created_at)"
         )
         rows = self._select(
-            f"SELECT pr_number, repo_owner, repo_name, is_merge_queue FROM ({workflow_runs.build_query(raw)}) AS r"
+            f"SELECT pr_number, repo_owner, repo_name, is_merge_queue FROM ({workflow_runs.build_query(_github_runs(raw))}) AS r"
         )
         assert rows[0] == (0, "PostHog", "posthog", 0)
 
@@ -614,7 +618,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, rows)
 
         results = self._select(
-            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r ORDER BY id"
         )
         assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
 
@@ -686,7 +690,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         prs_table = self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, prs)
         runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, runs)
 
-        query = workflow_runs.build_query(runs_table, pull_requests_table=prs_table)
+        query = workflow_runs.build_query(_github_runs(runs_table), pull_requests_table=prs_table)
         results = self._select(f"SELECT id, commit_pr_number FROM ({query}) AS r ORDER BY id")
         assert results == [(6000 + index, expected) for index, (_, _, expected) in enumerate(cases)]
 
@@ -712,7 +716,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [sparse_run])
         rows = self._select(
             "SELECT status, conclusion, duration_seconds, repo_owner, repo_name, pr_number, run_attempt "
-            f"FROM ({workflow_runs.build_query(table_name)}) AS r"
+            f"FROM ({workflow_runs.build_query(_github_runs(table_name))}) AS r"
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
 

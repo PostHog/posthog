@@ -18397,7 +18397,7 @@ export namespace Schemas {
       ci_engine?: CIEngineEnum | null;
       /** The thinned failure-log lines in original order, with omission markers. */
       lines: CIFailureLogLine[];
-      /** Compatible integer job id of the failed job. */
+      /** Integer job id of the failed job; unique only together with ci_engine. */
       job_id: number;
       /** Workflow run id the job belongs to. */
       run_id: number;
@@ -65286,7 +65286,7 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-      /** Compatible integer run id this cost is for. */
+      /** Integer run id this cost is for; unique only together with ci_engine. */
       run_id: number;
       /** Re-run attempt number; 1 for the first attempt. */
       run_attempt: number;
@@ -106283,7 +106283,7 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-      /** Compatible integer job id. */
+      /** Integer job id; unique only together with ci_engine. */
       id: number;
       /** The workflow run id this job belongs to. */
       run_id: number;
@@ -106480,7 +106480,7 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-      /** Compatible integer run id. */
+      /** Integer run id; unique only together with ci_engine. */
       run_id: number;
       /**
          * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
@@ -106519,7 +106519,7 @@ export namespace Schemas {
       ci_engine?: CIEngineEnum | null;
       /** Repository the run belongs to. */
       repo: RepoRef;
-      /** Compatible integer run id. */
+      /** Integer run id; unique only together with ci_engine. */
       id: number;
       /** CI workflow name. */
       workflow_name: string;
@@ -114427,7 +114427,7 @@ export namespace Schemas {
      */
     repo?: string;
     /**
-     * Compatible integer run id to inspect; qualify it with ci_engine.
+     * Integer run id to inspect; unique only together with ci_engine.
      */
     run_id: number;
     /**

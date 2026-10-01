@@ -70,7 +70,8 @@ def branch(jobs_alias: str, runs_alias: str) -> str:
     return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
 
 
-def build_query(table_name: str, *, created_floor: bool = False, normalized: bool = False) -> str:
+def build_query(table_name: str, *, created_floor: bool = False) -> str:
+    """``table_name`` is a jobs source of ``depot_ci.with_depot_jobs``, which carries the engine columns."""
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
     # so a WHERE there would compare the parsed DateTime against the floor string. Both the jobs scan
@@ -78,12 +79,6 @@ def build_query(table_name: str, *, created_floor: bool = False, normalized: boo
     table_source = (
         f"(SELECT * FROM {table_name} WHERE created_at >= {{job_created_floor}})" if created_floor else table_name
     )
-    provenance = (
-        "ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id"
-        if normalized
-        else "'github_actions' AS ci_engine, toString(run_id) AS native_run_id, toString(run_id) AS native_workflow_run_id, toString(id) AS native_job_id, toString(id) AS native_attempt_id"
-    )
-    dupe_engine = "ci_engine" if normalized else "'github_actions'"
     return f"""
         SELECT
             job.id AS id,
@@ -125,7 +120,7 @@ def build_query(table_name: str, *, created_floor: bool = False, normalized: boo
         FROM (
             SELECT
                 id,
-                {provenance},
+                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
                 name,
@@ -152,7 +147,7 @@ def build_query(table_name: str, *, created_floor: bool = False, normalized: boo
         -- GROUP BY unambiguously names the parsed values.
         LEFT JOIN (
             SELECT
-                {dupe_engine} AS ci_engine,
+                ci_engine,
                 run_id,
                 name,
                 parseDateTimeBestEffort(started_at) AS started_key,

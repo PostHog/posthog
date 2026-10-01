@@ -91,6 +91,10 @@ export const scene: SceneExport<WorkflowRunsLogicProps> = {
 
 const refreshing = (loading: boolean, rows: unknown[]): boolean => loading && rows.length > 0
 
+function runRowKey(run: WorkflowRunRow): string {
+    return `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`
+}
+
 export function WorkflowRunsScene(): JSX.Element {
     const {
         runRows,
@@ -461,7 +465,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             size="small"
                             embedded
                             loading={runsLoading}
-                            rowKey={(run) => `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`}
+                            rowKey={runRowKey}
                             useURLForSorting={false}
                             defaultSorting={{ columnKey: 'started', order: -1 }}
                             pagination={{ pageSize: 25 }}
@@ -469,8 +473,8 @@ export function WorkflowRunsScene(): JSX.Element {
                                 className: 'cursor-pointer',
                                 onClick: () =>
                                     setRunExpanded(
-                                        `${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`,
-                                        !expandedRunKeys.includes(`${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`),
+                                        runRowKey(run),
+                                        !expandedRunKeys.includes(runRowKey(run)),
                                         run.runId,
                                         run.runAttempt,
                                         run.ciEngine
@@ -478,8 +482,7 @@ export function WorkflowRunsScene(): JSX.Element {
                             })}
                             expandable={{
                                 noIndent: true,
-                                isRowExpanded: (run) =>
-                                    expandedRunKeys.includes(`${run.ciEngine ?? ''}:${run.id}-${run.runAttempt}`),
+                                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
                                 expandedRowRender: (run) => (
                                     <GroupedJobsTable
                                         jobs={runJobs[jobCacheKey(run.id, run.runAttempt, run.ciEngine)]}

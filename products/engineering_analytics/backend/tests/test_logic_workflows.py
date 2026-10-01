@@ -1233,9 +1233,11 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         assert [aggregate.job_name for aggregate in aggregates] == ["ci.yml:lint"]
 
-    @parameterized.expand([("recovery", "finished", 1), ("failure", "failed", 1), ("duplicate_rows", "failed", 3)])
+    @parameterized.expand(
+        [("recovery", "finished", 1, 1), ("failure", "failed", 1, 2), ("duplicate_rows", "failed", 3, None)]
+    )
     def test_colliding_engine_ids_do_not_pair_recovery_or_reduce_run_counts(
-        self, _name: str, depot_status: str, copies: int
+        self, _name: str, depot_status: str, copies: int, master_failure_runs: int | None
     ) -> None:
         started, completed = _ago_with_duration(1, 120)
         self._create_depot_table(
@@ -1295,14 +1297,14 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             ],
         )
 
-        if copies == 1:
+        if master_failure_runs is not None:
             assert (
                 query_workflow_flakiness(curated=CuratedGitHubSource.for_team(self.team), date_from=_dt(_ago(2))) == []
             )
             [build] = api.list_job_aggregates(team=self.team, workflow_name="CI")
             assert (build.job_count, build.runs_in, build.run_share) == (2, 2, 1.0)
             [failure] = api.list_master_failures(team=self.team, branch="master", date_from="-2d")
-            assert failure.run_count == (2 if depot_status == "failed" else 1)
+            assert failure.run_count == master_failure_runs
         for read in (api.get_workflow_run, api.list_workflow_jobs, api.get_run_failure_logs):
             with pytest.raises(ValueError, match="Ambiguous run_id"):
                 read(team=self.team, run_id=60)

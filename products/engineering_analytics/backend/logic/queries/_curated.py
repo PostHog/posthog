@@ -223,7 +223,6 @@ class CuratedGitHubSource:
             self._runs_table(),
             pull_requests_table=self._tables.pull_requests,
             started_floor=started_floor,
-            normalized=True,
         )
         return f"({query})"
 
@@ -235,7 +234,9 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, normalized=True)})"
+        return (
+            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        )
 
     def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
         """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
@@ -409,7 +410,6 @@ class CuratedGitHubSource:
             jobs_table=self._jobs_table(self._tables.workflow_jobs),
             runs_table=self._runs_table(),
             include_run_columns=True,
-            normalized=True,
             created_floor=created_floor,
         )
         return f"({query})"

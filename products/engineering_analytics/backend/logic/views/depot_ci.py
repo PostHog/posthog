@@ -266,7 +266,7 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
             HAVING countIf(name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success') > 0
                 AND argMaxIf(ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}') = 'success'
         ) AS j
-        INNER JOIN ({workflow_runs.build_query(runs_table)}) AS r ON j.run_id = r.id
+        INNER JOIN ({workflow_runs.build_query(f"({_github_runs(runs_table)})")}) AS r ON j.run_id = r.id
         WHERE r.status = 'completed' AND r.conclusion = 'success'
             -- A run can recover weeks after its failed attempt, so the failure check has no date floor.
             AND j.run_id NOT IN (
@@ -279,21 +279,19 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     """
 
 
-def _github_rows(table: str, columns: dict[str, dict[str, str]], where: str = "1") -> str:
-    run_id = "run_id" if columns is WORKFLOW_JOBS_COLUMNS else "id"
-    job_id = (
-        ", toString(id) AS native_job_id, toString(id) AS native_attempt_id" if columns is WORKFLOW_JOBS_COLUMNS else ""
-    )
-    return f"""SELECT {", ".join(columns)}, 'github_actions' AS ci_engine,
-        toString({run_id}) AS native_run_id, toString({run_id}) AS native_workflow_run_id{job_id}
+# UNION ALL matches columns by position, so the GitHub selects name them in the contract order the
+# Depot side follows.
+def _github_runs(table: str, where: str = "1") -> str:
+    return f"""SELECT {", ".join(WORKFLOW_RUNS_COLUMNS)}, 'github_actions' AS ci_engine,
+        toString(id) AS native_run_id, toString(id) AS native_workflow_run_id
         FROM {table} WHERE {where}"""
 
 
-def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: str, where: str) -> str:
-    # UNION ALL matches columns by position, so the GitHub side names them in the contract order the
-    # Depot side follows.
-    github_select = _github_rows(github_table, columns, where)
-    return f"({github_select} UNION ALL {depot_select})"
+def _github_jobs(table: str, where: str = "1") -> str:
+    return f"""SELECT {", ".join(WORKFLOW_JOBS_COLUMNS)}, 'github_actions' AS ci_engine,
+        toString(run_id) AS native_run_id, toString(run_id) AS native_workflow_run_id,
+        toString(id) AS native_job_id, toString(id) AS native_attempt_id
+        FROM {table} WHERE {where}"""
 
 
 def with_depot_runs(
@@ -304,12 +302,11 @@ def with_depot_runs(
     Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
     """
     if depot is None:
-        return f"({_github_rows(runs_table, WORKFLOW_RUNS_COLUMNS)})"
+        return f"({_github_runs(runs_table)})"
     handoffs = _handoff_workflows(depot)
     where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
-    return _union(
-        runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_executed_attempts(depot, handoffs, pull_requests_table)), where
-    )
+    depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
+    return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
 
 
 def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> str:
@@ -320,11 +317,8 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table:
     joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back to the run's.
     """
     if depot is None:
-        return f"({_github_rows(jobs_table, WORKFLOW_JOBS_COLUMNS)})"
+        return f"({_github_jobs(jobs_table)})"
     handoffs = _handoff_workflows(depot)
-    return _union(
-        jobs_table,
-        WORKFLOW_JOBS_COLUMNS,
-        _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None)),
-        f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})",
-    )
+    where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})"
+    depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))
+    return f"({_github_jobs(jobs_table, where)} UNION ALL {depot_jobs})"

@@ -451,16 +451,18 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_identity", "github_actions", "sha-a", "workflow-a", 1),
-            ("different_engine", "depot_ci", "sha-a", "workflow-a", 0),
-            ("different_commit", "github_actions", "sha-b", "workflow-a", 0),
-            ("different_workflow", "github_actions", "sha-a", "workflow-b", 0),
-            ("missing_depot_workflow", "depot_ci", "sha-a", "", 0),
+            ("same_identity", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-a"), 1),
+            ("different_engine", ("github_actions", "workflow-a"), ("depot_ci", "sha-a", "workflow-a"), 0),
+            ("different_commit", ("github_actions", "workflow-a"), ("github_actions", "sha-b", "workflow-a"), 0),
+            ("different_workflow", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-b"), 0),
+            ("missing_depot_workflow", ("depot_ci", ""), ("depot_ci", "sha-a", ""), 0),
         ]
     )
     def test_retry_recovery_requires_engine_workflow_and_commit_identity(
-        self, _name: str, engine: str, sha: str, workflow: str, recovered: int
+        self, _name: str, failed: tuple[str, str], passed: tuple[str, str, str], recovered: int
     ) -> None:
+        failed_engine, failed_workflow = failed
+        engine, sha, workflow = passed
         nodeid = "posthog/api/test/test_identity/TestIdentity::test_retry"
         stamp = datetime.now(UTC) - timedelta(hours=1)
         rows = [
@@ -471,9 +473,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 ts=stamp,
                 run="9900",
                 branch="master",
-                ci_engine=engine if _name == "missing_depot_workflow" else "github_actions",
+                ci_engine=failed_engine,
                 head_sha="sha-a",
-                native_workflow_run_id="" if _name == "missing_depot_workflow" else "workflow-a",
+                native_workflow_run_id=failed_workflow,
             ),
             self._span(
                 9002,

@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     EngineeringAnalyticsViewSetBase,
     _bad_request,
     _bool_param,
+    _optional_enum_param,
     _optional_int_param,
     _require_int_param,
 )
@@ -111,7 +112,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=True,
-                description="Compatible integer run id to inspect; qualify it with ci_engine.",
+                description="Integer run id to inspect; unique only together with ci_engine.",
             ),
             _CI_ENGINE,
             _SOURCE_ID,
@@ -135,9 +136,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             result = api.get_workflow_run(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
-                ci_engine=CIEngine(request.query_params["ci_engine"])
-                if request.query_params.get("ci_engine")
-                else None,
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
@@ -358,9 +357,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             jobs = api.list_workflow_jobs(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
-                ci_engine=CIEngine(request.query_params["ci_engine"])
-                if request.query_params.get("ci_engine")
-                else None,
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 run_attempt=_optional_int_param(request, "run_attempt"),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
@@ -556,9 +553,7 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
             result = api.get_run_failure_logs(
                 team=self.team,
                 run_id=_require_int_param(request, "run_id"),
-                ci_engine=CIEngine(request.query_params["ci_engine"])
-                if request.query_params.get("ci_engine")
-                else None,
+                ci_engine=_optional_enum_param(request, "ci_engine", CIEngine),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
