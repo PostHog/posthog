@@ -276,8 +276,8 @@ Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, a
 - `window_runs`: the repo's default-branch runs behind those rates. It is the same for every entry and says nothing about the story.
 
 A story with no entry is quiet only when the response has `truncated: false`.
-The cap drops the least urgent entries first, so a truncated list still holds every `broken` and `unstable` story, but an absent story can be `noisy`.
-Before you tolerate a story that is absent from a truncated list, check `visual-review-runs-tolerated-hashes-list` for earlier variants.
+With `truncated: true`, an absent story can be in any state, so absence proves nothing.
+Do not tolerate or quarantine on absence alone: check `visual-review-runs-tolerated-hashes-list` and the snapshot history, or report it.
 
 **Did the baseline move?** Call
 `posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }`. It returns one row for
@@ -290,7 +290,7 @@ Both parameters are required. Copy them from the snapshot row: its `run_id` goes
 
 Verdicts:
 
-- `flakiness_state` is `clean`, or the story has no entry → likely a real regression caused by this PR.
+- `flakiness_state` is `clean`, or the story has no entry in an untruncated list → likely a real regression caused by this PR.
 - `flakiness_state` is `unstable` with `hard_count` ≥ 5 and a recent `last_flaked_at` → flaky story; quarantine it.
   One failure is enough for `unstable`, and a single failure is often a real change that merged, so trust the count.
 - `flakiness_state` is `broken` → the baseline is wrong, not the story. Do not quarantine; recommend a re-baseline.
