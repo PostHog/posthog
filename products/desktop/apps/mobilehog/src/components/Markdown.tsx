@@ -35,19 +35,19 @@ function renderInline(
       case "strong":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansSemi, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "em":
         return (
           <Text key={key} style={{ fontFamily: fonts.sansItalic, color }}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "del":
         return (
           <Text key={key} style={styles.strike}>
-            {renderInline(token.tokens, color)}
+            {renderInline(token.tokens, color, linked)}
           </Text>
         );
       case "codespan":
@@ -188,7 +188,7 @@ function MarkdownImage({ token }: { token: Tokens.Image }) {
         style={[
           styles.image,
           size
-            ? { aspectRatio: size.width / size.height, maxWidth: size.width }
+            ? { aspectRatio: size.width / size.height }
             : styles.imagePending,
         ]}
       />
@@ -209,7 +209,7 @@ function Paragraph({ tokens, color }: { tokens: Token[]; color: ColorValue }) {
     <View style={styles.runs}>
       {runs.map((run, index) =>
         run.kind === "image" ? (
-          <MarkdownImage key={String(index)} token={run.token} />
+          <MarkdownImage key={`${index}-${run.token.href}`} token={run.token} />
         ) : (
           <Text key={String(index)} style={[styles.body, { color }]} selectable>
             {renderInline(run.tokens, color)}

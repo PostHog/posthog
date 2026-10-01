@@ -1,6 +1,6 @@
 import { marked, type Token, type Tokens } from "marked";
 import { describe, expect, it } from "vitest";
-import { splitImageRuns } from "./markdown";
+import { isLoadableImageUrl, splitImageRuns } from "./markdown";
 
 function paragraphTokens(text: string): Token[] {
   const [paragraph] = marked.lexer(text) as Tokens.Paragraph[];
@@ -61,5 +61,53 @@ describe("splitImageRuns", () => {
     );
     expect(runs).toHaveLength(1);
     expect(runs[0].kind).toBe("text");
+  });
+
+  it.each([
+    ["bold", "**![x](https://example.com/x.png)**"],
+    ["italic", "_![x](https://example.com/x.png)_"],
+    ["struck", "~~![x](https://example.com/x.png)~~"],
+  ])("lifts an image out of %s text", (_name, text) => {
+    const runs = splitImageRuns(paragraphTokens(text));
+    expect(runs.map((run) => run.kind)).toEqual(["image"]);
+  });
+
+  it("keeps the formatting of text around a lifted image", () => {
+    const runs = splitImageRuns(
+      paragraphTokens("**Before ![x](https://example.com/x.png) after**"),
+    );
+    expect(runs.map((run) => run.kind)).toEqual(["text", "image", "text"]);
+    const [before, , after] = runs;
+    for (const run of [before, after]) {
+      expect(run.kind === "text" && run.tokens[0].type).toBe("strong");
+    }
+  });
+
+  it("leaves formatted images nested in links inline", () => {
+    const runs = splitImageRuns(
+      paragraphTokens(
+        "[**![badge](https://example.com/b.svg)**](https://example.com)",
+      ),
+    );
+    expect(runs.map((run) => run.kind)).toEqual(["text"]);
+  });
+
+  it("keeps images with mailto URLs inline", () => {
+    const runs = splitImageRuns(
+      paragraphTokens("Write ![us](mailto:hey@example.com) today"),
+    );
+    expect(runs.map((run) => run.kind)).toEqual(["text"]);
+  });
+});
+
+describe("isLoadableImageUrl", () => {
+  it.each([
+    ["https://example.com/a.png", true],
+    ["HTTP://example.com/a.png", true],
+    ["mailto:hey@example.com", false],
+    ["file:///etc/passwd", false],
+    ["not a url", false],
+  ])("%s -> %s", (href, expected) => {
+    expect(isLoadableImageUrl(href)).toBe(expected);
   });
 });
