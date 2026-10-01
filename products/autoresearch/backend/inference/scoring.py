@@ -17,7 +17,9 @@ Event shape:
         $autoresearch_model_role:      "champion" | "challenger"
         $autoresearch_target_event:    str
         $autoresearch_horizon_days:    int
-        $autoresearch_p_y:             float  (the score)
+        $autoresearch_p_y:             float  (the score, prior-corrected for negative sampling)
+        $autoresearch_p_y_raw:         float  (the model's score before the correction)
+        $autoresearch_negative_sample_rate: float (the rate the correction used; 1.0 means none)
         $autoresearch_prediction_date: str (YYYY-MM-DD)
         $autoresearch_features_hash:   str (SHA-256 prefix of the feature row)
         $autoresearch_person_id:       str (the person_id every row is keyed on)
@@ -67,6 +69,7 @@ from products.autoresearch.backend.inference.sandbox import (
     _resolve_acting_user,
     count_inference_anchors,
     count_training_anchors,
+    measure_training_sample,
     score_via_sandbox,
     validate_runnable_feature_sql,
 )
@@ -88,6 +91,8 @@ class InferenceRunError(Exception):
 
 
 _RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
+# The score columns scoring adds to a feature row, kept out of the features hash.
+_SCORE_KEYS = frozenset({"p_y", "p_y_raw"})
 
 
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
@@ -115,6 +120,27 @@ class ScoredPopulation:
     # The holdout AUC the serving model advertises: computed on the fly for a recipe-only
     # champion, read from the model row for a bundle.
     holdout_auc: float | None
+    # The fraction of negatives the scoring model was fitted on. 1.0 means no sampling.
+    negative_sample_rate: float = 1.0
+
+
+def corrected_probability(p: float, negative_sample_rate: float) -> float:
+    """
+    The prior correction for case-control sampling, ``sigmoid(logit(p) + log(r))``.
+
+    Kept negatives at rate ``r`` inflate the training odds by ``1 / r``, so the model's raw
+    score overstates the probability. This closed form needs no logit, so 0 and 1 stay exact.
+    """
+    if negative_sample_rate == 1.0:
+        return p
+    return p * negative_sample_rate / (p * negative_sample_rate + (1.0 - p))
+
+
+def _apply_prior_correction(scored: ScoredPopulation) -> ScoredPopulation:
+    """Keep each row's raw score as ``p_y_raw`` and replace ``p_y`` with the corrected probability."""
+    rate = scored.negative_sample_rate
+    rows = [{**row, "p_y_raw": row["p_y"], "p_y": corrected_probability(row["p_y"], rate)} for row in scored.rows]
+    return ScoredPopulation(rows=rows, holdout_auc=scored.holdout_auc, negative_sample_rate=rate)
 
 
 @frozen
@@ -203,6 +229,7 @@ def run_inference_for_pipeline(
 
         run.status = AutoresearchRun.Status.COMPLETED
         run.rows_scored = emitted.rows_emitted
+        run.negative_sample_rate = scored.negative_sample_rate
         run.metrics.update(
             {
                 "score_distribution": emitted.score_distribution,
@@ -212,7 +239,7 @@ def run_inference_for_pipeline(
             }
         )
         run.completed_at = django_timezone.now()
-        run.save(update_fields=["status", "rows_scored", "metrics", "completed_at"])
+        run.save(update_fields=["status", "rows_scored", "negative_sample_rate", "metrics", "completed_at"])
 
         # Only a live run moves the cadence watermark. Backfilling a past date must not
         # make the coordinator think today's scoring already happened.
@@ -300,14 +327,32 @@ def score_population(
 
     The prediction-date guards run here rather than in the emitting caller, so the dry run
     refuses exactly the dates the live run refuses.
+
+    Every route returns its raw scores, and the prior correction for the model's negative
+    sample rate is applied here, once, so no route can correct twice or not at all.
     """
+    return _apply_prior_correction(
+        _score_population_raw(team=team, pipeline=pipeline, model=model, window=window, user=user)
+    )
+
+
+def _score_population_raw(
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    model: AutoresearchModel,
+    window: ScoringWindow,
+    user: User | None = None,
+) -> ScoredPopulation:
     _check_prediction_date(team=team, pipeline=pipeline, window=window)
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     cutoff_ts = window.cutoff_ts
 
     if model.artifact_prefix:
         result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
-        return ScoredPopulation(rows=result.scored_rows, holdout_auc=result.holdout_auc)
+        return ScoredPopulation(
+            rows=result.scored_rows, holdout_auc=result.holdout_auc, negative_sample_rate=model.negative_sample_rate
+        )
 
     if window.is_backfill:
         # A recipe-only champion fits at scoring time, and its training labels are decided as of
@@ -376,7 +421,7 @@ def _emit_predictions(
         # Feature values can be datetimes, Decimals, or UUIDs the model ignored; default=str
         # keeps the hash stable for them instead of failing the whole batch.
         features_hash = hashlib.sha256(
-            json.dumps({k: v for k, v in row.items() if k != "p_y"}, sort_keys=True, default=str).encode()
+            json.dumps({k: v for k, v in row.items() if k not in _SCORE_KEYS}, sort_keys=True, default=str).encode()
         ).hexdigest()[:16]
         props: dict[str, Any] = {
             "$autoresearch_pipeline_id": str(pipeline.pk),
@@ -385,6 +430,8 @@ def _emit_predictions(
             "$autoresearch_target_event": pipeline.target_event,
             "$autoresearch_horizon_days": pipeline.horizon_days,
             "$autoresearch_p_y": row["p_y"],
+            "$autoresearch_p_y_raw": row["p_y_raw"],
+            "$autoresearch_negative_sample_rate": scored.negative_sample_rate,
             "$autoresearch_prediction_date": prediction_date_str,
             "$autoresearch_features_hash": features_hash,
             "$autoresearch_person_id": person_id,
@@ -665,7 +712,9 @@ def _score_via_anchors(
     predictions instead of nothing.
     """
     feature_sql = str(recipe.get("feature_sql") or "").replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
-    training_rows = _fetch_training_rows(team=team, pipeline=pipeline, feature_sql=feature_sql, user=user)
+    training_rows, negative_sample_rate = _fetch_training_rows(
+        team=team, pipeline=pipeline, feature_sql=feature_sql, user=user
+    )
     inference_rows = _fetch_inference_rows(
         team=team, pipeline=pipeline, feature_sql=feature_sql, cutoff_ts=cutoff_ts, user=user
     )
@@ -676,15 +725,26 @@ def _score_via_anchors(
         logger.warning("autoresearch_no_training_rows_anchored_fallback_stub", pipeline_id=str(pipeline.pk))
         return ScoredPopulation(rows=_score_rows(inference_rows), holdout_auc=None)
     return _fit_on_training_predict_on_inference(
-        training_rows=training_rows, inference_rows=inference_rows, recipe=recipe, pipeline_id=str(pipeline.pk)
+        training_rows=training_rows,
+        inference_rows=inference_rows,
+        recipe=recipe,
+        pipeline_id=str(pipeline.pk),
+        negative_sample_rate=negative_sample_rate,
     )
 
 
 def _fetch_training_rows(
     *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User
-) -> list[dict[str, Any]]:
-    """The recipe's feature SQL against the labeled anchors: one row per person with ``__label`` and ``__fold``."""
+) -> tuple[list[dict[str, Any]], float]:
+    """
+    The recipe's feature SQL against the labeled anchors: one row per person with ``__label``
+    and ``__fold``, and the negative sample rate the rows were drawn at.
+    """
     anchor_ts = int(django_timezone.now().timestamp())
+    try:
+        sample = measure_training_sample(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
+    except SandboxInferenceError as exc:
+        raise InferenceRunError(str(exc)) from exc
     sql, values = build_training_features_sql(
         feature_sql=feature_sql,
         target_event=pipeline.target_event,
@@ -694,10 +754,17 @@ def _fetch_training_rows(
         lookback_days=pipeline.training_lookback_days,
         training_population=pipeline.training_population,
         anchor_ts=anchor_ts,
+        negative_sample_rate=sample.negative_sample_rate,
     )
     rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
     try:
-        expected = count_training_anchors(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
+        expected = count_training_anchors(
+            team=team,
+            pipeline=pipeline,
+            anchor_ts=anchor_ts,
+            user=user,
+            negative_sample_rate=sample.negative_sample_rate,
+        )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
     _require_one_row_per_person(rows, source="training feature_sql", expected_count=expected)
@@ -708,7 +775,7 @@ def _fetch_training_rows(
         raise InferenceRunError(
             f"{unlabeled} training feature row(s) matched no labeled anchor; distinct_id must be the anchor person_id"
         )
-    return rows
+    return rows, sample.negative_sample_rate
 
 
 def _fetch_inference_rows(
@@ -745,11 +812,13 @@ def _fit_on_training_predict_on_inference(
     inference_rows: list[dict[str, Any]],
     recipe: dict[str, Any],
     pipeline_id: str,
+    negative_sample_rate: float = 1.0,
 ) -> ScoredPopulation:
     """
     Fit the recipe's allowlisted sklearn class on the training folds, score the holdout
     fold for the AUC the run records, and predict on the inference rows. A fit or predict
-    failure falls back to the stub formula so the cadence still emits.
+    failure falls back to the stub formula so the cadence still emits. Only the fitted
+    scores carry ``negative_sample_rate``; the stub formula never saw the sample.
     """
     # Feature SQL without an ORDER BY returns rows in any order, and an estimator that
     # samples row indices fits a different model on a different order despite its seed.
@@ -809,7 +878,7 @@ def _fit_on_training_predict_on_inference(
     # Full precision, as _join_scores keeps for a bundle: rounding would tie predictions that
     # online validation ranks against each other.
     scored = [{**row, "p_y": float(p)} for row, p in zip(inference_rows, proba)]
-    return ScoredPopulation(rows=scored, holdout_auc=holdout_auc)
+    return ScoredPopulation(rows=scored, holdout_auc=holdout_auc, negative_sample_rate=negative_sample_rate)
 
 
 def _stable_seed(pipeline_id: str) -> int:
