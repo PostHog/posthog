@@ -1,3 +1,4 @@
+import json
 import datetime as dt
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -105,6 +106,44 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self._get("attributes", {"metricName": "missing_metric"})
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["results"] == [{"name": "service_name", "value_count": 0}]
+
+    @parameterized.expand(
+        [
+            ("with_metric_all_filters_apply", {"metricName": "http_requests"}, ["env", "service_name"]),
+            ("without_metric_service_filter_applies", {}, ["env", "service_name"]),
+        ]
+    )
+    def test_attributes_apply_existing_filters(self, _name: str, params: dict, expected: list[str]) -> None:
+        filters = [{"key": "service_name", "op": "eq", "value": "billing"}]
+        response = self._get("attributes", {**params, "filters": json.dumps(filters)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == expected
+
+    def test_attributes_with_metric_apply_attribute_filters(self):
+        filters = [{"key": "env", "op": "eq", "value": "prod"}]
+        response = self._get("attributes", {"metricName": "http_requests", "filters": json.dumps(filters)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == ["env", "k8s.pod.name", "region", "service_name"]
+
+    def test_attributes_reject_malformed_filters(self):
+        response = self._get("attributes", {"filters": "not json"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_attribute_values_with_metric_apply_other_filters(self):
+        filters = [{"key": "env", "op": "eq", "value": "prod"}]
+        response = self._get(
+            "attribute_values",
+            {"key": "service_name", "metricName": "http_requests", "filters": json.dumps(filters)},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == ["checkout"]
+
+    @parameterized.expand([("with_metric", {"metricName": "http_requests"}), ("without_metric", {})])
+    def test_attribute_values_ignore_filters_on_their_own_key(self, _name: str, params: dict) -> None:
+        filters = [{"key": "env", "op": "eq", "value": "prod"}]
+        response = self._get("attribute_values", {**params, "key": "env", "filters": json.dumps(filters)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(r["name"] for r in response.json()["results"]) == ["dev", "prod"]
 
     def test_attribute_values_returns_values_with_aggregated_counts(self):
         response = self._get("attribute_values", {"key": "env"})

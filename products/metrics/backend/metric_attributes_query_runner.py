@@ -4,9 +4,12 @@ Keys for one metric count distinct attribute values from recent series metadata.
 Keys across all metrics and values use the `metric_attributes` aggregate table:
 scanning series metadata without a metric name reads every attribute map.
 Both queries merge metric attributes and resource attributes.
+Filters already on the clause narrow suggestions. The aggregate table has one
+key/value pair per row, so without a metric name only service filters apply.
 """
 
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any
 
 from posthog.hogql import ast
@@ -18,6 +21,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.metric_query_runner import attribute_field, filters_expr
 from products.metrics.backend.search import ilike_pattern
 
 # The OTel service name is a first-class column on `metric_attributes` (extracted
@@ -50,6 +55,11 @@ def _resolve_window(date_from: dt.datetime | None, date_to: dt.datetime | None) 
     return resolved_from - _TIME_BUCKET_INTERVAL, resolved_to
 
 
+def _service_filters(filters: Sequence[MetricFilter]) -> list[MetricFilter]:
+    # `metric_attributes` has `service_name` as a column; other filters need a series row.
+    return [f for f in filters if f.key in _SERVICE_NAME_KEYS]
+
+
 def _validate_limit(limit: int) -> int:
     if limit <= 0 or limit > 1000:
         raise ValueError("limit must be in [1, 1000]")
@@ -65,6 +75,7 @@ class MetricAttributeKeysQueryRunner:
         *,
         metric_name: str = "",
         search: str = "",
+        filters: Sequence[MetricFilter] = (),
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
         limit: int = 100,
@@ -72,6 +83,7 @@ class MetricAttributeKeysQueryRunner:
         self.team = team
         self.metric_name = metric_name.strip()
         self.search = search.strip()
+        self.filters = tuple(filters)
         self.bucket_date_from, self.date_to = _resolve_window(date_from, date_to)
         self.date_from = self.bucket_date_from + _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
@@ -102,12 +114,14 @@ class MetricAttributeKeysQueryRunner:
                     SELECT attribute_key, uniq(attribute_value) AS value_count
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
+                      AND {filters}
                       AND attribute_key ILIKE {search_pattern}
                     GROUP BY attribute_key
                     UNION ALL
                     SELECT 'service_name' AS attribute_key, uniq(service_name) AS value_count
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
+                      AND {filters}
                       AND ('service_name' ILIKE {search_pattern} OR 'service.name' ILIKE {search_pattern})
                     HAVING value_count > 0
                 )
@@ -116,6 +130,7 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.bucket_date_from),
+                "filters": filters_expr(_service_filters(self.filters)),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },
@@ -135,6 +150,7 @@ class MetricAttributeKeysQueryRunner:
                 FROM posthog.metric_series
                 WHERE last_seen >= {date_from}
                   AND {metric_name_filter}
+                  AND {filters}
                   AND (attribute_key ILIKE {search_pattern}
                        OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
                 GROUP BY attribute_key
@@ -143,6 +159,7 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
+                "filters": filters_expr(self.filters),
                 "metric_name_filter": ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["metric_name"]),
@@ -164,7 +181,9 @@ class MetricAttributeValuesQueryRunner:
         team: Team,
         *,
         key: str,
+        metric_name: str = "",
         search: str = "",
+        filters: Sequence[MetricFilter] = (),
         date_from: dt.datetime | None = None,
         date_to: dt.datetime | None = None,
         limit: int = 100,
@@ -173,12 +192,18 @@ class MetricAttributeValuesQueryRunner:
             raise ValueError("key is required")
         self.team = team
         self.key = key
+        self.metric_name = metric_name.strip()
+        # A filter on the key being edited would hide the values the user wants to switch to.
+        own_keys = _SERVICE_NAME_KEYS if key in _SERVICE_NAME_KEYS else frozenset({key})
+        self.filters = tuple(f for f in filters if f.key not in own_keys)
         self.search = search.strip()
         self.date_from, self.date_to = _resolve_window(date_from, date_to)
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        if self.key in _SERVICE_NAME_KEYS:
+        if self.metric_name:
+            query = self._series_query()
+        elif self.key in _SERVICE_NAME_KEYS:
             query = parse_select(
                 """
                     SELECT
@@ -187,6 +212,7 @@ class MetricAttributeValuesQueryRunner:
                     FROM posthog.metric_attributes
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
+                      AND {filters}
                       AND service_name ILIKE {search_pattern}
                     GROUP BY service_name
                     ORDER BY
@@ -207,6 +233,7 @@ class MetricAttributeValuesQueryRunner:
                     WHERE time_bucket >= {date_from}
                       AND time_bucket < {date_to}
                       AND attribute_key = {key}
+                      AND {filters}
                       AND attribute_value ILIKE {search_pattern}
                     GROUP BY attribute_value
                     ORDER BY
@@ -229,8 +256,36 @@ class MetricAttributeValuesQueryRunner:
 
         return [{"id": row[0], "name": row[0], "count": int(row[1])} for row in response.results]
 
+    def _series_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # `metric_series` keeps the labels of each series, so every clause filter applies;
+        # counts are series, not data points.
+        return parse_select(
+            """
+                SELECT {field} AS value, count() AS total_count
+                FROM posthog.metric_series
+                WHERE metric_name = {metric_name}
+                  AND last_seen >= {date_from}
+                  AND {series_filters}
+                  AND {field} != ''
+                  AND {field} ILIKE {search_pattern}
+                GROUP BY value
+                ORDER BY
+                    lower(value) = lower({exact}) DESC,
+                    total_count DESC,
+                    value ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                **self._placeholders(),
+                "field": attribute_field(self.key),
+                "metric_name": ast.Constant(value=self.metric_name),
+                "series_filters": filters_expr(self.filters),
+            },
+        )
+
     def _placeholders(self) -> dict[str, ast.Expr]:
         return {
+            "filters": filters_expr(_service_filters(self.filters)),
             "date_from": ast.Constant(value=self.date_from),
             "date_to": ast.Constant(value=self.date_to),
             "key": ast.Constant(value=self.key),
