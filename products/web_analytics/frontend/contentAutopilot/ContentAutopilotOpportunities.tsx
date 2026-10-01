@@ -124,15 +124,21 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                 </div>
             </div>
 
-            {opportunities === null && !opportunitiesError ? (
-                <LemonSkeleton className="h-40 w-full" />
-            ) : opportunitiesError ? (
+            {opportunitiesError ? (
                 <LemonBanner
                     type="error"
                     action={{ children: 'Try again', onClick: refreshOpportunities, loading: opportunitiesLoading }}
                 >
-                    Couldn't load opportunities. {opportunitiesError}
+                    {opportunities === null
+                        ? "Couldn't load opportunities."
+                        : "Couldn't refresh opportunities. The list below may be out of date."}{' '}
+                    {opportunitiesError}
                 </LemonBanner>
+            ) : null}
+            {opportunities === null ? (
+                opportunitiesError ? null : (
+                    <LemonSkeleton className="h-40 w-full" />
+                )
             ) : visibleOpportunities.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     {opportunitySearch.trim() ? (
