@@ -309,18 +309,28 @@ class TestGetEndpointPermissions:
         def get(url, **kwargs):
             if "/api/teams/search" in url:
                 return _response(status_code=403, json_data={"message": "Permissions needed: teams:read"})
+            if "/api/dashboards/uid/d1/versions" in url:
+                return _response(status_code=403, json_data={"message": "Permissions needed: dashboards:write"})
+            if "/api/search" in url:
+                return _response(status_code=200, json_data=[{"uid": "d1"}])
             return _response(status_code=200, json_data=[])
 
         session = mock.MagicMock()
         session.get.side_effect = get
         with _patch_session(session):
             results = get_endpoint_permissions(
-                "https://x.grafana.net", _token_auth(), None, 1, ["dashboards", "teams", "team_members"]
+                "https://x.grafana.net",
+                _token_auth(),
+                None,
+                1,
+                ["dashboards", "teams", "team_members", "dashboard_versions"],
             )
         assert results["dashboards"] is None
         assert results["teams"] is not None and "teams:read" in results["teams"]
-        # A fan-out child is probed through its parent, never through its unresolved `{parent_id}` path.
+        # A fan-out child is unreachable when its parent is, and otherwise needs its own permission,
+        # so it is probed through a real parent id, never through its unresolved `{parent_id}` path.
         assert results["team_members"] == results["teams"]
+        assert results["dashboard_versions"] is not None and "dashboards:write" in results["dashboard_versions"]
         assert all("{" not in call.args[0] for call in session.get.call_args_list)
 
     def test_network_blip_is_not_a_missing_scope(self):
@@ -382,6 +392,10 @@ class TestPagedRows:
         batches, session, _ = self._run("teams", [{"teams": [{"id": 7}], "totalCount": 1}])
         assert batches == [[{"id": 7}]]
         assert _query(session.get.call_args.args[0])["perpage"] == str(DEFAULT_PAGE_SIZE)
+
+    def test_orgs_pages_from_zero(self):
+        _, session, _ = self._run("orgs", [[{"id": 1}]])
+        assert _query(session.get.call_args.args[0])["page"] == "0"
 
     def test_resumes_from_saved_page(self):
         manager = FakeResumableManager(GrafanaResumeConfig(next_page=3))

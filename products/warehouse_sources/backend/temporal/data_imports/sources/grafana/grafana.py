@@ -111,7 +111,7 @@ class GrafanaAuth:
     password: Optional[str] = dataclasses.field(default=None, repr=False)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GrafanaResumeConfig:
     # Next page to fetch for page-number endpoints (the parent page for fan-out endpoints). None
     # for the other pagination styles.
@@ -449,10 +449,31 @@ def _probe_params(config: GrafanaEndpointConfig) -> dict[str, Any]:
     params: dict[str, Any] = {**config.params}
     if config.pagination == "page":
         params[config.page_size_param] = 1
-        params["page"] = 1
+        params["page"] = config.first_page
     elif config.pagination == "time_window":
         params.update({"from": 0, "to": 1, "limit": 1})
+    elif config.pagination == "continue_token":
+        params["limit"] = 1
     return params
+
+
+def _probe(
+    session: requests.Session, url: str, headers: dict[str, str], read_body: bool = False
+) -> tuple[str | None, Any]:
+    """Return (reason the credentials can't reach `url`, parsed body when requested and reachable)."""
+    # stream=True so a hostile host can't buffer an unbounded probe body; bodies are only read
+    # (bounded) for a 403's scope message or a fan-out parent's first row.
+    with session.get(url, headers=headers, timeout=10, allow_redirects=False, stream=True) as response:
+        if response.status_code == 401:
+            return "Your Grafana credentials are invalid or expired.", None
+        if response.status_code == 403:
+            return _permission_error_from_response(response), None
+        if read_body and response.status_code == 200:
+            try:
+                return None, _read_json_bounded(response)
+            except ValueError:
+                return None, None
+        return None, None
 
 
 def get_endpoint_permissions(
@@ -475,23 +496,31 @@ def get_endpoint_permissions(
         if config is None:
             results[endpoint] = None
             continue
-        if config.fan_out is not None:
-            # The child path needs a real parent id, and a child is unreachable without its parent.
-            config = GRAFANA_ENDPOINTS[config.fan_out.parent]
-        url = f"{base_url}{config.path}?{urlencode(_probe_params(config))}"
         try:
-            # stream=True so a hostile host can't buffer an unbounded probe body; only a 403's scope
-            # message is read (bounded) below.
-            with session.get(url, headers=headers, timeout=10, allow_redirects=False, stream=True) as response:
-                if response.status_code == 401:
-                    results[endpoint] = "Your Grafana credentials are invalid or expired."
-                elif response.status_code == 403:
-                    results[endpoint] = _permission_error_from_response(response)
-                else:
-                    results[endpoint] = None
+            if config.fan_out is None:
+                results[endpoint], _ = _probe(
+                    session, f"{base_url}{config.path}?{urlencode(_probe_params(config))}", headers
+                )
+                continue
+            # A child needs its own permission (e.g. `dashboards:write` for versions), so probe it
+            # through the first parent the credentials can list.
+            parent = GRAFANA_ENDPOINTS[config.fan_out.parent]
+            reason, data = _probe(
+                session, f"{base_url}{parent.path}?{urlencode(_probe_params(parent))}", headers, read_body=True
+            )
+            parents = _extract_items(data, parent.data_key)
+            parent_id = parents[0].get(config.fan_out.parent_field) if parents else None
+            if reason is not None or parent_id is None:
+                results[endpoint] = reason
+                continue
+            child_path = config.path.format(parent_id=quote(str(parent_id), safe=""))
+            child_params = _probe_params(config)
+            child_url = (
+                f"{base_url}{child_path}?{urlencode(child_params)}" if child_params else f"{base_url}{child_path}"
+            )
+            results[endpoint], _ = _probe(session, child_url, headers)
         except requests.exceptions.RequestException:
             results[endpoint] = None
-            continue
     return results
 
 
@@ -503,8 +532,8 @@ def _get_paged_rows(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume is not None and resume.next_page is not None else 1
-    if page > 1:
+    page = resume.next_page if resume is not None and resume.next_page is not None else config.first_page
+    if page > config.first_page:
         logger.debug(f"Grafana: resuming {config.name} from page {page}")
 
     pages_this_run = 0
@@ -677,9 +706,9 @@ def _get_fan_out_rows(
     parent = GRAFANA_ENDPOINTS[fan_out.parent]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume is not None and resume.next_page is not None else 1
+    page = resume.next_page if resume is not None and resume.next_page is not None else parent.first_page
     start_index = resume.next_parent_index if resume is not None and resume.next_parent_index is not None else 0
-    if page > 1 or start_index > 0:
+    if page > parent.first_page or start_index > 0:
         logger.debug(f"Grafana: resuming {config.name} from {fan_out.parent} page {page}, index {start_index}")
 
     # Shared across parent and child requests: a host returning endless parent pages or child

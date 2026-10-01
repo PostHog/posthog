@@ -25,7 +25,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "dashboard_versions": {
-        "description": "Saved versions of each dashboard (one row per dashboard version), with who saved it, when, and the full dashboard JSON.",
+        "description": "Saved versions of each dashboard (one row per dashboard version), with who saved it and when.",
         "docs_url": "https://grafana.com/docs/grafana/latest/developers/http_api/dashboard_versions/",
         "columns": {
             "id": "Internal numeric identifier of the dashboard version.",
@@ -37,7 +37,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created": "Timestamp when this version was saved.",
             "createdBy": "Login of the user or service account that saved this version.",
             "message": "Save message entered for this version.",
-            "data": "Full dashboard JSON model as of this version.",
+            "data": "Full dashboard JSON model as of this version. Older Grafana releases leave it empty in the version list.",
         },
     },
     "folders": {

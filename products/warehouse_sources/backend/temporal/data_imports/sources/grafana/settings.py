@@ -19,7 +19,7 @@ DASHBOARD_VERSIONS_PAGE_SIZE = 50
 PaginationStyle = Literal["page", "time_window", "continue_token", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class GrafanaFanOutConfig:
     # Page-paginated endpoint whose rows drive the fan-out.
     parent: str
@@ -30,7 +30,7 @@ class GrafanaFanOutConfig:
     child_field: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class GrafanaEndpointConfig:
     name: str
     path: str
@@ -39,6 +39,8 @@ class GrafanaEndpointConfig:
     # "none": one request returns the whole collection.
     pagination: PaginationStyle = "none"
     page_size_param: str = "limit"
+    # Number of the first page for "page" pagination; `/api/orgs` counts pages from 0.
+    first_page: int = 1
     # Key holding the rows when the response is wrapped (e.g. {"teams": [...], "totalCount": N});
     # None when the endpoint returns a bare JSON array.
     data_key: str | None = None
@@ -97,6 +99,7 @@ GRAFANA_ENDPOINTS: dict[str, GrafanaEndpointConfig] = {
         path="/api/orgs",
         pagination="page",
         page_size_param="perpage",
+        first_page=0,
         primary_keys=["id"],
     ),
     "datasources": GrafanaEndpointConfig(
