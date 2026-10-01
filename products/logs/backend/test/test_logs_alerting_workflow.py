@@ -6,13 +6,17 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
+import asyncio
+import logging
+from datetime import timedelta
 
 import pytest
+from unittest.mock import patch
 
-from temporalio import activity
+from temporalio import activity, workflow
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.logs.backend.alert_signal_emitter import NotifiedAlert
 from products.logs.backend.temporal.activities import (
@@ -30,9 +34,13 @@ from products.logs.backend.temporal.workflow import LogsAlertCheckWorkflow
 TASK_QUEUE = "logs-alerting-test"
 
 
+@pytest.mark.parametrize("bounded, fail_first", [(True, False), (True, True), (False, False)])
 @pytest.mark.asyncio
-async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
-    # 7 manifests, batch_size=3 → 3 batches: sizes 3, 3, 1.
+async def test_workflow_chunks_manifests_and_aggregates_results(
+    bounded: bool, fail_first: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
     manifests = [
         CohortManifest(
             team_id=1,
@@ -40,8 +48,12 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
             date_to_iso="2026-05-05T10:05:00+00:00",
             alert_ids=[f"alert-{i}"],
         )
-        for i in range(7)
+        for i in range(25)
     ]
+    releases = {f"alert-{i}": asyncio.Event() for i in range(0, 25, 3)}
+    started: asyncio.Queue[str] = asyncio.Queue()
+    received: list[CohortManifest] = []
+    failed_batch_id: str | None = None
 
     @activity.defn(name="discover_cohorts_activity")
     async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
@@ -49,6 +61,12 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
 
     @activity.defn(name="evaluate_cohort_batch_activity")
     async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        batch_id = input.manifests[0].alert_ids[0]
+        received.extend(input.manifests)
+        started.put_nowait(batch_id)
+        await releases[batch_id].wait()
+        if batch_id == failed_batch_id:
+            raise ApplicationError("simulated batch failure", non_retryable=True)
         return EvaluateCohortBatchOutput(
             alerts_checked=len(input.manifests),
             alerts_fired=0,
@@ -56,23 +74,60 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
             alerts_errored=0,
         )
 
+    original_patched = workflow.patched
     async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue=TASK_QUEUE,
-            workflows=[LogsAlertCheckWorkflow],
-            activities=[fake_discover, fake_evaluate],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-        ):
-            result: CheckAlertsOutput = await env.client.execute_workflow(
-                LogsAlertCheckWorkflow.run,
-                CheckAlertsInput(),
-                id=f"test-workflow-aggregate-{uuid.uuid4()}",
+        with patch.object(workflow, "patched", side_effect=lambda name: bounded and original_patched(name)):
+            async with Worker(
+                env.client,
                 task_queue=TASK_QUEUE,
-            )
+                workflows=[LogsAlertCheckWorkflow],
+                activities=[fake_discover, fake_evaluate],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                max_concurrent_activities=16,
+            ):
+                handle = await env.client.start_workflow(
+                    LogsAlertCheckWorkflow.run,
+                    CheckAlertsInput(),
+                    id=f"test-workflow-aggregate-{uuid.uuid4()}",
+                    task_queue=TASK_QUEUE,
+                    execution_timeout=timedelta(minutes=2),
+                )
+                try:
+                    initial_count = 8 if bounded else 9
+                    initial_batches = [await asyncio.wait_for(started.get(), timeout=30) for _ in range(initial_count)]
+                    history = await handle.fetch_history()
+                    assert (
+                        sum(
+                            event.activity_task_scheduled_event_attributes.activity_type.name
+                            == "evaluate_cohort_batch_activity"
+                            for event in history.events
+                            if event.HasField("activity_task_scheduled_event_attributes")
+                        )
+                        == initial_count
+                    )
 
-    assert result.alerts_checked == 7
-    assert result.alerts_errored == 0
+                    first_batch = initial_batches[0]
+                    failed_batch_id = first_batch if fail_first else None
+                    releases[first_batch].set()
+                    if bounded:
+                        next_batch = await asyncio.wait_for(started.get(), timeout=30)
+                        assert next_batch not in initial_batches
+                        assert all(not releases[batch_id].is_set() for batch_id in initial_batches[1:])
+                finally:
+                    for release in releases.values():
+                        release.set()
+                result: CheckAlertsOutput = await handle.result()
+                history = await handle.fetch_history()
+
+        await Replayer(workflows=[LogsAlertCheckWorkflow], workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(
+            history
+        )
+
+    assert sorted(received, key=lambda manifest: manifest.alert_ids[0]) == sorted(
+        manifests, key=lambda manifest: manifest.alert_ids[0]
+    )
+    assert result.alerts_checked == (22 if fail_first else 25)
+    assert result.alerts_errored == (3 if fail_first else 0)
 
 
 @pytest.mark.asyncio
