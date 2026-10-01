@@ -6,6 +6,7 @@ import { LemonSearchableSelect, LemonSelect, LemonSelectOptionLeaf, Spinner } fr
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
 
+import { anyOptionLabel, discoveredSelectOptions } from './discoveredSelectOptions'
 import { withSelectedOption } from './quickFilterOptions'
 import { discoveredValuesMessage, quickFilterValuesLogic } from './quickFilterValuesLogic'
 
@@ -20,7 +21,7 @@ type SelectValue = string | null
 
 function selectOptions(filterName: string, options: QuickFilterOption[]): LemonSelectOptionLeaf<SelectValue>[] {
     return [
-        { value: null, label: `Any ${filterName.toLowerCase() || 'items'}` },
+        { value: null, label: anyOptionLabel(filterName) },
         ...options.map((option) => ({ value: option.id, label: option.label })),
     ]
 }
@@ -75,10 +76,7 @@ function DiscoveredValuesSelector({
     const sections = useMemo(
         () => [
             {
-                // Discovered values are raw event data, so keep them out of autocapture and replay
-                options: selectOptions(filter.name, options).map((option) =>
-                    option.value === null ? option : { ...option, className: 'ph-no-capture' }
-                ),
+                options: discoveredSelectOptions(filter.name, discoveredOptions, selectedOptionId, search),
                 footer:
                     discoveredValuesStatus === 'loading' ? (
                         <span className="flex items-center gap-1">
@@ -90,7 +88,7 @@ function DiscoveredValuesSelector({
                     ),
             },
         ],
-        [filter.name, options, discoveredValuesStatus, message]
+        [filter.name, discoveredOptions, selectedOptionId, search, discoveredValuesStatus, message]
     )
 
     return (
