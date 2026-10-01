@@ -683,7 +683,7 @@ export interface ComposeTicketResponseApi {
 
 export interface TicketUnreadCountResponseApi {
     /**
-     * Customer messages across the non-resolved tickets the caller can see.
+     * Customer messages across all tickets the caller can see, resolved ones included.
      * @minimum 0
      */
     count: number

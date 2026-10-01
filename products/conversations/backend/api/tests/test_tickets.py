@@ -1463,7 +1463,7 @@ class TestUnreadCountEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 5)
 
-    def test_unread_count_excludes_resolved_tickets(self, mock_on_commit):
+    def test_unread_count_includes_resolved_tickets(self, mock_on_commit):
         Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.WIDGET,
@@ -1483,7 +1483,7 @@ class TestUnreadCountEndpoint(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/unread_count/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 3)
+        self.assertEqual(response.json()["count"], 8)
 
     def test_unread_count_returns_zero_when_conversations_disabled(self, mock_on_commit):
         self.team.conversations_enabled = False

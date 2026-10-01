@@ -604,7 +604,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
 
 class TicketUnreadCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(
-        min_value=0, help_text="Customer messages across the non-resolved tickets the caller can see."
+        min_value=0, help_text="Customer messages across all tickets the caller can see, resolved ones included."
     )
 
 
@@ -1347,20 +1347,21 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
     @extend_schema(
-        summary="Count customer messages on open tickets",
+        summary="Count customer messages on tickets",
         responses={200: TicketUnreadCountResponseSerializer},
     )
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
-        Get the total customer message count on open tickets for the team.
+        Get the total customer message count across the team's tickets.
 
         The browser notification poller uses this count to detect new customer messages.
-        Returns the sum of unread_team_count for all non-resolved tickets visible to the
-        caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
-        callers without object-level ticket restrictions, since it holds one unscoped total
-        per team - serving it to a restricted member would leak counts for tickets they can't
-        see.
+        Returns the sum of unread_team_count for all tickets visible to the caller, resolved
+        ones included, so resolving or reopening a ticket does not move the count.
+
+        The team-wide Redis cache (30s TTL, invalidated on changes) is only used for callers
+        without object-level ticket restrictions, since it holds one unscoped total per team -
+        serving it to a restricted member would leak counts for tickets they can't see.
         """
         team_id = self.team_id
 
@@ -1376,8 +1377,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             if cached_count is not None:
                 return Response({"count": cached_count})
 
-        # Query database - only non-resolved tickets with unread messages
-        queryset = Ticket.objects.filter(team_id=team_id).exclude(status="resolved").filter(unread_team_count__gt=0)
+        queryset = Ticket.objects.filter(team_id=team_id, unread_team_count__gt=0)
         if is_restricted:
             queryset = uac.filter_queryset_by_access_level(queryset)
 
