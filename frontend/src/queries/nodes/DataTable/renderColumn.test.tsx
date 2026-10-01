@@ -22,6 +22,10 @@ const personColumnTable = setLatestVersionsOnQuery({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.EventsQuery, select: personSelect },
 }) as DataTableNode
+const hogqlTable = setLatestVersionsOnQuery({
+    kind: NodeKind.DataTableNode,
+    source: { kind: NodeKind.HogQLQuery, query: 'select min(timestamp) from events' },
+}) as DataTableNode
 const actorsTable = setLatestVersionsOnQuery({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.ActorsQuery, select: ['person', 'id'] },
@@ -114,5 +118,16 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    it.each([
+        ['UTC', '1970-01-01T00:00:00Z'],
+        ['an offset', '1970-01-01T01:00:00+01:00'],
+        ['microseconds', '1970-01-01T00:00:00.000000Z'],
+    ])('renders the epoch from a HogQL aggregate over no rows as the raw value, with %s', (_case, value) => {
+        render(<Provider>{renderColumn('min(timestamp)', value, [value], 0, 1, hogqlTable)}</Provider>)
+
+        expect(screen.getByText(value)).toBeInTheDocument()
+        expect(screen.queryByText(/years ago/)).toBeNull()
     })
 })
