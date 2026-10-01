@@ -71,7 +71,8 @@ A proxy that forwards only the event paths breaks replay, but event capture keep
 If events arrive and recordings do not, suspect the proxy before an ad blocker.
 Fixes:
 
-- Forward `/static/*`, `/array/*`, and `/s/` through the proxy, and allow large request bodies
+- Forward `/array/*` and `/s/` through the proxy, and allow large request bodies.
+  Also forward `/static/*`, unless `asset_host` is set
 - Set `asset_host` in the SDK config to load scripts from a host that the firewall allows
 - Use the [managed reverse proxy](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)
 
