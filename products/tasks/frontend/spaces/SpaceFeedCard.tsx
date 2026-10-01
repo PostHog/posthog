@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconGitBranch } from '@posthog/icons'
+import { IconDocument, IconGitBranch } from '@posthog/icons'
 import {
     Badge,
     Card,
@@ -34,9 +34,27 @@ import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
+import { TaskFile, VISIBLE_FILE_COUNT, taskFiles } from './taskFiles'
 import { TASK_CHIP_CLASS, TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+
+function TaskFileChip({ file }: { file: TaskFile }): JSX.Element {
+    return (
+        <Badge
+            render={<LinkPrimitive to={file.url} />}
+            aria-label={`Open ${file.name}`}
+            data-attr="today-file-chip-feed"
+            className={cn(
+                TASK_CHIP_CLASS,
+                'border-border bg-fill-hover text-muted-foreground hover:bg-fill-selected hover:text-foreground'
+            )}
+        >
+            <IconDocument className="size-3 shrink-0" />
+            <span className="max-w-40 min-w-0 truncate">{file.name}</span>
+        </Badge>
+    )
+}
 
 interface SpaceFeedCardProps {
     task: TaskListItemApi
@@ -57,6 +75,8 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
+    const files = taskFiles(task.id, task.latest_run?.artifacts)
+    const hiddenFiles = files.slice(VISIBLE_FILE_COUNT)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
@@ -111,7 +131,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             </div>
             <SpaceFeedCardPrompt taskId={task.id} prompt={preview} />
-            {(repository || author || item.pullRequests.length > 0) && (
+            {(repository || author || item.pullRequests.length > 0 || files.length > 0) && (
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
                     {repository && (
                         <Badge
@@ -154,6 +174,28 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                                         state={pullRequestStates[pullRequest.url]}
                                         dataAttr="today-pr-chip-feed"
                                     />
+                                ))}
+                            </PopoverContent>
+                        </Popover>
+                    )}
+                    {files.slice(0, VISIBLE_FILE_COUNT).map((file) => (
+                        <TaskFileChip key={file.name} file={file} />
+                    ))}
+                    {hiddenFiles.length > 0 && (
+                        <Popover>
+                            <PopoverTrigger
+                                className={cn(
+                                    badgeVariants(),
+                                    TASK_CHIP_CLASS,
+                                    'border-dashed border-border bg-fill-hover text-muted-foreground hover:bg-fill-selected hover:text-foreground'
+                                )}
+                                data-attr="today-file-chip-overflow"
+                            >
+                                {`+${hiddenFiles.length} ${hiddenFiles.length === 1 ? 'file' : 'files'}`}
+                            </PopoverTrigger>
+                            <PopoverContent align="start" className="flex max-w-72 flex-col items-start gap-1">
+                                {hiddenFiles.map((file) => (
+                                    <TaskFileChip key={file.name} file={file} />
                                 ))}
                             </PopoverContent>
                         </Popover>
