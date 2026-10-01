@@ -848,6 +848,9 @@ importers:
       '@posthog/products-tasks':
         specifier: workspace:*
         version: link:../products/tasks
+      '@posthog/products-today':
+        specifier: workspace:*
+        version: link:../products/today
       '@posthog/products-tracing':
         specifier: workspace:*
         version: link:../products/tracing
@@ -5019,6 +5022,8 @@ importers:
       tailwindcss:
         specifier: 4.3.0
         version: 4.3.0
+
+  products/today: {}
 
   products/toolbar: {}
 
