@@ -1554,6 +1554,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         # time rather than being silently stored and surfacing only at enable.
         strict = _should_validate_strictly(self.context, is_draft)
 
+        # The config field accepts any JSON, and every check below reads config as an object.
+        if "config" in data and not isinstance(data["config"], dict):
+            raise serializers.ValidationError(
+                {"config": f"Config must be an object, got {type(data['config']).__name__}."}
+            )
+
         trigger_is_function = False
         if data.get("type") == "trigger":
             if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
@@ -3185,7 +3191,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         self.context["is_dwh_source"] = any(
             isinstance(action, dict)
             and action.get("type") == "trigger"
-            and (action.get("config") or {}).get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
+            and isinstance(action.get("config"), dict)
+            and action["config"].get("type") in DATA_WAREHOUSE_TRIGGER_TYPES
             for action in (actions or [])
         )
         return super().to_internal_value(data)
