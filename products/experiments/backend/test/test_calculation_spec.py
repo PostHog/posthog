@@ -1,17 +1,22 @@
-from datetime import UTC, datetime
+import dataclasses
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
+
+from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
 
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.hogql_queries.utils import BayesianSettings, FrequentistSettings
-from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, plan
+from products.experiments.backend.metric_calculation.spec import ExperimentCalculationSettings, normalize_exposure, plan
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -51,8 +56,8 @@ DEFINITIONS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Result rows and stored `fingerprint` values of these configurations already hold these hashes, so the
-# calculation key must keep producing them. Keyed by (metric kind, breakdown, only_count_matured_users).
+# Result rows written before key version 2 hold these hashes, and the display readers find them by the legacy
+# key, so it must keep producing them. Keyed by (metric kind, breakdown, only_count_matured_users).
 STORED_KEYS: dict[tuple[str, bool, bool], str] = {
     ("mean", False, False): "8c4c170619bed04837934834898b06c80e1ffb081cfc83e50394e7a90809e7f1",
     ("mean", False, True): "170e5a30b8b04a520777ec3cccac4e055f7038b64dd547263499ee75ea1b71fc",
@@ -181,7 +186,7 @@ class TestCalculationSpec(BaseTest):
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric, metadata=metadata)
 
     @parameterized.expand(STORED_KEY_CASES)
-    def test_key_equals_the_stored_fingerprint(
+    def test_legacy_key_equals_the_stored_fingerprint(
         self,
         _name: str,
         kind: str,
@@ -195,7 +200,7 @@ class TestCalculationSpec(BaseTest):
 
         [spec] = plan(experiment)
 
-        assert spec.calculation_key() == stored_key
+        assert spec.legacy_key() == stored_key
 
     @parameterized.expand([("no_breakdowns", False), ("with_breakdowns", True)])
     def test_equivalent_inline_and_saved_metrics_have_equal_specs(self, _name: str, breakdown: bool) -> None:
@@ -258,6 +263,25 @@ class TestCalculationSpec(BaseTest):
                 {"stats_config": {}},
                 {"stats_config": {"baseline_variant_key": "control"}},
             ),
+            (
+                "absent_and_explicit_default_exposure_event",
+                {"exposure_criteria": {"filterTestAccounts": True}},
+                {
+                    "exposure_criteria": {
+                        "filterTestAccounts": True,
+                        "exposure_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$feature_flag_called",
+                            "properties": [],
+                        },
+                    }
+                },
+            ),
+            (
+                "tuning_parameter_without_sequential_testing",
+                {"stats_config": {"method": "frequentist"}},
+                {"stats_config": {"method": "frequentist", "frequentist": {"sequential_tuning_parameter": 10000}}},
+            ),
         ]
     )
     def test_configurations_that_compute_the_same_thing_have_equal_specs(
@@ -275,6 +299,71 @@ class TestCalculationSpec(BaseTest):
 
         first_spec, second_spec = specs
         assert first_spec == second_spec
+        assert first_spec.calculation_key() == second_spec.calculation_key()
+
+    @parameterized.expand(
+        [
+            ("baseline", "experiment", {"stats_config": {"baseline_variant_key": "test"}}, True),
+            ("credible_interval", "experiment", {"stats_config": {"bayesian": {"ci_level": 0.9}}}, True),
+            ("explicit_cuped", "experiment", {"stats_config": {"cuped": {"enabled": True}}}, True),
+            ("team_default_cuped", "team_config", {"default_cuped_enabled": True}, True),
+            ("alpha", "experiment", {"stats_config": {"frequentist": {"alpha": 0.1}}}, True),
+            ("team_default_sequential", "team_config", {"default_sequential_testing_enabled": True}, True),
+            ("flag_aggregation", "flag", {"aggregation_group_type_index": 0}, True),
+            ("team_test_account_filters", "team", {"test_account_filters": [{"key": "email", "type": "person"}]}, True),
+            ("test_account_filtering_off", "experiment", {"exposure_criteria": {"filterTestAccounts": False}}, True),
+            ("name_and_description", "experiment", {"name": "renamed", "description": "new words"}, False),
+            ("display_order", "experiment", {"primary_metrics_ordered_uuids": ["inline-mean"]}, False),
+            ("end_date", "experiment", {"end_date": datetime(2026, 2, 1, tzinfo=UTC)}, False),
+            ("conclusion", "experiment", {"conclusion": "won", "conclusion_comment": "shipped"}, False),
+        ]
+    )
+    def test_the_key_changes_with_every_analytical_input_and_nothing_else(
+        self, _name: str, target: str, changes: dict[str, Any], key_changes: bool
+    ) -> None:
+        # Alpha and sequential testing only reach the resolved settings of a frequentist experiment.
+        base_stats = {"method": "frequentist"} if _name in ("alpha", "team_default_sequential") else {}
+        experiment = self._experiment(stats_config=base_stats)
+        self._add_metric(experiment, "mean", "inline", role="primary")
+        get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        [before] = plan(experiment)
+
+        if target == "experiment":
+            if "stats_config" in changes:
+                changes = {"stats_config": {**base_stats, **changes["stats_config"]}}
+            Experiment.objects.filter(pk=experiment.pk).update(**changes)
+        elif target == "team_config":
+            TeamExperimentsConfig.objects.filter(team=self.team).update(**changes)
+        elif target == "flag":
+            flag = experiment.feature_flag
+            flag.filters = {**flag.filters, **changes}
+            flag.save()
+        else:
+            for name, value in changes.items():
+                setattr(self.team, name, value)
+            self.team.save()
+        [after] = plan(Experiment.objects.get(pk=experiment.pk))
+
+        assert (after.calculation_key() != before.calculation_key()) is key_changes
+
+    def test_the_key_does_not_depend_on_the_exposure_event_rollout_flag(self) -> None:
+        experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=1))
+        self._add_metric(experiment, "mean", "inline")
+        specs = {}
+        for flag_enabled in (False, True):
+            with patch(
+                "products.experiments.backend.hogql_queries.exposure_query_logic.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ):
+                [specs[flag_enabled]] = plan(experiment)
+
+        # The query runner still counts the event the flag picks.
+        assert [spec.settings.exposure and spec.settings.exposure.exposure_config for spec in specs.values()] == [
+            ExperimentEventExposureConfig(event="$feature_flag_called", properties=[]),
+            ExperimentEventExposureConfig(event="$experiment_exposure", properties=[]),
+        ]
+        assert specs[False] == specs[True]
+        assert specs[False].calculation_key() == specs[True].calculation_key()
 
     @parameterized.expand(
         [
@@ -301,6 +390,7 @@ _SETTINGS = ExperimentCalculationSettings(
     baseline="control",
     excluded_variants=(),
     exposure=None,
+    normalized_exposure=normalize_exposure(None),
     test_account_filters=(),
     stats=BayesianSettings(ci_level=0.95, difference_type=DifferenceType.RELATIVE),
     cuped=CupedQueryConfig(),
@@ -324,3 +414,288 @@ def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool
     base_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
     variant_key = _SETTINGS.spec_for(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal
+
+
+_FREQUENTIST = FrequentistSettings(
+    alpha=0.05, difference_type=DifferenceType.RELATIVE, sequential_testing_enabled=False, sequential_tuning_parameter=0
+)
+
+
+@pytest.mark.parametrize(
+    "stats,metric_change,expected_equal",
+    [
+        # `1 - 0.95` is how a confidence level becomes a stored alpha.
+        (dataclasses.replace(_FREQUENTIST, alpha=1 - 0.95), {}, True),
+        (dataclasses.replace(_FREQUENTIST, alpha=0.1), {}, False),
+        (_FREQUENTIST, {"upper_bound_percentile": 0.9500000000000001}, True),
+        (_FREQUENTIST, {"upper_bound_percentile": 0.9}, False),
+        (_FREQUENTIST, {"conversion_window": 14.0}, True),
+    ],
+)
+def test_float_noise_does_not_split_keys(
+    stats: FrequentistSettings, metric_change: dict[str, Any], expected_equal: bool
+) -> None:
+    base = dataclasses.replace(_SETTINGS, stats=_FREQUENTIST)
+    base_key = base.spec_for(
+        metric_id="m1", role="primary", definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14}
+    ).calculation_key()
+    variant_key = (
+        dataclasses.replace(_SETTINGS, stats=stats)
+        .spec_for(
+            metric_id="m1",
+            role="primary",
+            definition={**_MEAN, "upper_bound_percentile": 0.95, "conversion_window": 14, **metric_change},
+        )
+        .calculation_key()
+    )
+    assert (variant_key == base_key) is expected_equal
+
+
+_SEQUENTIAL = dataclasses.replace(_FREQUENTIST, sequential_testing_enabled=True, sequential_tuning_parameter=5000)
+_CUPED = CupedQueryConfig(enabled=True, lookback_days=14)
+_RETENTION = {**DEFINITIONS["retention"], "uuid": "m1"}
+_BROWSER_FILTER = {"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}
+_DEFAULT_EVENT_WITH_PROPERTIES: dict[str, Any] = {
+    "filterTestAccounts": True,
+    "multiple_variant_handling": "exclude",
+    "exposure_config": {
+        "kind": "ExperimentEventExposureConfig",
+        "event": "$feature_flag_called",
+        "properties": [_BROWSER_FILTER],
+    },
+}
+_ACTION_ACTIVATION: dict[str, Any] = {
+    "filterTestAccounts": False,
+    "multiple_variant_handling": "first_seen",
+    "activation_config": {
+        "kind": "ActionsNode",
+        "id": 7,
+        "name": "Signed up",
+        "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+    },
+}
+_CUSTOM_EVENT: dict[str, Any] = {
+    "filterTestAccounts": True,
+    "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout_viewed", "properties": []},
+}
+_ACTION_EXPOSURE: dict[str, Any] = {"filterTestAccounts": True, "exposure_config": {"kind": "ActionsNode", "id": 7}}
+
+
+def _with_exposure(
+    criteria: dict[str, Any], settings: ExperimentCalculationSettings = _SETTINGS
+) -> ExperimentCalculationSettings:
+    return dataclasses.replace(settings, normalized_exposure=normalize_exposure(criteria))
+
+
+# Each case changes one value that the calculation reads and expects a new key, or changes a value that the
+# calculation ignores and expects the same key. Named after the field it changes.
+_KEY_INPUT_CASES: list[tuple[str, ExperimentCalculationSettings, ExperimentCalculationSettings, dict, bool]] = [
+    (
+        "settings.start_date",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, start_date=START + timedelta(days=1)),
+        _MEAN,
+        False,
+    ),
+    ("settings.feature_flag_key", _SETTINGS, dataclasses.replace(_SETTINGS, feature_flag_key="other"), _MEAN, False),
+    (
+        "settings.aggregation_group_type_index",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, aggregation_group_type_index=0),
+        _MEAN,
+        False,
+    ),
+    ("settings.variants", _SETTINGS, dataclasses.replace(_SETTINGS, variants=("control", "test", "b")), _MEAN, False),
+    ("settings.baseline", _SETTINGS, dataclasses.replace(_SETTINGS, baseline="test"), _MEAN, False),
+    ("settings.excluded_variants", _SETTINGS, dataclasses.replace(_SETTINGS, excluded_variants=("b",)), _MEAN, False),
+    (
+        "settings.test_account_filters",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, test_account_filters=({"key": "email", "type": "person"},)),
+        _MEAN,
+        False,
+    ),
+    ("settings.stats", _SETTINGS, dataclasses.replace(_SETTINGS, stats=_FREQUENTIST), _MEAN, False),
+    ("settings.cuped", _SETTINGS, dataclasses.replace(_SETTINGS, cuped=_CUPED), _MEAN, False),
+    (
+        "settings.only_count_matured_users",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, only_count_matured_users=True),
+        _MEAN,
+        False,
+    ),
+    ("settings.timezone", _SETTINGS, dataclasses.replace(_SETTINGS, timezone="Asia/Kolkata"), _RETENTION, False),
+    *[
+        (
+            f"timezone_for_a_{kind}_metric",
+            _SETTINGS,
+            dataclasses.replace(_SETTINGS, timezone="Asia/Kolkata"),
+            definition,
+            True,
+        )
+        for kind, definition in (("mean", _MEAN), ("funnel", DEFINITIONS["funnel"]), ("ratio", DEFINITIONS["ratio"]))
+    ],
+    (
+        "bayesian.ci_level",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, stats=BayesianSettings(ci_level=0.9, difference_type=DifferenceType.RELATIVE)),
+        _MEAN,
+        False,
+    ),
+    (
+        "bayesian.difference_type",
+        _SETTINGS,
+        dataclasses.replace(_SETTINGS, stats=BayesianSettings(ci_level=0.95, difference_type=DifferenceType.ABSOLUTE)),
+        _MEAN,
+        False,
+    ),
+    *[
+        (
+            f"frequentist.{name}",
+            dataclasses.replace(_SETTINGS, stats=_SEQUENTIAL),
+            dataclasses.replace(_SETTINGS, stats=changed),
+            _MEAN,
+            False,
+        )
+        for name, changed in (
+            ("alpha", dataclasses.replace(_SEQUENTIAL, alpha=0.1)),
+            ("difference_type", dataclasses.replace(_SEQUENTIAL, difference_type=DifferenceType.ABSOLUTE)),
+            ("sequential_testing_enabled", dataclasses.replace(_SEQUENTIAL, sequential_testing_enabled=False)),
+            ("sequential_tuning_parameter", dataclasses.replace(_SEQUENTIAL, sequential_tuning_parameter=10000)),
+        )
+    ],
+    *[
+        (
+            f"cuped.{name}",
+            dataclasses.replace(_SETTINGS, cuped=_CUPED),
+            dataclasses.replace(_SETTINGS, cuped=changed),
+            _MEAN,
+            False,
+        )
+        for name, changed in (
+            ("enabled", dataclasses.replace(_CUPED, enabled=False)),
+            ("lookback_days", dataclasses.replace(_CUPED, lookback_days=7)),
+        )
+    ],
+    *[
+        (
+            f"exposure_criteria.{name}",
+            _with_exposure(_DEFAULT_EVENT_WITH_PROPERTIES),
+            _with_exposure(changed),
+            _MEAN,
+            False,
+        )
+        for name, changed in (
+            ("exposure_config", _CUSTOM_EVENT),
+            (
+                "activation_config",
+                {**_DEFAULT_EVENT_WITH_PROPERTIES, "activation_config": _ACTION_ACTIVATION["activation_config"]},
+            ),
+            ("filterTestAccounts", {**_DEFAULT_EVENT_WITH_PROPERTIES, "filterTestAccounts": False}),
+            (
+                "multiple_variant_handling",
+                {**_DEFAULT_EVENT_WITH_PROPERTIES, "multiple_variant_handling": "first_seen"},
+            ),
+        )
+    ],
+    (
+        "exposure_config.event",
+        _with_exposure(_CUSTOM_EVENT),
+        _with_exposure(
+            {**_CUSTOM_EVENT, "exposure_config": {**_CUSTOM_EVENT["exposure_config"], "event": "cart_viewed"}}
+        ),
+        _MEAN,
+        False,
+    ),
+    (
+        "exposure_config.properties",
+        _with_exposure(_DEFAULT_EVENT_WITH_PROPERTIES),
+        _with_exposure(
+            {
+                **_DEFAULT_EVENT_WITH_PROPERTIES,
+                "exposure_config": {**_DEFAULT_EVENT_WITH_PROPERTIES["exposure_config"], "properties": []},
+            }
+        ),
+        _MEAN,
+        False,
+    ),
+    (
+        "actions_node.id",
+        _with_exposure(_ACTION_EXPOSURE),
+        _with_exposure({**_ACTION_EXPOSURE, "exposure_config": {"kind": "ActionsNode", "id": 8}}),
+        _MEAN,
+        False,
+    ),
+    (
+        "actions_node.properties",
+        _with_exposure(_ACTION_EXPOSURE),
+        _with_exposure(
+            {**_ACTION_EXPOSURE, "exposure_config": {"kind": "ActionsNode", "id": 7, "properties": [_BROWSER_FILTER]}}
+        ),
+        _MEAN,
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize("_name,before,after,definition,keys_equal", _KEY_INPUT_CASES)
+def test_the_key_follows_what_the_calculation_reads(
+    _name: str,
+    before: ExperimentCalculationSettings,
+    after: ExperimentCalculationSettings,
+    definition: dict,
+    keys_equal: bool,
+) -> None:
+    before_key = before.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key()
+    after_key = after.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key()
+    assert (after_key == before_key) is keys_equal
+
+
+def test_every_field_that_can_change_the_key_has_a_case() -> None:
+    # The key reads explicit field lists, so a field added to one of these types reaches no key until someone adds
+    # it. This fails until the new field has a case above, and the case fails until the key reads the field.
+    compared_settings = {field.name for field in dataclasses.fields(ExperimentCalculationSettings) if field.compare}
+    expected = (
+        # The exposure_criteria cases cover normalized_exposure. The team is the tenant, not an input.
+        {f"settings.{name}" for name in compared_settings - {"team_id", "normalized_exposure"}}
+        | {f"bayesian.{field.name}" for field in dataclasses.fields(BayesianSettings)}
+        | {f"frequentist.{field.name}" for field in dataclasses.fields(FrequentistSettings)}
+        | {f"cuped.{field.name}" for field in dataclasses.fields(CupedQueryConfig)}
+        | {f"exposure_criteria.{name}" for name in ExperimentExposureCriteria.model_fields}
+        # The kind tells an event from an action, and the actions_node cases cover that. The response and the
+        # version are not inputs of the query.
+        | {
+            f"exposure_config.{name}"
+            for name in set(ExperimentEventExposureConfig.model_fields) - {"kind", "response", "version"}
+        }
+    )
+    changing_cases = {name for name, *_rest, keys_equal in _KEY_INPUT_CASES if not keys_equal}
+    assert expected <= changing_cases
+
+
+@pytest.mark.parametrize(
+    "settings,definition,key",
+    [
+        (_SETTINGS, _MEAN, "0ece714ef02b5e32a6201b72fccc0e2c908c3dd477b082d56f8d504c4b088a40"),
+        (
+            dataclasses.replace(
+                _with_exposure(_DEFAULT_EVENT_WITH_PROPERTIES),
+                stats=_FREQUENTIST,
+                excluded_variants=("test-2",),
+                test_account_filters=({"key": "email", "value": "@example.com", "type": "person"},),
+                cuped=CupedQueryConfig(enabled=True, lookback_days=7),
+            ),
+            _MEAN,
+            "d197595521eb7283bcd4afa83f37afa8db49731eb52e70a3494f28b961f8900b",
+        ),
+        (
+            dataclasses.replace(_with_exposure(_ACTION_ACTIVATION), stats=_SEQUENTIAL, timezone="Europe/Berlin"),
+            _RETENTION,
+            "aebb0ab85180a4c2f0b341840f2e4399fe3acc042a62f638b511d301d88f481f",
+        ),
+    ],
+)
+def test_key_version_2_is_stable(settings: ExperimentCalculationSettings, definition: dict, key: str) -> None:
+    # Every stored result is filed under this hash. A change to the hashed payload, such as a new settings field,
+    # makes all of them unreachable for reuse, so it has to come with a CALCULATION_KEY_VERSION bump and new pins.
+    assert settings.spec_for(metric_id="m1", role="primary", definition=definition).calculation_key() == key

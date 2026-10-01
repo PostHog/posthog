@@ -19084,8 +19084,9 @@ export const ExperimentsTimeseriesResultsRetrieveParams = () => zod.object({
 export const ExperimentsTimeseriesResultsRetrieveQueryParams = () => zod.object({
     fingerprint: zod
         .string()
+        .optional()
         .describe(
-            "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array."
+            "Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working."
         ),
     metric_uuid: zod
         .string()

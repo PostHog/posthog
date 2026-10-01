@@ -1423,6 +1423,68 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     error_message = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
     )
+    legacy = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when this result was stored before the calculation key covered every analytical setting "
+            "(baseline, CUPED, statistics, entity, test account filters). It may come from other settings than "
+            "the current ones. Show it as history; a new run computes a current result."
+        ),
+    )
+
+
+class ExperimentTimeseriesResultsSerializer(serializers.Serializer):
+    """Day-by-day results of one metric under the experiment's current settings."""
+
+    experiment_id = serializers.IntegerField(help_text="Experiment id.")
+    metric_uuid = serializers.CharField(help_text="UUID of the metric the series belongs to.")
+    status = serializers.ChoiceField(
+        choices=["pending", "completed", "partial", "failed"],
+        help_text=(
+            "'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result "
+            "and some failed, 'pending' when no day was calculated yet."
+        ),
+    )
+    timeseries = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        help_text=(
+            "Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start "
+            "date to the end date or today. Null for a day without a completed result."
+        ),
+    )
+    legacy_dates = serializers.ListField(
+        child=serializers.DateField(),
+        help_text=(
+            "Days whose result was stored before the calculation key covered every analytical setting, because no "
+            "result under the current settings exists for that day. Show them as history: they may come from "
+            "other settings than the current ones."
+        ),
+    )
+    computed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the most recent day's result was computed, or null."
+    )
+    created_at = serializers.DateTimeField(help_text="When the oldest stored day was written.")
+    updated_at = serializers.DateTimeField(help_text="When the newest stored day was last written.")
+    recalculation_status = serializers.CharField(
+        allow_null=True,
+        help_text="'pending' or 'in_progress' while a backfill of this series runs, otherwise null.",
+    )
+    recalculation_created_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the running backfill was requested, or null."
+    )
+    formatted_results = serializers.CharField(
+        help_text="The series as a compact text table, one row per day, for language model consumers."
+    )
+
+    def get_fields(self) -> dict[str, serializers.Field]:
+        # A declared `errors` attribute would shadow `Serializer.errors`.
+        fields = super().get_fields()
+        fields["errors"] = serializers.DictField(
+            child=serializers.CharField(),
+            allow_null=True,
+            help_text="Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.",
+        )
+        return fields
 
 
 class RecalculateMetricsRequestSerializer(serializers.Serializer):
@@ -2710,6 +2772,13 @@ class ExperimentSetupOutcomeSerializer(serializers.Serializer):
             "The last moment the result covers. A backfill writes an older day with a recent completed_at, so "
             "this says how current the numbers are."
         ),
+    )
+    result_is_legacy = serializers.BooleanField(
+        help_text=(
+            "True when the result was stored before the calculation key covered every analytical setting "
+            "(baseline, CUPED, statistics, entity, test account filters), because no result under the current "
+            "settings exists. Its numbers may come from other settings than the current ones."
+        )
     )
 
 
