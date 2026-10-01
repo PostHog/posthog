@@ -537,27 +537,6 @@ function isRecordableToolName(name: string, isKnownToolName: (name: string) => b
     return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
 }
 
-// Resolves the inner tool an `exec` call targets: given a request, return the
-// inner tool's { name, description } when the agent invoked it via
-// `call <tool> ...`, or undefined otherwise. Lives here (alongside
-// parseExecCallInnerToolName) so callers and tests share one factory.
-export function createExecInnerToolCallResolver(
-    allTools: ReadonlyArray<Tool<ZodObjectAny>>
-): (request: unknown) => { name: string; description: string } | undefined {
-    return (request: unknown) => {
-        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
-        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-            return
-        }
-        const innerName = parseExecCallInnerToolName(params.arguments.command)
-        if (!innerName) {
-            return
-        }
-        const tool = allTools.find((t) => t.name === innerName)
-        return tool ? { name: tool.name, description: tool.description } : undefined
-    }
-}
-
 // Tools deleted from the MCP server. When the model attempts to call one,
 // surface a targeted redirect to the replacement instead of dumping the full
 // tool catalog. Keep the redirect text editorial — schemas don't carry
