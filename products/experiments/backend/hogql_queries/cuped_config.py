@@ -74,16 +74,17 @@ def _metric_supports_cuped(metric: object) -> bool:
     return False
 
 
-def get_cuped_config(
+def resolve_experiment_cuped_config(
     stats_config: dict | None,
-    metric: object,
-    team_default_enabled: bool = False,
-    team_default_lookback_days: int | None = None,
+    *,
+    team_default_enabled: bool,
+    team_default_lookback_days: int | None,
 ) -> CupedQueryConfig:
-    if not _metric_supports_cuped(metric):
-        return CupedQueryConfig()
-
-    cuped_config = (stats_config or {}).get("cuped") or {}
+    """The CUPED setting of the experiment, with the team defaults applied. `get_cuped_config` also
+    checks whether the metric supports CUPED."""
+    cuped_config = stats_config.get("cuped") if isinstance(stats_config, dict) else None
+    if not isinstance(cuped_config, dict):
+        cuped_config = {}
     # Distinguish "experiment hasn't set this" from "experiment explicitly disabled it":
     # only the latter should override a team default of `True`.
     if "enabled" in cuped_config:
@@ -97,4 +98,17 @@ def get_cuped_config(
     return CupedQueryConfig(
         enabled=True,
         lookback_days=_resolve_lookback_days(cuped_config.get("lookback_days"), team_default_lookback_days),
+    )
+
+
+def get_cuped_config(
+    stats_config: dict | None,
+    metric: object,
+    team_default_enabled: bool = False,
+    team_default_lookback_days: int | None = None,
+) -> CupedQueryConfig:
+    if not _metric_supports_cuped(metric):
+        return CupedQueryConfig()
+    return resolve_experiment_cuped_config(
+        stats_config, team_default_enabled=team_default_enabled, team_default_lookback_days=team_default_lookback_days
     )

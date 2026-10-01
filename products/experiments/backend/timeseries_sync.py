@@ -21,9 +21,8 @@ import structlog
 
 from posthog.models.scoping import team_scope
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import is_daily_timeseries_metric, resolve_scheduled_metrics
+from products.experiments.backend.metric_calculation.spec import plan
+from products.experiments.backend.metric_resolution import is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -66,25 +65,17 @@ def sync_timeseries_recalculation(
         if experiment.start_date is None:
             return None
 
-        stats_method = get_experiment_stats_method(experiment)
         metric_uuids: list[str] = []
         points: dict[str, tuple[str, ExperimentMetricResult]] = {}
-        for metric in resolve_scheduled_metrics(experiment):
-            if not is_daily_timeseries_metric(metric.definition):
+        for spec in plan(experiment):
+            if not is_daily_timeseries_metric(spec.definition):
                 continue
-            metric_uuids.append(metric.uuid)
-            config_fp = compute_metric_fingerprint(
-                metric.definition,
-                experiment.start_date,
-                stats_method,
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+            metric_uuids.append(spec.metric_id)
+            config_fp = spec.calculation_key()
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.uuid,
+                    metric_uuid=spec.metric_id,
                     fingerprint=config_fp,
                     status=ExperimentMetricResult.Status.COMPLETED,
                     query_to__gte=run_started_at,
@@ -94,7 +85,7 @@ def sync_timeseries_recalculation(
                 .first()
             )
             if row is not None:
-                points[metric.uuid] = (compute_recalc_fingerprint(config_fp), row)
+                points[spec.metric_id] = (compute_recalc_fingerprint(config_fp), row)
 
         if not points:
             return None

@@ -43,10 +43,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
-from products.experiments.backend.facade.timeseries import resolve_saved_metric_definition
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.metric_events import MetricSourceRole
 from products.experiments.backend.metric_utils import apply_metric_date_range, refresh_action_names_in_metric
@@ -606,14 +603,6 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         # launched today, which is what the setup UI needs to show.
         return resolve_default_exposure_event(obj.team, obj.start_date or timezone.now())
 
-    @staticmethod
-    def _stored_saved_metric_queries(instance: Experiment) -> dict[int, dict[str, Any]]:
-        links = instance.experimenttosavedmetric_set.all()
-        # Calling select_related on the manager would discard a prefetch cache and query again.
-        if "experimenttosavedmetric_set" not in getattr(instance, "_prefetched_objects_cache", {}):
-            links = links.select_related("saved_metric")
-        return {link.id: link.saved_metric.query for link in links}
-
     @tracer.start_as_current_span("ExperimentSerializer.to_representation")
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -644,7 +633,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         saved_metrics = data.get("saved_metrics", [])
         with tracer.start_as_current_span("ExperimentSerializer.saved_metric_fingerprints") as span:
             span.set_attribute("saved_metric_count", len(saved_metrics))
-            stored_queries = self._stored_saved_metric_queries(instance) if saved_metrics else {}
+            calculation_keys = ExperimentService.saved_metric_calculation_keys(instance) if saved_metrics else {}
             for saved_metric in saved_metrics:
                 if saved_metric.get("query"):
                     apply_metric_date_range(saved_metric["query"], new_date_range)
@@ -654,15 +643,9 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                     # overrides), the same dict the daily discovery fingerprints, so the chart read finds
                     # the rows the daily workflow wrote. The action names are part of the hash, and the
                     # serialized query carries the refreshed names, so the hash reads the stored query.
-                    stored_query = stored_queries.get(saved_metric["id"]) or saved_metric["query"]
-                    saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
-                        resolve_saved_metric_definition(stored_query, saved_metric.get("metadata")),
-                        instance.start_date,
-                        get_experiment_stats_method(instance),
-                        instance.exposure_criteria,
-                        only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=instance.excluded_variants or [],
-                    )
+                    calculation_key = calculation_keys.get(saved_metric["id"])
+                    if calculation_key is not None:
+                        saved_metric["query"]["fingerprint"] = calculation_key
 
         return data
 

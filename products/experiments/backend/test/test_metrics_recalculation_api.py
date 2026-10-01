@@ -10,8 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_calculation.spec import plan_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -29,6 +28,12 @@ def _mean_metric(uuid: str) -> dict:
         "metric_type": "mean",
         "source": {"kind": "EventsNode", "event": "purchase"},
     }
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    spec = plan_metric(experiment, metric_uuid)
+    assert spec is not None
+    return spec.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -226,14 +231,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         # and we just set query_to on the recalc above.
         assert exp.metrics and exp.start_date is not None
         assert recalc.query_to is not None
-        config_fp = compute_metric_fingerprint(
-            exp.metrics[0],
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
-        recalc_fp = compute_recalc_fingerprint(config_fp)
+        recalc_fp = compute_recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -291,19 +289,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # ------------------------------------------------------------------
 
     def _store_timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime) -> None:
-        assert exp.metrics and exp.start_date is not None
-        metric_dict = next(m for m in exp.metrics if m["uuid"] == metric_uuid)
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            exp.start_date,
-            get_experiment_stats_method(exp),
-            exp.exposure_criteria,
-            only_count_matured_users=exp.only_count_matured_users,
-        )
+        assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid=metric_uuid,
-            fingerprint=config_fp,
+            fingerprint=_calculation_key(exp, metric_uuid),
             query_from=exp.start_date,
             query_to=query_to,
             status="completed",
