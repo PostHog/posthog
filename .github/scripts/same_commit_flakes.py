@@ -21,6 +21,7 @@ import json
 import zipfile
 import argparse
 import posixpath
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping
@@ -47,6 +48,7 @@ INCONCLUSIVE_CONCLUSIONS = frozenset({"cancelled", "skipped", "startup_failure",
 MAX_FAILED_TESTS_PER_SHARD = 10
 # More disagreements than this on one commit point at the environment, not at individual tests.
 MAX_DISAGREEMENTS_PER_COMMIT = 5
+MAX_ARTIFACT_XML_BYTES = 200 * 1024 * 1024
 UNOWNED = "unowned"
 
 _ATTEMPT_SUFFIX = re.compile(r"-attempt(\d+)$")
@@ -284,7 +286,10 @@ class GitHubClient:
         url = f"{GITHUB_API}/repos/{self.repository}/actions/artifacts/{artifact_id}/zip"
         with urllib.request.urlopen(self._request(url), timeout=120) as response:
             archive = zipfile.ZipFile(io.BytesIO(response.read()))
-        return [archive.read(name) for name in archive.namelist() if name.endswith(".xml")]
+        members = [info for info in archive.infolist() if info.filename.endswith(".xml")]
+        if sum(info.file_size for info in members) > MAX_ARTIFACT_XML_BYTES:
+            raise ValueError(f"JUnit files expand past {MAX_ARTIFACT_XML_BYTES} bytes")
+        return [archive.read(info) for info in members]
 
 
 def collect_shards(github: GitHubClient, suite: Suite, runs: list[Run]) -> tuple[list[ShardResult], dict[str, str]]:
@@ -298,7 +303,11 @@ def collect_shards(github: GitHubClient, suite: Suite, runs: list[Run]) -> tuple
             jest_root = suite.jest_root_for(job_key)
             if jest_root is None:
                 continue
-            outcomes, files = parse_junit(github.junit_documents(artifact["id"]), jest_root)
+            try:
+                outcomes, files = parse_junit(github.junit_documents(artifact["id"]), jest_root)
+            except (urllib.error.URLError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
+                print(f"skipping artifact {artifact['name']} of run {run.id}: {exc}", file=sys.stderr)
+                continue
             test_files.update(files)
             shards.append(ShardResult(trial=Trial(run=run, attempt=attempt), job_key=job_key, outcomes=outcomes))
     return shards, test_files
@@ -396,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     print(summary)
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
-        with open(summary_path, "a") as handle:
+        with open(summary_path, "a", encoding="utf-8") as handle:
             handle.write(summary)
     return 0
 

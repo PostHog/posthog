@@ -111,7 +111,7 @@ def test_a_push_pass_and_an_hourly_failure_on_one_commit_is_a_flake() -> None:
     found = disagreements_for(
         {
             PUSH: {"junit-results-frontend-app-1": PASSING},
-            HOURLY: {"junit-results-frontend-app-1": FAILING},
+            HOURLY: {"junit-results-frontend-app-1": FAILING, "junit-results-frontend-app-2": b"<testsuites"},
         }
     )
 
