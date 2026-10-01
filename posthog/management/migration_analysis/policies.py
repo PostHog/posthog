@@ -976,7 +976,8 @@ class LockPhaseTransactionPolicy(_ForeignKeyStatePolicy):
 
     One DropForeignKey whose keys reach two hot parents has the same problem inside a single
     lock phase: it must win every hot parent in one budget, and under load each bin/migrate
-    retry can lose the same way.
+    retry can lose the same way. atomic = False does not help it, because DropForeignKey runs
+    in a transaction of its own and locks all of its parents there.
     """
 
     def check_operation(self, op) -> list[str]:
@@ -1004,18 +1005,33 @@ class LockPhaseTransactionPolicy(_ForeignKeyStatePolicy):
                     parents.add(fk.target_table)
         return sorted(parents)
 
+    def _hot_parent_violations(self, migration) -> list[str]:
+        violations = []
+        for op in _descend(migration.operations):
+            if op.__class__.__name__ != "DropForeignKey":
+                continue
+            hot_parents = self._hot_parents(migration, op)
+            if len(hot_parents) > 1:
+                violations.append(
+                    f"❌ BLOCKED: DropForeignKey on {op.table} locks {len(hot_parents)} hot parents "
+                    f"({', '.join(hot_parents)}) in one lock phase, which must win all of them in one short "
+                    "budget, so under load every bin/migrate retry can fail. Set atomic = False, give each key "
+                    "its own DropForeignKey, and list the migration in atomic_false_acknowledged_migrations.txt."
+                )
+        return violations
+
     def check_migration(self, migration) -> list[str]:
         if not is_posthog_app(migration.app_label, migration):
             return []
+        violations = self._hot_parent_violations(migration)
         if not getattr(migration, "atomic", True):
-            return []
+            return violations
 
         names = [op.__class__.__name__ for op in _descend(migration.operations) if _runs_sql(op)]
         lock_phases = [name for name in names if name in _LOCK_PHASE_OPERATIONS]
         if not lock_phases:
-            return []
+            return violations
 
-        violations = []
         if len(lock_phases) > 1:
             violations.append(
                 f"❌ BLOCKED: {len(lock_phases)} lock-phase operations ({', '.join(sorted(set(lock_phases)))}) share "
@@ -1031,17 +1047,6 @@ class LockPhaseTransactionPolicy(_ForeignKeyStatePolicy):
                 "which holds every lock until COMMIT. Move it to a migration of its own. State-only operations "
                 "can stay with it."
             )
-        for op in _descend(migration.operations):
-            if op.__class__.__name__ != "DropForeignKey":
-                continue
-            hot_parents = self._hot_parents(migration, op)
-            if len(hot_parents) > 1:
-                violations.append(
-                    f"❌ BLOCKED: DropForeignKey on {op.table} locks {len(hot_parents)} hot parents "
-                    f"({', '.join(hot_parents)}) in one lock phase, which must win all of them in one short "
-                    "budget, so under load every bin/migrate retry can fail. Set atomic = False, give each key "
-                    "its own DropForeignKey, and list the migration in atomic_false_acknowledged_migrations.txt."
-                )
         return violations
 
 

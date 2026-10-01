@@ -3026,14 +3026,15 @@ class TestLockPhaseTransactionPolicy:
             assert fragment in violation
 
     @pytest.mark.parametrize(
-        "atomic,columns,blocked",
+        "atomic,drops,blocked",
         [
-            (True, ["created_by_id", "team_id"], True),
-            (True, ["team_id", "widget_id"], False),
+            (True, [["created_by_id", "team_id"]], True),
+            (False, [["created_by_id", "team_id"]], True),
+            (True, [["team_id", "widget_id"]], False),
             (False, ["created_by_id", "team_id"], False),
         ],
     )
-    def test_one_drop_must_not_lock_two_hot_parents(self, monkeypatch, atomic, columns, blocked):
+    def test_one_drop_must_not_lock_two_hot_parents(self, monkeypatch, atomic, drops, blocked):
         state = ProjectState()
         state.add_model(
             ModelState(
@@ -3065,7 +3066,7 @@ class TestLockPhaseTransactionPolicy:
         migration.operations = [
             migrations.SeparateDatabaseAndState(
                 state_operations=[migrations.DeleteModel(name="Child")],
-                database_operations=[DropForeignKey("posthog_child", column=columns)],
+                database_operations=[DropForeignKey("posthog_child", column=column) for column in drops],
             )
         ]
 
