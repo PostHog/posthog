@@ -8,7 +8,8 @@ import tarfile
 import argparse
 import tempfile
 import subprocess
-from contextlib import redirect_stderr, redirect_stdout
+from collections.abc import Iterator
+from contextlib import closing, contextmanager, redirect_stderr, redirect_stdout
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,9 +18,12 @@ from uuid import UUID
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
+from boto3.session import Session
+from botocore.response import StreamingBody
+from botocore.stub import Stubber
 from parameterized import parameterized
 
-from products.posthog_ai.eval_harness.environment import cli
+from products.posthog_ai.eval_harness.environment import cli, download
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
 from products.posthog_ai.eval_harness.environment.schema import (
     EVENT_TABLE,
@@ -29,6 +33,26 @@ from products.posthog_ai.eval_harness.environment.schema import (
 )
 
 SOURCE = datetime(2030, 6, 4, 12, tzinfo=UTC)
+S3_URI = "s3://example-fixture-bucket/environments/example.tar.gz"
+
+
+@contextmanager
+def s3_download(content: bytes) -> Iterator[Stubber]:
+    with closing(
+        Session(aws_access_key_id="testing", aws_secret_access_key="testing", region_name="us-east-1").client(
+            "s3", endpoint_url="https://s3.amazonaws.com"
+        )
+    ) as client:
+        with Stubber(client) as stubber:
+            stubber.add_response(
+                "get_object",
+                {"Body": StreamingBody(io.BytesIO(content), len(content)), "ContentLength": len(content)},
+                {"Bucket": "example-fixture-bucket", "Key": "environments/example.tar.gz"},
+            )
+            session = Mock()
+            session.client.return_value = client
+            with patch.object(download.boto3, "Session", return_value=session):
+                yield stubber
 
 
 def write_inputs(root: Path) -> tuple[Path, Path]:
@@ -317,6 +341,110 @@ class TestEnvironmentApp(TestCase):
 
 
 class TestEnvironmentCLI(TestCase):
+    def test_s3_cli_restores_validated_archive_and_preserves_external_source_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            content = bundle(root).read_bytes()
+            digest = hashlib.sha256(content).hexdigest()
+            workspace = root / "state"
+            backend = Mock(spec=["assert_migrations_current", "restore"])
+            backend.restore.return_value = SimpleNamespace(
+                reused=False,
+                event_count=1,
+                team_id=456,
+                target_cutoff=SOURCE,
+                receipt_path=workspace / "receipt.json",
+                credentials_path=None,
+            )
+            with (
+                s3_download(content) as stubber,
+                patch.object(cli, "load_backend", return_value=backend),
+                patch.object(cli.LocalApp, "ensure", return_value=str(cli.REPO_ROOT)),
+                patch.object(cli, "assert_local_databases", return_value={}),
+                patch.dict(os.environ, {"EVAL_ENVIRONMENT_INVOCATION_DIR": str(root)}),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(
+                    cli.main(
+                        [
+                            "prepare",
+                            S3_URI,
+                            "--sha256",
+                            digest.upper(),
+                            "--aws-profile",
+                            "example-employee",
+                            "--state-dir",
+                            "state",
+                        ]
+                    ),
+                    0,
+                )
+                stubber.assert_no_pending_responses()
+            backend.restore.assert_called_once()
+            restored = backend.restore.call_args.args[0]
+            original = EnvironmentDataset.load(root / "fixtures/environment.json")
+            self.assertEqual(restored.manifest, original.manifest)
+            self.assertEqual(list(restored.events()), list(original.events()))
+            self.assertEqual(restored.metrics, original.metrics)
+            self.assertEqual(backend.restore.call_args.kwargs["workspace"], workspace)
+            provenance = backend.restore.call_args.kwargs["provenance"]
+            self.assertEqual(provenance["bundle_source"], S3_URI)
+            self.assertEqual(provenance["bundle_sha256"], digest)
+            self.assertEqual((workspace / f"download-{digest}.tar.gz").read_bytes(), content)
+
+    @parameterized.expand(["missing_pin", "checksum", "archive_checksums"])
+    def test_s3_input_failure_never_starts_app_or_loads_backend(self, failure: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = bundle(root)
+            if failure == "archive_checksums":
+                (root / "fixtures/environment.json").write_text("{}")
+                with tarfile.open(archive, "w:gz") as output:
+                    output.add(root / "fixtures", arcname="fixtures")
+            content = archive.read_bytes()
+            digest = "0" * 64 if failure == "checksum" else hashlib.sha256(content).hexdigest()
+            arguments = ["prepare", S3_URI, "--state-dir", str(root / "state")]
+            if failure != "missing_pin":
+                arguments += ["--sha256", digest]
+            with (
+                s3_download(content) as stubber,
+                patch.object(cli, "load_backend") as backend,
+                patch.object(cli.LocalApp, "ensure") as start,
+                patch.object(cli, "assert_local_databases", return_value={}),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(cli.main(arguments), 1)
+                if failure != "missing_pin":
+                    stubber.assert_no_pending_responses()
+            start.assert_not_called()
+            backend.assert_not_called()
+            self.assertFalse((root / "state/receipt.json").exists())
+
+    @parameterized.expand(["matching_pin", "wrong_pin", "profile"])
+    def test_local_archive_options_validate_before_start_and_never_contact_aws(self, option: str) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive = bundle(root)
+            arguments = ["prepare", archive.name, "--state-dir", "state"]
+            if option == "profile":
+                arguments += ["--aws-profile", "example-employee"]
+            else:
+                arguments += ["--sha256", cli.file_sha256(archive) if option == "matching_pin" else "0" * 64]
+            with (
+                patch.object(download.boto3, "Session") as aws,
+                patch.object(cli.LocalApp, "ensure", side_effect=ValueError("Stop after input validation")) as start,
+                patch.object(cli, "load_backend") as backend,
+                patch.object(cli, "assert_local_databases", return_value={}),
+                patch.dict(os.environ, {"EVAL_ENVIRONMENT_INVOCATION_DIR": str(root)}),
+                redirect_stdout(io.StringIO()),
+                redirect_stderr(io.StringIO()),
+            ):
+                self.assertEqual(cli.main(arguments), 1)
+            self.assertEqual(start.call_count, 1 if option == "matching_pin" else 0)
+            backend.assert_not_called()
+            aws.assert_not_called()
+
     def test_database_errors_do_not_print_sql_or_credentials(self) -> None:
         output = io.StringIO()
         with (
@@ -344,7 +472,13 @@ class TestEnvironmentCLI(TestCase):
                 with self.assertRaisesRegex(ValueError, "No migrations or project import were started"):
                     cli.prepare(
                         argparse.Namespace(
-                            environment=archive, state_dir=workspace, target_cutoff=None, user_id=None, timeout=60
+                            environment=archive,
+                            state_dir=workspace,
+                            target_cutoff=None,
+                            user_id=None,
+                            timeout=60,
+                            sha256=None,
+                            aws_profile=None,
                         )
                     )
             backend.restore.assert_not_called()
@@ -357,7 +491,13 @@ class TestEnvironmentCLI(TestCase):
             archive = bundle(root)
             workspace = root / "state"
             args = argparse.Namespace(
-                environment=archive, state_dir=workspace, target_cutoff=None, user_id=None, timeout=60
+                environment=archive,
+                state_dir=workspace,
+                target_cutoff=None,
+                user_id=None,
+                timeout=60,
+                sha256=None,
+                aws_profile=None,
             )
             with (
                 patch.object(cli, "load_backend") as backend,
@@ -409,6 +549,8 @@ class TestEnvironmentCLI(TestCase):
                             target_cutoff=SOURCE + timedelta(days=1) if failure == "changed_cutoff" else None,
                             user_id=11 if failure == "changed_user" else None,
                             timeout=60,
+                            sha256=None,
+                            aws_profile=None,
                         )
                     )
             start.assert_not_called()
@@ -436,7 +578,13 @@ class TestEnvironmentCLI(TestCase):
                 with self.assertRaises((ValueError, RuntimeError)):
                     cli.prepare(
                         argparse.Namespace(
-                            environment=source, state_dir=root / "state", target_cutoff=None, user_id=None, timeout=60
+                            environment=source,
+                            state_dir=root / "state",
+                            target_cutoff=None,
+                            user_id=None,
+                            timeout=60,
+                            sha256=None,
+                            aws_profile=None,
                         )
                     )
             start.assert_not_called()
@@ -466,7 +614,13 @@ class TestEnvironmentCLI(TestCase):
             ):
                 cli.prepare(
                     argparse.Namespace(
-                        environment=archive, state_dir=workspace, target_cutoff=None, user_id=42, timeout=60
+                        environment=archive,
+                        state_dir=workspace,
+                        target_cutoff=None,
+                        user_id=42,
+                        timeout=60,
+                        sha256=None,
+                        aws_profile=None,
                     )
                 )
             self.assertIsNone(backend.restore.call_args.kwargs["target_cutoff"])
