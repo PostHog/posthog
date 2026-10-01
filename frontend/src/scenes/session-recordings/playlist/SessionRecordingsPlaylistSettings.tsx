@@ -99,6 +99,7 @@ function SortedBy({
 
     return (
         <SettingsMenu
+            data-attr="list-sort-menu"
             highlightWhenActive={false}
             disabledReason={disabledReason}
             items={[
@@ -108,6 +109,7 @@ function SortedBy({
                               label: SortingKeyToLabel['surfacing_score'],
                               tooltip: RELEVANCE_SORT_EXPLANATION,
                               onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
+                              'data-attr': 'list-sort-surfacing-score',
                               active: filters.order === 'surfacing_score',
                           },
                       ]
@@ -118,12 +120,14 @@ function SortedBy({
                         {
                             label: 'Latest',
                             onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-latest',
                             active:
                                 !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
                         },
                         {
                             label: 'Oldest',
                             onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
+                            'data-attr': 'list-sort-oldest',
                             active: filters.order === 'start_time' && filters.order_direction === 'ASC',
                         },
                     ],
@@ -131,11 +135,13 @@ function SortedBy({
                 {
                     label: SortingKeyToLabel['activity_score'],
                     onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-activity',
                     active: filters.order === 'activity_score',
                 },
                 {
                     label: SortingKeyToLabel['console_error_count'],
                     onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-console-errors',
                     active: filters.order === 'console_error_count',
                 },
                 {
@@ -144,16 +150,19 @@ function SortedBy({
                         {
                             label: SortingKeyToLabel['duration'],
                             onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-duration',
                             active: filters.order === 'duration',
                         },
                         {
                             label: SortingKeyToLabel['active_seconds'],
                             onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-active-seconds',
                             active: filters.order === 'active_seconds',
                         },
                         {
                             label: SortingKeyToLabel['inactive_seconds'],
                             onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-inactive-seconds',
                             active: filters.order === 'inactive_seconds',
                         },
                     ],
@@ -164,16 +173,19 @@ function SortedBy({
                         {
                             label: SortingKeyToLabel['click_count'],
                             onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-clicks',
                             active: filters.order === 'click_count',
                         },
                         {
                             label: SortingKeyToLabel['keypress_count'],
                             onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-keypresses',
                             active: filters.order === 'keypress_count',
                         },
                         {
                             label: SortingKeyToLabel['mouse_activity_count'],
                             onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
+                            'data-attr': 'list-sort-mouse-activity',
                             active: filters.order === 'mouse_activity_count',
                         },
                     ],
@@ -181,6 +193,7 @@ function SortedBy({
                 {
                     label: 'Expiration',
                     onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
+                    'data-attr': 'list-sort-expiration',
                     active: filters.order === 'recording_ttl',
                 },
             ]}
@@ -286,6 +299,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
             </div>
             <div className="flex justify-end gap-2 mt-4">
                 <LemonButton
+                    data-attr="list-delete-modal-cancel"
                     type="secondary"
                     onClick={handleClose}
                     disabledReason={isDeletingSelectedRecordings ? 'Deleting...' : undefined}
@@ -293,6 +307,7 @@ function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element
                     Cancel
                 </LemonButton>
                 <LemonButton
+                    data-attr="list-delete-selected-confirm"
                     type="primary"
                     status="danger"
                     loading={isDeletingSelectedRecordings}
@@ -410,7 +425,11 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
                         >
                             New collection
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={handleClose}>
+                        <LemonButton
+                            data-attr="list-add-to-collection-modal-cancel"
+                            type="secondary"
+                            onClick={handleClose}
+                        >
                             Cancel
                         </LemonButton>
                     </div>
@@ -432,10 +451,15 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
                         />
                     </div>
                     <div className="flex justify-end gap-2 mt-8">
-                        <LemonButton type="secondary" onClick={() => setIsCreatingNewCollectionInModal(false)}>
+                        <LemonButton
+                            data-attr="list-new-collection-cancel"
+                            type="secondary"
+                            onClick={() => setIsCreatingNewCollectionInModal(false)}
+                        >
                             Back
                         </LemonButton>
                         <LemonButton
+                            data-attr="list-new-collection-create"
                             type="primary"
                             disabledReason={newCollectionName.length === 0 ? 'Collection name is required' : undefined}
                             onClick={() => handleCreateNewCollectionBulkAdd(loadPlaylists)}
@@ -630,6 +654,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     />
                 )}
                 <SettingsMenu
+                    data-attr="list-autoplay-menu"
                     items={[
                         {
                             label: 'Autoplay',
@@ -637,16 +662,19 @@ export function SessionRecordingsPlaylistTopSettings({
                                 {
                                     label: 'Off',
                                     onClick: () => setAutoplayDirection(null),
+                                    'data-attr': 'list-autoplay-off',
                                     active: !autoplayDirection,
                                 },
                                 {
                                     label: 'Newer recordings',
                                     onClick: () => setAutoplayDirection('newer'),
+                                    'data-attr': 'list-autoplay-newer',
                                     active: autoplayDirection === 'newer',
                                 },
                                 {
                                     label: 'Older recordings',
                                     onClick: () => setAutoplayDirection('older'),
+                                    'data-attr': 'list-autoplay-older',
                                     active: autoplayDirection === 'older',
                                 },
                             ],

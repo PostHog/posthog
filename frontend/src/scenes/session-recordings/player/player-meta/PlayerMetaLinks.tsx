@@ -254,7 +254,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">
-            <LemonButton size="xsmall" icon={<IconEllipsis />} />
+            <LemonButton data-attr="player-meta-more-menu" size="xsmall" icon={<IconEllipsis />} />
         </LemonMenu>
     )
 }

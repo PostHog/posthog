@@ -60,6 +60,7 @@ function SetPlaybackSpeed(): JSX.Element {
                     </div>
                 ),
                 onClick: () => setSpeed(speedToggle),
+                'data-attr': `speed-${speedToggle}x`,
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
@@ -120,7 +121,10 @@ function TTLWarning(): JSX.Element | null {
                                 <br />
                                 <br />
                                 Go to{' '}
-                                <Link to={urls.settings('project-replay', 'replay-retention')}>
+                                <Link
+                                    data-attr="player-ttl-open-settings"
+                                    to={urls.settings('project-replay', 'replay-retention')}
+                                >
                                     Session Replay settings
                                 </Link>{' '}
                                 to increase your retention period to keep future recordings around for longer.
@@ -195,6 +199,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                                     openHeatmap()
                                 }}
                                 label="View heatmap"
+                                data-attr="player-view-heatmap"
                                 tooltip="Use the HTML from this point in the recording as the background for your heatmap data"
                             />
                         ) : null}
