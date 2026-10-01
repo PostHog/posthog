@@ -12630,6 +12630,14 @@ snapshots:
         hash: v1.k794b7964.16c8190934d879b7eb46d67ee86637e34003d27e1503dfe0f52cd403f8b7ea0c.zw0vIR4b3_skhadCSU_SQkInLL9Bn0oyVSAXcZddxJo
     scenes-app-signals-artefactloglist--narrow--light:
         hash: v1.k794b7964.b544f07f6f96dd129bb05ad8f0847e135cb5ddacfb06f71ca7f6dea8567eeb25.l42DAUVqekLSLPYqQtoKHZtTbqH27PeNMG8swIkku3M
+    scenes-app-signals-artefactloglist--ranking-score--dark:
+        hash: v1.k794b7964.e91bde1d05b29532e240583be75cadb24b1bd59429801cdbf93ea8cacaff908a.mLrIHfiWoKr4keRohu9nY5e1hQns6qnNpTGt_dEeQTs
+    scenes-app-signals-artefactloglist--ranking-score--light:
+        hash: v1.k794b7964.72fd7470f9106cf34eb5933b1f16c57bc3151f34b660a92820930107487dc60c.T_Fa3YaQ64pCB30hqbtLwJBRJfyhm8lKUhwYhICYnw0
+    scenes-app-signals-artefactloglist--ranking-score-narrow--dark:
+        hash: v1.k794b7964.e5fdcf08501bfdcd73e1924247cd2179ee56fece5afd29decccf5afba403de32.bDQ2zxjoyqIfhic370qzv4Y7SwpGfXGO_DH1Eh3mV_g
+    scenes-app-signals-artefactloglist--ranking-score-narrow--light:
+        hash: v1.k794b7964.a22a2e79b308029f940ef0871f3b302beb10c7c28e76961e893d35b2d9967deb.SXI51Can_bZBO6MQwuLr00TuQHZQFHE2T3Ti53nRaOY
     scenes-app-signals-artefactloglist--replacement-lifecycle--dark:
         hash: v1.k794b7964.f723b2160bdf85cd5a827fa3dac4c281d75950f47555cdef7fc01f2ef689dfc6.wAOg7AG2Pf4mYO8EjKdD8lFlC1Ulv4MhkXIEMkzfCrg
     scenes-app-signals-artefactloglist--replacement-lifecycle--light:
