@@ -130,6 +130,7 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_id: params.run_id,
                 source_id: params.source_id,
@@ -203,6 +204,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_attempt: params.run_attempt,
                 run_id: params.run_id,

@@ -49,8 +49,8 @@ declare global {
         ESBUILD_PENDING_CHUNK_SCENES: string[] | null
         POSTHOG_EXPORTED_DATA: ExportedData
         POSTHOG_USER_IDENTITY_WITH_FLAGS?: {
-            distinctID: string
-            isIdentifiedID: boolean
+            distinctID?: string
+            isIdentifiedID?: boolean
             featureFlags: Record<string, boolean | string>
         }
         IMPERSONATED_SESSION?: boolean

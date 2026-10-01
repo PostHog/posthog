@@ -1,4 +1,5 @@
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { Task, TaskSearchResult } from "@posthog/shared/domain-types";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { CommandRowMetaPart } from "@posthog/ui/features/command/commandRowMeta";
@@ -47,6 +48,19 @@ export function channelRowParts(channel: {
     textPart(
       channel.createdBy ? userDisplayName(channel.createdBy) : undefined,
     ),
+  ];
+}
+
+export function canvasRowParts(
+  canvas: DashboardRecord,
+): (CommandRowMetaPart | undefined)[] {
+  return [
+    textPart(
+      canvas.createdByUser
+        ? userDisplayName(canvas.createdByUser)
+        : canvas.createdBy,
+    ),
+    activityPart(canvas.updatedAt),
   ];
 }
 

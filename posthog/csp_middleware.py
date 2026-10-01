@@ -238,10 +238,15 @@ class CSPMiddleware:
         is_admin_view = getattr(settings, "ADMIN_PORTAL_ENABLED", False) and request.path.startswith("/admin/")
         if is_admin_view:
             django_loginas_inline_script_hash = "sha256-2bSkJXtgXFhxZUhgXzWsEsKImxJEQsqjns0vi3KiSrI="
+            admin_bundle_origin = ""
+            if request.path == "/admin/tasks/task/infrastructure/":
+                bundle_url = urlsplit(settings.JS_URL)
+                if bundle_url.scheme in ("http", "https") and bundle_url.netloc:
+                    admin_bundle_origin = f"{bundle_url.scheme}://{bundle_url.netloc}"
             csp_parts = [
                 "default-src 'self'",
-                "style-src 'self' 'unsafe-inline'",
-                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}'",
+                f"style-src 'self' 'unsafe-inline' {admin_bundle_origin}".rstrip(),
+                f"script-src 'self' 'nonce-{nonce}' '{django_loginas_inline_script_hash}' {admin_bundle_origin}".rstrip(),
                 "font-src data: https://fonts.gstatic.com",
                 # Without this the directive falls back to `default-src 'self'`, which drops the
                 # `data:` icons Django admin and our own admin pages render, and the `blob:` images
@@ -258,6 +263,9 @@ class CSPMiddleware:
                 "frame-src https://posthog.com",
                 "base-uri 'self'",
             ]
+            if admin_bundle_origin and settings.DEBUG:
+                websocket_origin = admin_bundle_origin.replace("https://", "wss://").replace("http://", "ws://")
+                csp_parts.append(f"connect-src 'self' {admin_bundle_origin} {websocket_origin}")
 
             admin_report_endpoint = csp_report_endpoint()
             if admin_report_endpoint:

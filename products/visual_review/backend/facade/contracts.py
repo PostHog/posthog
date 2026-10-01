@@ -311,15 +311,17 @@ class Snapshot:
 
 @dataclass(frozen=True)
 class RunSnapshots:
-    """A run's snapshots plus the count of its currently-quarantined identifiers.
+    """One page of a run's snapshots plus the counts a caller needs around it.
 
-    `quarantined_count` always reflects the full run regardless of whether
-    quarantined snapshots were filtered out of `snapshots`, so callers can
-    surface "N hidden" without a second fetch.
+    `quarantined_count` counts the quarantined snapshots that match the other
+    filters, whether or not they were left out of `snapshots`, so callers can
+    surface "N hidden" without a second fetch. `total_count` counts every
+    snapshot that matches the filters, across all pages.
     """
 
     snapshots: list[Snapshot]
     quarantined_count: int
+    total_count: int
 
 
 @dataclass(frozen=True)
@@ -352,6 +354,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    purpose: str = "review"
     is_stale: bool = False
     superseded_by_id: UUID | None = None
     approved_by: UserBasicInfo | None = None
@@ -446,6 +449,7 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    notify_owners: bool = False
 
 
 @dataclass(frozen=True)
@@ -651,6 +655,10 @@ FLAKINESS_MIN_HEADROOM = 0.2
 # A quarantine this close to running out needs a human to extend it or let it
 # lapse, so it counts toward `needs_decision`.
 FLAKINESS_EXPIRY_SOON_DAYS = 7
+
+# Latest expiry an agent's quarantine gets, and the one it gets when the call names
+# none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
+AGENT_QUARANTINE_MAX_DAYS = 30
 
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this

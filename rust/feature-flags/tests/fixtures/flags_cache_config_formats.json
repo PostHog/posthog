@@ -141,6 +141,55 @@
       "expect": "unsupported"
     },
     {
+      "key": "v2-string-false-sentinel-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "$false",
+        "rules": [{ "id": "c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3", "rule_type": "targeted_release", "targeting": { "properties": [] }, "value": "$false" }]
+      },
+      "expect": "kept",
+      "reason": "only the writer reserves the event-storage sentinel; readers accept it"
+    },
+    {
+      "key": "v2-semver-padded-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4",
+            "rule_type": "targeted_release",
+            "targeting": { "properties": [{ "key": "app_version", "type": "person", "operator": "semver_gte", "value": "01.2-rc.1" }] },
+            "value": true
+          }
+        ]
+      },
+      "expect": "kept"
+    },
+    {
+      "key": "v2-semver-four-part-active",
+      "active": true,
+      "filters": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4",
+            "rule_type": "targeted_release",
+            "targeting": { "properties": [{ "key": "app_version", "type": "person", "operator": "semver_eq", "value": "1.2.3.4" }] },
+            "value": true
+          }
+        ]
+      },
+      "expect": "unsupported",
+      "reason": "a four-part version is not semver, so the flags service parser rejects it"
+    },
+    {
       "key": "v2-malformed-active",
       "active": true,
       "filters": { "version": 2, "groups": [{ "properties": [], "rollout_percentage": 100 }] },
