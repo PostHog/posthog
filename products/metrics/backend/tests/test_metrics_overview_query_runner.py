@@ -35,16 +35,11 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("all_services_listed", 500, ["api", "worker"]),
-            # The totals must cover the services the list cuts off.
             ("services_list_truncated", 1, ["api"]),
         ]
     )
     def test_rolls_up_services_within_the_window(self, _name: str, max_services: int, expected_services: list[str]):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
-        # "api" reports two series of one metric (distinct label-sets) plus a
-        # second metric; "worker" reports one metric. Distinct label-sets are
-        # what makes series != metric_names, so a runner that counts the wrong
-        # column collapses one of the two numbers.
         seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
         seed_metric(
             team_id=self.team.id,
@@ -71,9 +66,6 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(dt.datetime.fromisoformat(api_row.last_seen), anchor)
 
     def test_quiet_project_keeps_overall_last_seen_but_lists_no_services(self):
-        # The ingestion-stopped case: data exists but nothing reported inside
-        # the window. The status strip needs last_seen to say how long ago
-        # ingestion stopped, while the window-scoped numbers go to zero.
         stale = timezone.now().replace(microsecond=0) - dt.timedelta(days=3)
         seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(stale, 1.0)], service_name="api")
 
@@ -98,8 +90,6 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(overview.series, 1)
 
     def test_dedupes_replacing_merge_tree_parts_without_final(self):
-        # Two seeds of one label-set land two unmerged ReplacingMergeTree parts
-        # for one fingerprint; the overview must still count one series.
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         for offset in (10, 1):
             seed_metric_event(

@@ -1,12 +1,4 @@
-"""Build metrics overview data from `metric_series` and `metric_names`.
-
-`max(last_seen)` and `uniqExact` handle duplicate rows without FINAL.
-Only one query reads `metric_series` in the usual case, because each read of
-that table scans every series-hour in the window. The services query also
-returns the totals over all services, and the small `metric_names` table gives
-the name count. Freshness comes from the services rows. A bounded fallback query
-reads it only when the window has no data.
-"""
+"""No FINAL: `uniqExact` and `max(last_seen)` give the same result on unmerged duplicate rows."""
 
 import datetime as dt
 import contextvars
@@ -32,13 +24,11 @@ from products.metrics.backend.facade.contracts import MetricsOverview, MetricsSe
 
 tracer = trace.get_tracer(__name__)
 
-# The overview accepts partial results. Stop at the read limit.
 _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="break",
 )
 
-# Show only the largest services.
 MAX_SERVICES = 500
 
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
@@ -52,7 +42,6 @@ class _ServicesRollup:
 
 
 def _set_query_timing_attributes(span: Span, response: HogQLQueryResponse) -> None:
-    """Set separate timing attributes for the query and ClickHouse read."""
     timings = {timing.k: timing.t for timing in response.timings or ()}
     if (query_seconds := timings.get(".")) is not None:
         span.set_attribute("query.seconds", query_seconds)
@@ -74,9 +63,6 @@ class MetricsOverviewQueryRunner:
     def _run_freshness_fallback(self) -> str | None:
         with tracer.start_as_current_span("metrics.overview.freshness") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Report the last data point, even after ingestion stops. The newest
-            # `metric_names` hour bounds the read, so the minmax index on `last_seen`
-            # skips all older parts.
             query = parse_select(
                 """
                     SELECT max(toNullable(last_seen)) AS last_seen_at
@@ -90,7 +76,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewFreshnessQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+                workload=Workload.LOGS,
                 settings=_QUERY_SETTINGS,
             )
             _set_query_timing_attributes(span, response)
@@ -101,8 +87,6 @@ class MetricsOverviewQueryRunner:
     def _run_metric_names_count(self) -> int:
         with tracer.start_as_current_span("metrics.overview.metric_names") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Hour buckets, so the window can start up to one hour before the
-            # services window.
             query = parse_select(
                 """
                     SELECT uniqExact(metric_name) AS metric_names
@@ -117,7 +101,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewMetricNamesQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+                workload=Workload.LOGS,
                 settings=_QUERY_SETTINGS,
             )
             _set_query_timing_attributes(span, response)
@@ -128,9 +112,7 @@ class MetricsOverviewQueryRunner:
     def _run_services(self) -> _ServicesRollup:
         with tracer.start_as_current_span("metrics.overview.services") as span:
             span.set_attribute("team_id", self.team.pk)
-            # Put the time window in WHERE so the index skips old parts. The window
-            # functions run before LIMIT, so the totals cover every service. Each
-            # series has one service, so the sum of the service counts is exact.
+            # Each series has one service, so the sum of the service counts is exact.
             query = parse_select(
                 """
                     SELECT
@@ -154,7 +136,7 @@ class MetricsOverviewQueryRunner:
                 query_type="MetricsOverviewServicesQuery",
                 query=query,
                 team=self.team,
-                workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+                workload=Workload.LOGS,
                 settings=_QUERY_SETTINGS,
             )
             _set_query_timing_attributes(span, response)
@@ -190,8 +172,6 @@ class MetricsOverviewQueryRunner:
                     rollup = services_future.result()
                     metric_names = metric_names_future.result()
 
-            # No data in the window. Look further back so the page can say when
-            # ingestion stopped.
             last_seen = rollup.last_seen if rollup.services else self._run_freshness_fallback()
 
             return MetricsOverview(
