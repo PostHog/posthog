@@ -1113,6 +1113,19 @@ test('a JS lockfile lane keeps only the node lanes the lockfile reached', () => 
         ['node:ingestion']
     )
     assert.deepEqual(nodeLanesOf(['package.json'], { ...NODE_CONTEXT, jsLockfileNodeLanes: new Set() }), ALL_NODE_LANES)
+
+    let reads = 0
+    const lazy = {
+        ...NODE_CONTEXT,
+        jsLockfileNodeLanes: () => {
+            reads++
+            return new Set([RASTERIZER_LANE])
+        },
+    }
+    computeTargets(['nodejs/src/ingestion/pipelines/step.ts', 'frontend/src/scenes/App.tsx'], lazy)
+    assert.equal(reads, 0)
+    assert.deepEqual(nodeLanesOf(['pnpm-lock.yaml', 'pnpm-workspace.yaml'], lazy), [RASTERIZER_LANE])
+    assert.equal(reads, 2)
 })
 
 // Semgrep enforces the languages: declaration on every rule, so it is a sound

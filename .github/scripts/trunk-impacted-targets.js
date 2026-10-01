@@ -100,6 +100,7 @@
 //         prose-only PRs.
 //         Diagnostics on stderr
 
+const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 
@@ -1689,7 +1690,8 @@ function addJsLockfileLanes(targets, context) {
     if (!addJavaScriptLanes(lanes, context)) {
         return false
     }
-    const reached = context.jsLockfileNodeLanes
+    const reached =
+        typeof context.jsLockfileNodeLanes === 'function' ? context.jsLockfileNodeLanes() : context.jsLockfileNodeLanes
     if (reached) {
         for (const lane of NODE_LANES) {
             if (!reached.has(lane)) {
@@ -2847,31 +2849,54 @@ function nodeLanesForWorkspaceFile(file, context) {
     return [...lanes]
 }
 
-const PNPM_LOCKFILE_BASE_ENV = 'PNPM_LOCKFILE_BASE'
-const PNPM_WORKSPACE_BASE_ENV = 'PNPM_WORKSPACE_BASE'
+const LANE_MERGE_BASE_ENV = 'LANE_MERGE_BASE'
 
 function readOptional(file) {
     try {
-        return file ? fs.readFileSync(file, 'utf8') : null
+        return fs.readFileSync(file, 'utf8')
     } catch (error) {
         console.error(`Could not read ${file} (${error.message}); a JS lockfile change claims every node lane`)
         return null
     }
 }
 
-function loadJsLockfileNodeLanes(repoRoot, nodeLaneMap, headLockfile) {
-    const baseLockfile = readOptional(process.env[PNPM_LOCKFILE_BASE_ENV])
-    const baseWorkspace = readOptional(process.env[PNPM_WORKSPACE_BASE_ENV])
-    if (baseLockfile === null || baseWorkspace === null) {
+function readAtRevision(repoRoot, revision, file) {
+    try {
+        return execFileSync('git', ['show', `${revision}:${file}`], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024 * 1024,
+            stdio: ['ignore', 'pipe', 'pipe'],
+        })
+    } catch (error) {
+        console.error(
+            `Could not read ${file} at ${revision} (${error.message}); a JS lockfile change claims every node lane`
+        )
         return null
     }
-    return jsLockfileNodeLanes({
-        baseLockfile,
-        baseWorkspace,
-        headLockfile,
-        headWorkspace: readOptional(path.join(repoRoot, 'pnpm-workspace.yaml')),
-        nodeLaneMap,
-    })
+}
+
+function jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile) {
+    let answer
+    return () => {
+        if (answer !== undefined) {
+            return answer
+        }
+        const mergeBase = process.env[LANE_MERGE_BASE_ENV] || ''
+        if (!/^[0-9a-f]{40}$/.test(mergeBase)) {
+            console.error(`${LANE_MERGE_BASE_ENV} is not a commit id; a JS lockfile change claims every node lane`)
+            answer = null
+            return answer
+        }
+        answer = jsLockfileNodeLanes({
+            baseLockfile: readAtRevision(repoRoot, mergeBase, 'pnpm-lock.yaml'),
+            baseWorkspace: readAtRevision(repoRoot, mergeBase, 'pnpm-workspace.yaml'),
+            headLockfile,
+            headWorkspace: readOptional(path.join(repoRoot, 'pnpm-workspace.yaml')),
+            nodeLaneMap,
+        })
+        return answer
+    }
 }
 
 function buildContext(repoRoot) {
@@ -2885,7 +2910,7 @@ function buildContext(repoRoot) {
         products,
         nodeLaneMap,
         nodeWorkspaceDependencies: nodeWorkspaceDependencies(headLockfile),
-        jsLockfileNodeLanes: loadJsLockfileNodeLanes(repoRoot, nodeLaneMap, headLockfile),
+        jsLockfileNodeLanes: jsLockfileNodeLanesLoader(repoRoot, nodeLaneMap, headLockfile),
         rustAffectedCrates: parseRustAffectedCrates(process.env[RUST_AFFECTED_CRATES_ENV], rustInventory),
         services: listServices(repoRoot),
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
