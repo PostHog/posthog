@@ -7,12 +7,12 @@ markdown links — but they all share one vocabulary: the kinds, aliases, labels
 and web paths defined here.
 
 Every entry is declarative (path templates and regex strings, never code) so
-``bin/build-object-tags-registry.py`` can emit the same registry for the
-TypeScript consumers. After editing, run ``hogli build:object-tags`` and commit
+``posthog/object_tags/projection.py`` can emit the same registry for the
+TypeScript consumers. After editing, run ``hogli build:projections`` and commit
 the regenerated files:
 
 - ``products/desktop/packages/core/src/inbox/objectKinds.generated.ts``
-- ``products/desktop/packages/shared/src/objectTagKinds.generated.ts``
+- ``packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts``
 - ``frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts``
 
 Python consumers import this module directly.

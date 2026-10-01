@@ -213,7 +213,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_sync.py
-1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/batch_consumer.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/load/retry_tracker.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/messages.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/s3/common.py
@@ -569,12 +568,8 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fireworks_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/first_promoter.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/first_promoter/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/flagsmith.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flagsmith/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/fleetio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fleetio/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/flexmail.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/flexmail/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/float_app.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/float_app/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/flowlu/flowlu.py
@@ -593,7 +588,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/freshdesk.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/freshsales.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshsales/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshservice/freshservice.py
@@ -606,7 +600,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fulcrum/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fullstory/fullstory.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fusionauth/fusionauth.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/fusionauth/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gainsight_px/gainsight_px.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gainsight_px/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gerrit/gerrit.py
@@ -1340,6 +1333,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/compute_table_statistics.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/repartition_table.py
 1 products/warehouse_sources/backend/temporal/data_imports/workflow_activities/sync_new_schemas.py
+1 products/warehouse_sources_queue/backend/core/batch_consumer.py
 1 products/web_analytics/backend/hogql_queries/bot_definitions.py
 1 products/web_analytics/backend/hogql_queries/test/test_page_reports_avg_time.py
 1 products/web_analytics/backend/hogql_queries/test/test_web_stats_table.py
@@ -1456,7 +1450,6 @@
 2 products/tasks/backend/temporal/process_task/activities/get_sandbox_for_repository.py
 2 products/tasks/backend/temporal/process_task/activities/refresh_sandbox_credentials.py
 2 products/tasks/backend/temporal/process_task/sandbox_credentials.py
-2 products/tasks/backend/temporal/process_task/slack_agent_design_relay.py
 2 products/warehouse_sources/backend/temporal/data_imports/external_data_job.py
 2 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/person_property_sync.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/adobe_commerce/adobe_commerce.py
@@ -1553,7 +1546,6 @@
 4 products/marketing_analytics/backend/services/campaign_mapping_suggester.py
 4 products/marketing_analytics/backend/services/conversion_goals_inspector.py
 4 products/signals/backend/temporal/buffer.py
-4 products/tasks/backend/temporal/process_task/activities/slack_agent_design.py
 4 products/tasks/backend/temporal/process_task/activities/start_agent_server.py
 4 products/tasks/backend/temporal/process_task/workflow.py
 4 products/tasks/backend/temporal/task_management/activities/pending_followups.py
@@ -1600,7 +1592,7 @@
 8 posthog/temporal/ai_observability/evaluation_clustering/activities.py
 8 posthog/temporal/delete_teams/types.py
 8 products/signals/backend/temporal/signal_queries.py
-9 posthog/clickhouse/cluster.py
+5 posthog/clickhouse/cluster.py
 9 posthog/temporal/backfill_materialized_property/activities.py
 9 products/experiments/backend/temporal/models.py
 9 products/signals/backend/temporal/reingestion.py

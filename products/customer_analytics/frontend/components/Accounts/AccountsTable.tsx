@@ -128,6 +128,7 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
             saving={isTagsSaving(accountId) || tagsLoading}
             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
             data-attr="accounts-tags-cell"
+            editorFullWidth
         />
     )
 }

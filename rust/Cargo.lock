@@ -2332,6 +2332,7 @@ dependencies = [
  "common-alloc",
  "common-compression",
  "common-continuous-profiling",
+ "common-kafka",
  "common-metrics",
  "envconfig",
  "flate2",
@@ -3935,7 +3936,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -10623,10 +10624,12 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
+ "lru",
  "neon",
  "posthog-replay-anonymizer",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

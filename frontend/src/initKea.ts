@@ -25,6 +25,24 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadOfflineExperiments', // Offline views provide inline retry states.
+    'loadOfflineScorerOptions',
+    'loadOfflineSuggestedScorers',
+    'loadOfflineOverviewTrend',
+    'loadOfflineExperiment',
+    'loadOfflineSummaries',
+    'loadOfflineItems',
+    'completeOfflineExperiment',
+    'loadOfflineItem',
+    'loadOfflineItemPayload',
+    'loadOfflineItemResults',
+    'loadOfflineSelectedResult',
+    'loadOfflineResultPayload',
+    'loadOfflineHistoryDefinition',
+    'loadOfflineHistoryVersions',
+    'loadOfflineHistoryVersion',
+    'loadOfflineHistoryPrimaryPage',
+    'loadOfflineHistoryComparisonPage',
     'loadPreflight', // Gracefully handled if it fails
     'loadUser', // App won't load (unless loading from shared dashboards)
     'loadFunnels', // Special error handling on insights
@@ -75,6 +93,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
     'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
     'refreshFeatureFlag', // featureFlagLogic's refreshFeatureFlagFailure listener shows a notice with a reload
+    'loadTableDetails', // The model detail summary renders its own error state with a retry
 ]
 
 /*

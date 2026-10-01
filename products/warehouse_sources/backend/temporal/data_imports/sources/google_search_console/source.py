@@ -157,6 +157,12 @@ class GoogleSearchConsoleSource(
             raise IntegrationAccountListingError(
                 "Could not authenticate with Google Search Console. Please reconnect the integration."
             )
+        if not sites:
+            # Google answers 200 with an empty list both when the account owns no property and
+            # when the Search Console scope was not granted. Returning [] leaves the picker on a
+            # generic empty state that names no next step, so raise the same message the 403
+            # listing path uses.
+            raise IntegrationAccountListingError(_PROPERTY_LIST_ACCESS_ERROR)
         # GSC has no name distinct from the site url, so value and display_name are the same.
         return [
             IntegrationAccount(

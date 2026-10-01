@@ -5,7 +5,12 @@ from posthog.ingress.sns.provider import build_sns_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.utils import opt_slash_path
 
-from products.workflows.backend.api import hog_flow, hog_flow_template, workflow_scout_runs, workflow_tasks
+from products.workflows.backend.presentation.views import (
+    hog_flow,
+    hog_flow_template,
+    workflow_scout_runs,
+    workflow_tasks,
+)
 
 # AWS SES tenant reputation events, delivered EventBridge -> SNS HTTPS subscription. Workflows owns
 # the topic and its allowlist setting, so the route is mounted here rather than in core.

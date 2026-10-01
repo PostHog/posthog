@@ -77,7 +77,7 @@ class TaboolaSource(ResumableSource[TaboolaSourceConfig, TaboolaResumeConfig]):
 Backstage API credentials (client ID and secret) are issued by your Taboola account manager — they can't be self-served. Your account ID is the alphabetic account identifier shown in Taboola Ads (also called the account name).""",
             iconPath="/static/services/taboola.png",
             docsUrl="https://posthog.com/docs/cdp/sources/taboola",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

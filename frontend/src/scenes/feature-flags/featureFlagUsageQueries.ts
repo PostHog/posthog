@@ -7,6 +7,7 @@
 // rather than the template's fixed "day".
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
 import {
@@ -181,9 +182,16 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// Not a root table, so the `posthog.` prefix is part of the name. An organization without the
-// flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
+// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
+// the flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
 const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
+
+// The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
+// breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
+// The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
+// table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
+// editor rejects that key, but the API accepts it.
+const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
 
 /** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
@@ -294,7 +302,7 @@ export function buildFlagEvaluationsTotalVolumeChart(
 FROM (
     SELECT
         dateTrunc('${interval}', timestamp) AS period,
-        response AS variant,
+        ${FLAG_EVALUATIONS_VARIANT} AS variant,
         count() AS total
     FROM ${FLAG_EVALUATIONS_TABLE}
     WHERE ${flagEvaluationsConditions(options, '        ')}
@@ -331,7 +339,7 @@ export function buildFlagEvaluationsUniqueCallersChart(
         query: buildFlagEvaluationsQuery(
             options,
             `SELECT
-    response AS \`Variant\`,
+    ${FLAG_EVALUATIONS_VARIANT} AS \`Variant\`,
     uniq(${caller}) AS \`Unique callers\`
 FROM ${FLAG_EVALUATIONS_TABLE}
 WHERE ${flagEvaluationsConditions(options)}

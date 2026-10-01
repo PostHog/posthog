@@ -29,6 +29,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, DateRange, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
@@ -429,6 +430,13 @@ class ConversionGoalWriteResponseSerializer(serializers.Serializer):
 # --- list_data_sources ---
 
 
+class SourceValidationSerializer(serializers.Serializer):
+    errors_by_source = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Validation errors keyed by the source or mapped table ID. Valid sources are omitted.",
+    )
+
+
 class DataSourcesQuerySerializer(serializers.Serializer):
     source_type = serializers.CharField(
         required=False,
@@ -723,14 +731,17 @@ class AttributionHealthEntrySerializer(serializers.Serializer):
     )
     events_matched_paid_last_7d = serializers.IntegerField(
         help_text=(
-            "Of the matched events, how many look paid: a cost-bearing utm_medium (cpc, cpm, cpv, cpa, ppc, "
-            "retargeting, or anything starting with 'paid') or a gclid/gad_source click id."
+            "Of the matched events, how many show paid evidence for this integration: a cost-bearing utm_medium "
+            "(cpc, cpm, cpv, cpa, ppc, retargeting, or anything starting with 'paid') or one of this integration's "
+            "own ad click parameters in the event properties or the current URL (for example gclid for Google Ads "
+            "or msclkid for Microsoft Ads). Pinterest clicks with pp=1 never count. Campaign names, fbclid, and "
+            "epik alone do not count."
         )
     )
     events_matched_tagged_medium_last_7d = serializers.IntegerField(
         help_text=(
-            "Of the matched events, how many carry any utm_medium. Zero paid with a non-zero count here means "
-            "the traffic is tagged and organic; both zero means the team doesn't tag medium, which says nothing."
+            "Matched events carrying any utm_medium in the lookback window. Zero means no matched event "
+            "carried a medium, including when no events matched. Missing paid signals do not prove organic traffic."
         )
     )
 
@@ -1322,6 +1333,23 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             {"conversion_goals": goals},
             context=self.get_serializer_context(),
         )
+
+    @validated_request(
+        responses={200: SourceValidationSerializer},
+        summary="Validate marketing sources",
+        description="Check connected marketing sources using the same validators as campaign queries. Read-only.",
+    )
+    @action(methods=["GET"], detail=False, url_path="source_validation", required_scopes=["marketing_analytics:read"])
+    def source_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        factory = MarketingSourceFactory(
+            context=QueryContext(
+                date_range=None,
+                team=self.team,
+                database=Database.create_for(team=self.team, user=cast(User, request.user)),
+            )
+        )
+        errors = factory.get_validation_errors(factory.create_adapters(raise_on_error=True))
+        return Response(SourceValidationSerializer({"errors_by_source": errors}).data)
 
     @validated_request(
         query_serializer=DataSourcesQuerySerializer,

@@ -144,7 +144,7 @@ def build_eval_report_system_prompt(
             "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
             "last user message from real negative generations you cited.\n"
         )
-    elif output_type in ("boolean", "numeric"):
+    elif output_type in ("boolean", "numeric", "categorical"):
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
         if output_type == "numeric":
             rule = definition.numeric_config.passing_rule if definition.numeric_config else None
@@ -160,6 +160,15 @@ def build_eval_report_system_prompt(
                 "Equal non-null rates mean unchanged pass rate; either rate null means insufficient data. "
                 "Interpret scores using the evaluation criteria, not as normalized percentages. "
                 f"Score configuration: {output_config}"
+            )
+        elif output_type == "categorical":
+            result_semantics = (
+                "With passing categories selected, a result passes only if it is non-empty and every category is marked as passing. "
+                "If no passing categories are selected, only an empty selection passes. "
+                "Without a rule, results are ungraded; null is N/A. "
+                "Exclude N/A from pass rates. Use get_summary_metrics() to compare periods under the current rule. "
+                "Historical reports use saved rules; do not compare snapshots with different or unknown rules. "
+                f"Category configuration: {output_config}"
             )
         elif true_is_failure:
             result_semantics = (
@@ -179,9 +188,14 @@ def build_eval_report_system_prompt(
             "- **`get_top_outcome_reasons(outcome, limit)`**: grouped reasoning strings for one outcome. "
             f"If omitted, outcome defaults to `{analysis_outcome}`.\n"
         )
-        result_overview_detail = "Includes truncated reasoning."
+        result_overview_detail = "Includes truncated reasoning when the judge provides it."
         sample_ordering_signature = ""
-        sample_ordering_instruction = 'Rows include full reasoning. Use the default `order_by="recent"`.'
+        sample_ordering_instruction = (
+            'Rows include full reasoning when available. Use the default `order_by="recent"`. '
+            "Some judges return no written reasoning. For those results, inspect the original "
+            "generation, trace, or session with the detail tools and ground your analysis in that source. "
+            "Do not invent a judge explanation or treat absent reasoning as an evaluation failure."
+        )
         analysis_sample_arguments = f'outcome="{analysis_outcome}"'
         outcome_analysis_step = (
             f"Inspect grouped reasons and sample relevant outcomes, using `{analysis_outcome}` and `{primary_outcome}` "

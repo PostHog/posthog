@@ -352,6 +352,7 @@ class Run:
     error_message: str | None
     created_at: datetime
     completed_at: datetime | None
+    purpose: str = "review"
     is_stale: bool = False
     superseded_by_id: UUID | None = None
     approved_by: UserBasicInfo | None = None
@@ -446,6 +447,7 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+    notify_owners: bool = False
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,10 @@
             "description": "Pass `true` to return broadcasts plus the ordinary workflows the broadcasts UI can render: a batch trigger and a single email step.",
             "type": "boolean"
         },
+        "broadcast_status": {
+            "description": "Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.",
+            "type": "string"
+        },
         "created_at": {
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
@@ -24,6 +28,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "optimization_enabled": {
+            "description": "Only workflows someone turned suggestions on for.",
+            "type": "boolean"
         },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
