@@ -13,8 +13,9 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import grpc
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -177,6 +178,47 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
         results = self.run_query()
 
         assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
+
+    @parameterized.expand(
+        [
+            ("person_lookup", "get_persons_by_uuids", False, grpc.StatusCode.UNAVAILABLE),
+            ("distinct_id_lookup", "get_distinct_ids_for_person", False, grpc.StatusCode.DEADLINE_EXCEEDED),
+            ("identity_recheck", "get_distinct_ids_for_person", True, grpc.StatusCode.UNAVAILABLE),
+        ]
+    )
+    def test_transient_identity_errors_use_person_id_query(
+        self, _name: str, method: str, fail_on_recheck: bool, status_code: grpc.StatusCode
+    ) -> None:
+        fake = get_active_fake()
+        create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
+        error = grpc.RpcError()
+        error.code = MagicMock(return_value=status_code)
+        initial_response = fake.get_distinct_ids_for_person(
+            GetDistinctIdsForPersonRequest(team_id=self.team.pk, person_id=self.person.pk)
+        )
+
+        with patch.object(fake, method, side_effect=[initial_response, error] if fail_on_recheck else error):
+            with self.capture_select_queries() as queries:
+                results = self.run_query()
+
+        assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
+        assert sum("person_distinct_id_overrides" in query for query in queries) == 1
+
+    @parameterized.expand([("permission_denied", True), ("programming_error", False)])
+    def test_non_transient_identity_errors_propagate(self, _name: str, is_rpc_error: bool) -> None:
+        error: Exception
+        if is_rpc_error:
+            rpc_error = grpc.RpcError()
+            rpc_error.code = MagicMock(return_value=grpc.StatusCode.PERMISSION_DENIED)
+            error = rpc_error
+        else:
+            error = ValueError("invalid identity response")
+
+        with patch.object(get_active_fake(), "get_distinct_ids_for_person", side_effect=error):
+            with self.assertRaises(type(error)) as raised:
+                self.run_query()
+
+        assert raised.exception is error
 
     @parameterized.expand([("replica_lag", False), ("merge_after_identity_read", True)])
     def test_returns_groups_during_identity_changes(self, _name: str, merge_after_read: bool) -> None:

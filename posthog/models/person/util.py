@@ -530,12 +530,14 @@ def get_distinct_ids_for_person(
     *,
     limit: int | None = None,
     consistency: ReadConsistency = "eventual",
+    caller_tag: str | None = None,
 ) -> list[str]:
     return personhog_call(
         "get_distinct_ids_for_person",
         lambda: _distinct_ids_for_person(
             _get_client(), team_id, person_id, limit, consistency_to_read_options(consistency)
         ),
+        caller_tag=caller_tag,
     )
 
 

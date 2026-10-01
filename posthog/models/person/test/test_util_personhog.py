@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.models.person.util import (
     _fetch_person_by_distinct_id_via_personhog,
     _fetch_person_by_id_via_personhog,
@@ -10,18 +12,42 @@ from posthog.models.person.util import (
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
     _validate_uuids_via_personhog,
+    get_distinct_ids_for_person,
     get_person_by_pk_or_uuid,
     get_person_ids_and_uuids_by_uuids,
     get_person_uuids_by_distinct_ids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.personhog_client.caller_tag import current_caller_tag, personhog_caller_tag
 from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
+from posthog.personhog_client.proto import GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from posthog.test.persons import create_person
 
 # ── Personhog internal logic tests ──────────────────────────────────
 # These use the fake personhog client to exercise the real proto/converter pipeline.
+
+
+class TestGetDistinctIdsForPerson(SimpleTestCase):
+    @parameterized.expand([("ambient", None), ("explicit", "persons/related-actors")])
+    def test_caller_tag_reaches_rpc(self, _name: str, caller_tag: str | None) -> None:
+        with fake_personhog_client() as fake:
+            fake.add_person(team_id=1, person_id=42, uuid="uuid-1", distinct_ids=["did-1", "did-2"])
+            read_distinct_ids = fake.get_distinct_ids_for_person
+            observed_tags: list[str] = []
+
+            def read_with_tag(request: GetDistinctIdsForPersonRequest) -> GetDistinctIdsForPersonResponse:
+                observed_tags.append(current_caller_tag())
+                return read_distinct_ids(request)
+
+            with personhog_caller_tag("persons/parent"):
+                with patch.object(fake, "get_distinct_ids_for_person", side_effect=read_with_tag):
+                    result = get_distinct_ids_for_person(1, 42, limit=1, caller_tag=caller_tag)
+                assert current_caller_tag() == "persons/parent"
+
+            assert result == ["did-1"]
+            assert observed_tags == [caller_tag or "persons/parent"]
 
 
 class TestFetchPersonByUuidViaPersonhog(SimpleTestCase):

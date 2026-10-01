@@ -4,6 +4,8 @@ from typing import Optional, Union, cast
 
 from django.utils.timezone import now
 
+import grpc
+
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, ProductKey
 
 from posthog.hogql import ast
@@ -24,6 +26,7 @@ from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
 from posthog.models.person.util import get_distinct_ids_for_person, get_person_ids_and_uuids_by_uuids
 from posthog.models.property import GroupTypeIndex
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 
 
 class RelatedActorsQuery:
@@ -125,17 +128,23 @@ class RelatedActorsQuery:
         return person_id
 
     def _person_distinct_ids(self) -> list[str]:
-        if self._person_id is None:
-            return []
+        try:
+            if self._person_id is None:
+                return []
 
-        # ClickHouse merge updates can arrive before the personhog read replica catches up.
-        with personhog_caller_tag("persons/related-actors"):
+            # ClickHouse merge updates can arrive before the personhog read replica catches up.
             distinct_ids = get_distinct_ids_for_person(
                 self.team.pk,
                 self._person_id,
                 limit=MAX_LIMIT_DISTINCT_IDS,
                 consistency="strong",
+                caller_tag="persons/related-actors",
             )
+        except grpc.RpcError as exc:
+            if not is_transient_rpc_error(exc):
+                raise
+            # The identity lookup only selects the fast path; client retries already recorded this failure.
+            return []
 
         # Personhog caps limited lookups at MAX_LIMIT_DISTINCT_IDS, so a full batch may be
         # incomplete. Keep the person_id predicate in that case, and for event-only persons.
