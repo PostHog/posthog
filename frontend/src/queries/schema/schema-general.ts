@@ -533,6 +533,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -8902,6 +8904,11 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
     compareFilter?: CompareFilter
 }
 
+export interface CustomerAnalyticsPinnedProperty {
+    kind: 'custom_property' | 'relationship'
+    id: string
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -8909,6 +8916,7 @@ export interface CustomerAnalyticsConfig {
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
+    default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

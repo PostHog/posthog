@@ -3,7 +3,7 @@ from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerSplitView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -113,7 +113,9 @@ urlpatterns = [
     # Optional UI:
     path(
         "api/schema/swagger-ui/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
+        # The split view serves its init script from this URL with ?script. The plain view inlines
+        # that script without a nonce, and the app policy refuses it.
+        SpectacularSwaggerSplitView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
     path(

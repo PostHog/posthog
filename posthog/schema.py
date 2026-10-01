@@ -156,6 +156,7 @@ from posthog.schema_enums import (
     Kind as Kind,
     Kind1 as Kind1,
     Kind2 as Kind2,
+    Kind3 as Kind3,
     LegendPosition as LegendPosition,
     LifecycleToggle as LifecycleToggle,
     LimitContext as LimitContext,
@@ -1094,6 +1095,14 @@ class ConditionalFormattingRule(BaseModel):
     id: str
     input: str
     templateId: str
+
+
+class CustomerAnalyticsPinnedProperty(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    kind: Kind
 
 
 class DangerousOperationResponse(BaseModel):
@@ -5297,7 +5306,7 @@ class ExperimentApiEventSource(BaseModel):
         description="Event name, e.g. '$pageview'. Required for EventsNode.",
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
-    kind: Kind
+    kind: Kind1
     math: ExperimentMetricMathType | None = Field(
         default=None,
         description=(
@@ -5339,7 +5348,7 @@ class ExperimentApiRetentionStart(BaseModel):
         description="Event name, e.g. '$pageview'. Required for EventsNode.",
     )
     id: int | None = Field(default=None, description="Action ID. Required for ActionsNode.")
-    kind: Kind2 = Field(
+    kind: Kind3 = Field(
         ...,
         description=(
             "Pass 'ExperimentExposureNode' to start retention from the experiment's own"
@@ -5813,6 +5822,16 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsSchema: bool | None = Field(
+        default=None,
+        description=(
+            "Read events from the native JSON events table (`true`) or the legacy"
+            " events table (`false`). When unset, the project's stored value applies,"
+            " then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This"
+            " is an internal rollout switch. PostHog staff set the project value in"
+            " Django admin and the project settings API ignores it."
+        ),
+    )
     usePreaggregatedIntermediateResults: bool | None = None
     usePreaggregatedTableTransforms: bool | None = Field(
         default=None,
@@ -27305,7 +27324,7 @@ class ExperimentApiExposureConfig(BaseModel):
         description=("Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'."),
     )
     id: int | None = Field(default=None, description="Action ID. Required when kind is 'ActionsNode'.")
-    kind: Kind1 | None = Field(
+    kind: Kind2 | None = Field(
         default=None,
         description=(
             "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure."
@@ -29619,6 +29638,7 @@ class CustomerAnalyticsConfig(BaseModel):
     )
     account_group_type_index: int | None = None
     activity_event: EventsNode | ActionsNode
+    default_pinned_properties: list[CustomerAnalyticsPinnedProperty] | None = None
     payment_event: EventsNode | ActionsNode
     signup_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode

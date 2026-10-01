@@ -89,13 +89,13 @@ Open an existing task. Optionally jump to a specific run, or focus a comment thr
 | `<taskId>` | Yes | Task ID |
 | `run/<taskRunId>` | No | Specific run to open |
 | `comment` | No | Comment thread (root comment id) to focus after the task opens |
-| `scope` | No | Comment target scope when the thread lives on a sub-resource: `desktop_canvas` or `task_artifact`. Defaults to the task itself. |
+| `scope` | No | Comment target scope when the thread lives on a sub-resource: `canvas` or `task_artifact`. Defaults to the task itself. The app also accepts the old name `desktop_canvas`. |
 | `item` | No | Row id of the canvas/artifact the thread lives on; required alongside `scope` |
 
 ```
 posthog-code://task/abc123
 posthog-code://task/abc123/run/xyz789
-posthog-code://task/abc123?comment=thread-1&scope=desktop_canvas&item=canvas-9
+posthog-code://task/abc123?comment=thread-1&scope=canvas&item=canvas-9
 ```
 
 Without `comment`, `scope=task_artifact&item=<artifactId>` opens that artifact's tab once the task shows. This is the link the artifact share dialog copies; `item` is any version's manifest id, and the app resolves it to the file's name and run by scanning the runs page it already loads, so a file from a run older than that page is reported as missing.
