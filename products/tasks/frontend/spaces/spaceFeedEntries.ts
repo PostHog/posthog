@@ -61,7 +61,7 @@ export function filterSpaceFeedItems(
     filters: SpaceFeedFilters,
     { userId, unreadIds, pinnedIds }: SpaceFeedFilterContext
 ): TodayWorkItem[] {
-    return filterRecentItems(items, '', filters, userId).filter(
+    return filterRecentItems(items, '', filters, { userId, unreadIds, pinnedIds }).filter(
         (item) =>
             (filters.status === 'any' || unreadIds.has(item.id)) &&
             (filters.pinned === 'any' || pinnedIds.has(item.id)) &&
