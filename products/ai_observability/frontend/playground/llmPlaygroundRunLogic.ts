@@ -174,6 +174,8 @@ export interface llmPlaygroundRunLogicValues {
     activeProviderKeyId: string | null // llmPlaygroundModelLogic
     effectiveModelOptions: ModelOption[] // llmPlaygroundModelLogic
     promptConfigs: PromptConfig[] // llmPlaygroundPromptsLogic
+    detectedVariables: string[] // llmPlaygroundVariablesLogic
+    unfilledVariables: string[] // llmPlaygroundVariablesLogic
     variableValues: Record<string, string> // llmPlaygroundVariablesLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
@@ -234,7 +236,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             llmProviderKeysLogic,
             ['providerKeys'],
             llmPlaygroundVariablesLogic,
-            ['variableValues'],
+            ['variableValues', 'detectedVariables', 'unfilledVariables'],
         ],
         actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
@@ -339,7 +341,18 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                     (sum, { messagesToSend }) => sum + messagesToSend.length,
                     0
                 ),
+                variable_count: values.detectedVariables.length,
+                unfilled_variable_count: values.unfilledVariables.length,
             })
+
+            if (values.unfilledVariables.length > 0) {
+                const names = values.unfilledVariables.map((name) => `{{${name}}}`).join(', ')
+                const suffix =
+                    values.unfilledVariables.length === 1
+                        ? 'The placeholder is sent as written.'
+                        : 'The placeholders are sent as written.'
+                lemonToast.warning(`No value for ${names}. ${suffix}`)
+            }
 
             const abortController = new AbortController()
             currentAbortController = abortController

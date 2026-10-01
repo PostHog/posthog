@@ -140,6 +140,42 @@ describe('llmPlaygroundRunLogic', () => {
         streamSpy.mockRestore()
     })
 
+    it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
+        // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
+        // a warning that keeps firing after the values are filled is noise.
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+        const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: '{{topic}} in a {{tone}} tone' }])
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 1 })
+        )
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+        captureSpy.mockRestore()
+    })
+
     it('does not run a completion without editor access to the playground and explains why', async () => {
         // Both message textareas submit on Cmd+Enter, bypassing the Run button's disabledReason,
         // so the gate has to hold in the logic itself.
