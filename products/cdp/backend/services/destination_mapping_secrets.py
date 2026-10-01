@@ -58,6 +58,10 @@ def _skip_reason(hog_function: HogFunction, key: str) -> Optional[str]:
     }
     if len(values) > 1:
         return "mappings store different values for this key"
+    # A moved value reaches every mapping, so a mapping that stores no value would start sending it.
+    mappings = [mapping for mapping in hog_function.mappings or [] if isinstance(mapping, dict)]
+    if values and len(_stored_values(mappings, key)) < len(mappings):
+        return "some mappings do not store this key"
     return None
 
 

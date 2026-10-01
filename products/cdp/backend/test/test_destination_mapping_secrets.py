@@ -41,12 +41,14 @@ class TestDestinationMappingSecrets(BaseTest):
     def test_leaves_keys_that_cannot_move_without_changing_what_is_sent(self) -> None:
         differing = self._destination([], [_mapping("a", "key-1"), _mapping("b", "key-2")])
         clashing = self._destination([{**SECRET_SCHEMA, "secret": False}], [_mapping("a", "key-1")])
-        stored = {h.pk: (h.inputs_schema, h.mappings) for h in (differing, clashing)}
+        partial = self._destination([], [_mapping("a", "key-1"), {**_mapping("b", "unused"), "inputs": {}}])
+        stored = {h.pk: (h.inputs_schema, h.mappings) for h in (differing, clashing, partial)}
 
         keys = find_mapping_secret_keys(self.team.pk)
         assert {(k.function_id, k.skip_reason) for k in keys} == {
             (str(differing.pk), "mappings store different values for this key"),
             (str(clashing.pk), "the destination inputs already use this key"),
+            (str(partial.pk), "some mappings do not store this key"),
         }
         assert move_mapping_secrets(keys) == 0
         assert {h.pk: (h.inputs_schema, h.mappings) for h in HogFunction.objects.filter(pk__in=stored)} == stored
