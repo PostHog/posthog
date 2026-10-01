@@ -104,6 +104,16 @@ def _is_provider_billing_block(error: anthropic.APIStatusError) -> bool:
     return detail.get("type") == "billing_error" or any(sig in message for sig in _PROVIDER_BILLING_SIGNATURES)
 
 
+def is_ai_credits_exhausted(error: Exception) -> bool:
+    """The gateway's own denial for a team that has used its monthly AI credits."""
+    if not isinstance(error, anthropic.APIStatusError) or error.status_code != 402:
+        return False
+    if not error.response.headers.get("X-PostHog-Denial"):
+        return False
+    detail = error.body.get("error") if isinstance(error.body, dict) else None
+    return isinstance(detail, dict) and detail.get("type") == "billing_error"
+
+
 def _carries_output(chunk: ChatGenerationChunk) -> bool:
     """Thinking counts: the user sees it stream. An opening metadata chunk does not."""
     return bool(chunk.message.content) or bool(getattr(chunk.message, "tool_call_chunks", None))

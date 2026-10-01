@@ -317,6 +317,17 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 ),
                 "openai",
             ),
+            (
+                "anthropic_provider_billing_block_without_gateway_denial",
+                anthropic.APIStatusError(
+                    message="Your credit balance is too low",
+                    response=httpx.Response(
+                        status_code=402, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+                    ),
+                    body={"type": "error", "error": {"type": "billing_error"}},
+                ),
+                "anthropic",
+            ),
         ]
     )
     async def test_llm_generic_api_errors_handled_gracefully(self, _name, exception, expected_provider):
@@ -364,6 +375,42 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    async def test_ai_credits_exhausted_shows_top_up_message_without_error_tracking(self):
+        exception = anthropic.APIStatusError(
+            message="Insufficient AI credits",
+            response=httpx.Response(
+                status_code=402,
+                headers={"X-PostHog-Denial": "insufficient_credits"},
+                request=httpx.Request("POST", "https://ai-gateway.test/v1/messages"),
+            ),
+            body={"type": "error", "error": {"type": "billing_error"}},
+        )
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER") as mock_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+        ):
+            results = [
+                result
+                async for result in runner.astream(
+                    stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+                )
+            ]
+
+        self.assertEqual(len(results), 1)
+        event_type, message = results[0]
+        self.assertEqual(event_type, AssistantEventType.MESSAGE)
+        self.assertIsInstance(message, FailureMessage)
+        assert message.content is not None
+        self.assertIn("used its monthly PostHog AI credits", message.content)
+        self.assertIn("/organization/billing", message.content)
+        mock_graph.aupdate_state.assert_called()
+        mock_counter.labels.assert_not_called()
+        mock_posthog.capture_exception.assert_not_called()
 
 
 class TestRunnerSubagentBehavior(BaseTest):
