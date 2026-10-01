@@ -186,15 +186,6 @@ class TestBuildInitialParams:
         assert params["order_by"] == "updated_at"
         assert params["sort"] == "asc"
 
-    def test_fan_out_child_pages_ascending_despite_desc_sort_mode(self):
-        params = _build_initial_params(
-            GITLAB_ENDPOINTS["issue_notes"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-            incremental_field=None,
-        )
-        assert params == {"per_page": 100, "order_by": "created_at", "sort": "asc"}
-
     def test_full_refresh_endpoint_only_per_page(self):
         params = _build_initial_params(
             GITLAB_ENDPOINTS["releases"],
@@ -511,6 +502,35 @@ class TestGetRows:
             _rows, session = self._run(manager, [parents, child_page, child_page], endpoint="issue_notes")
 
         assert session.get.call_count == 3
+
+    def test_fan_out_flushes_sparse_rows_so_later_empty_parents_reach_a_safe_point(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        parents = _response(json_data=[{"iid": 1}, {"iid": 2}, {"iid": 3}])
+        responses = [parents, _response(json_data=[{"id": 10}]), _response(json_data=[]), _response(json_data=[])]
+        session = mock.MagicMock()
+        session.get.side_effect = responses
+        batcher = gitlab_module.Batcher(logger=mock.MagicMock(), chunk_size=2000)
+        with (
+            mock.patch.object(gitlab_module, "make_tracked_session", return_value=session),
+            mock.patch.object(gitlab_module, "Batcher", return_value=batcher),
+            mock.patch.object(gitlab_module, "PARTIAL_FLUSH_INTERVAL_SECONDS", 0.0),
+        ):
+            tables = list(
+                get_rows(
+                    host="https://gitlab.com",
+                    personal_access_token="tok",
+                    project="group/project",
+                    endpoint="issue_state_events",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    team_id=1,
+                )
+            )
+
+        assert [table.num_rows for table in tables] == [1]
+        assert manager.save_state.call_args.args[0].next_url == session.get.call_args_list[0].args[0]
+        assert manager.safe_point.call_count == 2
 
     def test_empty_page_terminates(self):
         manager = mock.MagicMock()

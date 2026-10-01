@@ -614,8 +614,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gitguardian/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/github/github.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/github/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/gitlab/gitlab.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/gitlab/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gladly/gladly.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/gladly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/glassfrog/settings.py

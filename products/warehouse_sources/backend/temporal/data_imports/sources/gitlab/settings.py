@@ -13,7 +13,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class GitLabEndpointConfig:
     name: str
     path: str  # Path template with a {project} placeholder (project id or URL-encoded path)
@@ -152,7 +152,9 @@ GITLAB_ENDPOINTS: dict[str, GitLabEndpointConfig] = {
     # instead bounds the parent walk with updated_after on the child watermark: creating a note or
     # a state event bumps the parent's updated_at, so only parents bumped since then are re-fanned.
     # Rows arrive grouped by parent rather than by created_at, hence "desc" (the watermark only
-    # advances once the run completes).
+    # advances once the run completes). GitLab skips the parent touch for cross-reference system
+    # notes ("mentioned in !12"), so an incremental sync picks those up only once the parent is next
+    # updated; a full refresh collects them all.
     "issue_notes": GitLabEndpointConfig(
         name="issue_notes",
         path="/projects/{project}/issues/{parent_iid}/notes",

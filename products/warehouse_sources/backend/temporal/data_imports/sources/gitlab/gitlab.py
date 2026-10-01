@@ -1,4 +1,5 @@
 import re
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
@@ -23,7 +24,11 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 # Bounds a runaway child pagination (a bot-spammed issue) in a fan-out. 100 pages = 10k rows per parent.
+# Children page newest-first, so the cap drops the oldest tail and new rows still arrive every sync.
 MAX_PAGES_PER_PARENT = 100
+# In a fan-out, a partly filled chunk is yielded at a parent boundary once this long has passed since
+# the last yield, so the batcher empties and sparse runs still reach safe points.
+PARTIAL_FLUSH_INTERVAL_SECONDS = 60.0
 
 DEFAULT_HOST = "https://gitlab.com"
 HOST_NOT_ALLOWED_ERROR = "GitLab host is not allowed"
@@ -50,7 +55,7 @@ class GitLabHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GitLabResumeConfig:
     next_url: str
 
@@ -165,9 +170,7 @@ def _build_initial_params(
         order_by = active_field or config.stable_order_by
         if order_by:
             params["order_by"] = order_by
-            # A fan-out child's sort_mode describes the order across parents, not within one, so
-            # page each parent's children oldest-first to keep page boundaries stable.
-            params["sort"] = "asc" if config.fan_out_parent else config.sort_mode
+            params["sort"] = config.sort_mode
 
     return params
 
@@ -456,6 +459,7 @@ def get_rows(
     else:
         assert config.fan_out_parent_column is not None
         child_params = _build_initial_params(config, False, None, None)
+        last_flush_at = time.monotonic()
         # Checkpoint the parent page: resuming re-fans its parents, and merge dedupes their children.
         for parent_page_url, parents in iter_pages(url):
             for parent in parents:
@@ -470,10 +474,17 @@ def get_rows(
                         if batcher.should_yield():
                             py_table = batcher.get_table()
                             yield py_table
+                            last_flush_at = time.monotonic()
                             resumable_source_manager.save_state(GitLabResumeConfig(next_url=parent_page_url))
 
                 # Most parents have no state events, so a run can make many requests that yield nothing.
-                if not batcher.should_yield(include_incomplete_chunk=True):
+                if batcher.should_yield(include_incomplete_chunk=True):
+                    if time.monotonic() - last_flush_at >= PARTIAL_FLUSH_INTERVAL_SECONDS:
+                        # Staged before the yield, so the commit that follows this table's write covers it.
+                        resumable_source_manager.save_state(GitLabResumeConfig(next_url=parent_page_url))
+                        yield batcher.get_table()
+                        last_flush_at = time.monotonic()
+                else:
                     resumable_source_manager.safe_point()
 
     if batcher.should_yield(include_incomplete_chunk=True):
