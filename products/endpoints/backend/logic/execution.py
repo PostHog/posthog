@@ -136,6 +136,10 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+# Mistakes in the customer's own query. execute() returns them as a 400 and counts them as user_error.
+_CUSTOMER_QUERY_ERRORS: tuple[type[Exception], ...] = (ExposedHogQLError, ExposedCHQueryError)
+
+
 # Connection loss outside SQLSTATE class 08 (connection_exception).
 _CONNECTION_LOSS_SQLSTATES = frozenset(
     {
@@ -889,16 +893,17 @@ class EndpointExecutionService(PydanticModelMixin):
                 saved_query_id=saved_query.id if saved_query else None,
                 saved_query_status=saved_query.status if saved_query else None,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "endpoint_name": endpoint.name,
-                    "materialized": True,
-                    "saved_query_id": saved_query.id if saved_query else None,
-                },
-            )
+            if not isinstance(e, _CUSTOMER_QUERY_ERRORS):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "endpoint_name": endpoint.name,
+                        "materialized": True,
+                        "saved_query_id": saved_query.id if saved_query else None,
+                    },
+                )
             _emit_endpoint_failure_signal(
                 self.team,
                 endpoint,
@@ -997,15 +1002,16 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "materialized": False,
-                    "endpoint_name": endpoint.name,
-                },
-            )
+            if not isinstance(e, _CUSTOMER_QUERY_ERRORS):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "materialized": False,
+                        "endpoint_name": endpoint.name,
+                    },
+                )
             query_kind = strategy.query_kind if strategy else query.get("kind")
             _emit_endpoint_failure_signal(
                 self.team,
