@@ -64,6 +64,38 @@ describe("cloud context selection", () => {
     ).toBeLessThan(send.mock.invocationCallOrder[0]);
   });
 
+  it("records the gateway-stamped trace when the adapter omits a turn trace", async () => {
+    const { api, selector, send } = fixture();
+    send.mockResolvedValue({ stopReason: "end_turn" });
+    await selector.dispatch(
+      "r",
+      "m",
+      prompt,
+      send,
+      prompt,
+      "stamped-run-trace",
+    );
+    expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
+      status: "completed",
+      trace_id: "stamped-run-trace",
+    });
+  });
+
+  it("prefers the adapter's turn trace over the gateway session trace", async () => {
+    const { api, selector, send } = fixture();
+    await selector.dispatch(
+      "r",
+      "m",
+      prompt,
+      send,
+      prompt,
+      "stamped-run-trace",
+    );
+    expect(api.recordContextSelectionReceipt.mock.calls[1][0]).toMatchObject({
+      trace_id: "actual-turn",
+    });
+  });
+
   it("does not inject when delivery evidence cannot be persisted", async () => {
     const { api, selector, send, report } = fixture();
     api.recordContextSelectionReceipt.mockRejectedValue(

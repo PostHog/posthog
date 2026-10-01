@@ -54,12 +54,14 @@ export class ContextSelection {
     prompt: ContentBlock[],
     send: (blocks: ContentBlock[]) => Promise<PromptResponse>,
     humanPrompt = prompt,
+    gatewayTraceId?: string | null,
   ): Promise<PromptResponse> {
     if (!this.enabled || !messageId) return send(prompt);
     const delivery = await this.preparePrompt({
       runId,
       messageId,
       prompt,
+      gatewayTraceId,
       userText: text(humanPrompt.filter((block) => !isHidden(block))),
       restoredHistory: text(humanPrompt.filter(isHidden)),
       inject: (blocks, context) => [...blocks, hiddenTextBlock(context)],
@@ -85,6 +87,7 @@ export class ContextSelection {
     userText,
     restoredHistory = "",
     historySource = "resume_prompt",
+    gatewayTraceId,
     inject,
   }: {
     runId: string;
@@ -93,6 +96,7 @@ export class ContextSelection {
     userText: string;
     restoredHistory?: string;
     historySource?: "runtime" | "resume_prompt";
+    gatewayTraceId?: string | null;
     inject: (prompt: Prompt, context: string) => Prompt;
   }): Promise<ContextDelivery<Prompt>> {
     if (!this.enabled || !messageId) return { prompt, finish: async () => {} };
@@ -149,7 +153,7 @@ export class ContextSelection {
           trace_id:
             typeof result?._meta?.traceId === "string"
               ? result._meta.traceId
-              : "",
+              : (gatewayTraceId ?? ""),
         });
         return true;
       } catch {
