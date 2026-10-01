@@ -9,7 +9,7 @@ export interface SpaceFeedStatus {
     running?: boolean
 }
 
-const RUN_STATUSES: Record<string, SpaceFeedStatus> = {
+export const RUN_STATUSES: Record<string, SpaceFeedStatus> = {
     not_started: { label: 'Not started', variant: 'default' },
     queued: { label: 'Queued', variant: 'default' },
     in_progress: { label: 'In progress', variant: 'info', running: true },
