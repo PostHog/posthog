@@ -6,6 +6,8 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +23,10 @@ export function MoveProjectModal({
     organization: OrganizationBasicType
 }): JSX.Element {
     const { currentProject, projectBeingMovedLoading } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { moveProject } = useActions(projectLogic)
+
+    const isOnlyProjectOfOrganization = currentOrganization?.projects.length === 1
 
     const [isConfirmed, setConfirmed] = useState(false)
 
@@ -56,6 +61,13 @@ export function MoveProjectModal({
                 Moving a project will mean all original organization members will lose access including via things like
                 API keys unless they also are part of the new organization.
             </p>
+            {isOnlyProjectOfOrganization && (
+                <LemonBanner type="warning" className="mb-4">
+                    This is the only project in {currentOrganization?.name}. After the move that organization has no
+                    projects, and PostHog takes you to {organization.name}. Nothing is deleted, and an admin of both
+                    organizations can move the project back.
+                </LemonBanner>
+            )}
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>

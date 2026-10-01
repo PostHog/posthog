@@ -4,7 +4,10 @@ import { useState } from 'react'
 import { Link } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
+import { DepartedProjectNotice } from 'scenes/project/DepartedProjectNotice'
+import { departedProjectsLogic } from 'scenes/project/departedProjectsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -15,6 +18,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
     const { projectCreationForbiddenReason } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { mostRecentDeparture, departedProjectsLoading } = useValues(departedProjectsLogic)
     const [options, setOptions] = useState<JSX.Element[]>([])
 
     useOnMountEffect(() => {
@@ -60,6 +64,15 @@ export function ErrorProjectUnavailable(): JSX.Element {
                     <p className="text-sm mt-3 mb-0">
                         Someone in your organization has removed your access to this project. You can{listOptions()}.
                     </p>
+                </>
+            ) : departedProjectsLoading ? (
+                // A pending lookup is not an empty one, and the copy below is wrong if a project left
+                <Spinner className="text-2xl my-4" />
+            ) : mostRecentDeparture ? (
+                // A project that moved out explains the empty organization better than generic no-access copy
+                <>
+                    <DepartedProjectNotice />
+                    <p className="text-sm mt-3 mb-0">You can{listOptions()}.</p>
                 </>
             ) : (
                 <>
