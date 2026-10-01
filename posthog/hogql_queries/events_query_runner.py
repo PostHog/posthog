@@ -204,13 +204,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _sorts_by_person_display_name(self) -> bool:
         if self.query.orderBy is not None:
             return any(col.split("--")[0].strip() == "person_display_name" for col in self.query.orderBy)
-        # _default_order_by sorts by the first column only when no column is count(), an aggregation, or timestamp.
         columns = self.select_input_raw()
-        return (
-            columns[0].split("--")[0].strip() == "person_display_name"
-            and "count()" not in columns
-            and "timestamp" not in columns
-            and not any(has_aggregation(parse_expr(column)) for column in columns)
+        return columns[0].split("--")[0].strip() == "person_display_name" and self._default_order_is_first_column(
+            columns, any(has_aggregation(parse_expr(column)) for column in columns)
         )
 
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
@@ -575,18 +571,20 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 columns.append(col)
         return [parse_order_expr(column, timings=self.timings) for column in columns]
 
+    @staticmethod
+    def _default_order_is_first_column(select_input: list[str], has_any_aggregation: bool) -> bool:
+        return "count()" not in select_input and not has_any_aggregation and "timestamp" not in select_input
+
     def _default_order_by(
         self, select_input: list[str], select: list[ast.Expr], aggregations: list[ast.Expr]
     ) -> list[ast.OrderExpr]:
+        if self._default_order_is_first_column(select_input, len(aggregations) > 0):
+            return [ast.OrderExpr(expr=select[0], order="ASC")] if select else []
         if "count()" in select_input:
             return [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
         if len(aggregations) > 0:
             return [ast.OrderExpr(expr=aggregations[0], order="DESC")]
-        if "timestamp" in select_input:
-            return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
-        if len(select) > 0:
-            return [ast.OrderExpr(expr=select[0], order="ASC")]
-        return []
+        return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
 
     def _source_events_query(
         self,
