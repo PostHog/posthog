@@ -1,6 +1,7 @@
-import { MakeLogicType, kea, path, selectors } from 'kea'
+import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import { movedMessagingTabsLogic } from '../Audience/movedMessagingTabsLogic'
 import { MESSAGING_NAV_TAB_KEYS, MessagingNavTabKey } from '../messagingTabs'
 
 export type BroadcastsSceneTab = MessagingNavTabKey | 'broadcasts'
@@ -33,6 +34,9 @@ function isMessagingNavTabKey(segment: string): segment is MessagingNavTabKey {
 
 export const broadcastsSceneLogic = kea<broadcastsSceneLogicType>([
     path(['products', 'workflows', 'frontend', 'Broadcasts', 'broadcastsSceneLogic']),
+    connect(() => ({
+        logic: [movedMessagingTabsLogic],
+    })),
     selectors({
         currentTab: [
             () => [router.selectors.location],

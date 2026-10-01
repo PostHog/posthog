@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { MakeLogicType, actions, connect, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
 import { urlToAction } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -17,6 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { movedMessagingTabsLogic } from './Audience/movedMessagingTabsLogic'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { MessagingTabActions } from './MessagingTabActions'
@@ -66,6 +67,9 @@ export type workflowsSceneLogicType = MakeLogicType<
 export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
     path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
+    connect(() => ({
+        logic: [movedMessagingTabsLogic],
+    })),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
