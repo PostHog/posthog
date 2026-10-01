@@ -10,13 +10,18 @@ describe('buildCheckPattern', () => {
     })
 
     it.each([
+        ['cleared datapoints', NaN, 5],
+        ['negative datapoints', -5, 5],
+    ])('returns no checks for %s', (_name, datapoints, periods) => {
+        expect(buildCheckPattern(datapoints, periods)).toEqual([])
+    })
+
+    it.each([
         ['cleared periods', 1, NaN],
         ['negative periods', 1, -5],
         ['non-integer periods', 1, 2.5],
         ['huge periods', 1, Number.MAX_SAFE_INTEGER],
         ['infinite periods', 1, Infinity],
-        ['cleared datapoints', NaN, 5],
-        ['negative datapoints', -5, 5],
     ])('returns a valid pattern for %s', (_name, datapoints, periods) => {
         const result = buildCheckPattern(datapoints, periods)
         expect(result.length).toBeLessThanOrEqual(100)

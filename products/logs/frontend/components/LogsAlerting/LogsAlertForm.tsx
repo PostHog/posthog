@@ -53,6 +53,9 @@ export function buildCheckPattern(datapoints: number, periods: number): boolean[
     // Both values come from number inputs, which report NaN when cleared. Array() throws on NaN or negative lengths.
     const safePeriods = toSafeCount(periods, MAX_CHECK_PATTERN_PERIODS)
     const safeDatapoints = toSafeCount(datapoints, safePeriods)
+    if (safeDatapoints === 0) {
+        return []
+    }
     // Last check is always matched — it's the one that tips the alert over.
     // Distribute OK checks evenly across the remaining positions.
     const result: boolean[] = Array(safePeriods).fill(true)
