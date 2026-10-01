@@ -33,16 +33,19 @@ def configuration(configuration_id: UUID) -> PlatformConfigurationSnapshot:
     Raises rather than returning None: a test that re-reads a configuration it created is
     asserting about that row, so a missing one is a broken test rather than an outcome.
     """
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     return _configuration_snapshot(PlatformAlertConfiguration.objects.get(id=configuration_id))
 
 
 def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
 
 
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     """How many of these configurations a tick would still pick up at `at`."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     return PlatformAlertConfiguration.objects.filter(id__in=list(configuration_ids), next_check_at__lte=at).count()
 
 

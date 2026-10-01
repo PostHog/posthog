@@ -30,7 +30,7 @@ async def create_alerts_platform_tick_schedule(client: "Client") -> None:
 
     if await a_schedule_exists(client, SCHEDULE_ID):
         description = await client.get_schedule_handle(SCHEDULE_ID).describe()
-        # nosemgrep: insight-alert-state-direct-mutation (Temporal schedule state, not an alert)
+        # nosemgrep: insight-alert-state-direct-mutation,platform-alert-state-direct-mutation (Temporal schedule state, not an alert)
         schedule.state = description.schedule.state
         await a_update_schedule(client, SCHEDULE_ID, schedule)
     else:
