@@ -110,6 +110,8 @@ class RecipientCoverageSerializer(serializers.Serializer):
 
 class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
+    # Every row is a recipient email address, so a token also needs person:read, like the suppression list.
+    required_scopes = ["hog_flow:read", "person:read"]
     serializer_class = _FallbackSerializer
 
     @validated_request(
@@ -138,7 +140,7 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: OpenApiResponse(response=RecipientCoverageSerializer)},
         summary="Count persons who can't be reached by email",
     )
-    @action(detail=False, methods=["get"], required_scopes=["hog_flow:read", "person:read"])
+    @action(detail=False, methods=["get"])
     def coverage(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         self._require_hog_flow_viewer()
         coverage = {"persons_without_email": count_persons_without_email(self.team, request.user)}
