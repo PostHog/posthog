@@ -238,7 +238,11 @@
             }
         },
         {
-            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
+            "files": [
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/mcp/apps/**/*.{ts,tsx}",
+                "products/tasks/frontend/infrastructure/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off"
             }
