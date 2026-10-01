@@ -351,16 +351,24 @@ function WatchCardScanner({
     return (
         // Above the overlay link so the outcome's hover tooltip stays reachable. The summarizer's
         // outcome is the title + body, so it adds no chip here.
-        <div className="relative z-10 flex flex-wrap items-center gap-2 min-w-0">
-            {scannerType && <ScannerTypeBadge scannerType={scannerType} />}
-            {/* The question says what the result answers; the scanner's name is a hover away. */}
-            {observation.prompt_question ? (
-                <Tooltip title={scannerName}>
-                    <span className="text-xs truncate">{observation.prompt_question}</span>
-                </Tooltip>
-            ) : (
-                <span className="text-muted text-xs truncate">{scannerName}</span>
-            )}
+        <div className="relative z-10 flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+            {/* One text flow, so on a narrow card the question starts beside the badge and wraps under it
+                instead of the whole question dropping to its own line. */}
+            <p className="m-0 min-w-0 text-xs leading-5">
+                {scannerType && (
+                    <span className="inline-flex align-middle mr-1.5">
+                        <ScannerTypeBadge scannerType={scannerType} />
+                    </span>
+                )}
+                {/* The question says what the result answers; the scanner's name is a hover away. */}
+                {observation.prompt_question ? (
+                    <Tooltip title={scannerName}>
+                        <span>{observation.prompt_question}</span>
+                    </Tooltip>
+                ) : (
+                    <span className="text-muted">{scannerName}</span>
+                )}
+            </p>
             {scannerType !== 'summarizer' && <ObservationResultSummary observation={observation} />}
         </div>
     )
