@@ -13,7 +13,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
-from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    get_exposure_event_and_property,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
 from .contracts import CreateExperimentInput, Experiment
@@ -92,22 +96,28 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
     return _experiment_model_to_dto(experiment_model)
 
 
-def count_running_experiments_started_before_exposure_cutoff(organization_id: UUID) -> int:
-    """Count the organization's running experiments that started before the exposure cutoff.
+def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> int:
+    """Count the organization's running experiments that count exposures on $feature_flag_called.
 
-    These experiments count exposures on $feature_flag_called in the events table, so they stop
-    gaining exposures when ingestion stops writing that event to events.
+    Those exposures come from the events table, so they stop when ingestion stops writing
+    $feature_flag_called to events.
     """
-    return (
+    experiments = (
         ExperimentModel.objects.filter(
-            team__organization_id=organization_id,
-            start_date__lt=EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-            end_date__isnull=True,
-            archived=False,
+            team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
         )
         .exclude(deleted=True)
-        .count()
+        .select_related("team", "feature_flag")
     )
+    count = 0
+    for experiment in experiments:
+        exposure_event, _ = get_exposure_event_and_property(
+            experiment.feature_flag.key,
+            experiment.exposure_criteria,
+            default_exposure_event=resolve_default_exposure_event(experiment.team, experiment.start_date),
+        )
+        count += exposure_event == DEFAULT_EXPOSURE_EVENT
+    return count
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

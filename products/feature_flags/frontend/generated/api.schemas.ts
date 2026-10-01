@@ -281,8 +281,8 @@ export interface StaffOrganizationModeChangeApi {
     organization_name: string
     /** Teams of the organization. They all read the organization's mode. */
     team_count: number
-    /** Running experiments of the organization that started before the experiment exposure cutoff. They count exposures on $feature_flag_called in events, so mode 2 stops their exposures. */
-    running_pre_cutoff_experiment_count: number
+    /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
+    running_experiments_on_feature_flag_called: number
     /** True when the write moved the organization to the target mode, or would on a dry run. */
     changed: boolean
     /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */

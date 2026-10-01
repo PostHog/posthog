@@ -101,7 +101,7 @@ class Command(BaseCommand):
                 changed_count += change.changed
                 left_above_count += change.left_above_mode
                 if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-                    stopped_experiments_count += change.running_pre_cutoff_experiment_count
+                    stopped_experiments_count += change.running_experiments_on_feature_flag_called
                 outcome = (
                     f"mode {change.current_mode} -> {change.target_mode}"
                     if change.changed
@@ -109,7 +109,8 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(
                     f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
-                    f"{change.team_count} team(s)): {outcome}"
+                    f"{change.team_count} team(s), "
+                    f"{change.running_experiments_on_feature_flag_called} experiment(s) on $feature_flag_called): {outcome}"
                 )
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
@@ -120,6 +121,6 @@ class Command(BaseCommand):
             )
         if stopped_experiments_count:
             self.stdout.write(
-                f"{stopped_experiments_count} running experiment(s) started before the exposure cutoff count "
-                "exposures on $feature_flag_called, so they stop gaining exposures on this mode."
+                f"{stopped_experiments_count} running experiment(s) count exposures on $feature_flag_called. "
+                "On teams in the ingestion allowlist, those exposures stop on this mode."
             )
