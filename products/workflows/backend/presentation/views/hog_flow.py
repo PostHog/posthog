@@ -2016,7 +2016,7 @@ class HogFlowScheduleSerializer(serializers.Serializer):
     next_run_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="Next scheduled fire time, computed by the scheduler."
     )
-    created_at = serializers.DateTimeField(read_only=True, help_text="When this version was published.")
+    created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
     def validate(self, data):

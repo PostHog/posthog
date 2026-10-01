@@ -51922,7 +51922,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_run_at: string | null;
-      /** When this version was published. */
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -76979,7 +76978,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_run_at?: string | null;
-      /** When this version was published. */
       readonly created_at?: string;
       readonly updated_at?: string;
     }
