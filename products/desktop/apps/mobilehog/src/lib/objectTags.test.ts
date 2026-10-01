@@ -134,6 +134,15 @@ describe("object tags in markdown", () => {
     ]);
   });
 
+  it("scans an unfinished tag in linear time", () => {
+    const started = performance.now();
+    for (const repeat of [16, 24, 2000]) {
+      lexMarkdown(`See <insight${" a=  ".repeat(repeat)}!`);
+      lexMarkdown(`See <insight${' a="x"  '.repeat(repeat)}`);
+    }
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("does not hide a tag name in prose", () => {
     expect(inline("x <insight, then y")).toEqual([
       expect.objectContaining({ type: "text", text: "x <insight, then y" }),
