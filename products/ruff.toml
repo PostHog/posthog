@@ -66,6 +66,7 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "workflows/backend/**" = ["ANN"]
 
 "access_control/backend/presentation/access_control.py" = ["ANN"]
+"access_control/backend/presentation/role.py" = ["ANN"]
 "access_control/backend/presentation/access_control_settings.py" = ["ANN"]
 "access_control/backend/facade/user_access_control.py" = ["ANN"]
 
