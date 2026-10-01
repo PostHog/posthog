@@ -28,7 +28,6 @@ from posthog.models.scoping import team_scope
 from products.autoresearch.backend.inference.sandbox import (
     SandboxInferenceError,
     fit_champion_model,
-    training_anchor_ts,
     validate_runnable_feature_sql,
 )
 from products.autoresearch.backend.inference.scoring import check_recipe_estimator
@@ -348,7 +347,7 @@ def _schedule_champion_fit(
     without a model.pkl, and every scoring run then fails until a later promotion fits one.
     The fit labels at the run's anchor instant, so it sees the anchor set the agent scored."""
     training_run_id = str(training_run.id)
-    anchor_ts = training_anchor_ts(training_run)
+    anchor_ts = training_run.anchor_ts
 
     def _fit_after_commit() -> None:
         # Every failure is caught, not only SandboxInferenceError: the run is already

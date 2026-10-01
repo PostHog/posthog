@@ -71,7 +71,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_random_t0_labeler_sql,
     build_training_features_sql,
 )
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 from products.autoresearch.backend.query import run_hogql
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
@@ -348,11 +348,6 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
     # {lookback_days} is 4x horizon (min 30). Shared by train and predict so a user's
     # features are computed over the same window length on either side of T0.
     return max(30, pipeline.horizon_days * 4)
-
-
-def training_anchor_ts(training_run: AutoresearchTrainingRun) -> int:
-    """The instant a training run labels against, so its materializations and its completion fit share one anchor set."""
-    return int((training_run.started_at or training_run.created_at).timestamp())
 
 
 def materialize_training_data(

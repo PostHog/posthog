@@ -12,7 +12,10 @@ from parameterized import parameterized
 from posthog.api.capture import CaptureInternalResult
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME
-from products.autoresearch.backend.inference import scoring
+from products.autoresearch.backend.inference import (
+    sandbox as sandbox_inference,
+    scoring,
+)
 from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT, SandboxScoreResult
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
@@ -695,11 +698,15 @@ class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
     def test_training_rows_and_anchor_count_bind_one_instant(self):
         pipeline = self._make_pipeline()
         with (
-            patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as mock_run_hogql,
-            patch.object(scoring, "count_training_anchors", return_value=0) as count,
+            patch.object(scoring, "run_hogql", return_value=HogQLResult(columns=[], rows=[])) as features_run,
+            patch.object(
+                sandbox_inference, "run_hogql", return_value=HogQLResult(columns=["eligible"], rows=[[0]])
+            ) as count_run,
         ):
             _fetch_training_rows(team=self.team, pipeline=pipeline, feature_sql=_ANCHORS_FEATURE_SQL, user=self.user)
-        assert mock_run_hogql.call_args.kwargs["query"].values["anchor_ts"] == count.call_args.kwargs["anchor_ts"]
+        features_query, count_query = features_run.call_args.kwargs["query"], count_run.call_args.kwargs["query"]
+        assert "now()" not in features_query.query and "now()" not in count_query.query
+        assert features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
 
     @parameterized.expand(
         [
