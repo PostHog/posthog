@@ -32,6 +32,7 @@ members = [
     "personhog-proto",
     "posthog",
 ]
+constraints = [{ name = "posthoganalytics", specifier = "<8" }]
 
 [[manifest.dependency-metadata]]
 name = "xgboost"
