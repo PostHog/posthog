@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import defusedxml.ElementTree as ET
 from owners_yaml import OwnersResolver, first_team_owner
@@ -91,6 +91,7 @@ class Run:
     event: str
     head_sha: str
     html_url: str
+    attempts: int = 1
 
 
 @dataclass(frozen=True)
@@ -128,11 +129,26 @@ class Report:
     run_count: int = 0
     trials: list[Trial] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    skipped_artifacts: list[str] = field(default_factory=list)
+
+
+class RunSource(Protocol):
+    def runs_for_commit(self, workflow_path: str, head_sha: str) -> list[dict[str, Any]]: ...
+
+    def artifacts(self, run_id: int) -> list[dict[str, Any]]: ...
+
+    def junit_documents(self, artifact_id: int) -> list[bytes]: ...
 
 
 def comparable_runs(runs: Iterable[Mapping[str, Any]], head_sha: str, repository: str) -> list[Run]:
     return [
-        Run(id=r["id"], event=r["event"], head_sha=r["head_sha"], html_url=r["html_url"])
+        Run(
+            id=r["id"],
+            event=r["event"],
+            head_sha=r["head_sha"],
+            html_url=r["html_url"],
+            attempts=r.get("run_attempt") or 1,
+        )
         for r in runs
         if r.get("head_sha") == head_sha
         and r.get("head_branch") == MASTER_BRANCH
@@ -258,6 +274,7 @@ class GitHubClient:
 
     def get_json(self, path: str, params: Mapping[str, str | int] | None = None) -> Any:
         query = f"?{urllib.parse.urlencode(params)}" if params else ""
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the URL starts with the https GITHUB_API constant
         with urllib.request.urlopen(self._request(f"{GITHUB_API}{path}{query}"), timeout=30) as response:
             return json.load(response)
 
@@ -284,6 +301,7 @@ class GitHubClient:
 
     def junit_documents(self, artifact_id: int) -> list[bytes]:
         url = f"{GITHUB_API}/repos/{self.repository}/actions/artifacts/{artifact_id}/zip"
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- the URL starts with the https GITHUB_API constant
         with urllib.request.urlopen(self._request(url), timeout=120) as response:
             archive = zipfile.ZipFile(io.BytesIO(response.read()))
         members = [info for info in archive.infolist() if info.filename.endswith(".xml")]
@@ -292,9 +310,12 @@ class GitHubClient:
         return [archive.read(info) for info in members]
 
 
-def collect_shards(github: GitHubClient, suite: Suite, runs: list[Run]) -> tuple[list[ShardResult], dict[str, str]]:
+def collect_shards(
+    github: RunSource, suite: Suite, runs: list[Run]
+) -> tuple[list[ShardResult], dict[str, str], list[str]]:
     shards: list[ShardResult] = []
     test_files: dict[str, str] = {}
+    skipped: list[str] = []
     for run in runs:
         for artifact in github.artifacts(run.id):
             if artifact.get("expired"):
@@ -306,11 +327,11 @@ def collect_shards(github: GitHubClient, suite: Suite, runs: list[Run]) -> tuple
             try:
                 outcomes, files = parse_junit(github.junit_documents(artifact["id"]), jest_root)
             except (urllib.error.URLError, zipfile.BadZipFile, ET.ParseError, ValueError) as exc:
-                print(f"skipping artifact {artifact['name']} of run {run.id}: {exc}", file=sys.stderr)
+                skipped.append(f"{artifact['name']} of run {run.id}: {exc}")
                 continue
             test_files.update(files)
             shards.append(ShardResult(trial=Trial(run=run, attempt=attempt), job_key=job_key, outcomes=outcomes))
-    return shards, test_files
+    return shards, test_files, skipped
 
 
 def load_active_entries(runner: str, today: date) -> list[quarantine_core.Entry]:
@@ -333,8 +354,13 @@ def render_summary(report: Report) -> str:
         f"with {len(report.trials)} run attempts that uploaded test results.",
         "",
     ]
+    if report.skipped_artifacts:
+        lines.append(f"Comparison incomplete: {len(report.skipped_artifacts)} artifacts could not be read.")
+        lines += [f"- {skipped}" for skipped in report.skipped_artifacts]
+        lines.append("")
     if not report.findings:
-        lines.append("No test both failed and passed in the same shard on this commit.")
+        scope = "among the results it could read" if report.skipped_artifacts else "on this commit"
+        lines.append(f"No test both failed and passed in the same shard {scope}.")
         return "\n".join(lines) + "\n"
     lines += ["| Test | Shard | Owner | Failed in | Passed in | Status |", "| --- | --- | --- | --- | --- | --- |"]
     for finding in report.findings:
@@ -361,20 +387,23 @@ def render_annotations(report: Report) -> list[str]:
             f"Owner: {finding.owner}. Failed in {failed}. Passed in {passed}."
         )
         annotations.append(f"::warning title=Flaky test on master::{_escape_annotation(message)}")
+    if report.skipped_artifacts:
+        message = (
+            f"Same-commit comparison on {report.head_sha[:12]} is incomplete: "
+            f"{len(report.skipped_artifacts)} artifacts could not be read. See the step summary."
+        )
+        annotations.append(f"::warning title=Incomplete flake comparison::{_escape_annotation(message)}")
     return annotations
 
 
-def run(args: argparse.Namespace) -> Report:
-    suite = SUITES[args.workflow_path]
-    github = GitHubClient(os.environ["GITHUB_TOKEN"], args.repository)
-    report = Report(head_sha=args.head_sha)
-
-    runs = comparable_runs(github.runs_for_commit(args.workflow_path, args.head_sha), args.head_sha, args.repository)
+def compare(github: RunSource, suite: Suite, workflow_path: str, head_sha: str, repository: str) -> Report:
+    report = Report(head_sha=head_sha)
+    runs = comparable_runs(github.runs_for_commit(workflow_path, head_sha), head_sha, repository)
     report.run_count = len(runs)
-    if len(runs) < 2:
+    if sum(r.attempts for r in runs) < 2:
         return report
 
-    shards, test_files = collect_shards(github, suite, runs)
+    shards, test_files, report.skipped_artifacts = collect_shards(github, suite, runs)
     report.trials = sorted({s.trial for s in shards}, key=lambda t: (t.run.id, t.attempt))
     disagreements = find_disagreements(shards, test_files)
     if not disagreements:
@@ -387,6 +416,11 @@ def run(args: argparse.Namespace) -> Report:
         for d, verdict in zip(disagreements, verdicts)
     ]
     return report
+
+
+def run(args: argparse.Namespace) -> Report:
+    github = GitHubClient(os.environ["GITHUB_TOKEN"], args.repository)
+    return compare(github, SUITES[args.workflow_path], args.workflow_path, args.head_sha, args.repository)
 
 
 def main(argv: list[str] | None = None) -> int:

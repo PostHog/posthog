@@ -14,9 +14,8 @@ from same_commit_flakes import (
     Trial,
     Verdict,
     classify,
-    collect_shards,
     comparable_runs,
-    find_disagreements,
+    compare,
     quarantine_core,
     render_annotations,
     render_summary,
@@ -30,6 +29,9 @@ SIBLING_TEST = "frontend/src/scenes/max/maxThreadLogic.test.ts::maxThreadLogic s
 
 PUSH = Run(id=101, event="push", head_sha=SHA, html_url="https://github.com/PostHog/posthog/actions/runs/101")
 HOURLY = Run(id=202, event="schedule", head_sha=SHA, html_url="https://github.com/PostHog/posthog/actions/runs/202")
+HOURLY_RERUN = Run(
+    id=303, event="schedule", head_sha=SHA, html_url="https://github.com/PostHog/posthog/actions/runs/303", attempts=2
+)
 
 
 def junit_case(name: str, *children: str, file: str = "src/scenes/max/maxThreadLogic.test.ts") -> str:
@@ -50,14 +52,18 @@ FAILING = junit(
 
 
 class FakeGitHub:
-    def __init__(self, artifacts_by_run: dict[int, dict[str, bytes]]) -> None:
+    def __init__(self, artifacts_by_run: dict[Run, dict[str, bytes]]) -> None:
+        self._runs = list(artifacts_by_run)
         self._documents: dict[int, bytes] = {}
         self._artifacts: dict[int, list[dict[str, Any]]] = {}
-        for run_id, artifacts in artifacts_by_run.items():
+        for run, artifacts in artifacts_by_run.items():
             for name, document in artifacts.items():
                 artifact_id = len(self._documents) + 1
                 self._documents[artifact_id] = document
-                self._artifacts.setdefault(run_id, []).append({"id": artifact_id, "name": name, "expired": False})
+                self._artifacts.setdefault(run.id, []).append({"id": artifact_id, "name": name, "expired": False})
+
+    def runs_for_commit(self, workflow_path: str, head_sha: str) -> list[dict[str, Any]]:
+        return [run_payload(id=r.id, event=r.event, html_url=r.html_url, run_attempt=r.attempts) for r in self._runs]
 
     def artifacts(self, run_id: int) -> list[dict[str, Any]]:
         return self._artifacts.get(run_id, [])
@@ -66,10 +72,12 @@ class FakeGitHub:
         return [self._documents[artifact_id]]
 
 
+def compare_runs(artifacts_by_run: dict[Run, dict[str, bytes]]) -> Report:
+    return compare(FakeGitHub(artifacts_by_run), FRONTEND, ".github/workflows/ci-frontend.yml", SHA, REPO)
+
+
 def disagreements_for(artifacts_by_run: dict[Run, dict[str, bytes]]) -> list[Disagreement]:
-    github = FakeGitHub({run.id: artifacts for run, artifacts in artifacts_by_run.items()})
-    shards, files = collect_shards(github, FRONTEND, list(artifacts_by_run))  # type: ignore[arg-type]
-    return find_disagreements(shards, files)
+    return [finding.disagreement for finding in compare_runs(artifacts_by_run).findings]
 
 
 def run_payload(**overrides: Any) -> dict[str, Any]:
@@ -107,27 +115,31 @@ def test_comparable_runs_keeps_only_completed_master_runs_of_the_commit(
     assert bool(comparable_runs([run_payload(**overrides)], SHA, REPO)) is kept
 
 
-def test_a_push_pass_and_an_hourly_failure_on_one_commit_is_a_flake() -> None:
-    found = disagreements_for(
+def test_a_push_pass_and_an_hourly_failure_on_one_commit_is_a_flake_despite_an_unreadable_shard() -> None:
+    report = compare_runs(
         {
             PUSH: {"junit-results-frontend-app-1": PASSING},
             HOURLY: {"junit-results-frontend-app-1": FAILING, "junit-results-frontend-app-2": b"<testsuites"},
         }
     )
+    found = [finding.disagreement for finding in report.findings]
 
     assert [(d.job_key, d.test_id, d.failed_in, d.passed_in) for d in found] == [
         ("junit-results-frontend-app-1", THREAD_TEST, (Trial(HOURLY, 1),), (Trial(PUSH, 1),))
     ]
     assert found[0].test_file == "frontend/src/scenes/max/maxThreadLogic.test.ts"
+    assert [skipped.split(":")[0] for skipped in report.skipped_artifacts] == [
+        "junit-results-frontend-app-2 of run 202"
+    ]
 
 
-def test_a_rerun_attempt_pairs_with_the_first_attempt_of_the_same_job() -> None:
+def test_a_single_run_whose_rerun_attempt_passes_is_a_flake() -> None:
     found = disagreements_for(
-        {HOURLY: {"junit-results-frontend-app-1": FAILING, "junit-results-frontend-app-1-attempt2": PASSING}}
+        {HOURLY_RERUN: {"junit-results-frontend-app-1": FAILING, "junit-results-frontend-app-1-attempt2": PASSING}}
     )
 
     assert [(d.test_id, d.failed_in, d.passed_in) for d in found] == [
-        (THREAD_TEST, (Trial(HOURLY, 1),), (Trial(HOURLY, 2),))
+        (THREAD_TEST, (Trial(HOURLY_RERUN, 1),), (Trial(HOURLY_RERUN, 2),))
     ]
 
 
@@ -200,15 +212,17 @@ def test_classify_blames_no_test_when_a_commit_disagrees_on_too_many() -> None:
     assert set(classify(many, [])) == {Verdict.SYSTEMIC}
 
 
-def test_report_names_test_shard_owner_and_both_runs_in_one_annotation_line() -> None:
+def test_report_names_the_flake_and_flags_an_incomplete_comparison() -> None:
     finding = Finding(disagreement=disagreement(), verdict=Verdict.QUARANTINE_CANDIDATE, owner="@PostHog/team-x")
-    report = Report(head_sha=SHA, run_count=2, findings=[finding])
+    report = Report(head_sha=SHA, run_count=2, findings=[finding], skipped_artifacts=["junit-results-frontend-app-2"])
 
-    [annotation] = render_annotations(report)
+    annotation, incomplete = render_annotations(report)
     summary = render_summary(report)
 
     assert annotation.startswith("::warning title=Flaky test on master::")
-    assert "\n" not in annotation
+    assert incomplete.startswith("::warning title=Incomplete flake comparison::")
+    assert "\n" not in annotation + incomplete
+    assert "Comparison incomplete" in summary and "junit-results-frontend-app-2" in summary
     for text in (summary, annotation):
         for expected in (
             THREAD_TEST,
