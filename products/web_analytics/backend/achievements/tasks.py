@@ -231,7 +231,33 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
         capture_exception(e)
         return
 
+    if track.evaluator_key not in INCREMENTAL_EVALUATORS and not _changes_progress(ctx, track, progress, evaluation):
+        return
     _apply_progress(ctx, track, progress, evaluation)
+
+
+def _next_value_and_stage(
+    ctx: EvalContext, track: TrackDefinition, progress: WebAnalyticsAchievementProgress, evaluation: TrackEvaluation
+) -> tuple[int, int]:
+    is_cumulative = track.evaluator_key != "streak"
+    value = max(evaluation.value, progress.progress_value) if is_cumulative else evaluation.value
+    arm = ctx.arm if track.is_experiment_track else None
+    return value, max(progress.current_stage, track.stage_for_value(value, arm))
+
+
+def _changes_progress(
+    ctx: EvalContext, track: TrackDefinition, progress: WebAnalyticsAchievementProgress, evaluation: TrackEvaluation
+) -> bool:
+    # Cheap tracks run on every visit and interaction request, so skip the row lock when nothing changes.
+    if progress.last_computed_at is None:
+        return True
+    value, stage = _next_value_and_stage(ctx, track, progress, evaluation)
+    if value != progress.progress_value or stage != progress.current_stage:
+        return True
+    if track.evaluator_key == "streak":
+        stored_streak = (progress.state or {}).get("streak") or {}
+        return stored_streak.get("last_visit_date") != _last_visit_date_iso(ctx)
+    return False
 
 
 def _apply_progress(
@@ -251,11 +277,7 @@ def _apply_progress(
             or (progress.state or {}).get("checkpoint") != (evaluated_progress.state or {}).get("checkpoint")
         ):
             return []
-        new_value = evaluation.value
-        is_cumulative = track.evaluator_key != "streak"
-        value = max(new_value, progress.progress_value) if is_cumulative else new_value
-        arm = ctx.arm if track.is_experiment_track else None
-        new_stage = max(progress.current_stage, track.stage_for_value(value, arm))
+        value, new_stage = _next_value_and_stage(ctx, track, progress, evaluation)
 
         state = dict(progress.state or {})
         unlocked_stages = dict(state.get("unlocked_stages", {}))
