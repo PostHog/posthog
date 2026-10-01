@@ -135,7 +135,7 @@ export function TodayBriefing(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconRefresh />}
-                            tooltip="Write a fresh briefing"
+                            tooltip="Refresh briefing"
                             onClick={() => refreshBriefing()}
                             data-attr="today-briefing-refresh"
                         />
