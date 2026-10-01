@@ -6,6 +6,7 @@ from datetime import datetime
 import structlog
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
@@ -31,7 +32,10 @@ from products.engineering_analytics.backend.logic.queries.merged_pull_requests i
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_author_workflow_costs, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
-from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.pull_request_list import (
+    query_attention_pull_requests,
+    query_pull_request_list,
+)
 from products.engineering_analytics.backend.logic.queries.resolve_branch import query_resolve_branch
 
 logger = structlog.get_logger(__name__)
@@ -105,6 +109,10 @@ def build_pull_request_list(
 ) -> PullRequestList:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
     return query_pull_request_list(curated=curated, date_from=parsed_from, author=author)
+
+
+def build_attention_pull_requests(*, curated: CuratedGitHubSource) -> AttentionPullRequestList:
+    return query_attention_pull_requests(curated=curated)
 
 
 def build_merged_pull_requests(

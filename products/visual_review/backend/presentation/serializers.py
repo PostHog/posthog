@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    AGENT_QUARANTINE_MAX_DAYS,
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
@@ -335,6 +336,19 @@ class MarkToleratedInputSerializer(serializers.Serializer):
     )
 
 
+class CompleteRunInputSerializer(serializers.Serializer):
+    check_run_id = serializers.RegexField(
+        r"^\d+$",
+        max_length=32,
+        required=False,
+        help_text=(
+            "Numeric GitHub Actions job ID of the CI job that completes the run, from "
+            "`${{ job.check_run_id }}`. Recompute re-runs this job, so it re-reads the verdict "
+            "without capturing the snapshots again. Omit it outside GitHub Actions."
+        ),
+    )
+
+
 class QuarantineSourceRunSerializer(DataclassSerializer):
     class Meta:
         dataclass = QuarantineSourceRun
@@ -363,6 +377,14 @@ class BaselineQuarantineSummarySerializer(DataclassSerializer):
 class QuarantineInputSerializer(DataclassSerializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
     reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later "
+            f"expiry becomes {AGENT_QUARANTINE_MAX_DAYS} days from now; anywhere else omitting it means no expiry."
+        ),
+    )
     source_run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -606,6 +628,32 @@ class FlakinessOverviewSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = FlakinessOverview
+
+
+class RunSnapshotsQuerySerializer(serializers.Serializer):
+    include_quarantined = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to include snapshots whose identifier is currently quarantined. "
+            "Defaults to false: quarantined snapshots are excluded from results and reported "
+            "in quarantined_count instead, since they are noise when reviewing real changes."
+        ),
+    )
+    exclude_unchanged = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether to leave out snapshots whose result is `unchanged`. Defaults to false. "
+            "Pass true to list only the changed, new and removed snapshots, which is what a "
+            "review needs. A large run holds thousands of unchanged snapshots and few changes."
+        ),
+    )
+    snapshot_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "Return only the snapshot with this id, read from the `id` field of a snapshot in "
+            "the run. Use it to fetch one snapshot without listing the whole run."
+        ),
+    )
 
 
 class TolerationPileupsQuerySerializer(serializers.Serializer):

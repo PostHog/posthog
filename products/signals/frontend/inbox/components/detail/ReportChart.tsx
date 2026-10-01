@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -15,8 +15,8 @@ import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { chartOpenTarget } from '../../utils/chartOpenTarget'
+import { ReportChartsContext } from './reportChartsContext'
 
 /**
  * Strip the chrome a query node carries for the insight scene (filter bar, header, results table)
@@ -154,11 +154,10 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
-/** Looks the chart up on the open report. Replay Vision reads reports through its own
- * scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
+/** Looks the chart up on the report being shown (`ReportChartsContext`). Replay Vision reads reports
+ * through its own scanner-scoped endpoint, so it renders `ReportChartCard` with the chart it already holds. */
 export function ReportChart({ chartId }: { chartId: string }): JSX.Element | null {
-    const { chartsById } = useValues(inboxReportDetailLogic)
-    const chart = chartsById.get(chartId)
+    const chart = useContext(ReportChartsContext).get(chartId)
     return chart ? <ReportChartCard chart={chart} /> : null
 }
 

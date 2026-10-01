@@ -295,7 +295,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         null=True,
         blank=True,
         help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour "
-        "before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+        "before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one "
+        "interval ahead, onto full_refresh_time_of_day when that is set.",
+    )
+    full_refresh_time_of_day = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="UTC time of day that scheduled full refreshes are due. Null means one interval after the last "
+        "full resync or save.",
     )
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
@@ -1082,9 +1089,20 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         if self.full_refresh_interval_days is None:
             self.next_full_refresh_at = None
             return
-        self.next_full_refresh_at = timezone.now() + timedelta(days=self.full_refresh_interval_days)
+        interval = timedelta(days=self.full_refresh_interval_days)
+        now = timezone.now()
+        if self.full_refresh_time_of_day is None:
+            self.next_full_refresh_at = now + interval
+            return
+        # Count from the chosen time the wipe served, not from when it landed. A refresh can run up to the
+        # slack early or wait for a later sync, and counting from the wipe would move the time every cycle.
+        served = now + SCHEDULED_FULL_REFRESH_MAX_SLACK
+        anchor = datetime.combine(served.date(), self.full_refresh_time_of_day, tzinfo=UTC)
+        if anchor > served:
+            anchor -= timedelta(days=1)
+        self.next_full_refresh_at = anchor + interval
 
-    def scheduled_full_refresh_due(self) -> bool:
+    def scheduled_full_refresh_due(self, now: datetime | None = None) -> bool:
         if (
             self.full_refresh_interval_days is None
             or self.next_full_refresh_at is None
@@ -1096,7 +1114,7 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         slack = SCHEDULED_FULL_REFRESH_MAX_SLACK
         if self.sync_frequency_interval is not None:
             slack = min(slack, self.sync_frequency_interval / 2)
-        return timezone.now() >= self.next_full_refresh_at - slack
+        return (now or timezone.now()) >= self.next_full_refresh_at - slack
 
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
         removes = [

@@ -34,6 +34,16 @@ _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
+def _required_model_keys(model: type[BaseModel]) -> set[str]:
+    """Names a `model` instance cannot be built without, so the extractor can spot the answer object.
+
+    A model whose fields all have defaults validates any stray object as an empty answer, so its
+    declared names mark the answer instead.
+    """
+    keys = {field.alias or name: field.is_required() for name, field in model.model_fields.items()}
+    return {key for key, required in keys.items() if required} or set(keys)
+
+
 # Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
 @dataclass(frozen=False)
 class MultiTurnSession:
@@ -354,7 +364,7 @@ class MultiTurnSession:
     @staticmethod
     def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
         """Extract JSON from agent text and validate against a Pydantic model."""
-        json_data = extract_json_from_text(text=text, label=label)
+        json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
         return model.model_validate(json_data)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
