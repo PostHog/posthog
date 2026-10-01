@@ -50,6 +50,8 @@ export interface TaskRunArtifactsLogicProps {
     taskId: string
 }
 
+export type ArtifactSelectSource = 'click' | 'keyboard'
+
 export interface ArtifactText {
     artifactId: string
     text: string | null
@@ -183,8 +185,12 @@ export interface taskRunArtifactsLogicActions {
     reportObjectOpened: (objectKind: string) => {
         objectKind: string
     }
-    selectArtifact: (fileKey: string) => {
+    selectArtifact: (
+        fileKey: string,
+        source?: ArtifactSelectSource
+    ) => {
         fileKey: string
+        source: ArtifactSelectSource
     }
     selectVersion: (artifactId: string | null) => {
         artifactId: string | null
@@ -272,7 +278,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     })),
     actions({
         setActiveTab: (tab: TaskRunTab) => ({ tab }),
-        selectArtifact: (fileKey: string) => ({ fileKey }),
+        selectArtifact: (fileKey: string, source: ArtifactSelectSource = 'click') => ({ fileKey, source }),
         // `null` follows the latest version, so a new upload of the open file shows at once.
         selectVersion: (artifactId: string | null) => ({ artifactId }),
         stepArtifact: (delta: number) => ({ delta }),
@@ -526,7 +532,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 actions.loadArtifactMedia(artifact)
             }
         }
-        const previewSelected = (): void => {
+        const previewSelected = (source?: ArtifactSelectSource): void => {
             const artifact = values.selectedArtifact
             if (values.activeTab !== 'artifacts' || !artifact || !values.selectedKind) {
                 return
@@ -537,6 +543,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 content_type: artifact.content_type ?? null,
                 version_count: values.selectedFile?.versions.length ?? 1,
                 living_adapter: artifact.living?.adapter ?? null,
+                // Only a pick in the file list or the stepper has a source. Opening the tab or a link has none.
+                ...(source ? { source } : {}),
             })
         }
         return {
@@ -548,7 +556,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 }
                 previewSelected()
             },
-            selectArtifact: previewSelected,
+            selectArtifact: ({ source }) => previewSelected(source),
             selectVersion: () => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
                 posthog.capture('task artifact version selected', {
