@@ -597,6 +597,24 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
         assert self.client.count_cohort_members(cohort_pb2.CountCohortMembersRequest(cohort_ids=[9])).count == 0
         assert self._delete("tombstoned") == person_pb2.DeleteTombstonedPersonsResponse()
 
+    def test_a_re_added_distinct_id_resolves_to_its_new_person(self):
+        self.client.delete_persons(
+            person_pb2.DeletePersonsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live"], mode=person_pb2.DELETE_PERSONS_MODE_TOMBSTONE
+            )
+        )
+        hidden = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="l-1")
+        )
+        assert not hidden.HasField("person")
+
+        self.client.add_person(team_id=self.TEAM_ID, person_id=9, uuid="revived", distinct_ids=["l-1"])
+
+        resolved = self.client.get_person_by_distinct_id(
+            person_pb2.GetPersonByDistinctIdRequest(team_id=self.TEAM_ID, distinct_id="l-1")
+        )
+        assert resolved.person.uuid == "revived"
+
     def test_wrong_team_touches_nothing(self):
         resp = self.client.delete_tombstoned_persons(
             person_pb2.DeleteTombstonedPersonsRequest(team_id=self.TEAM_ID + 1, person_uuids=["tombstoned"])

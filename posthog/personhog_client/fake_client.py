@@ -132,6 +132,8 @@ class FakePersonHogClient:
             self._persons_by_uuid[(team_id, uuid)] = person
         for did in distinct_ids or []:
             self._persons_by_distinct_id[(team_id, did)] = person
+            # A re-added mapping is live again, as a revival upsert makes it in the replica.
+            self._tombstoned_distinct_ids.discard((team_id, did))
             self._distinct_ids.setdefault((team_id, person_id), []).append(
                 person_pb2.DistinctIdWithVersion(distinct_id=did, version=(distinct_id_versions or {}).get(did, 0))
             )
