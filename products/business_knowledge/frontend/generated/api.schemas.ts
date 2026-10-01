@@ -345,8 +345,8 @@ export interface RepositorySearchResponseApi {
 
 export interface RepositorySelectionApi {
     /**
-     * owner/repo names to allow. At most 20. Replaces the current list.
-     * @maxItems 20
+     * owner/repo names to allow. At most 100. Replaces the current list.
+     * @maxItems 100
      */
     repos: string[]
 }
