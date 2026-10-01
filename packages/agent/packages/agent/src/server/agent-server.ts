@@ -36,7 +36,6 @@ import { appendRichOutputPrompt } from "@posthog/agent-contracts/rich-output-pro
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
-import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import {
   appendBenjaminGuidance,
   appendSte100Guidance,
@@ -570,7 +569,6 @@ export class AgentServer {
   private prewarmedStartupTurnPending = false;
   private storeSkillsInstalledCount = 0;
   private storeSkillsActivationResolved = false;
-  private agentInstructions: string | null = null;
   private autoPublishStateResolved = false;
   private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
@@ -2201,11 +2199,6 @@ export class AgentServer {
       payload.task_id,
       payload.run_id,
       runState ?? null,
-    );
-    // Before the adapter starts: Claude and Codex read these files when the session opens.
-    this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
-      runState ?? null,
-      { taskId: payload.task_id, runId: payload.run_id },
     );
 
     const runStateSystemPrompt =
@@ -4520,17 +4513,6 @@ export class AgentServer {
         context.push(
           buildStoreSkillsInstructions(this.storeSkillsInstalledCount).trim(),
         );
-      }
-      const instructions = await new AgentInstructionFiles(this.logger).sync(
-        state ?? null,
-        { taskId, runId },
-      );
-      if (instructions && instructions !== this.agentInstructions) {
-        // The session read its instruction files at prewarm, before this user was known.
-        context.push(instructions);
-      }
-      if (state) {
-        this.agentInstructions = instructions;
       }
     }
     const autoPublishUpgrade = this.resolveAutoPublishFromState(state);

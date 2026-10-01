@@ -18,7 +18,6 @@ import {
 } from "@posthog/agent-contracts";
 import { buildPosthogPropertyHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
 import type { TaskContext } from "@posthog/agent-contracts/task-context";
-import { AgentInstructionFiles } from "@posthog/harness/extensions/agent-instructions";
 import { resolveContextWikiPath } from "@posthog/harness/extensions/context-wiki";
 import {
   buildStoreSkillsInstructions,
@@ -614,11 +613,6 @@ export class PiAgentServer {
       { taskId: payload.task_id, runId: payload.run_id },
       this.logger,
     );
-    // Before the Pi child starts: it reads ~/.pi/agent/AGENTS.md when it loads its resources.
-    await new AgentInstructionFiles(this.logger).sync(runState, {
-      taskId: payload.task_id,
-      runId: payload.run_id,
-    });
     const taskSnapshotKind = taskRun
       ? typeof runState?.snapshot_kind === "string"
         ? runState.snapshot_kind
