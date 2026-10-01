@@ -17,6 +17,7 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
+import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
 import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
 import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
@@ -153,13 +154,14 @@ export const ThreadRow = memo(function ThreadRow({
         if (quill) {
             return <QuillHumanMessage item={item} />
         }
+        const text = userMessageDisplayText(item.text ?? '')
         return (
             <MessageTemplate
                 type="human"
                 className="group"
-                action={<HumanMessageFooter startedAt={item.startedAt} text={item.text} />}
+                action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
             >
-                <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
                 {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )

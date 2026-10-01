@@ -1660,6 +1660,36 @@ class SignalReportListQuerySerializer(serializers.Serializer):
     )
 
 
+MAX_FOR_YOU_REPORTS = 20
+
+
+class SignalReportsForYouQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_FOR_YOU_REPORTS,
+        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
+    )
+
+
+class SignalReportsForYouResponseSerializer(serializers.Serializer):
+    results = SignalReportListSerializer(
+        many=True,
+        help_text=(
+            "The open, actionable reports that matter most to the current user, best first: reports "
+            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
+            "reports that nobody owns. The Today briefing ranks reports the same way."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "How many open reports are for the current user: the reports in `results`, plus the other "
+            "open, actionable reports that name them as a reviewer."
+        ),
+    )
+
+
 # One list page, with room for a next page's ids that have not loaded yet.
 MAX_SOURCE_METADATA_REPORTS = 100
 

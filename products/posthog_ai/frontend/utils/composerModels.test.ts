@@ -185,8 +185,8 @@ describe('composerModels', () => {
         const catalogue: ModelChoiceApi[] = [
             {
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
-                display_name: 'Claude Sonnet 5',
+                model: 'claude-sonnet-5-5',
+                display_name: 'Claude Sonnet 5.5',
                 supported_efforts: ['low', 'medium'],
             },
             {
@@ -199,7 +199,7 @@ describe('composerModels', () => {
 
         // Dropped: sonnet at `high` (unsupported effort) and fable entirely (absent from the catalogue).
         expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Claude)).toEqual([
-            { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-sonnet-5-5', effort: ReasoningEffortEnumApi.Medium },
             { model: 'claude-opus-5-5', effort: ReasoningEffortEnumApi.Medium },
             { model: 'claude-opus-5-5', effort: ReasoningEffortEnumApi.Xhigh },
         ])

@@ -21,6 +21,7 @@ interface TodaySpacesRowProps {
     /** How many icon-sized slots `badge` takes, so the label truncates before them. */
     badgeCount?: 1 | 2 | 3
     unread?: boolean
+    weight?: 'regular' | 'medium'
     /** Fade a long label and scroll it on hover instead of cutting it with an ellipsis. */
     ticker?: boolean
     /** Part of a multi-session selection, so the row takes Desktop's selected tint. */
@@ -40,6 +41,7 @@ export function TodaySpacesRow({
     badge,
     badgeCount = 1,
     unread = false,
+    weight = 'medium',
     ticker = false,
     selected = false,
     onClickCapture,
@@ -70,7 +72,8 @@ export function TodaySpacesRow({
                 }
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
-                    'min-w-0 font-medium text-foreground',
+                    'min-w-0 text-foreground',
+                    weight === 'medium' && 'font-medium',
                     // Desktop's two-line row: the second line outgrows the fixed row height, so padding stands in for it.
                     details.length > 0 && 'h-auto py-1',
                     // Like Desktop, the open row takes a stronger tint than the other selected rows.
@@ -97,14 +100,11 @@ export function TodaySpacesRow({
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
                     {ticker ? (
-                        <TodayOverflowText
-                            reveal={hovered || keyboardFocused}
-                            className={cn(unread && 'font-semibold')}
-                        >
+                        <TodayOverflowText reveal={hovered || keyboardFocused} className={cn(unread && 'font-bold')}>
                             {label}
                         </TodayOverflowText>
                     ) : (
-                        <span className={cn('min-w-0 truncate', unread && 'font-semibold')}>{label}</span>
+                        <span className={cn('min-w-0 truncate', unread && 'font-bold')}>{label}</span>
                     )}
                     {details.length > 0 && (
                         <span className="truncate text-xxs text-muted-foreground">
