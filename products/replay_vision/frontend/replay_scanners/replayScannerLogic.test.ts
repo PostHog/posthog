@@ -199,8 +199,9 @@ describe('replayScannerLogic', () => {
             ).toFinishAllListeners()
 
             expect(draftSpy).toHaveBeenCalled()
-            expect(logic.values.goalDraftInput).toEqual('')
+            expect(logic.values.goalDraftInput).toEqual('understand what users come here to do')
             expect(logic.values.scanner).toMatchObject({
+                goal: 'understand what users come here to do',
                 name: draft.name,
                 description: draft.description,
                 scanner_type: draft.scanner_type,
@@ -1688,14 +1689,17 @@ describe('replayScannerLogic', () => {
             })
         })
 
-        it('drafting from a goal reports the AI path without the goal text', async () => {
+        it.each([
+            ['a typed goal', undefined, null],
+            ['a goal starter', 'dead_end', 'dead_end'],
+        ])('drafting from %s reports the AI path without the goal text', async (_, templateKey, reportedKey) => {
             const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(logic, () => {
-                logic.actions.draftScannerFromGoal('  find users who get stuck  ')
+                logic.actions.draftScannerFromGoal('  find users who get stuck  ', undefined, templateKey)
             }).toFinishAllListeners()
             expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                 creation_method: 'ai',
-                template_key: null,
+                template_key: reportedKey,
                 goal_length: 'find users who get stuck'.length,
             })
         })
