@@ -8,6 +8,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 import psycopg
 from asgiref.sync import sync_to_async
 
@@ -19,6 +21,7 @@ from products.warehouse_sources.backend.models import ExternalDataJob, ExternalD
 from products.warehouse_sources.backend.queue_runs.budgets import LONG_RUN_TIMEOUT, RETRY_WINDOW_MARGIN
 from products.warehouse_sources.backend.queue_runs.claim_gate import MemoryClaimGate
 from products.warehouse_sources.backend.queue_runs.extract_handler import (
+    POST_IMPORT_DONE_SNAPSHOT_KEY,
     RUN_PLAN_SNAPSHOT_KEY,
     SHUTDOWN_RETRY_TAG,
     ExtractHandlerConfig,
@@ -137,6 +140,22 @@ def _cancel_then(then: Extraction) -> Extraction:
         return await then(inputs, logger, control)
 
     return body
+
+
+def _cancel_then_finishes_during_grace(
+    inputs: ImportDataActivityInputs, logger: Any, control: RunControl
+) -> Awaitable[PipelineResult]:
+    async def body() -> PipelineResult:
+        await sync_to_async(
+            lambda: ExternalDataJob.objects.filter(id=inputs.run_id).update(
+                status=ExternalDataJob.Status.FAILED, latest_error="Sync cancelled by user"
+            )
+        )()
+        # Let the watcher observe cancellation, then finish before its grace period expires.
+        await asyncio.sleep(0.02)
+        return WITH_BATCHES
+
+    return body()
 
 
 @contextlib.asynccontextmanager
@@ -374,6 +393,23 @@ async def test_a_later_attempt_reuses_the_job_row_and_its_plan(
     assert row.phase == "loading"
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_plan_write_failure_rolls_back_job_creation_and_retries(
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    job = await _claim(conn, _payload(schema))
+
+    with patch(f"{HANDLER}._update_run_snapshot", side_effect=OperationalError("app db down")):
+        outcome = await _handle(_handler(temporal), job, _ctx(_db_url), _FakeExtraction(_returns(WITH_BATCHES)))
+
+    assert isinstance(outcome, Retry)
+    assert await sync_to_async(ExternalDataJob.objects.filter(schema_id=schema.id).exists)() is False
+
+
 @pytest.mark.parametrize(
     "earlier_retries,engine_max_attempts,expected_outcome,expect_extraction",
     [
@@ -586,6 +622,67 @@ async def test_a_cancelled_run_stops_without_writing_a_status(
     assert temporal.start_workflow.call_count == 0
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_run_finishing_during_cancellation_grace_still_stops(
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    job = await _claim(conn, _payload(schema))
+
+    outcome = await _handle(_handler(temporal), job, _ctx(_db_url), _FakeExtraction(_cancel_then_finishes_during_grace))
+
+    assert outcome == Fail(reason="run cancelled")
+    [row] = await sync_to_async(_jobs)(schema)
+    assert row.status == ExternalDataJob.Status.FAILED
+    assert row.phase == "extracting"
+    assert temporal.start_workflow.call_count == 0
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_a_disabled_schema_is_not_started(
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    await sync_to_async(ExternalDataSchema.objects.filter(id=schema.id).update)(should_sync=False)
+    job = await _claim(conn, _payload(schema))
+    extraction = _FakeExtraction(_returns(WITH_BATCHES))
+
+    outcome = await _handle(_handler(temporal), job, _ctx(_db_url), extraction)
+
+    assert outcome == Success()
+    assert extraction.controls == []
+    assert await sync_to_async(ExternalDataJob.objects.filter(schema_id=schema.id).exists)() is False
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_payload_source_must_belong_to_the_schema(
+    schema: ExternalDataSchema,
+    team: Team,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    other_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id="other", connection_id="other", team=team, source_type="Stripe"
+    )
+    payload = dataclasses.replace(_payload(schema), source_id=other_source.id)
+    job = await _claim(conn, payload)
+    extraction = _FakeExtraction(_returns(WITH_BATCHES))
+
+    outcome = await _handle(_handler(temporal), job, _ctx(_db_url), extraction)
+
+    assert isinstance(outcome, Fail)
+    assert extraction.controls == []
+    assert await sync_to_async(ExternalDataJob.objects.filter(schema_id=schema.id).exists)() is False
+
+
 def _running_temporal_job(schema: ExternalDataSchema) -> None:
     ExternalDataJob.objects.create(
         team_id=schema.team_id,
@@ -687,6 +784,35 @@ async def test_post_extraction_work_follows_the_workflow_conditions(
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_terminal_retry_resumes_unfinished_post_import(
+    schema: ExternalDataSchema,
+    temporal: MagicMock,
+    conn: psycopg.AsyncConnection[Any],
+    _db_url: str,
+) -> None:
+    job = await _claim(conn, _payload(schema))
+    handler = _handler(temporal)
+
+    with patch(f"{HANDLER}.start_post_import", AsyncMock(side_effect=BaseException("process died"))):
+        with pytest.raises(BaseException, match="process died"):
+            await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(NO_BATCHES)))
+
+    [row] = await sync_to_async(_jobs)(schema)
+    assert row.status == ExternalDataJob.Status.COMPLETED
+    assert not (row.schema_snapshot or {}).get(POST_IMPORT_DONE_SNAPSHOT_KEY, False)
+
+    start_post_import = AsyncMock()
+    with patch(f"{HANDLER}.start_post_import", start_post_import):
+        outcome = await _handle(handler, job, _ctx(_db_url), _FakeExtraction(_returns(NO_BATCHES)))
+
+    assert outcome == Success()
+    start_post_import.assert_awaited_once()
+    row = await sync_to_async(ExternalDataJob.objects.get)(id=row.id)
+    assert (row.schema_snapshot or {})[POST_IMPORT_DONE_SNAPSHOT_KEY] is True
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_the_consumer_runs_a_queued_extraction_end_to_end(
     schema: ExternalDataSchema, temporal: MagicMock, conn: psycopg.AsyncConnection[Any], _db_url: str
 ) -> None:
@@ -756,8 +882,8 @@ def _keep_row(row: ExternalDataJob) -> None:
             _left_executing_by_a_dead_pod,
             _keep_row,
             RuntimeError("app db down"),
-            ExternalDataJob.Status.RUNNING,
-            id="hook_raises",
+            ExternalDataJob.Status.FAILED,
+            id="transient_hook_failure_is_retried",
         ),
     ],
 )
@@ -799,7 +925,7 @@ async def test_a_job_the_engine_fails_by_itself_fails_its_run(
 
     with (
         patch(f"{HANDLER}.run_extraction", extraction),
-        patch(f"{HANDLER}._update_job_status", AsyncMock(side_effect=finalizer_error))
+        patch(f"{HANDLER}._update_job_status", AsyncMock(side_effect=[finalizer_error, None]))
         if finalizer_error
         else contextlib.nullcontext(),
     ):

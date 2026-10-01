@@ -503,7 +503,8 @@ class _EngineFailureRecordingHandler(_RecordingHandler):
     async def on_engine_failed(self, job: Job, reason: str) -> None:
         self.engine_failures.append((job.id, reason))
         if self.hook_error is not None:
-            raise self.hook_error
+            error, self.hook_error = self.hook_error, None
+            raise error
 
 
 async def _left_waiting_at_cap(conn: psycopg.AsyncConnection[Any], job_id: str, max_attempts: int) -> None:
@@ -576,13 +577,12 @@ class TestEngineFailedHook:
         assert [failed_id for failed_id, _ in handler.engine_failures] == ([job_id] if expect_hook else [])
 
     @pytest.mark.asyncio
-    async def test_a_raising_hook_does_not_stop_the_recovery_sweep(self, conn, _db_url):
-        job_ids = [await _insert(conn, group_key=f"1:group-{index}", dedup_key=f"job-{index}") for index in range(2)]
-        for job_id in job_ids:
-            await _left_executing_by_a_dead_pod(conn, job_id, 2)
+    async def test_a_transient_hook_failure_is_retried_before_the_job_becomes_terminal(self, conn, _db_url):
+        job_id = await _insert(conn)
+        await _left_executing_by_a_dead_pod(conn, job_id, 2)
         handler = _EngineFailureRecordingHandler(Success(), hook_error=RuntimeError("app db down"))
 
-        await _run_consumer_until_failed(conn, _db_url, handler, job_ids, max_attempts=2)
+        await _run_consumer_until_failed(conn, _db_url, handler, [job_id], max_attempts=2)
 
         assert handler.seen == []
-        assert sorted(failed_id for failed_id, _ in handler.engine_failures) == sorted(job_ids)
+        assert [failed_id for failed_id, _ in handler.engine_failures] == [job_id, job_id]

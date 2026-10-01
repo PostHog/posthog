@@ -28,6 +28,7 @@ class SkipReason(enum.StrEnum):
     OVERLAP = "overlap"
     REPARTITION_HOLD = "repartition_hold"
     ALREADY_TERMINAL = "already_terminal"
+    DISABLED = "disabled"
 
 
 RUNS_FINISHED_TOTAL = Counter(

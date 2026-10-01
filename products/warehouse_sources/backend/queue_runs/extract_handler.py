@@ -20,7 +20,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from django.db import InterfaceError, InternalError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError, transaction
 
 import structlog
 from structlog.types import FilteringBoundLogger
@@ -97,6 +97,9 @@ SHUTDOWN_RETRY_TAG = "shutdown"
 # The key in `ExternalDataJob.schema_snapshot` that keeps the pre-extraction answers, so a later
 # attempt of the same queue job reads them instead of creating another job row.
 RUN_PLAN_SNAPSHOT_KEY = "queue_run_plan"
+EXTRACTION_RESULT_SNAPSHOT_KEY = "queue_extraction_result"
+POST_EXTRACTION_DONE_SNAPSHOT_KEY = "queue_post_extraction_done"
+POST_IMPORT_DONE_SNAPSHOT_KEY = "queue_post_import_done"
 
 
 @frozen
@@ -114,6 +117,12 @@ class _HandlerResult:
     outcome: Outcome
     run_outcome: RunOutcome
     source_type: str | None = None
+
+
+class _RunEligibilityChanged(Exception):
+    def __init__(self, eligibility: str) -> None:
+        self.eligibility = eligibility
+        super().__init__(eligibility)
 
 
 @frozen
@@ -186,6 +195,22 @@ class SyncExtractHandler:
     async def _handle(
         self, job: Job, ctx: JobContext, payload: SyncExtractPayload, attempt: int, logger: FilteringBoundLogger
     ) -> _HandlerResult:
+        if job.team_id != payload.team_id or job.group_key != payload.group_key:
+            await logger.aerror("Rejecting queue run: its queue identity does not match its payload")
+            return _HandlerResult(
+                outcome=Fail(reason="queue identity does not match payload"), run_outcome=RunOutcome.FAILED
+            )
+
+        eligibility = await database_sync_to_async_pool(_validate_payload_and_eligibility)(payload)
+        if eligibility == "invalid":
+            await logger.aerror("Rejecting queue run: schema, source, and team do not match")
+            return _HandlerResult(
+                outcome=Fail(reason="schema, source, and team do not match"), run_outcome=RunOutcome.FAILED
+            )
+        if eligibility == "disabled":
+            await logger.ainfo("Skipping queue run: schema or source is disabled")
+            return _skipped(SkipReason.DISABLED)
+
         existing = await database_sync_to_async_pool(_find_run_job)(payload.team_id, job.id)
 
         if await database_sync_to_async_pool(_other_run_is_running)(
@@ -205,6 +230,12 @@ class SyncExtractHandler:
             return _skipped(SkipReason.OVERLAP)
 
         if existing is not None and existing.status in TERMINAL_JOB_STATUSES:
+            plan = _load_run_plan(existing)
+            result = _load_extraction_result(existing)
+            if plan is not None and result is not None:
+                structlog.contextvars.bind_contextvars(external_data_job_id=plan.job_id)
+                await logger.ainfo("Resuming post-extraction work for a terminal run", status=existing.status)
+                return await self._finish_extraction(job, payload, plan, result, logger)
             await logger.ainfo("Skipping queue run: its job is already terminal", status=existing.status)
             return _skipped(SkipReason.ALREADY_TERMINAL)
 
@@ -243,6 +274,11 @@ class SyncExtractHandler:
                 )
                 return _HandlerResult(outcome=Fail(reason="queue run plan missing"), run_outcome=RunOutcome.FAILED)
             plan = loaded
+            result = _load_extraction_result(existing)
+            if result is not None:
+                structlog.contextvars.bind_contextvars(external_data_job_id=plan.job_id)
+                await logger.ainfo("Resuming post-extraction work from the persisted extraction result")
+                return await self._finish_extraction(job, payload, plan, result, logger)
 
         structlog.contextvars.bind_contextvars(external_data_job_id=plan.job_id)
         budget = run_budget(
@@ -297,11 +333,22 @@ class SyncExtractHandler:
             started_by_schedule=payload.trigger == SyncTrigger.SCHEDULE,
         )
         try:
-            plan = await database_sync_to_async_pool(prepare_run)(
-                inputs, workflow_id=payload.workflow_id, workflow_run_id=job.id, verify_v3_lock=False
+            plan = await database_sync_to_async_pool(_prepare_run_and_stamp)(inputs, payload, job.id)
+        except _RunEligibilityChanged as e:
+            if e.eligibility == "disabled":
+                await logger.ainfo("Skipping queue run: schema or source was disabled before preparation")
+                return _skipped(SkipReason.DISABLED)
+            await logger.aerror("Rejecting queue run: schema, source, and team changed before preparation")
+            return _HandlerResult(
+                outcome=Fail(reason="schema, source, and team do not match"), run_outcome=RunOutcome.FAILED
             )
+        except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
+            # The transaction rolled back both the row and its plan, so a transient database
+            # failure is safe to retry from scratch.
+            await logger.awarning("Queue run preparation failed transiently, will retry", error=str(e))
+            return _HandlerResult(outcome=Retry(reason=str(e)[:1000]), run_outcome=RunOutcome.RETRY)
         except Exception as e:
-            # The workflow gives job creation one attempt, so a failure here ends the run.
+            # The workflow gives job creation one attempt, so a non-transient failure ends the run.
             failure = classify_failure(e, is_v3=True)
             await self._finalize(
                 payload,
@@ -315,7 +362,6 @@ class SyncExtractHandler:
             return _HandlerResult(
                 outcome=Fail(reason=f"job creation failed: {e}"[:1000]), run_outcome=RunOutcome.FAILED
             )
-        await database_sync_to_async_pool(_stamp_run_plan)(payload.team_id, plan)
         return plan
 
     async def _extract_and_hand_off(
@@ -381,22 +427,54 @@ class SyncExtractHandler:
             watcher.cancel()
             await asyncio.gather(watcher, return_exceptions=True)
 
+        # A full refresh may finish naturally during the cancellation grace period. The terminal
+        # cancellation still wins; never hand its output to the loader or start follow-up work.
+        if stop_watch.reason == StopReason.CANCELLED:
+            return await self._on_stopped(run, stop_watch.reason, logger)
+
+        # Persist the extraction result before any follow-up side effect. A retry can then resume
+        # idempotent post-extraction starts even if the loader has already made the run terminal.
+        await database_sync_to_async_pool(_update_run_snapshot)(
+            payload.team_id, plan.job_id, EXTRACTION_RESULT_SNAPSHOT_KEY, dict(result)
+        )
+        return await self._finish_extraction(run.job, payload, plan, result, logger)
+
+    async def _finish_extraction(
+        self,
+        job: Job,
+        payload: SyncExtractPayload,
+        plan: CreateExternalDataJobModelActivityOutputs,
+        result: PipelineResult,
+        logger: FilteringBoundLogger,
+    ) -> _HandlerResult:
         if result.get("consumer_manages_job_status", False):
             await database_sync_to_async_pool(_set_phase)(payload.team_id, plan.job_id, ExternalDataJob.Phase.LOADING)
-            await logger.ainfo("Queue run handed to the loader")
+
+        if not await database_sync_to_async_pool(_snapshot_flag)(
+            payload.team_id, plan.job_id, POST_EXTRACTION_DONE_SNAPSHOT_KEY
+        ):
             await start_post_extraction_work(self._starter, payload=payload, plan=plan, result=result, logger=logger)
+            await database_sync_to_async_pool(_update_run_snapshot)(
+                payload.team_id, plan.job_id, POST_EXTRACTION_DONE_SNAPSHOT_KEY, True
+            )
+
+        if result.get("consumer_manages_job_status", False):
+            await logger.ainfo("Queue run handed to the loader")
             return _HandlerResult(
                 outcome=Success(), run_outcome=RunOutcome.HANDED_TO_LOADER, source_type=plan.source_type
             )
 
-        # No batch reached the loader, so the loader never hears about this run. Finish it the
-        # way the workflow does for such a run: the post-extraction work, then the finalizer.
-        await start_post_extraction_work(self._starter, payload=payload, plan=plan, result=result, logger=logger)
+        # No batch reached the loader, so the loader never hears about this run.
         await self._finalize(
-            payload, run.job.id, job_id=plan.job_id, status=ExternalDataJob.Status.COMPLETED, logger=logger
+            payload, job.id, job_id=plan.job_id, status=ExternalDataJob.Status.COMPLETED, logger=logger
         )
-        if not result.get("skip_post_import_activities", False):
+        if not result.get("skip_post_import_activities", False) and not await database_sync_to_async_pool(
+            _snapshot_flag
+        )(payload.team_id, plan.job_id, POST_IMPORT_DONE_SNAPSHOT_KEY):
             await start_post_import(self._starter, payload=payload, job_id=plan.job_id, logger=logger)
+            await database_sync_to_async_pool(_update_run_snapshot)(
+                payload.team_id, plan.job_id, POST_IMPORT_DONE_SNAPSHOT_KEY, True
+            )
         return _HandlerResult(outcome=Success(), run_outcome=RunOutcome.COMPLETED, source_type=plan.source_type)
 
     async def _on_stopped(
@@ -575,13 +653,49 @@ def _held_for_repartition(payload: SyncExtractPayload, logger: FilteringBoundLog
     return schema is not None and repartition_import_hold_reason(schema, logger) is not None
 
 
-def _stamp_run_plan(team_id: int, plan: CreateExternalDataJobModelActivityOutputs) -> None:
-    job = ExternalDataJob.objects.only("schema_snapshot").get(id=plan.job_id, team_id=team_id)
-    snapshot = dict(job.schema_snapshot or {})
-    snapshot[RUN_PLAN_SNAPSHOT_KEY] = dataclasses.asdict(plan)
-    ExternalDataJob.objects.filter(id=plan.job_id, team_id=team_id).update(
-        schema_snapshot=snapshot, phase=ExternalDataJob.Phase.EXTRACTING
+def _validate_payload_and_eligibility(payload: SyncExtractPayload, *, lock: bool = False) -> str:
+    schemas = ExternalDataSchema.objects.select_related("source").filter(id=payload.schema_id, team_id=payload.team_id)
+    if lock:
+        schemas = schemas.select_for_update()
+    schema = schemas.first()
+    if schema is None or schema.source_id != payload.source_id or schema.source.team_id != payload.team_id:
+        return "invalid"
+    if schema.deleted or schema.source.deleted or not schema.should_sync:
+        return "disabled"
+    return "eligible"
+
+
+def _prepare_run_and_stamp(
+    inputs: CreateExternalDataJobModelActivityInputs, payload: SyncExtractPayload, queue_job_id: str
+) -> CreateExternalDataJobModelActivityOutputs:
+    # The plan is part of creating a queue run: either both it and the job row commit, or neither
+    # does. A retry can never observe the half-created row the former separate UPDATE allowed.
+    with transaction.atomic():
+        eligibility = _validate_payload_and_eligibility(payload, lock=True)
+        if eligibility != "eligible":
+            raise _RunEligibilityChanged(eligibility)
+        plan = prepare_run(inputs, workflow_id=payload.workflow_id, workflow_run_id=queue_job_id, verify_v3_lock=False)
+        _update_run_snapshot(payload.team_id, plan.job_id, RUN_PLAN_SNAPSHOT_KEY, dataclasses.asdict(plan))
+        ExternalDataJob.objects.filter(id=plan.job_id, team_id=payload.team_id).update(
+            phase=ExternalDataJob.Phase.EXTRACTING
+        )
+    return plan
+
+
+def _update_run_snapshot(team_id: int, job_id: str, key: str, value: Any) -> None:
+    with transaction.atomic():
+        job = ExternalDataJob.objects.select_for_update().only("schema_snapshot").get(id=job_id, team_id=team_id)
+        snapshot = dict(job.schema_snapshot or {})
+        snapshot[key] = value
+        ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(schema_snapshot=snapshot)
+
+
+def _snapshot_flag(team_id: int, job_id: str, key: str) -> bool:
+    snapshot = (
+        ExternalDataJob.objects.filter(id=job_id, team_id=team_id).values_list("schema_snapshot", flat=True).first()
+        or {}
     )
+    return snapshot.get(key) is True
 
 
 def _load_run_plan(job: ExternalDataJob) -> CreateExternalDataJobModelActivityOutputs | None:
@@ -593,6 +707,11 @@ def _load_run_plan(job: ExternalDataJob) -> CreateExternalDataJobModelActivityOu
         return CreateExternalDataJobModelActivityOutputs(**{k: v for k, v in stored.items() if k in known})
     except TypeError:
         return None
+
+
+def _load_extraction_result(job: ExternalDataJob) -> PipelineResult | None:
+    stored = (job.schema_snapshot or {}).get(EXTRACTION_RESULT_SNAPSHOT_KEY)
+    return stored if isinstance(stored, dict) else None
 
 
 def _set_phase(team_id: int, job_id: str, phase: str) -> None:
