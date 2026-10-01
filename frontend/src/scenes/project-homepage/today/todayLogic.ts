@@ -35,8 +35,8 @@ import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
 export const BRIEFING_POLL_MS = 10_000
-// The agent run's budget is 30 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
-const MAX_BRIEFING_POLLS = 190
+// The run's budget is 10 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
+const MAX_BRIEFING_POLLS = 66
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'

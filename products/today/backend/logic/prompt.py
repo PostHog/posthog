@@ -1,4 +1,4 @@
-"""Renders the briefing agent's prompt from `prompts/briefing.md.j2` with what PostHog already knows about the person."""
+"""Renders the briefing prompt from `prompts/briefing.md.j2`: the items PostHog picked and the person's last briefings."""
 
 import json
 from collections.abc import Sequence
@@ -10,39 +10,29 @@ from posthog.models import User
 
 from products.signals.backend.facade import api as signals
 
-from ..facade.enums import ItemReason
 from ..models import DailyBriefing
-from .agent_output import MAX_ITEMS
-from .checks import MAX_LABEL_WORDS, MAX_LINK_WORDS, MAX_SIGNAL_CHARS, MAX_WORDS
 from .content import BriefingContent
-from .fact_sheet import stored_fact_sheet
+from .fact_sheet import FactSheet, stored_fact_sheet
 
-# How many pre-ranked reports the agent gets handed; it chooses from these and from what it finds itself.
-PRERANKED_REPORTS = 10
-
-# The relation signals gives a report, as the reason the agent must put on the item.
-_REASON_FOR_RELATION = {
-    signals.BriefingReportRelation.WAITING_FOR_YOU: ItemReason.WAITING_FOR_YOU,
-    signals.BriefingReportRelation.CLAIMED: ItemReason.CLAIMED_BY_YOU,
-    signals.BriefingReportRelation.SUGGESTED_REVIEWER: ItemReason.SUGGESTED_REVIEWER,
-    signals.BriefingReportRelation.URGENT_UNOWNED: ItemReason.URGENT_FOR_PROJECT,
-}
+MAX_WORDS = 70
+MAX_LINK_WORDS = 8
+MAX_LABEL_WORDS = 6
+MAX_SIGNAL_CHARS = 40
 
 
-def _report_rows(reports: Sequence[signals.BriefingReport], team_id: int) -> list[dict[str, object]]:
+def _item_rows(reports: Sequence[signals.BriefingReport], fact_sheet: FactSheet) -> list[dict[str, object]]:
     return [
         {
-            "key": f"report:{report.report_id}",
-            "reason": _REASON_FOR_RELATION[report.relation].value,
+            "key": item.key,
+            "reason": item.reason.value,
             "priority": report.priority,
             "status": report.status,
-            "source_product": report.source_products[0] if report.source_products else None,
+            "source_product": item.source_product,
             "has_implementation_pr": report.has_implementation_pr,
             "title": report.title,
             "summary": report.summary,
-            "url": f"/project/{team_id}/inbox/{report.report_id}",
         }
-        for report in reports
+        for item, report in zip(fact_sheet.items, reports, strict=True)
     ]
 
 
@@ -87,20 +77,18 @@ def build_prompt(
     briefing: DailyBriefing,
     user: User,
     reports: Sequence[signals.BriefingReport],
+    fact_sheet: FactSheet,
     previous: Sequence[DailyBriefing],
-    github_login: str | None,
 ) -> str:
-    """The prompt for one briefing: `reports` already in briefing order, `previous` the person's latest ones."""
+    """The prompt for one briefing: `reports` in the order of `fact_sheet`, `previous` the person's latest briefings."""
     return _environment.get_template("briefing.md.j2").render(
         first_name=" ".join((user.first_name or "").split())[:40] or "there",
         team_id=briefing.team_id,
         local_day=briefing.local_day.isoformat(),
-        max_items=MAX_ITEMS,
         max_words=MAX_WORDS,
         max_link_words=MAX_LINK_WORDS,
         max_label_words=MAX_LABEL_WORDS,
         max_signal_chars=MAX_SIGNAL_CHARS,
-        reports_json=_data_block(_report_rows(reports, briefing.team_id)),
+        items_json=_data_block(_item_rows(reports, fact_sheet)),
         recent_json=_data_block(_recent_rows(previous)),
-        github_login=github_login,
     )
