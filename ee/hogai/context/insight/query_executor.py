@@ -117,7 +117,7 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
         seen.add(id(cause))
         cause = cause.__cause__
 
-    if isinstance(cause, TableAccessDeniedError):
+    if isinstance(cause, (TableAccessDeniedError, psycopg.errors.InsufficientPrivilege)):
         return MaxToolFatalError(str(error), error_type="permission")
     if isinstance(
         cause,
@@ -526,7 +526,11 @@ class AssistantQueryExecutor:
                     err_message = ", ".join(map(str, err.detail))
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            error_type = "validation"
+            error_type = (
+                "validation"
+                if isinstance(err, APIException) or classify_query_error(err) == QueryErrorCategory.USER_ERROR
+                else "internal"
+            )
             if isinstance(err, ClickHouseQueryTimeOut):
                 error_type = "timeout"
             elif isinstance(err, ClickHouseQueryMemoryLimitExceeded):

@@ -15,11 +15,17 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse
 
 from posthog.hogql.errors import (
     ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
     QueryError,
     SyntaxError as HogQLSyntaxError,
     TableAccessDeniedError,
 )
 
+from posthog.errors import (
+    CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorIllegalTypeOfArgument,
+    CHQueryErrorS3FileChangedDuringRead,
+)
 from posthog.event_usage import EventSource
 from posthog.exceptions import (
     ClickHouseAtCapacity,
@@ -243,7 +249,34 @@ class TestMCPToolsAPI(APIBaseTest):
                 "Tool failed: MaxToolRetryableError: Unknown field: missing_column. You may retry with adjusted inputs.",
             ),
             (
+                HogQLNotImplementedError("QueryVisitor has no method visit_select_query"),
+                "internal",
+                "Tool failed: MaxToolRetryableError: QueryVisitor has no method visit_select_query. You may retry with adjusted inputs.",
+            ),
+            (
+                CHQueryErrorIllegalTypeOfArgument("Illegal argument type", code=43),
+                "validation",
+                "Tool failed: MaxToolRetryableError: Illegal argument type. You may retry with adjusted inputs.",
+            ),
+            (
+                CHQueryErrorCorruptedParquetMetadata("Warehouse file metadata is corrupt", code=1001),
+                "internal",
+                "Tool failed: MaxToolRetryableError: Warehouse file metadata is corrupt. You may retry with adjusted inputs.",
+            ),
+            (
+                CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: Warehouse file changed while reading. You may retry this operation once without changes.",
+            ),
+            (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),
+                "permission",
+                "Tool failed: MaxToolFatalError: Warehouse table access denied.",
+            ),
+            (
+                _wrapped_hogql_error(
+                    psycopg.errors.InsufficientPrivilege("permission denied for table"), "Warehouse table access denied"
+                ),
                 "permission",
                 "Tool failed: MaxToolFatalError: Warehouse table access denied.",
             ),
