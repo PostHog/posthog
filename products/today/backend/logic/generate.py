@@ -1,6 +1,8 @@
 """Generating a briefing: one sandbox agent run that gathers the person's data over MCP and writes the result."""
 
 from datetime import timedelta
+from typing import Protocol
+from uuid import UUID
 
 import structlog
 
@@ -25,6 +27,11 @@ AGENT_TIMEOUT = timedelta(minutes=20)
 SANDBOX_ENV_NAME = "today-briefing"
 
 
+class _HasTaskId(Protocol):
+    @property
+    def task_id(self) -> UUID: ...
+
+
 def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
     briefing = DailyBriefing.objects.for_team(team_id).get(id=briefing_id)
     team = Team.objects.select_related("organization").get(id=briefing.team_id)
@@ -32,7 +39,11 @@ def _load(team_id: int, briefing_id: str) -> tuple[DailyBriefing, Team, User]:
     return briefing, team, user
 
 
-def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext, str] | None:
+def _title(briefing: DailyBriefing) -> str:
+    return f"Today briefing, {briefing.local_day.isoformat()} {briefing.edition}"
+
+
+def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext, str, str] | None:
     """The sandbox context and the prompt, or None when the person may not get a briefing.
 
     The flag can turn off after the row was created, so the row is deleted then: a briefing
@@ -60,7 +71,7 @@ def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext
         # Headless: the agent must be able to call the write tool without anyone approving it.
         initial_permission_mode="full-access",
     )
-    return context, build_prompt(briefing, user)
+    return context, build_prompt(briefing, user), _title(briefing)
 
 
 def _is_written(team_id: int, briefing_id: str) -> bool:
@@ -72,7 +83,14 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
     prepared = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, briefing_id)
     if prepared is None:
         return
-    context, prompt = prepared
+    context, prompt, title = prepared
+
+    async def name_the_task(task_run: _HasTaskId) -> None:
+        # The run shows in the person's session list, so it carries a name instead of the prompt's first line.
+        await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
+            task_run.task_id, team_id, title
+        )
+
     session, reply = await MultiTurnSession.start_raw(
         prompt,
         context,
@@ -80,7 +98,7 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
         origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
         ai_stage="today_briefing",
         ai_agent_name="today-briefing",
-        internal=True,
+        on_task_run_created=name_the_task,
         max_poll_seconds=int(AGENT_TIMEOUT.total_seconds()),
     )
     await session.end()

@@ -66,6 +66,9 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         assert str(self.briefing.id) in prompt
         assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "today_briefing", MODEL)
         assert context.initial_permission_mode == "full-access"
+        # The run shows in the person's session list, under a name rather than the prompt.
+        assert start.call_args.kwargs.get("internal", False) is False
+        assert start.call_args.kwargs["on_task_run_created"] is not None
 
     def test_a_run_that_stores_nothing_fails_the_briefing(self) -> None:
         with self.assertRaises(RuntimeError):
