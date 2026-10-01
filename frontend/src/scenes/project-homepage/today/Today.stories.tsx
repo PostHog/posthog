@@ -115,6 +115,7 @@ const RECENT_SESSIONS = [
     ...PINNED_SESSIONS,
     {
         id: 'task-1',
+        origin_product: 'slack',
         channel: 'space-checkout',
         title: 'Add a retry to the billing webhook',
         archived: false,
@@ -137,6 +138,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-3',
+        origin_product: 'error_tracking',
         channel: 'space-checkout',
         title: 'Speed up the invoice export',
         archived: false,
@@ -153,6 +155,7 @@ const RECENT_SESSIONS = [
     },
     {
         id: 'task-2',
+        origin_product: 'signal_report',
         channel: 'space-checkout',
         title: 'Investigate the drop in trial starts',
         archived: false,
@@ -223,6 +226,55 @@ const LIBRARY = [
     { id: 'fs-2', path: 'Unfiled/Dashboards/Growth overview', type: 'dashboard', ref: '12' },
     { id: 'fs-3', path: 'Unfiled/Feature flags/one-page-checkout', type: 'feature_flag', ref: '7' },
 ]
+
+const USER = { id: 1, uuid: 'user-1', first_name: 'Ada', email: 'ada@example.com' }
+
+const VIEW_CANVASES = [
+    {
+        id: 'canvas-1',
+        name: 'Checkout health board',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T17:50:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+    {
+        id: 'canvas-building',
+        name: 'Signup funnel by country',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T18:05:00Z',
+        current_version_id: null,
+        generation_task_id: 'task-canvas-building',
+    },
+    {
+        id: 'canvas-2',
+        name: 'Weekly growth widgets',
+        kind: 'grid',
+        channel: 'space-general',
+        updated_at: '2026-09-26T08:15:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+].map((canvas) => ({ description: '', pinned: false, created_by: USER, created_at: canvas.updated_at, ...canvas }))
+
+const NOTEBOOKS = [
+    { short_id: 'nb-1', title: 'Trial drop-off investigation', last_modified_at: '2026-09-28T12:30:00Z' },
+    { short_id: 'nb-2', title: 'Q3 pricing research notes', last_modified_at: '2026-09-20T10:00:00Z' },
+].map((notebook) => ({
+    id: notebook.short_id,
+    deleted: false,
+    created_at: notebook.last_modified_at,
+    created_by: USER,
+    last_modified_by: USER,
+    ...notebook,
+}))
+
+const DASHBOARDS = [
+    { id: 12, name: 'Growth overview', last_viewed_at: '2026-09-28T09:00:00Z', created_at: '2026-08-01T09:00:00Z' },
+    { id: 13, name: 'Billing and revenue', last_viewed_at: null, created_at: '2026-09-24T09:00:00Z' },
+].map((dashboard) => ({ description: '', pinned: false, deleted: false, tags: [], created_by: USER, ...dashboard }))
 
 const REPORTS = [
     makeReport({
@@ -426,6 +478,7 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/signals/reports/': { results: REPORTS, count: 7 },
+                '/api/projects/:team_id/signals/reports/for_you/': { results: REPORTS, count: 7 },
                 '/api/projects/:team_id/signals/reports/:id/': (req) => [
                     200,
                     REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
@@ -458,8 +511,13 @@ const meta: Meta = {
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/canvases/': ({ request }) => {
-                    const results =
-                        new URL(request.url).searchParams.get('channel') === 'space-checkout' ? CANVASES : []
+                    const params = new URL(request.url).searchParams
+                    const channel = params.get('channel')
+                    const results = channel
+                        ? channel === 'space-checkout'
+                            ? CANVASES
+                            : []
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -487,6 +545,14 @@ const meta: Meta = {
                     return [200, { results, count: results.length }]
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
+                '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
+                '/api/projects/:team_id/tasks/task-canvas-building/': {
+                    id: 'task-canvas-building',
+                    title: 'Signup funnel by country',
+                    latest_run: { id: 'run-canvas-building', status: 'in_progress' },
+                },
+                '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
+                '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
             post: {
                 '/api/projects/:team_id/tasks/summaries/': {
@@ -567,7 +633,7 @@ export const SampleReportPage: Story = {
 export const HomeWithNoReports: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': EMPTY_PAGINATED_RESPONSE },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 } },
         }),
     ],
 }
@@ -575,7 +641,7 @@ export const HomeWithNoReports: Story = {
 export const HomeWhenReportsFailToLoad: Story = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/signals/reports/': () => [500, { detail: 'Server error' }] },
+            get: { '/api/projects/:team_id/signals/reports/for_you/': () => [500, { detail: 'Server error' }] },
         }),
     ],
 }
@@ -841,5 +907,29 @@ export const ListItemAppearanceDialog: Story = {
         todayListAppearanceLogic.actions.openAppearanceDialog()
         // The dialog opens in a portal outside the story's canvas.
         await within(document.body).findByText('Edit list item appearance')
+    },
+}
+
+export const ViewsAll: Story = {
+    parameters: { pageUrl: urls.views() },
+}
+
+export const ViewsEmpty: Story = {
+    parameters: { pageUrl: urls.views() },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/canvases/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/notebooks/': EMPTY_PAGINATED_RESPONSE,
+                '/api/projects/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const ViewsNewMenu: Story = {
+    parameters: { pageUrl: urls.views() },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('New…'))
     },
 }

@@ -1,3 +1,4 @@
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
@@ -24,6 +25,8 @@ export interface TodaySessionPreview {
     branch: string | null
     /** What filed the session, or null when a person made it by hand. */
     source: string | null
+    /** The source product's icon, for the origins that have one. */
+    sourceIcon: JSX.Element | null
     author: TaskUserBasicInfoApi | null
     timestamp: string | null
     message: string | null
@@ -42,11 +45,20 @@ export interface TodaySpacePreview {
     liveUuids: string[]
     creatorUuid: string | null
     lastActivityAt: string | null
+    unreadSessions: number
     repositories: string[]
     hiddenRepositoryCount: number
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview
+export interface TodayChatPreview {
+    kind: 'chat'
+    chatId: string
+    title: string
+    source: string
+    timestamp: string | null
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {
@@ -87,6 +99,7 @@ export function sessionPreview(
         branch: item.branch,
         source:
             item.originProduct && item.originProduct !== 'user_created' ? recentSourceLabel(item.originProduct) : null,
+        sourceIcon: getOriginProductMeta(item.originProduct ?? undefined)?.icon ?? null,
         author: item.author,
         timestamp: item.timestamp,
         message: item.finalMessage,
@@ -111,11 +124,22 @@ function spacePeople(
     return people
 }
 
+export function chatPreview(item: TodayWorkItem): TodayChatPreview {
+    return {
+        kind: 'chat',
+        chatId: item.id,
+        title: item.title || 'Untitled chat',
+        source: 'PostHog AI',
+        timestamp: item.timestamp,
+    }
+}
+
 export function spacePreview(
     space: ChannelDTOApi,
     name: string,
     presence: SpacePresence | undefined,
-    lastActivityAt: string | undefined
+    lastActivityAt: string | undefined,
+    unreadSessions: number = 0
 ): TodaySpacePreview {
     return {
         kind: 'space',
@@ -126,6 +150,7 @@ export function spacePreview(
         liveUuids: presence?.liveUuids ?? [],
         creatorUuid: space.created_by?.uuid ?? null,
         lastActivityAt: lastActivityAt ?? null,
+        unreadSessions,
         repositories: space.repositories.slice(0, SPACE_PREVIEW_REPOSITORY_LIMIT),
         hiddenRepositoryCount: Math.max(0, space.repositories.length - SPACE_PREVIEW_REPOSITORY_LIMIT),
     }
