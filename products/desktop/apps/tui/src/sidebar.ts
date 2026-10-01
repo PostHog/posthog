@@ -1,5 +1,6 @@
 import type { Task } from "@posthog/shared";
 import { focusPane, type LayoutState, openTask, panes } from "./layout";
+import { LEGACY_PREFIX } from "./localChats";
 
 export type Indicator = "working" | "alive" | "failed" | "asleep";
 
@@ -25,6 +26,8 @@ export type SidebarRow =
       paneId: string | null;
       title: string;
       indicator: Indicator | null;
+      // Runs on this machine rather than in the cloud.
+      local: boolean;
       nested: boolean;
       // The final task in its workspace group, drawn with a closing connector.
       last?: boolean;
@@ -54,6 +57,49 @@ export function indicatorFor(
   return "asleep";
 }
 
+export interface LocalChatState {
+  // Each local chat's task id, with when its session file last changed.
+  active: Map<string, number>;
+  // Local chats with an agent running in this app.
+  running: Set<string>;
+}
+
+const NO_LOCAL_CHATS: LocalChatState = {
+  active: new Map(),
+  running: new Set(),
+};
+
+// When something last happened in a chat: the server's clock, or this machine's for a local chat the server hears nothing from.
+const activityOf = (task: Task, local: LocalChatState): number =>
+  Math.max(
+    Date.parse(task.last_activity_at ?? "") || 0,
+    local.active.get(task.id) ?? 0,
+  );
+
+// The Work list: the recent page, plus local chats the page does not hold, newest first.
+// While more pages exist, a local chat shows only if it is newer than the page's oldest task, so the list reads as one.
+function workTasks(
+  work: WorkPage,
+  byId: Map<string, Task>,
+  local: LocalChatState,
+): Task[] {
+  const listed = work.tasks ?? [];
+  const ids = new Set(listed.map((task) => task.id));
+  const extra = [...local.active.keys()].flatMap((id) => {
+    const task = byId.get(id);
+    return task && !ids.has(id) ? [task] : [];
+  });
+  if (local.active.size === 0) return listed;
+  const floor =
+    work.hasMore && listed.length > 0
+      ? Math.min(...listed.map((task) => activityOf(task, NO_LOCAL_CHATS)))
+      : Number.NEGATIVE_INFINITY;
+  return [
+    ...listed,
+    ...extra.filter((task) => activityOf(task, local) >= floor),
+  ].sort((a, b) => activityOf(b, local) - activityOf(a, local));
+}
+
 export function sidebarRows({
   layout,
   work,
@@ -61,6 +107,7 @@ export function sidebarRows({
   working,
   known = new Map(),
   signedIn = true,
+  local = NO_LOCAL_CHATS,
 }: {
   layout: LayoutState;
   work: WorkPage;
@@ -69,12 +116,16 @@ export function sidebarRows({
   /** Open tasks outside the recent page, fetched on their own. */
   known?: Map<string, Task>;
   signedIn?: boolean;
+  local?: LocalChatState;
 }): SidebarRow[] {
-  const listed = new Set((work.tasks ?? []).map((task) => task.id));
   const byId = new Map([
     ...known,
     ...(work.tasks ?? []).map((task): [string, Task] => [task.id, task]),
   ]);
+  const tasks = work.tasks === null ? [] : workTasks(work, byId, local);
+  const listed = new Set(tasks.map((task) => task.id));
+  const isLocal = (taskId: string): boolean =>
+    local.active.has(taskId) || taskId.startsWith(LEGACY_PREFIX);
   const taskRow = (
     taskId: string | null,
     paneId: string | null,
@@ -83,17 +134,27 @@ export function sidebarRows({
     last?: boolean,
   ): SidebarRow => {
     const task = taskId ? byId.get(taskId) : undefined;
+    const runsHere = taskId !== null && isLocal(taskId);
     return {
       kind: "task",
       taskId,
       paneId,
       title:
         taskId === null ? "New chat" : task?.title || savedTitle || "Untitled",
-      // No status until the list or a fetch says what state the run is in.
+      // A local chat's state is this app's own; a cloud chat has none until the list or a fetch says what its run is doing.
       indicator:
-        taskId === null || !task
+        taskId === null
           ? null
-          : indicatorFor(task, working.has(taskId)),
+          : runsHere
+            ? working.has(taskId)
+              ? "working"
+              : local.running.has(taskId)
+                ? "alive"
+                : "asleep"
+            : task
+              ? indicatorFor(task, working.has(taskId))
+              : null,
+      local: runsHere,
       nested,
       last,
     };
@@ -139,8 +200,8 @@ export function sidebarRows({
   }
   if (work.error) rows.push({ kind: "error", message: work.error });
   else if (work.tasks === null) rows.push({ kind: "loading" });
-  else if (work.tasks.length === 0) rows.push({ kind: "empty" });
-  for (const task of work.tasks ?? []) {
+  else if (tasks.length === 0) rows.push({ kind: "empty" });
+  for (const task of tasks) {
     if (splitTasks.has(task.id)) continue;
     rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
   }

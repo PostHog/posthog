@@ -231,6 +231,26 @@ export function assignTask(
   };
 }
 
+// Moves every pane showing one task id over to another, such as a local chat that just got its task row.
+export function renameTask(
+  state: LayoutState,
+  from: string,
+  to: string,
+  title?: string,
+): LayoutState {
+  return {
+    ...state,
+    workspaces: state.workspaces.map((workspace) => ({
+      ...workspace,
+      root: mapPanes(workspace.root, (pane) =>
+        pane.taskId === from
+          ? { ...pane, taskId: to, title: title ?? pane.title }
+          : pane,
+      ),
+    })),
+  };
+}
+
 export function closeFocused(state: LayoutState): LayoutState | "quit" {
   const active = activeWorkspace(state);
   const ids = paneIds(active.root);

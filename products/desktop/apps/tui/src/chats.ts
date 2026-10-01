@@ -8,10 +8,11 @@ export type SendMessage = (
   content: string,
 ) => Promise<void>;
 
-// The GitHub repository of the directory the TUI was started in, as "owner/name".
-export function currentRepository(): string | null {
+// The GitHub repository of a directory, by default the one the TUI was started in, as "owner/name".
+export function currentRepository(cwd?: string): string | null {
   try {
     const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -25,7 +26,7 @@ export function currentRepository(): string | null {
 const RUN_ENDED =
   /Failed to queue user message|Task run workflow has ended|No active sandbox/;
 
-// Every chat here is a pi cloud run: new chats start one, replies go into it or resume it.
+// Every chat here is a pi task: a cloud chat starts a run and replies go into it or resume it, and a local chat only needs the task.
 export class PiChats {
   constructor(
     private readonly api: PostHogAPIClient,
@@ -48,6 +49,15 @@ export class PiChats {
       pendingUserMessage: prompt,
     });
     return started.latest_run ? started : { ...started, latest_run: run };
+  }
+
+  // A local chat's task row: the server names it from the first message, and the chat runs on this machine with no run.
+  createLocal(prompt: string, repository = this.repository): Promise<Task> {
+    return this.api.createTask({
+      description: prompt,
+      repository: repository ?? undefined,
+      runtime: "pi",
+    });
   }
 
   async reply(task: Task, prompt: string): Promise<Task> {

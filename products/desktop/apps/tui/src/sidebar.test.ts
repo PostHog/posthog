@@ -249,6 +249,75 @@ describe("sidebar selection", () => {
     expect(after.findIndex((row) => selectionKey(row) === key)).not.toBe(onA);
   });
 
+  it("keeps a local chat in its place as the cursor opens the tasks past it", () => {
+    const active = (minutesAgo: number): string =>
+      new Date(Date.UTC(2026, 0, 1, 12, 60 - minutesAgo)).toISOString();
+    const at = (id: string, minutesAgo: number): Task =>
+      ({ ...task(id), last_activity_at: active(minutesAgo) }) as Task;
+    const work = page({ tasks: [at("a", 10), at("b", 30)] });
+    const local = {
+      active: new Map([["mine", Date.parse(active(20))]]),
+      running: new Set(["mine"]),
+    };
+    const rowsIn = (layout: LayoutState) =>
+      sidebarRows({
+        layout,
+        work,
+        collapsed: new Set(),
+        working: new Set(),
+        known: new Map([["mine", at("mine", 60)]]),
+        local,
+      });
+    let layout = openTask(initialLayout(), "mine");
+    let rows = rowsIn(layout);
+    expect(labels(rows)).toEqual(["# Work", "Task a", "Task mine", "Task b"]);
+    expect(rows[2]).toMatchObject({ local: true, indicator: "alive" });
+
+    // Down to b, then up past the local chat to a, each opening in the main view.
+    let cursor = selectionKey(rows[2]);
+    for (const step of [1, -1, -1] as const) {
+      const index = moveSelection(rows, cursorIndex(rows, cursor), step);
+      cursor = selectionKey(rows[index]);
+      const opened = activateRow(layout, rows[index]);
+      layout = opened === "viewMore" ? layout : opened;
+      rows = rowsIn(layout);
+      expect(labels(rows)).toEqual(["# Work", "Task a", "Task mine", "Task b"]);
+    }
+    expect(cursor).toBe("task:a");
+  });
+
+  it("lists a local chat outside the page only when it is newer than the page's oldest task", () => {
+    const at = (id: string, ms: number): Task =>
+      ({ ...task(id), last_activity_at: new Date(ms).toISOString() }) as Task;
+    const rows = sidebarRows({
+      layout: initialLayout(),
+      work: page({ tasks: [at("a", 3_000), at("b", 1_000)], hasMore: true }),
+      collapsed: new Set(),
+      working: new Set(),
+      known: new Map([
+        ["new", at("new", 0)],
+        ["old", at("old", 0)],
+      ]),
+      local: {
+        active: new Map([
+          ["new", 2_000],
+          ["old", 500],
+        ]),
+        running: new Set(),
+      },
+    });
+
+    expect(labels(rows)).toEqual([
+      "# Work",
+      "New chat",
+      "Task a",
+      "Task new",
+      "Task b",
+      "[viewMore]",
+    ]);
+    expect(rows[3]).toMatchObject({ local: true, indicator: "asleep" });
+  });
+
   it("starts the cursor on the first row it can select, not the heading", () => {
     expect(cursorIndex(rows, null)).toBe(2);
     expect(cursorIndex(rows, selectionKey(rows[4]))).toBe(4);

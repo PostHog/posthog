@@ -30,11 +30,13 @@ import {
   type PaneNode,
   paneIds,
   panes,
+  renameTask,
   saveLayout,
   splitFocused,
   splitSizes,
 } from "../layout";
 import type { LocalSession } from "../local";
+import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import {
   type ModelChoice,
   modelSheet,
@@ -132,11 +134,6 @@ export interface Session {
   startLocal: (id: string) => Promise<LocalSession>;
 }
 
-// Local chats have no server task; panes hold them under an id with this prefix.
-const LOCAL_PREFIX = "local:";
-const isLocal = (taskId: string | null): taskId is string =>
-  taskId?.startsWith(LOCAL_PREFIX) ?? false;
-
 export function App({
   session,
   login,
@@ -156,6 +153,18 @@ export function App({
     control: cloudControl,
     startLocal,
   } = session ?? {};
+  // This machine's local chats: each is a task with a pi session file here, and when that file last changed.
+  const localChats = useRef(new LocalChats()).current;
+  const [localActive, setLocalActive] = useState(() => localChats.list());
+  // Chats from before local chats had a task row get one first, so none starts under its old id.
+  const [localLinked, setLocalLinked] = useState(false);
+  // Merged, so a chat whose agent has not written its session file yet stays local.
+  const refreshLocalActive = useRef((): void =>
+    setLocalActive((current) => new Map([...current, ...localChats.list()])),
+  ).current;
+  const isLocal = (taskId: string | null): taskId is string =>
+    taskId !== null &&
+    (localActive.has(taskId) || taskId.startsWith(LEGACY_PREFIX));
   // Running local chats, started on first use and stopped when the app closes.
   const locals = useRef(new Map<string, Promise<LocalSession>>());
   const [localSessions, setLocalSessions] = useState<Map<string, LocalSession>>(
@@ -166,6 +175,11 @@ export function App({
     if (!started) {
       if (!startLocal)
         return Promise.reject(new Error("Sign in first: type /login"));
+      // Its session file may still be moving to the chat's task id.
+      if (!localLinked && id.startsWith(LEGACY_PREFIX))
+        return Promise.reject(
+          new Error("Local chats are still loading. Try again in a moment"),
+        );
       started = startLocal(id);
       locals.current.set(id, started);
       started.then(
@@ -303,6 +317,7 @@ export function App({
     if (!work) return;
     let cancelled = false;
     const refresh = (): void => {
+      refreshLocalActive();
       work.listRecent(limit).then(
         ({ tasks, hasMore }) => {
           if (!cancelled) {
@@ -326,7 +341,35 @@ export function App({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [work, limit]);
+  }, [work, limit, refreshLocalActive]);
+
+  // One pass per sign-in, so a re-run effect never makes a second task for the same chat.
+  const linkedFor = useRef<PiChats | null>(null);
+  useEffect(() => {
+    if (!chats || linkedFor.current === chats) return;
+    linkedFor.current = chats;
+    void linkLocalChats(localChats, (chat) =>
+      chats.createLocal(
+        chat.firstMessage || "Local chat",
+        chat.cwd ? currentRepository(chat.cwd) : undefined,
+      ),
+    ).then((linked) => {
+      setLayout((state) =>
+        [...linked].reduce(
+          (next, [legacyId, task]) =>
+            renameTask(next, legacyId, task.id, task.title || undefined),
+          state,
+        ),
+      );
+      setFresh((current) => {
+        const next = new Map(current);
+        for (const task of linked.values()) next.set(task.id, task);
+        return next;
+      });
+      refreshLocalActive();
+      setLocalLinked(true);
+    });
+  }, [chats, localChats, refreshLocalActive]);
 
   // Local chats in the layout come back after a restart, from their saved pi sessions.
   const localIds = layout.workspaces
@@ -336,11 +379,11 @@ export function App({
   const startLocalChat = useRef(localFor);
   startLocalChat.current = localFor;
   useEffect(() => {
-    if (!startLocal) return;
+    if (!startLocal || !localLinked) return;
     for (const id of localIds ? localIds.split(",") : []) {
       void startLocalChat.current(id).catch(() => {});
     }
-  }, [localIds, startLocal]);
+  }, [localIds, startLocal, localLinked]);
 
   // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
   const prefetched = useRef(new Set<string>());
@@ -364,13 +407,20 @@ export function App({
     })();
   }, [runs, page.tasks]);
 
-  // Open tasks outside the recent page are fetched once each, so they keep a title and a transcript.
-  const openTaskIds = layout.workspaces
-    .flatMap((w) => panes(w.root))
-    .flatMap((pane) => (pane.taskId ? [pane.taskId] : []));
+  // Open tasks and local chats outside the recent page are fetched once each, so they keep a title and a transcript.
+  const openTaskIds = [
+    ...layout.workspaces
+      .flatMap((w) => panes(w.root))
+      .flatMap((pane) => (pane.taskId ? [pane.taskId] : [])),
+    ...localActive.keys(),
+  ];
   const missing = page.tasks
-    ? openTaskIds.filter(
-        (id) => !known.has(id) && !page.tasks?.some((task) => task.id === id),
+    ? [...new Set(openTaskIds)].filter(
+        (id) =>
+          !id.startsWith(LEGACY_PREFIX) &&
+          !known.has(id) &&
+          !fresh.has(id) &&
+          !page.tasks?.some((task) => task.id === id),
       )
     : [];
   const missingKey = missing.join();
@@ -389,7 +439,7 @@ export function App({
     const recent = fresh.get(taskId);
     if (recent && recent.latest_run?.id !== listed?.latest_run?.id)
       return recent;
-    return listed ?? known.get(taskId);
+    return listed ?? known.get(taskId) ?? recent;
   };
 
   const openModal = (
@@ -719,27 +769,44 @@ export function App({
       return;
     }
     setPending((messages) => new Map(messages).set(paneId, text));
-    const localId = isLocal(pane?.taskId ?? null)
-      ? (pane?.taskId as string)
-      : !pane?.taskId && modes.get(paneId) === "local"
-        ? `${LOCAL_PREFIX}${globalThis.crypto.randomUUID()}`
-        : null;
-    if (localId) {
-      if (!pane?.taskId) {
-        setLayout((state) =>
-          assignTask(state, paneId, localId, text.slice(0, 80)),
-        );
-      }
-      localFor(localId)
-        .then((local) => local.prompt(text))
-        .catch((error: unknown) => {
-          setPending((messages) => {
-            const next = new Map(messages);
-            next.delete(paneId);
-            return next;
+    const clearPending = (): void =>
+      setPending((messages) => {
+        const next = new Map(messages);
+        next.delete(paneId);
+        return next;
+      });
+    const promptLocal = (taskId: string): Promise<void> => {
+      setLocalActive((current) => new Map(current).set(taskId, Date.now()));
+      return localFor(taskId).then((local) => local.prompt(text));
+    };
+    if (isLocal(pane?.taskId ?? null)) {
+      promptLocal(pane?.taskId as string).catch((error: unknown) => {
+        clearPending();
+        flashNotice(`Couldn't send: ${messageOf(error)}`);
+      });
+      return;
+    }
+    // A local chat starts with its task row, so it is never only on this machine; without one, the message stays in the composer.
+    if (!pane?.taskId && modes.get(paneId) === "local") {
+      chats.createLocal(text).then(
+        (task) => {
+          setFresh((tasks) => new Map(tasks).set(task.id, task));
+          setLayout((state) =>
+            assignTask(state, paneId, task.id, task.title || text.slice(0, 80)),
+          );
+          promptLocal(task.id).catch((error: unknown) => {
+            clearPending();
+            flashNotice(`Couldn't send: ${messageOf(error)}`);
           });
-          flashNotice(`Couldn't send: ${messageOf(error)}`);
-        });
+        },
+        (error: unknown) => {
+          clearPending();
+          composerFor(paneId).setText(text);
+          flashNotice(
+            `Couldn't start the chat: ${messageOf(error)}. Your message is still in the composer.`,
+          );
+        },
+      );
       return;
     }
     (current ? chats.reply(current, text) : chats.start(text)).then(
@@ -773,8 +840,18 @@ export function App({
         working: new Set(),
         known: new Map([...known, ...fresh]),
         signedIn: session !== null,
+        local: { active: localActive, running: new Set(localSessions.keys()) },
       }),
-    [layout, page, collapsed, known, fresh, session],
+    [
+      layout,
+      page,
+      collapsed,
+      known,
+      fresh,
+      session,
+      localActive,
+      localSessions,
+    ],
   );
   const selectedIndex = cursorIndex(rows, selected);
   const workspace = activeWorkspace(layout);
