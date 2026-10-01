@@ -256,26 +256,33 @@ def _executed_attempts(depot: DepotJobAttempts, handoffs: str, pull_requests_tab
 
 
 def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
-    # No hand-off job predates Depot's first hand-off, so the day before it floors the scan of the jobs table.
+    # No hand-off job predates Depot's first hand-off, so the day before it floors the hand-off and relay jobs.
+    floor = f"(SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})"
+    handed_off = f"name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success' AND created_at >= {floor}"
+    # A run can recover weeks after its failed attempt, so the failure check has no date floor. Every attempt
+    # keeps the id of its run, and run ids grow with time, so the first run that handed off bounds the scans
+    # instead: a scan can skip files on an id range, and no attempt of a later run is below that id.
+    first_run = f"(SELECT min(run_id) FROM {jobs_table} WHERE {handed_off})"
+    relays = f"""
+        SELECT run_id
+        FROM {jobs_table}
+        WHERE run_id >= {first_run}
+        GROUP BY run_id
+        HAVING countIf({handed_off}) > 0
+            AND argMaxIf(
+                ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}' AND created_at >= {floor}
+            ) = 'success'
+            AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
+    """
+    # The runs builder parses three JSON columns per row, so the raw columns narrow its input first.
+    successful_relays = f"id >= {first_run} AND status = 'completed' AND conclusion = 'success' AND id IN ({relays})"
     return f"""
-        SELECT j.run_id FROM (
-            SELECT run_id
-            FROM {jobs_table}
-            WHERE created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
-            GROUP BY run_id
-            HAVING countIf(name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success') > 0
-                AND argMaxIf(ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}') = 'success'
-        ) AS j
-        INNER JOIN ({workflow_runs.build_query(f"({_github_runs(runs_table)})")}) AS r ON j.run_id = r.id
-        WHERE r.status = 'completed' AND r.conclusion = 'success'
-            -- A run can recover weeks after its failed attempt, so the failure check has no date floor.
-            AND j.run_id NOT IN (
-                SELECT run_id FROM {jobs_table} WHERE conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
-            )
-            AND (r.head_sha, r.pr_number) IN (
-                SELECT head_sha, pr_number FROM {handoffs}
-                WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
-            )
+        SELECT r.id
+        FROM ({workflow_runs.build_query(f"({_github_runs(runs_table, successful_relays)})")}) AS r
+        WHERE (r.head_sha, r.pr_number) IN (
+            SELECT head_sha, pr_number FROM {handoffs}
+            WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
+        )
     """
 
 
