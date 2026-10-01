@@ -637,26 +637,35 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     assert sleep.call_count == sleeps
 
 
+UNDER_THE_FLOOR = [
+    PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=300, total_bytes=1000),
+    PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=100, total_bytes=8000),
+]
+
+
 # The second reading comes after the wait for squash and deletes runs returns.
 @pytest.mark.parametrize(
-    "readings, overrides, copies",
+    "readings, overrides, failure",
     [
         pytest.param(
             [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, ABOVE_MOVE_LINE, ABOVE_MOVE_LINE],
             {},
-            1,
+            None,
             id="mover_frees_the_disk_after_the_blocking_wait",
         ),
         pytest.param(
             [ABOVE_MOVE_LINE, BELOW_MOVE_LINE, BELOW_MOVE_LINE],
             {"disk_check_max_wait_seconds": 0},
-            0,
+            "still moving parts",
             id="disk_still_full_after_the_blocking_wait",
+        ),
+        pytest.param(
+            [ABOVE_MOVE_LINE, UNDER_THE_FLOOR], {}, "under the floor", id="disk_under_the_floor_after_the_blocking_wait"
         ),
     ],
 )
 def test_backfill_checks_the_disk_again_after_waiting_for_blocking_runs(
-    readings: list[list[PolicyDisk]], overrides: dict[str, Any], copies: int
+    readings: list[list[PolicyDisk]], overrides: dict[str, Any], failure: str | None
 ) -> None:
     backfill = shard_backfill(
         FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides})
@@ -670,13 +679,13 @@ def test_backfill_checks_the_disk_again_after_waiting_for_blocking_runs(
         patch.object(ShardBackfill, "check_consumer_lag"),
         patch.object(ShardBackfill, "copy_day", return_value=5) as copy_day,
     ):
-        if copies:
+        if failure is None:
             backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
         else:
-            with pytest.raises(dagster.Failure, match="still moving parts"):
+            with pytest.raises(dagster.Failure, match=failure):
                 backfill.run([datetime.now(UTC).date() - timedelta(days=1)])
 
-    assert copy_day.call_count == copies
+    assert copy_day.called is (failure is None)
 
 
 @pytest.mark.parametrize(
