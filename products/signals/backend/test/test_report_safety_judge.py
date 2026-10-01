@@ -21,7 +21,7 @@ from products.signals.backend.temporal.report_safety_judge import (
 from products.signals.backend.temporal.types import SignalData
 
 MODULE_PATH = "products.signals.backend.temporal.report_safety_judge"
-DECISION_MODULE_PATH = "products.signals.backend.typesafe_decision"
+DECISION_MODULE_PATH = "products.signals.backend.system_one_decision"
 
 
 @pytest.mark.asyncio
@@ -88,7 +88,7 @@ async def test_report_judge_keeps_forged_delimiters_inside_the_block() -> None:
         (0.1, "none", "The safety model marked the report unsafe without naming a category."),
     ],
 )
-async def test_typesafe_block_explains_the_category(
+async def test_system_one_block_explains_the_category(
     safe_probability: float, category: str, expected_explanation: str
 ) -> None:
     decision = DecisionResult(
@@ -109,7 +109,7 @@ async def test_typesafe_block_explains_the_category(
         timestamp=datetime(2026, 9, 10, tzinfo=UTC),
     )
     with (
-        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="typesafe-only"),
+        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="system-one-only"),
         patch(f"{DECISION_MODULE_PATH}.posthoganalytics.capture"),
         patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available", return_value=decision),
     ):
@@ -121,7 +121,7 @@ async def test_typesafe_block_explains_the_category(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deadline_expired", [False, True])
-async def test_typesafe_only_checks_a_large_report_in_complete_chunks(deadline_expired: bool) -> None:
+async def test_system_one_only_checks_a_large_report_in_complete_chunks(deadline_expired: bool) -> None:
     decision = DecisionResult(
         model="jevk5-fp8-0.2",
         answers={
@@ -161,7 +161,7 @@ async def test_typesafe_only_checks_a_large_report_in_complete_chunks(deadline_e
 
     with (
         time_machine.travel("2026-01-01", tick=False) as clock,
-        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="typesafe-only"),
+        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="system-one-only"),
         patch(f"{DECISION_MODULE_PATH}.posthoganalytics.capture"),
         patch(f"{DECISION_MODULE_PATH}.get_client", return_value=FakeRedis()),
         patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available", side_effect=gateway) as decide,
@@ -188,7 +188,7 @@ async def test_typesafe_only_checks_a_large_report_in_complete_chunks(deadline_e
 
 
 @pytest.mark.asyncio
-async def test_typesafe_only_blocks_a_single_signal_that_cannot_fit() -> None:
+async def test_system_one_only_blocks_a_single_signal_that_cannot_fit() -> None:
     signal = SignalData(
         signal_id="signal-1",
         content="x" * JEV_REPORT_STATE_MAX_BYTES,
@@ -199,7 +199,7 @@ async def test_typesafe_only_blocks_a_single_signal_that_cannot_fit() -> None:
         timestamp=datetime(2026, 9, 10, tzinfo=UTC),
     )
     with (
-        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="typesafe-only"),
+        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value="system-one-only"),
         patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available") as decide,
     ):
         result = await judge_report_safety(team_id=1, signals=[signal], report_id="report-1")

@@ -98,6 +98,6 @@ def render() -> dict[str, str]:
     registry = render_registry_ts()
     return {
         "products/desktop/packages/core/src/inbox/objectKinds.generated.ts": registry,
-        "products/desktop/packages/shared/src/objectTagKinds.generated.ts": render_prompt_kinds_ts(),
+        "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts": render_prompt_kinds_ts(),
         "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts": registry,
     }
