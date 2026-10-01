@@ -61,33 +61,60 @@ def create_briefing(
     )
 
 
-def _current(team: Team, user: User, slot: EditionSlot) -> DailyBriefing | None:
-    """The edition's briefing: the newest ready one, else the newest in progress, else the newest failed one."""
+@frozen
+class CurrentBriefing:
+    """What the page shows and whether something newer is on its way."""
+
+    shown: DailyBriefing
+    # A briefing for this edition is being written while an earlier ready one is shown in its place.
+    generating: bool
+
+
+_PENDING = {BriefingStatus.COLLECTING, BriefingStatus.WRITING}
+
+
+def _current(team: Team, user: User, slot: EditionSlot) -> CurrentBriefing | None:
+    """The briefing to show for the edition, and whether a newer one is being written.
+
+    The newest ready briefing of the edition wins. While the edition's briefing is still being
+    written, the day's latest ready one stands in, so a refresh or the noon edition never drops
+    the person back to the team list. With nothing ready today, the one in progress is shown, and
+    a failed one only when nothing else exists.
+    """
     rows = list(
         DailyBriefing.objects.for_team(team.id)
-        .filter(user_id=user.id, local_day=slot.local_day, edition=slot.edition)
+        .filter(user_id=user.id, local_day=slot.local_day)
         .order_by("-created_at")
     )
-    pending_statuses = {BriefingStatus.COLLECTING, BriefingStatus.WRITING}
-    ready = next((row for row in rows if row.status == BriefingStatus.READY), None)
-    pending = next((row for row in rows if row.status in pending_statuses), None)
-    return ready or pending or (rows[0] if rows else None)
+    edition_rows = [row for row in rows if row.edition == slot.edition]
+    if not edition_rows:
+        return None
+    ready = next((row for row in edition_rows if row.status == BriefingStatus.READY), None)
+    pending = next((row for row in edition_rows if row.status in _PENDING), None)
+    if ready is not None and (pending is None or pending.created_at < ready.created_at):
+        return CurrentBriefing(shown=ready, generating=False)
+    earlier_ready = next((row for row in rows if row.status == BriefingStatus.READY), None)
+    shown = earlier_ready or pending or edition_rows[0]
+    return CurrentBriefing(shown=shown, generating=pending is not None and shown is not pending)
 
 
 def get_or_start_briefing(
     *, team: Team, user: User, timezone_name: str | None, now: datetime | None = None
-) -> DailyBriefing:
+) -> CurrentBriefing:
     tz = resolve_timezone(timezone_name, team)
     slot = current_edition(now or timezone.now(), tz)
-    briefing = _current(team, user, slot)
-    if briefing is None:
+    current = _current(team, user, slot)
+    if current is None:
         # The scheduler writes both editions ahead for recent viewers; this covers everyone else.
         briefing = create_briefing(
             team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN
         )
         start_generation(briefing)
-    DailyBriefing.objects.for_team(team.id).filter(id=briefing.id).update(last_viewed_at=timezone.now(), timezone=tz)
-    return briefing
+        current = _current(team, user, slot) or CurrentBriefing(shown=briefing, generating=True)
+    DailyBriefing.objects.for_team(team.id).filter(id=current.shown.id).update(
+        last_viewed_at=timezone.now(), timezone=tz
+    )
+    return current
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> DailyBriefing:
@@ -145,8 +172,14 @@ def _live_states(team: Team, items: list[FactSheetItem]) -> dict[str, ItemState]
     return states
 
 
-def to_contract(briefing: DailyBriefing, team: Team, user: User) -> contracts.Briefing:
-    """The briefing as the page shows it: only the items the text names, with live states and counts."""
+def to_contract(
+    briefing: DailyBriefing, team: Team, user: User, *, status: BriefingStatus | None = None
+) -> contracts.Briefing:
+    """The briefing as the page shows it: only the items the text names, with live states and counts.
+
+    `status` overrides the row's own: while a newer briefing for the edition is being written, the
+    page gets the last ready one as `writing`, so it keeps showing the text and keeps polling.
+    """
     fact_sheet = stored_fact_sheet(briefing)
     shown = fact_sheet.text_items if fact_sheet else []
     content = BriefingContent.model_validate(briefing.content or briefing.draft or {})
@@ -154,7 +187,7 @@ def to_contract(briefing: DailyBriefing, team: Team, user: User) -> contracts.Br
     counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(
         id=str(briefing.id),
-        status=BriefingStatus(briefing.status),
+        status=status or BriefingStatus(briefing.status),
         writer=BriefingWriter(briefing.writer) if briefing.writer else None,
         local_day=briefing.local_day,
         edition=BriefingEdition(briefing.edition),
@@ -220,8 +253,8 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     """The items behind today's briefing with their facts, or an empty list while it is being written."""
     tz = resolve_timezone(timezone_name, team)
     slot = current_edition(timezone.now(), tz)
-    briefing = _current(team, user, slot)
-    fact_sheet = stored_fact_sheet(briefing) if briefing is not None else None
+    current = _current(team, user, slot)
+    fact_sheet = stored_fact_sheet(current.shown) if current is not None else None
     if fact_sheet is None:
         return contracts.CandidateList(local_day=slot.local_day, candidates=[], more_reports_count=0, failed_sources=[])
     return _facts_to_candidates(fact_sheet, slot.local_day, team=team, user=user)

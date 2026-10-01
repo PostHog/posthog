@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -10,6 +11,8 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.sync import database_sync_to_async
+
 from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger, BriefingWriter
 from products.today.backend.logic.agent_output import BriefingOutput, to_fact_sheet
@@ -19,6 +22,15 @@ from products.today.backend.temporal.activities import _due_briefings
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 
 FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
+# The activity hops to a worker thread for the ORM; under the test transaction that thread would not
+# see the rows, so the hop runs on the test thread instead.
+ON_TEST_THREAD = "products.today.backend.logic.generate.database_sync_to_async"
+
+
+def _on_test_thread(fn: Callable[..., Any], **_: Any) -> Callable[..., Any]:
+    return database_sync_to_async(fn, thread_sensitive=True)
+
+
 SESSION = "products.today.backend.logic.generate.MultiTurnSession"
 SANDBOX_ENV = "products.today.backend.logic.generate.tasks_facade.upsert_internal_sandbox_env"
 REPORTS = "products.today.backend.logic.generate.signals.reports_for_briefing"
@@ -106,6 +118,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
         session.send_followup = AsyncMock(side_effect=list(followups))
         start = AsyncMock(return_value=(session, first))
         with (
+            patch(ON_TEST_THREAD, _on_test_thread),
             patch(SANDBOX_ENV, return_value="env-1"),
             patch(REPORTS, return_value=self.reports),
             patch(f"{SESSION}.start", start),
@@ -135,7 +148,8 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
 
         self.briefing.refresh_from_db()
         assert self.briefing.status == BriefingStatus.READY
-        [(message, model), _] = [(call.args, call.kwargs) for call in session.send_followup.call_args_list]
+        [call] = session.send_followup.call_args_list
+        message, model = call.args
         assert "em or en dash" in message and model is BriefingOutput
 
     def test_an_answer_that_keeps_breaking_rules_fails_the_run(self) -> None:
@@ -195,7 +209,11 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
     def test_the_run_deletes_the_row_when_the_flag_turned_off(self) -> None:
         briefing = self._viewer_row()
 
-        with patch(FLAG, return_value=False), patch(SANDBOX_ENV) as sandbox_env:
+        with (
+            patch(ON_TEST_THREAD, _on_test_thread),
+            patch(FLAG, return_value=False),
+            patch(SANDBOX_ENV) as sandbox_env,
+        ):
             async_to_sync(run_agent)(team_id=self.team.id, briefing_id=str(briefing.id))
 
         sandbox_env.assert_not_called()

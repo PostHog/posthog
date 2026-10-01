@@ -5,12 +5,15 @@ from posthog.models import Team, User
 from ..feature_flags import is_enabled_for as is_enabled_for
 from ..logic import briefings
 from . import contracts
+from .enums import BriefingStatus
 
 
 def get_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:
     """Today's briefing for the person. Starts generating one when there is none yet."""
-    briefing = briefings.get_or_start_briefing(team=team, user=user, timezone_name=timezone_name)
-    return briefings.to_contract(briefing, team, user)
+    current = briefings.get_or_start_briefing(team=team, user=user, timezone_name=timezone_name)
+    return briefings.to_contract(
+        current.shown, team, user, status=BriefingStatus.WRITING if current.generating else None
+    )
 
 
 def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> contracts.Briefing:

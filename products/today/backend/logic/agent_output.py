@@ -1,5 +1,7 @@
 """The shape the briefing agent answers in, and how it becomes a stored briefing."""
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict
 
 from posthog.models import User
@@ -53,6 +55,26 @@ class BriefingOutput(BaseModel):
     headline: str
     paragraphs: list[list[OutputSegment]]
     items: list[OutputItem]
+
+
+def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """The model's JSON schema in the strict form OpenAI structured outputs accept: every object
+    closed with `additionalProperties: false` and every property required."""
+
+    def close(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and "properties" in node:
+                node["additionalProperties"] = False
+                node["required"] = list(node["properties"])
+            for value in node.values():
+                close(value)
+        elif isinstance(node, list):
+            for value in node:
+                close(value)
+
+    schema = model.model_json_schema()
+    close(schema)
+    return schema
 
 
 def to_fact_sheet(output: BriefingOutput, briefing: DailyBriefing, user: User) -> FactSheet:

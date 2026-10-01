@@ -33,9 +33,9 @@ import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
 const CLOCK_MS = 30_000
-export const BRIEFING_POLL_MS = 3_000
-// Generation takes under a minute. Stop asking after about three minutes and show what there is.
-const MAX_BRIEFING_POLLS = 60
+export const BRIEFING_POLL_MS = 5_000
+// The agent run has a 20 minute budget. Stop asking a little after that and show what there is.
+const MAX_BRIEFING_POLLS = 260
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
@@ -105,6 +105,7 @@ export interface todayLogicValues {
     briefingItems: BriefingItemApi[]
     briefingPolls: number
     briefingWaiting: boolean
+    gaveUpWaiting: boolean
     greeting: string
     hour: number
     hoveredItemKey: string | null
@@ -112,7 +113,6 @@ export interface todayLogicValues {
     inboxMore: TodayInboxMore | null
     moreReportCount: number
     now: number
-    pendingBriefingId: string | null
     personalBriefing: BriefingApi | null
     personalBriefingFailed: boolean
     personalBriefingLoading: boolean
@@ -266,7 +266,7 @@ export interface todayLogicMeta {
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
-            pendingBriefingId: string | null,
+            gaveUpWaiting: boolean,
             refreshedBriefingLoading: boolean
         ) => boolean
     }
@@ -373,16 +373,13 @@ export const todayLogic = kea<todayLogicType>([
                 loadPersonalBriefingFailure: () => true,
             },
         ],
-        // A refresh keeps the current briefing on screen until the new one is written.
-        pendingBriefingId: [
-            null as string | null,
+        gaveUpWaiting: [
+            false,
             {
-                refreshBriefingSuccess: (_, { refreshedBriefing }) => refreshedBriefing?.id ?? null,
+                stopWaitingForBriefing: () => true,
+                refreshBriefingSuccess: () => false,
                 loadPersonalBriefingSuccess: (state, { personalBriefing }) =>
-                    personalBriefing && personalBriefing.id === state && isBriefingSettled(personalBriefing)
-                        ? null
-                        : state,
-                stopWaitingForBriefing: () => null,
+                    personalBriefing && isBriefingSettled(personalBriefing) ? false : state,
             },
         ],
         briefingPolls: [
@@ -454,16 +451,17 @@ export const todayLogic = kea<todayLogicType>([
             (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
                 showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
         ],
+        // While a newer briefing is written, the server returns the shown one as `writing`, so the
+        // text stays on screen and the page keeps asking until the new one is ready.
         briefingWaiting: [
-            (s) => [s.personalBriefing, s.pendingBriefingId, s.refreshedBriefingLoading],
+            (s) => [s.personalBriefing, s.gaveUpWaiting, s.refreshedBriefingLoading],
             (
                 personalBriefing: BriefingApi | null,
-                pendingBriefingId: string | null,
+                gaveUpWaiting: boolean,
                 refreshedBriefingLoading: boolean
             ): boolean =>
                 refreshedBriefingLoading ||
-                pendingBriefingId !== null ||
-                (!!personalBriefing && !isBriefingSettled(personalBriefing)),
+                (!gaveUpWaiting && !!personalBriefing && !isBriefingSettled(personalBriefing)),
         ],
     }),
     listeners(({ actions, values, cache }) => ({

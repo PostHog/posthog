@@ -17,7 +17,7 @@ from products.tasks.backend.facade.agents import CustomPromptSandboxContext, Mul
 from ..facade.enums import BriefingStatus
 from ..feature_flags import is_enabled_for
 from ..models import DailyBriefing
-from .agent_output import BriefingOutput, problems_with, to_content, to_fact_sheet
+from .agent_output import BriefingOutput, problems_with, strict_schema, to_content, to_fact_sheet
 from .briefings import store_briefing
 from .prompt import build_prompt, recent_briefings
 
@@ -133,7 +133,7 @@ async def run_agent(*, team_id: int, briefing_id: str) -> None:
         ai_agent_name="today-briefing",
         on_task_run_created=name_the_task,
         max_poll_seconds=int(AGENT_TIMEOUT.total_seconds()),
-        output_schema=BriefingOutput.model_json_schema(),
+        output_schema=strict_schema(BriefingOutput),
     )
     try:
         for attempt in range(1, WRITE_ATTEMPTS + 1):

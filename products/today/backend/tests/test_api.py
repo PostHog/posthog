@@ -59,6 +59,34 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert [response.status_code for response in responses] == [200, 200, 200, 200]
         assert sync_connect.return_value.start_workflow.call_count == 4
 
+    def test_a_refresh_keeps_the_ready_briefing_on_screen_until_the_new_one_is_written(
+        self, sync_connect: MagicMock
+    ) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        with self._flag(True):
+            first = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+            DailyBriefing.objects.for_team(self.team.id).filter(id=first["id"]).update(
+                status=BriefingStatus.READY,
+                content={"headline": "Morning text", "paragraphs": [], "labels": {}, "signals": {}},
+            )
+            refreshed = self.client.post(f"/api/projects/{self.team.id}/today/briefing/refresh/").json()
+            while_writing = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+            new_id = (
+                DailyBriefing.objects.for_team(self.team.id)
+                .filter(user_id=self.user.id, trigger=BriefingTrigger.REFRESH)
+                .values_list("id", flat=True)
+                .get()
+            )
+            DailyBriefing.objects.for_team(self.team.id).filter(id=new_id).update(
+                status=BriefingStatus.READY,
+                content={"headline": "Fresh text", "paragraphs": [], "labels": {}, "signals": {}},
+            )
+            done = self.client.get(f"/api/projects/{self.team.id}/today/briefing/").json()
+
+        assert (refreshed["id"], refreshed["status"], refreshed["headline"]) == (first["id"], "writing", "Morning text")
+        assert (while_writing["status"], while_writing["headline"]) == ("writing", "Morning text")
+        assert (done["id"], done["status"], done["headline"]) == (str(new_id), "ready", "Fresh text")
+
     def test_briefings_of_other_people_stay_private(self, _sync_connect: MagicMock) -> None:
         other = self._create_user("other@example.com")
         with self._flag(True):
