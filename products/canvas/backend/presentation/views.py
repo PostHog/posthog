@@ -43,6 +43,7 @@ from products.canvas.backend.facade.api import (
     call_connector_tool,
     canvas_connectors_enabled,
     connector_listings,
+    create_canvas_sandbox_document_url,
     default_layout,
     native_connector_listings,
     seed_home_canvas,
@@ -811,6 +812,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             "has_active_build": newest_active is not None,
             "source": source,
             "layout": layout,
+            "sandbox_document_url": create_canvas_sandbox_document_url(),
         }
         if layout is not None:
             instance["component_lifecycles"] = _component_lifecycles(self.team_id, self.get_queryset(), layout)
