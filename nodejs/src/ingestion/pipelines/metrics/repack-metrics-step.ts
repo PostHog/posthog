@@ -8,7 +8,7 @@ import { PipelineResult, dlq, ok } from '~/ingestion/framework/results'
 import { recordMetricsIngested } from './ingestion-otel-metrics'
 import { metricMessageDlqCounter, metricsPacketsProducedCounter, metricsPacketsRepackedCounter } from './metrics'
 import { DecodedMetricsPacket, encodeMetricsPacket } from './metrics-avro'
-import { METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
+import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT, MetricsOutput } from './outputs/outputs'
 import { MetricRecord } from './types'
 
 export interface RepackMetricsConfig {
@@ -24,14 +24,12 @@ export interface RepackMetricsInput extends DecodedMetricsPacket {
 }
 
 /**
- * Packets only merge when ClickHouse would read the same headers from them and
- * the rows share one writer schema: `team_id` and `retention-days` feed the
- * Kafka table, and a schema change deploy can put two schema versions in one
- * batch.
+ * Packets only merge when the rows belong to one team and share one writer
+ * schema: ClickHouse reads `team_id` from the message headers, and a schema
+ * change deploy can put two schema versions in one batch.
  */
-export function metricsRepackGroupKey(input: { teamId: number; schemaFingerprint: string; message: Message }): string {
-    const retentionDays = parseKafkaHeaders(input.message.headers)['retention-days'] ?? ''
-    return `${input.teamId}:${retentionDays}:${input.schemaFingerprint}`
+export function metricsRepackGroupKey(input: { teamId: number; schemaFingerprint: string }): string {
+    return `${input.teamId}:${input.schemaFingerprint}`
 }
 
 interface Packet<T> {
@@ -71,10 +69,10 @@ function packInputs<T extends RepackMetricsInput>(values: T[], config: RepackMet
 const PER_CAPTURE_BATCH_HEADERS = ['batch_uuid', 'bytes_uncompressed_records', 'timestamps_overridden']
 
 /**
- * Output headers start from the first member's headers (so `retention-days`
- * and anything else capture stamped survive), then the size headers are
- * recomputed for the merged payload. Headers that describe one capture batch
- * are only kept when the packet is that one batch.
+ * Output headers start from the first member's headers (so anything else
+ * capture stamped survives), then the size headers are recomputed for the
+ * merged payload. Headers that describe one capture batch are only kept when
+ * the packet is that one batch.
  */
 function mergedPacketHeaders<T extends RepackMetricsInput>(packet: Packet<T>, encoded: Buffer): Record<string, string> {
     const leader = packet.members[0].value
@@ -88,6 +86,7 @@ function mergedPacketHeaders<T extends RepackMetricsInput>(packet: Packet<T>, en
         ...headers,
         token: leader.token,
         team_id: leader.teamId.toString(),
+        'retention-days': DEFAULT_METRICS_RETENTION_DAYS.toString(),
         bytes_uncompressed: packet.bytesUncompressed.toString(),
         bytes_compressed: encoded.length.toString(),
         record_count: packet.records.length.toString(),

@@ -208,7 +208,7 @@ describe('metrics ingestion steps', () => {
     })
 
     describe('decodeMetricsPacketStep', () => {
-        const step = createDecodeMetricsPacketStep()
+        const step = createDecodeMetricsPacketStep({ maxRecords: 1000, maxDecompressedBytes: 1024 * 1024 })
 
         it('decodes the Avro container into rows with a schema fingerprint', async () => {
             const records = metricRecords('cpu', 3)
@@ -236,6 +236,19 @@ describe('metrics ingestion steps', () => {
                 expect(result.error).toBeInstanceOf(Error)
             }
             expect(await counterValue(metricMessageDlqCounter, { reason: 'decode_failed', team_id: '7' })).toBe(1)
+        })
+
+        it.each([
+            ['record', { maxRecords: 2, maxDecompressedBytes: 1024 * 1024 }],
+            ['decompressed byte', { maxRecords: 1000, maxDecompressedBytes: 10 }],
+        ])('stops decoding at the %s cap and sends the packet to the DLQ', async (_cap, limits) => {
+            const value = await encodeMetricsPacket(TEST_RECORD_TYPE, 'zstandard', metricRecords('cpu', 3))
+            const result = await createDecodeMetricsPacketStep(limits)({
+                message: createTestMessage({ value }),
+                teamId: 7,
+            })
+            expect(isDlqResult(result) && result.reason).toBe('metrics_packet_too_large')
+            expect(await counterValue(metricMessageDlqCounter, { reason: 'packet_too_large', team_id: '7' })).toBe(1)
         })
     })
 
@@ -269,20 +282,18 @@ describe('metrics ingestion steps', () => {
             outputs = createMockIngestionOutputs<MetricsOutput>()
         })
 
-        it('groups by team, retention and schema', () => {
-            const a = makeInput(1, metricRecords('a', 1), { 'retention-days': '30' })
-            const b = makeInput(1, metricRecords('b', 1), { 'retention-days': '30' })
-            const c = makeInput(1, metricRecords('c', 1), { 'retention-days': '7' })
-            const d = makeInput(2, metricRecords('d', 1), { 'retention-days': '30' })
+        it('groups by team and schema', () => {
+            const a = makeInput(1, metricRecords('a', 1))
+            const b = makeInput(1, metricRecords('b', 1))
+            const d = makeInput(2, metricRecords('d', 1))
             expect(metricsRepackGroupKey(a)).toBe(metricsRepackGroupKey(b))
-            expect(metricsRepackGroupKey(a)).not.toBe(metricsRepackGroupKey(c))
             expect(metricsRepackGroupKey(a)).not.toBe(metricsRepackGroupKey(d))
             expect(metricsRepackGroupKey(a)).not.toBe(metricsRepackGroupKey({ ...b, schemaFingerprint: 'other' }))
         })
 
         it("merges a team's packets into one produce and credits every member after the ack", async () => {
             const inputs = [
-                makeInput(1, metricRecords('a', 2), { 'retention-days': '30' }),
+                makeInput(1, metricRecords('a', 2), { 'retention-days': '7' }),
                 makeInput(1, metricRecords('b', 3)),
                 makeInput(1, []),
             ]
@@ -323,8 +334,12 @@ describe('metrics ingestion steps', () => {
 
             expect(results).toHaveLength(inputs.length)
             const produced = producedTo(METRICS_OUTPUT)
-            expect(produced.map((m) => m.headers?.record_count)).toEqual(['2', '1', '2'])
-            expect(produced.map((m) => m.headers?.batch_uuid)).toEqual(['batch-a_0', 'batch-b_0', 'batch-c_0'])
+            // Packets encode concurrently, so produce order is not part of the contract.
+            expect(produced.map((m) => [m.headers?.batch_uuid, m.headers?.record_count]).sort()).toEqual([
+                ['batch-a_0', '2'],
+                ['batch-b_0', '1'],
+                ['batch-c_0', '2'],
+            ])
         })
 
         it('sends every member of a packet to the DLQ when its produce fails', async () => {
