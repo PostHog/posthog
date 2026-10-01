@@ -141,10 +141,19 @@ def quarantine_identifier(
             source=source,
         )
     if notify_owners:
-        from ..tasks.tasks import notify_quarantine_owners  # noqa: PLC0415 — avoids the logic/tasks circular import
+        from ..tasks.tasks import (  # noqa: PLC0415 — avoids the logic/tasks circular import
+            QUARANTINE_NOTICE_EXPIRY_SECONDS,
+            notify_quarantine_owners,
+        )
 
         entry_id = str(entry.id)
-        transaction.on_commit(lambda: notify_quarantine_owners.delay(team_id, entry_id), using=WRITER_DB, robust=True)
+        transaction.on_commit(
+            lambda: notify_quarantine_owners.apply_async(
+                args=(team_id, entry_id), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS
+            ),
+            using=WRITER_DB,
+            robust=True,
+        )
     return entry
 
 

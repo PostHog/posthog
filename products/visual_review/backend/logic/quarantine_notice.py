@@ -6,7 +6,7 @@ the same rendering of a quarantine. A story no team owns gets no notice, because
 "owned by you" and the maintainers already see unowned items in the digest.
 
 Best effort. A quarantine never fails because its notice could not be sent, and nothing retries a
-notice: the weekly digest still lists the quarantine before it expires.
+notice.
 """
 
 from __future__ import annotations

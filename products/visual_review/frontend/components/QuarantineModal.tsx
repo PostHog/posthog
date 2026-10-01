@@ -242,9 +242,8 @@ export function QuarantineModal({
                             <div>
                                 <div className="text-sm font-medium">Notify the owning team in Slack</div>
                                 <div className="text-xs text-muted font-normal">
-                                    Posts to the team's channel now, with your name, instead of waiting for the Monday
-                                    digest. Skipped if the story has no owner in owners.yaml or the project has no Slack
-                                    integration.
+                                    Posts to the team's channel now, with your name. Skipped if the story has no owner
+                                    in owners.yaml or the project has no Slack integration.
                                 </div>
                             </div>
                         }

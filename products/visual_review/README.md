@@ -122,7 +122,8 @@ A Celery task, `notify quarantine owners`, runs after the row commits.
 It finds the owner with the same lookup as the flakiness page, and posts to the channel the digest uses, so a team that opted out of the digest gets no notice either.
 The message names the person who quarantined and shows the story, the reason, the expiry, and a button to the snapshot.
 It works for Storybook runs only, and it is best effort: a story no team owns, a project with no Slack integration, or a refused post sends nothing, and nothing retries.
-The weekly digest still lists the quarantine before it expires.
+The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
+The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
 
 ## The flow
 

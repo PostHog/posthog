@@ -10,6 +10,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import quarantine, quarantine_notice, repos, story_index
 from products.visual_review.backend.models import QuarantinedIdentifier
+from products.visual_review.backend.tasks.tasks import QUARANTINE_NOTICE_EXPIRY_SECONDS
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _SOURCE_PATH = "frontend/src/scenes/Button`www.example.com`.stories.tsx"
@@ -111,8 +112,9 @@ class TestQuarantineDispatchesNotice:
         repo = repos.create_repo(team_id=team.id, repo_external_id=66662, repo_full_name="org/test-dispatch")
         with (
             patch(
-                "products.visual_review.backend.tasks.tasks.notify_quarantine_owners.delay", side_effect=broker_error
-            ) as delay,
+                "products.visual_review.backend.tasks.tasks.notify_quarantine_owners.apply_async",
+                side_effect=broker_error,
+            ) as apply_async,
             django_capture_on_commit_callbacks(using=WRITER_DB, execute=True),
         ):
             entry = quarantine.quarantine_identifier(
@@ -125,5 +127,6 @@ class TestQuarantineDispatchesNotice:
                 notify_owners=notify_owners,
             )
 
-        assert delay.call_args_list == ([call(team.id, str(entry.id))] if notify_owners else [])
+        expected = [call(args=(team.id, str(entry.id)), expires=QUARANTINE_NOTICE_EXPIRY_SECONDS)]
+        assert apply_async.call_args_list == (expected if notify_owners else [])
         assert QuarantinedIdentifier.objects.using(WRITER_DB).filter(id=entry.id).exists()
