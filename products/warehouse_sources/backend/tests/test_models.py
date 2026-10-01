@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
 import pytest
@@ -1098,6 +1098,22 @@ class TestScheduledFullRefreshDue:
         schema = self._schema(sync_type, timedelta(days=1))
         with time_machine.travel(datetime(2026, 10, 1, tzinfo=UTC), tick=False):
             assert schema.scheduled_full_refresh_due() is False
+
+
+class TestRestartFullRefreshClock:
+    @parameterized.expand(
+        [
+            ("wipe_just_after_the_time", datetime(2026, 9, 22, 3, 4), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_sync_up_to_an_hour_early", datetime(2026, 9, 22, 2, 10), datetime(2026, 9, 29, 3, 0)),
+            ("wipe_on_a_later_daily_sync", datetime(2026, 9, 22, 5, 0), datetime(2026, 9, 29, 3, 0)),
+            ("saved_hours_before_the_time", datetime(2026, 9, 22, 1, 0), datetime(2026, 9, 28, 3, 0)),
+        ]
+    )
+    def test_the_next_refresh_keeps_the_chosen_time(self, _name: str, now: datetime, expected: datetime) -> None:
+        schema = ExternalDataSchema(full_refresh_interval_days=7, full_refresh_time_of_day=time(3, 0))
+        with time_machine.travel(now.replace(tzinfo=UTC), tick=False):
+            schema.restart_full_refresh_clock()
+        assert schema.next_full_refresh_at == expected.replace(tzinfo=UTC)
 
 
 def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
