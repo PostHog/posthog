@@ -93,7 +93,7 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="alerts")
 
     grouping_key = models.CharField(max_length=255, default="", db_default="")
-    state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
+    state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING.value, db_default="not_firing")
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
     # Identifies one firing, from the transition into FIRING to the transition out. A timestamp

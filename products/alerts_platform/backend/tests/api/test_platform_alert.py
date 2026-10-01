@@ -141,6 +141,24 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
+    def test_two_pages_cover_every_row_once(self) -> None:
+        # `list` asks the facade for a slice and then hands that slice to the paginator. An offset
+        # applied by both would skip rows at the page boundary, which a single-page test cannot see.
+        self._set_flag(True)
+        created = {str(self._create_configuration(self.team, f"Alert {index}").id) for index in range(3)}
+        url = f"/api/projects/{self.team.id}/platform_alerts/"
+
+        first = self.client.get(f"{url}?limit=2").json()
+        second = self.client.get(f"{url}?limit=2&offset=2").json()
+
+        first_ids = [row["id"] for row in first["results"]]
+        second_ids = [row["id"] for row in second["results"]]
+        assert first["count"] == 3
+        assert len(first_ids) == 2
+        assert len(second_ids) == 1
+        assert set(first_ids).isdisjoint(second_ids)
+        assert set(first_ids) | set(second_ids) == created
+
     def test_a_page_costs_the_same_queries_however_many_rows_it_holds(self) -> None:
         # A filter added to the prefetched relation would bypass the cache and cost a query per
         # configuration, which no assertion on the response body would notice.
