@@ -93,6 +93,7 @@ describe('Marketing analytics cross sell', () => {
         const link = await screen.findByRole('link', { name: 'Connect ad sources' })
         expect(link.getAttribute('href')).toContain('/marketing?')
         expect(link.getAttribute('href')?.includes('tab=setup')).toBe(setup)
+        expect(new URL(link.getAttribute('href')!, 'http://localhost').searchParams.get('date_to')).toBe('')
         expect(queries).toHaveBeenCalledTimes(1)
         expect(sources).toHaveBeenCalledTimes(1)
         fireEvent.click(screen.getByRole('button', { name: 'Dismiss Marketing analytics suggestion' }))

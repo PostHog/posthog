@@ -272,9 +272,8 @@ export const marketingAnalyticsCrossSellLogic: LogicWrapper<marketingAnalyticsCr
                         if (query.dateRange.date_from) {
                             params.set('date_from', query.dateRange.date_from)
                         }
-                        if (query.dateRange.date_to) {
-                            params.set('date_to', query.dateRange.date_to)
-                        }
+                        // An empty value marks an open-ended range, so Marketing analytics drops a saved end date.
+                        params.set('date_to', query.dateRange.date_to ?? '')
                     }
                     if (
                         !hasConnectedSources &&
