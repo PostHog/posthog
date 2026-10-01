@@ -1,4 +1,5 @@
 import { IconChat, IconCloud, IconPinFilled, IconSpinner } from '@posthog/icons'
+import { cn } from '@posthog/quill'
 
 import { TodaySessionIconKind, todaySessionIcon } from '~/layout/today/todaySessionIcon'
 import { TodayWorkItem } from '~/layout/today/todayWorkItems'
@@ -16,10 +17,14 @@ const ICONS: Record<TodaySessionIconKind, { label: string; icon: JSX.Element }> 
     session: { label: 'Session', icon: <IconCloud className="text-muted-foreground" /> },
 }
 
-export function SpaceFeedStatusIcon({ item }: { item: TodayWorkItem }): JSX.Element {
+export function SpaceFeedStatusIcon({ item, className }: { item: TodayWorkItem; className?: string }): JSX.Element {
     const { label, icon } = ICONS[todaySessionIcon(item, false)]
     return (
-        <span role="img" aria-label={label} className="flex">
+        <span
+            role="img"
+            aria-label={label}
+            className={cn('flex size-3.5 shrink-0 items-center justify-center', className)}
+        >
             {icon}
         </span>
     )
