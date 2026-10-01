@@ -1217,8 +1217,10 @@ class TestTicketAssignment(APIBaseTest):
         self.assertIsNone(assignment.user_id)
         self.assertEqual(assignment.role_id, self.role.id)
 
+    @parameterized.expand([("queue_available", None), ("queue_unavailable", ConnectionError("broker down"))])
     @patch("posthog.tasks.email.send_ticket_assigned_notification")
-    def test_assigning_a_ticket_queues_the_assignee_notification(self, mock_notification):
+    def test_assigning_a_ticket_queues_the_assignee_notification(self, _name, dispatch_error, mock_notification):
+        mock_notification.delay.side_effect = dispatch_error
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
