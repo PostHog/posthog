@@ -2,6 +2,7 @@ import { ComponentProps, Suspense } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { QueryContextColumnComponent } from '~/queries/types'
 
@@ -18,8 +19,11 @@ const RendererCell = lazyWithRetry(() =>
 
 export function AIObservabilityGlobalColumnCell(props: CellProps): JSX.Element {
     return (
-        <Suspense fallback={<Spinner />}>
-            <RendererCell {...props} />
-        </Suspense>
+        // The query's own ErrorBoundary is nearer than the scene's, so without this a stale chunk never reloads.
+        <ChunkLoadErrorBoundary>
+            <Suspense fallback={<Spinner />}>
+                <RendererCell {...props} />
+            </Suspense>
+        </ChunkLoadErrorBoundary>
     )
 }
