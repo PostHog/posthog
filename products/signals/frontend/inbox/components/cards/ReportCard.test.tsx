@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { Profiler } from 'react'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,10 +12,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
 import { ReportCard } from './ReportCard'
@@ -398,5 +400,49 @@ describe('ReportCard', () => {
             />
         )
         expect(container.querySelector('[data-attr="report-card-impact-metric"]')).toBeNull()
+    })
+
+    /**
+     * Render two cards, each behind its own profiler, and hand back the per-card render tally.
+     * A card that skips a store change never commits, so its count stands still.
+     */
+    function renderCountedPair(): Record<string, number> {
+        cleanup()
+        const renders: Record<string, number> = { 'r-1': 0, 'r-2': 0 }
+        render(
+            <>
+                {['r-1', 'r-2'].map((id) => (
+                    <Profiler key={id} id={id} onRender={() => (renders[id] += 1)}>
+                        <ReportCard report={makeReport(id)} selectable />
+                    </Profiler>
+                ))}
+            </>
+        )
+        return renders
+    }
+
+    it('repaints only the row whose selection changed', () => {
+        const renders = renderCountedPair()
+        // Selection mode is already on, so the only thing this toggle changes is one row's own flag.
+        act(() => logic.actions.setSelectedReportIds(['r-3']))
+        const before = { ...renders }
+
+        act(() => logic.actions.toggleReportSelection('r-1'))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+    })
+
+    it('repaints only the row whose CI state changed', () => {
+        const ciLogic = prCiStatusLogic()
+        ciLogic.mount()
+        const renders = renderCountedPair()
+        const before = { ...renders }
+
+        act(() => ciLogic.actions.loadCiStatusesSuccess({ 'r-1': PullRequestCiStatusEnumApi.Failing }))
+
+        expect(renders['r-1']).toBeGreaterThan(before['r-1'])
+        expect(renders['r-2']).toBe(before['r-2'])
+        ciLogic.unmount()
     })
 })
