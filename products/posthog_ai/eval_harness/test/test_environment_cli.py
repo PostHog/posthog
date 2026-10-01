@@ -421,7 +421,7 @@ class TestEnvironmentCLI(TestCase):
             backend.assert_not_called()
             self.assertFalse((root / "state/receipt.json").exists())
 
-    @parameterized.expand(["matching_pin", "wrong_pin", "profile"])
+    @parameterized.expand(["matching_pin", "wrong_pin", "profile", "invalid_site_url"])
     def test_local_archive_options_validate_before_start_and_never_contact_aws(self, option: str) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -429,6 +429,8 @@ class TestEnvironmentCLI(TestCase):
             arguments = ["prepare", archive.name, "--state-dir", "state"]
             if option == "profile":
                 arguments += ["--aws-profile", "example-employee"]
+            elif option == "invalid_site_url":
+                arguments += ["--site-url", "https://["]
             else:
                 arguments += ["--sha256", cli.file_sha256(archive) if option == "matching_pin" else "0" * 64]
             with (
@@ -590,7 +592,10 @@ class TestEnvironmentCLI(TestCase):
             start.assert_not_called()
             backend.restore.assert_not_called()
 
-    def test_cli_passes_optional_cutoff_to_receipt_owner_and_never_prints_credentials(self) -> None:
+    @parameterized.expand([None, "https://app--example--developer.example.com"])
+    def test_cli_passes_optional_cutoff_to_receipt_owner_and_never_prints_credentials(
+        self, site_url: str | None
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive = bundle(root)
@@ -621,17 +626,18 @@ class TestEnvironmentCLI(TestCase):
                         timeout=60,
                         sha256=None,
                         aws_profile=None,
+                        site_url=site_url,
                     )
                 )
             self.assertIsNone(backend.restore.call_args.kwargs["target_cutoff"])
             self.assertEqual(backend.restore.call_args.kwargs["user_id"], 42)
             self.assertEqual(backend.restore.call_args.kwargs["provenance"]["app_checkout"], "/invented/app-checkout")
-            self.assertIn("https://cli.example.com/project/456/", output.getvalue())
+            self.assertIn(f"{site_url or 'https://cli.example.com'}/project/456/", output.getvalue())
             self.assertIn(str(workspace / "login-credentials.json"), output.getvalue())
             self.assertNotIn("password", output.getvalue())
 
     @parameterized.expand(
-        ["https://user:password@example.com", "https://example.com/?token=secret", "file:///tmp/page"]
+        ["https://user:password@example.com", "https://example.com/?token=secret", "file:///tmp/page", "https://["]
     )
     def test_project_link_does_not_print_credentials_or_non_http_urls(self, site: str) -> None:
         with patch.dict(os.environ, {"SITE_URL": site}):

@@ -7,7 +7,6 @@ import sys
 import json
 import time
 import errno
-import fcntl
 import socket
 import hashlib
 import tarfile
@@ -15,8 +14,7 @@ import argparse
 import tempfile
 import subprocess
 import http.client
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -28,9 +26,15 @@ from django.db import DatabaseError
 from pydantic import ValidationError
 
 from products.posthog_ai.eval_harness.environment.dataset import EnvironmentDataset
-from products.posthog_ai.eval_harness.environment.download import S3EnvironmentSource, validate_sha256
+from products.posthog_ai.eval_harness.environment.download import S3EnvironmentSource
 from products.posthog_ai.eval_harness.environment.guard import EnvironmentMigrationsPending, assert_local_databases
 from products.posthog_ai.eval_harness.environment.schema import EnvironmentTextPolicy
+from products.posthog_ai.eval_harness.environment.storage import (
+    file_sha256,
+    require_private_path,
+    validate_sha256,
+    workspace_lock,
+)
 
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.environment.restore import PreparedEnvironment
@@ -39,34 +43,6 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 MAX_ARCHIVE_BYTES = 2 * 1024**3
 MAX_ARCHIVE_MEMBERS = 10_000
 APP_PORTS = (8000, 8010, 8234)
-
-
-def require_private_path(path: Path) -> Path:
-    if path.is_symlink():
-        raise ValueError(f"Private input and state paths must not be symlinks: {path}")
-    resolved = path.resolve()
-    directory = resolved if resolved.is_dir() else resolved.parent
-    while not directory.exists():
-        directory = directory.parent
-    repository = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=directory, check=False, capture_output=True, text=True
-    )
-    if repository.returncode == 0:
-        ignored = subprocess.run(
-            ["git", "check-ignore", "--quiet", "--", str(resolved)],
-            cwd=repository.stdout.strip(),
-            check=False,
-        )
-        if ignored.returncode != 0:
-            raise ValueError(f"Private fixture data and state must be outside Git or ignored: {resolved}")
-    elif "not a git repository" not in repository.stderr:
-        raise ValueError("Could not check whether private storage is ignored by Git")
-    return resolved
-
-
-def file_sha256(path: Path) -> str:
-    with path.open("rb") as content:
-        return hashlib.file_digest(content, "sha256").hexdigest()
 
 
 def relative_member(name: str) -> PurePosixPath:
@@ -174,19 +150,6 @@ class EnvironmentInput:
             relative_root = root.relative_to(staging)
             staging.rename(destination)
         return destination / relative_root
-
-
-@contextmanager
-def workspace_lock(workspace: Path) -> Iterator[None]:
-    workspace.mkdir(mode=0o700, parents=True, exist_ok=True)
-    workspace.chmod(0o700)
-    descriptor = os.open(workspace / ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(descriptor, "w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise ValueError("Another fixture preparation is using this state directory") from error
-        yield
 
 
 class LocalApp:
@@ -386,9 +349,12 @@ def positive_integer(value: str) -> int:
     return result
 
 
-def project_link(team_id: int) -> str:
-    site = os.environ.get("SITE_URL", "http://localhost:8010").rstrip("/")
-    parsed = urlsplit(site)
+def validate_site_url(site: str) -> str:
+    try:
+        parsed = urlsplit(site)
+        port = parsed.port
+    except ValueError:
+        raise ValueError("Use an HTTP(S) site URL without credentials, queries or fragments") from None
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
@@ -396,7 +362,17 @@ def project_link(team_id: int) -> str:
         or parsed.password
         or parsed.query
         or parsed.fragment
+        or (port is not None and port == 0)
+        or any(ord(character) < 32 or ord(character) == 127 for character in site)
     ):
+        raise ValueError("Use an HTTP(S) site URL without credentials, queries or fragments")
+    return site.rstrip("/")
+
+
+def project_link(team_id: int, site_url: str | None = None) -> str:
+    try:
+        site = validate_site_url(site_url or os.environ.get("SITE_URL", "http://localhost:8010"))
+    except ValueError:
         site = "http://localhost:8010"
     return f"{site}/project/{team_id}/activity/explore"
 
@@ -450,6 +426,8 @@ def source_provenance(app_checkout: str | None) -> dict[str, str]:
 
 
 def prepare(args: argparse.Namespace) -> None:
+    if getattr(args, "site_url", None) is not None:
+        validate_site_url(args.site_url)
     source: Path | S3EnvironmentSource
     if "://" in str(args.environment):
         source = S3EnvironmentSource(str(args.environment), sha256=args.sha256, profile=args.aws_profile)
@@ -487,7 +465,7 @@ def prepare(args: argparse.Namespace) -> None:
             provenance=provenance,
         )
         print(f"{'Reused' if result.reused else 'Prepared'} project with {result.event_count:,} events.")
-        print(f"Project: {project_link(result.team_id)}")
+        print(f"Project: {project_link(result.team_id, getattr(args, 'site_url', None))}")
         print(f"Target cutoff: {result.target_cutoff.isoformat()}")
         print(f"Receipt: {result.receipt_path}")
         if result.credentials_path is not None:
@@ -569,6 +547,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     prepare_parser.add_argument("--sha256", help="Published archive SHA-256; required for S3 inputs")
     prepare_parser.add_argument("--aws-profile", help="AWS profile from ~/.aws/config; applies only to S3 inputs")
+    prepare_parser.add_argument("--site-url", help="Browser base URL for the printed project link")
     prepare_parser.add_argument("--state-dir", type=Path, default=REPO_ROOT / ".flox/cache/eval-environment")
     prepare_parser.add_argument(
         "--target-cutoff", type=parse_cutoff, help="First import defaults to UTC now; reruns reuse the receipt"

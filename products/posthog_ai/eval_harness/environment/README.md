@@ -2,6 +2,24 @@
 
 Prepare a persistent PostHog project from saved events and metric definitions. This runs the normal dev app and verifies the restored data through HogQL. It does not run an agent, create a scout, or start an evaluation. No model API keys are needed.
 
+## Prepare a devbox from your laptop
+
+After the normal one-time `hogli devbox:setup`, run this from your laptop's PostHog checkout:
+
+```bash
+hogli devbox:prepare-eval-env -n eval1 --bundle /private/path/environment.tar.gz
+```
+
+The command creates or starts the named devbox, copies the bundle through the existing SSH connection, and imports it into the normal PostHog app. Events go to ClickHouse and saved metric definitions go to PostgreSQL. On the first import, dates shift to the current time. The command prints the project URL after import and app readiness checks succeed. AWS access is not required.
+
+Keep the bundle outside Git or in an ignored directory. Its SHA-256 is checked on both machines; add `--sha256 PUBLISHED_SHA256` to also check a checksum supplied by the bundle's publisher. Interrupted transfers leave no usable partial archive. Repeating the same command reuses the verified archive and existing project without adding duplicate events or shifting dates again.
+
+The devbox must have this command's importer code. Before the change is on master, add `--ref YOUR_PUBLISHED_BRANCH` to the same command. This resolves a local Git revision to an exact commit and checks it out on the devbox. It refuses to replace a dirty checkout or change code under a running app. Without `--ref`, the existing remote checkout stays in place.
+
+Use `--state-dir .flox/cache/another-eval-environment` for another dataset or to recover from a failed import. Keep that directory for future reruns. A new state directory creates a separate project; it does not delete or reset a previous project. `--user-id ID` selects the local owner when the devbox has several users, and `--target-cutoff ISO_TIMESTAMP` selects an explicit date reference. Login credentials, when created, stay in a private file on the devbox; the command prints its path, never its contents.
+
+If setup prints a credentials-file path, connect with `hogli devbox:ssh -n eval1` and read that file to sign in to the local PostHog app. Otherwise, use the devbox's existing PostHog login.
+
 ## Restore an environment
 
 From a standard PostHog devbox with its dependencies installed:
