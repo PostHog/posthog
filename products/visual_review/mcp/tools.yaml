@@ -410,8 +410,9 @@ tools:
             Snapshots in a run with their diff results: `identifier`, `result` (`unchanged`, `changed`, `new`,
             `removed`), `classification_reason`, diff percentage and pixels, `review_state`, and signed baseline and
             current image URLs. Quarantined snapshots are left out and counted in `quarantined_count`; pass
-            `include_quarantined=true` to get them. Pass a `limit`, such as 50, because a broken run holds thousands.
-            Renders a diff viewer.
+            `include_quarantined=true` to get them. Pass `exclude_unchanged=true` to list only the changed, new and
+            removed snapshots; a large run holds thousands of unchanged ones. Pass `snapshot_id` to fetch one snapshot
+            by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.
         ui_app: visual-review-snapshots
         feature_flag: visual-review
     visual-review-runs-tolerate-create:
