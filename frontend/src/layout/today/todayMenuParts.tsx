@@ -27,6 +27,7 @@ export interface TodayMenuItemProps {
     /** Navigates instead of acting. */
     to?: string
     disabled?: boolean
+    variant?: 'default' | 'destructive'
 }
 
 export interface TodayMenuSubProps {
@@ -48,12 +49,13 @@ export interface TodayMenuParts {
 const SUB_CONTENT_CLASS = 'max-h-80 w-64'
 
 export const DROPDOWN_PARTS: TodayMenuParts = {
-    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+    Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
         <DropdownMenuItem
             onClick={onClick}
             disabled={disabled}
+            variant={variant}
             // quill draws the item as a row button by default, so a link keeps that look by rendering through one.
-            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            {...(to ? { render: <Button variant={variant} size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
             data-attr={dataAttr}
         >
             {children}
@@ -69,11 +71,12 @@ export const DROPDOWN_PARTS: TodayMenuParts = {
 }
 
 export const CONTEXT_PARTS: TodayMenuParts = {
-    Item: ({ children, dataAttr, onClick, to, disabled }) => (
+    Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
         <ContextMenuItem
             onClick={onClick}
             disabled={disabled}
-            {...(to ? { render: <Button size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
+            variant={variant}
+            {...(to ? { render: <Button variant={variant} size="row" left render={<LinkPrimitive to={to} />} /> } : {})}
             data-attr={dataAttr}
         >
             {children}
@@ -95,10 +98,11 @@ export const CONTEXT_PARTS: TodayMenuParts = {
  */
 export function cardMenuParts(onAction: () => void, onSubmenuOpenChange: (open: boolean) => void): TodayMenuParts {
     return {
-        Item: ({ children, dataAttr, onClick, to, disabled }) => (
+        Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (
             <Button
                 left
                 className="w-full"
+                variant={variant}
                 disabled={disabled}
                 onClick={() => {
                     onClick?.()
