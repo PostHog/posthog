@@ -584,14 +584,18 @@ class TestSandboxRotation:
 
     @parameterized.expand(
         [
-            ("idle_with_flag_on", {}, True),
-            ("flag_off", {"rotation_enabled": False}, False),
-            ("agent_mid_turn", {"agent_active": True}, False),
+            ("idle_with_flag_on", {"end_of_turn_received": True}, True),
+            ("flag_off", {"rotation_enabled": False, "end_of_turn_received": True}, False),
+            ("agent_mid_turn", {"agent_active": True, "end_of_turn_received": False}, False),
             ("turn_open_after_followup_reset", {"agent_active": None, "end_of_turn_received": False}, False),
             ("turn_closed", {"agent_active": False, "end_of_turn_received": True}, True),
-            ("run_finishing", {"task_completed": True}, False),
-            ("followup_in_flight", {"followup_running": True}, False),
-            ("followup_finished", {"followup_running": False, "followup_present": True}, True),
+            ("run_finishing", {"task_completed": True, "end_of_turn_received": True}, False),
+            ("followup_in_flight", {"followup_running": True, "end_of_turn_received": True}, False),
+            (
+                "followup_finished",
+                {"followup_running": False, "followup_present": True, "end_of_turn_received": True},
+                True,
+            ),
         ]
     )
     def test_only_an_idle_run_with_the_flag_on_may_rotate(self, _name, overrides, expected):
@@ -599,7 +603,7 @@ class TestSandboxRotation:
         wf._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
         wf._context.sandbox_rotation_enabled = overrides.get("rotation_enabled", True)
         wf._agent_active = overrides.get("agent_active", False)
-        wf._end_of_turn_received = overrides.get("end_of_turn_received")
+        wf._end_of_turn_received = overrides["end_of_turn_received"]
         wf._task_completed = overrides.get("task_completed", False)
         if overrides.get("followup_running") or overrides.get("followup_present"):
             followup = Mock()
