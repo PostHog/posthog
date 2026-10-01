@@ -416,9 +416,20 @@ describe('experimentMetricsLogic', () => {
                 experiment: EXPERIMENT,
             },
             {
-                // A failed terminal run whose failure never wrote a result row: one row for two metrics.
-                name: 'a failed run that returns fewer result rows than the experiment has metrics',
-                latest: { ...partialFailureRecalculation, results: partialFailureRecalculation.results.slice(1) },
+                // A transient error that ran out of attempts: the backend marks it retriable, so a new run
+                // can fix it. The window is reused, so only this metric recomputes.
+                name: 'a failed run whose failure is retriable',
+                latest: {
+                    ...partialFailureRecalculation,
+                    metric_errors: {
+                        [PRIMARY_METRIC_UUID]: {
+                            step: 'calculation',
+                            message: 'boom',
+                            error_type: 'timeout',
+                            retriable: true,
+                        },
+                    },
+                },
                 experiment: EXPERIMENT,
             },
         ])('heals $name with a heal_latest_run', async ({ latest, experiment }) => {
@@ -440,6 +451,36 @@ describe('experimentMetricsLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
             expect(capturedBody).toEqual({ trigger: 'heal_latest_run' })
+        })
+
+        it.each([
+            {
+                // The metric config, the data, or a resource limit must change first: only a user retry re-runs it.
+                name: 'a non-retriable failure',
+                metricError: { step: 'calculation', message: 'boom', error_type: 'validation_error', retriable: false },
+            },
+            {
+                // A run recorded before the flag existed: never heal it, or every page load would start a run.
+                name: 'a failure recorded without the retriable flag',
+                metricError: { step: 'calculation', message: 'boom' },
+            },
+        ])('does not heal $name', async ({ metricError }) => {
+            const createMock = jest.fn(() => [201, completedRecalculation2])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...partialFailureRecalculation, metric_errors: { [PRIMARY_METRIC_UUID]: metricError } },
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            logic = experimentMetricsLogic({ experiment: EXPERIMENT })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation']).toFinishAllListeners()
+            expect(createMock).not.toHaveBeenCalled()
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
         })
 
         it('applies terminal results and resumes polling the active run (reload while recalculating)', async () => {
