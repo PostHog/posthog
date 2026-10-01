@@ -3587,7 +3587,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                   : insightTarget
                     ? `insight:${insightTarget}`
                     : 'new'
-            const storedDraft = sqlEditorDraftStorage(values.user?.uuid, teamLogic.values.currentTeamId, target)?.get()
+            const draftStorage = sqlEditorDraftStorage(values.user?.uuid, teamLogic.values.currentTeamId, target)
+            const storedDraft = draftStorage?.get()
             const isReload =
                 initial &&
                 window.performance
@@ -3598,7 +3599,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 !hasOwnProperty(searchParams, 'open_query') &&
                 (!hasOwnProperty(hashParams, 'q') || restoreWorkingCopy) &&
                 !searchParams.edit_metric
-                    ? storedDraft
+                    ? restoreWorkingCopy
+                        ? draftStorage?.get(true)
+                        : storedDraft
                     : null
             if (localDraft) {
                 hashParams = restoreWorkingCopy ? { ...hashParams, ...localDraft } : { ...localDraft, ...hashParams }

@@ -243,6 +243,7 @@ describe('sqlEditorLogic', () => {
 
     beforeEach(async () => {
         localStorage.clear()
+        sessionStorage.clear()
         serverViewHistoryId = null
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         materializeEndpointMock = jest.fn(() => [200, {}])
@@ -419,6 +420,21 @@ describe('sqlEditorLogic', () => {
                 }
             }
         )
+
+        it('does not replace this tab with another browser tab’s draft on reload', async () => {
+            sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, 'new')?.set({ q: 'SELECT other_tab' })
+            sessionStorage.clear()
+            router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT this_tab' })
+            const getEntriesByType = window.performance.getEntriesByType
+            window.performance.getEntriesByType = () => [{ type: 'reload' } as PerformanceNavigationTiming]
+            try {
+                mountEditor()
+                await expectLogic(logic).toDispatchActions(['createTab', 'setQueryInput']).toFinishAllListeners()
+                expect(logic.values.queryInput).toEqual('SELECT this_tab')
+            } finally {
+                window.performance.getEntriesByType = getEntriesByType
+            }
+        })
 
         it('preserves the view revision the recovered edits were based on', async () => {
             serverViewHistoryId = 'original-revision'
