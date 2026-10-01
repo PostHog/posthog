@@ -1334,7 +1334,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "WarehouseConnection",
                         fields={
                             "host": serializers.CharField(
-                                help_text="Connection host — the warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
+                                help_text="Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com"
                             ),
                             "port": serializers.IntegerField(help_text="Postgres wire-protocol port"),
                             "database": serializers.CharField(help_text="Database to connect to — always 'ducklake'"),
@@ -1342,6 +1342,36 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         },
                         required=False,
                         allow_null=True,
+                        help_text="Postgres connection target. Null for organizations on the Trino Data ops variant.",
+                    ),
+                    "trino": inline_serializer(
+                        "WarehouseTrinoStatus",
+                        fields={
+                            "state": serializers.ChoiceField(
+                                choices=["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"],
+                                help_text="Trino lifecycle state for the organization. `unavailable` means the "
+                                "state could not be read.",
+                            ),
+                            "ready_at": serializers.DateTimeField(
+                                allow_null=True, help_text="When Trino became ready for the organization"
+                            ),
+                            "connection": inline_serializer(
+                                "WarehouseTrinoConnection",
+                                fields={
+                                    "host": serializers.CharField(help_text="Trino host to connect to over HTTPS"),
+                                    "port": serializers.IntegerField(help_text="Trino HTTPS port"),
+                                    "catalog": serializers.CharField(
+                                        help_text="Trino catalog that holds the organization's data"
+                                    ),
+                                    "username": serializers.CharField(help_text="Root username"),
+                                },
+                                allow_null=True,
+                                help_text="Trino connection target. Null until Trino is ready and reachable.",
+                            ),
+                        },
+                        required=False,
+                        allow_null=True,
+                        help_text="Trino status for organizations on the Trino Data ops variant. Null otherwise.",
                     ),
                     "has_backfill": serializers.BooleanField(
                         help_text="Whether this project already has a warehouse backfill configured. When true, its "
@@ -1377,6 +1407,12 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             # connection for enrolled projects. Best-effort scheduling coalesces repeated scene loads.
             if resp.data.get("state") == "ready" and onboarding_state["team_onboarded"]:
                 managed_warehouse.ensure_direct_connection_tables(self.team_id, self.team.organization_id)
+            if managed_warehouse.data_ops_variant(self.team.organization_id) == "trino":
+                # Users of a Trino organization connect only through Trino.
+                resp.data["connection"] = None
+                resp.data["trino"] = managed_warehouse.trino_status_for(self.team.organization_id)
+            else:
+                resp.data["trino"] = None
         return resp
 
     @extend_schema(
