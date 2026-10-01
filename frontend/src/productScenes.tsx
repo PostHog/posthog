@@ -25,6 +25,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
     AIObservabilityScorers: () =>
         import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityScorer: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
     AIObservabilityOfflineExperiments: () =>
         import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
     AIObservabilityOfflineExperiment: () =>

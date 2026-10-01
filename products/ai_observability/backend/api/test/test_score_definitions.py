@@ -68,7 +68,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 {
                     "name": "Score",
                     "kind": "numeric",
-                    "config": {"min": 0, "max": 5, "step": 1},
+                    "config": {"min": 0, "max": 5, "step": 1, "passing_rule": {"operator": "gte", "threshold": 3}},
                 },
             ),
             (
@@ -76,7 +76,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 {
                     "name": "Resolved",
                     "kind": "boolean",
-                    "config": {"true_label": "Yes", "false_label": "No"},
+                    "config": {"true_label": "Yes", "false_label": "No", "true_is_failure": False},
                 },
             ),
         ]
@@ -234,6 +234,9 @@ class TestScoreDefinitionsApi(APIBaseTest):
         response = self.client.post(
             f"{self._endpoint()}{definition.id}/new_version/",
             {
+                "name": "Updated scorer",
+                "description": "Updated description",
+                "base_version": 1,
                 "config": {
                     "options": [
                         {"key": "pass", "label": "Pass"},
@@ -243,7 +246,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                     "selection_mode": "multiple",
                     "min_selections": 1,
                     "max_selections": 2,
-                }
+                },
             },
             format="json",
         )
@@ -252,6 +255,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         current_version = self._current_version(definition)
         self.assertEqual(current_version.version, 2)
+        self.assertEqual((definition.name, definition.description), ("Updated scorer", "Updated description"))
         self.assertEqual(definition.versions.count(), 2)
         self.assertEqual(definition.versions.get(version=1).config, original_config)
         self.assertEqual(
@@ -399,6 +403,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
     def test_new_version_with_stale_base_version_returns_409(self):
         definition = self._create_definition()
+        original_name = definition.name
+        original_description = definition.description
         # Someone else bumps the scorer to v2 first.
         definition.create_new_version(
             config={"options": [{"key": "intermediate", "label": "Intermediate"}]},
@@ -409,6 +415,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
             f"{self._endpoint()}{definition.id}/new_version/",
             {
                 "base_version": 1,
+                "name": "Stale name",
+                "description": "Stale description",
                 "config": {
                     "options": [
                         {"key": "stale", "label": "Stale"},
@@ -423,6 +431,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         # Scorer still at v2 — the stale request did not bump it.
         self.assertEqual(self._current_version(definition).version, 2)
+        self.assertEqual((definition.name, definition.description), (original_name, original_description))
 
     @parameterized.expand(
         [

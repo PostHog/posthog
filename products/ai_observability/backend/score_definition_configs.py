@@ -1,5 +1,8 @@
 import re
+import math
 from typing import Any
+
+from django.db import models
 
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
@@ -100,6 +103,41 @@ class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
         return attrs
 
 
+class NumericScorePassingRuleSerializer(serializers.Serializer):
+    class Operator(models.TextChoices):
+        GTE = "gte", "At or above"
+        LTE = "lte", "At or below"
+
+    operator = serializers.ChoiceField(
+        choices=Operator.choices,
+        help_text="Pass at or above (gte), or at or below (lte), the threshold.",
+    )
+    threshold = serializers.FloatField(help_text="Finite passing threshold within any configured score bounds.")
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            unknown_keys = sorted(set(data) - self.fields.keys())
+            if unknown_keys:
+                raise serializers.ValidationError(
+                    {"non_field_errors": f"Unsupported passing rule keys: {unknown_keys}."}
+                )
+            if "threshold" in data and (
+                isinstance(data["threshold"], bool) or not isinstance(data["threshold"], int | float)
+            ):
+                raise serializers.ValidationError({"threshold": "Provide a finite number."})
+            if isinstance(data.get("threshold"), int):
+                try:
+                    float(data["threshold"])
+                except OverflowError as error:
+                    raise serializers.ValidationError({"threshold": "Provide a finite number."}) from error
+        return super().to_internal_value(data)
+
+    def validate_threshold(self, value: float) -> float:
+        if not math.isfinite(value):
+            raise serializers.ValidationError("Provide a finite number.")
+        return value
+
+
 class NumericScoreDefinitionConfigSerializer(serializers.Serializer):
     min = serializers.FloatField(
         required=False,
@@ -116,6 +154,11 @@ class NumericScoreDefinitionConfigSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional increment step for numeric input, for example 1 or 0.5.",
     )
+    passing_rule = NumericScorePassingRuleSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         minimum = attrs.get("min")
@@ -128,10 +171,23 @@ class NumericScoreDefinitionConfigSerializer(serializers.Serializer):
         if step is not None and step <= 0:
             raise serializers.ValidationError({"step": "Ensure `step` is greater than 0."})
 
+        passing_rule = attrs.get("passing_rule")
+        if passing_rule is not None:
+            threshold = passing_rule["threshold"]
+            if minimum is not None and threshold < minimum:
+                raise serializers.ValidationError({"passing_rule": "The passing threshold must be at least `min`."})
+            if maximum is not None and threshold > maximum:
+                raise serializers.ValidationError({"passing_rule": "The passing threshold must be at most `max`."})
+
         return attrs
 
 
 class BooleanScoreDefinitionConfigSerializer(serializers.Serializer):
+    true_is_failure = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
+    )
     true_label = serializers.CharField(
         required=False,
         allow_blank=False,

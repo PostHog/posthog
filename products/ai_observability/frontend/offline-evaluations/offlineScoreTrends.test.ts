@@ -5,6 +5,7 @@ import {
     formatOfflineScore,
     previousOfflinePeriod,
     resolveOfflineDateRange,
+    offlineScoreMetricLabel,
 } from './offlineScoreTrends'
 import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
@@ -57,13 +58,66 @@ describe('offline score trends', () => {
             point.summary.true_count = index === 0 ? 0 : 6
             point.summary.false_count = 2
             point.summary.true_rate = index === 0 ? 0 : 0.75
+            point.summary.pass_count = point.summary.true_count
+            point.summary.fail_count = point.summary.false_count
+            point.summary.pass_rate = point.summary.true_rate
         }
 
         const summary = aggregateOfflineScoreHistory(points)!
 
         expect(summary.true_rate).toBe(0.6)
+        expect(summary.pass_rate).toBe(0.6)
         expect(summary.status_counts.ok).toBe(10)
         expect(formatOfflineScore(summary)).toBe('60%')
+    })
+
+    it.each([false, true])('plots and aggregates actual boolean pass counts for polarity %s', (trueIsFailure) => {
+        const points = [makeOfflineHistoryPoint(1), makeOfflineHistoryPoint(2)]
+        for (const [index, point] of points.entries()) {
+            point.summary.scorer = {
+                ...point.summary.scorer,
+                kind: 'boolean',
+                config: { true_is_failure: trueIsFailure },
+            }
+            point.summary.status_counts = { ok: index === 0 ? 2 : 8, error: 5, skipped: 1, not_applicable: 1 }
+            point.summary.true_count = index === 0 ? 0 : 6
+            point.summary.false_count = 2
+            point.summary.true_rate = index === 0 ? 0 : 0.75
+            point.summary.pass_count = trueIsFailure ? 2 : point.summary.true_count
+            point.summary.fail_count = trueIsFailure ? point.summary.true_count : 2
+            point.summary.pass_rate = point.summary.pass_count / point.summary.status_counts.ok
+        }
+        const summary = aggregateOfflineScoreHistory(points)!
+        expect(summary.pass_count).toBe(trueIsFailure ? 4 : 6)
+        expect(summary.fail_count).toBe(trueIsFailure ? 6 : 4)
+        expect(summary.pass_rate).toBe(trueIsFailure ? 0.4 : 0.6)
+        expect(summary.true_rate).toBe(0.6)
+        expect(formatOfflineScore(summary)).toBe(trueIsFailure ? '40%' : '60%')
+        expect(offlineScoreMetricLabel(summary.scorer)).toBe('Pass rate')
+        const [panel] = buildOfflineTrendPanels([{ key: 'current', label: 'Current', points }])
+        expect(panel.series[0].points.map((point) => point.y)).toEqual(trueIsFailure ? [1, 0.25] : [0, 0.75])
+    })
+
+    it('keeps version thresholds separate and includes off-scale thresholds without treating mean as pass rate', () => {
+        const points = [makeOfflineHistoryPoint(1, 4), makeOfflineHistoryPoint(2, 4)]
+        for (const [index, point] of points.entries()) {
+            point.summary.scorer = {
+                ...point.summary.scorer,
+                id: `version-${index}`,
+                config: { min: 0, max: 5, passing_rule: { operator: index === 0 ? 'gte' : 'lte', threshold: 1 } },
+            }
+            point.summary.pass_count = 23
+            point.summary.fail_count = 69
+            point.summary.pass_rate = 0.25
+        }
+        const panels = buildOfflineTrendPanels([{ key: 'current', label: 'Current', points }])
+        expect(panels).toHaveLength(2)
+        expect(panels.map((panel) => panel.passingRule?.operator)).toEqual(['gte', 'lte'])
+        expect(panels.every((panel) => panel.yDomain![0] < 1 && panel.yDomain![1] > 4)).toBe(true)
+        expect(panels.map((panel) => panel.series[0].points[0].y)).toEqual([4, 4])
+        const summary = aggregateOfflineScoreHistory([points[0]])!
+        expect(formatOfflineScore(summary)).toBe('4')
+        expect(summary.pass_rate).toBe(0.25)
     })
 
     it('aggregates category counts by key while preserving unselected options and multiple-selection rates', () => {
@@ -135,6 +189,9 @@ describe('offline score trends', () => {
             }
             point.summary.mean = null
             point.summary.true_rate = 0
+            point.summary.pass_count = kind === 'boolean' ? 0 : null
+            point.summary.fail_count = kind === 'boolean' ? point.summary.status_counts.ok : null
+            point.summary.pass_rate = kind === 'boolean' ? 0 : null
             point.summary.categories = [
                 { key: 'clear', label: 'Clear', count: 69, rate: 0.75 },
                 { key: 'complete', label: 'Complete', count: 69, rate: 0.75 },

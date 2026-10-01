@@ -186,6 +186,15 @@ class ScoreDefinitionMetadataSerializer(serializers.Serializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255, required=False, help_text="Updated scorer name, saved with this version."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Updated scorer description, saved with this version.",
+    )
     config = ScoreDefinitionConfigField(help_text="Next immutable scorer configuration.")
     base_version = serializers.IntegerField(
         required=False,
@@ -196,6 +205,12 @@ class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
             "Omit to skip the optimistic-concurrency check."
         ),
     )
+
+    def validate_name(self, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise serializers.ValidationError("`name` cannot be blank.")
+        return normalized_value
 
 
 class ScoreDefinitionFilter(django_filters.FilterSet):
@@ -313,6 +328,7 @@ class ScoreDefinitionViewSet(
 
         return changed_fields
 
+    @transaction.atomic
     def _create_definition_version(
         self, definition: ScoreDefinition, validated_data: dict[str, Any]
     ) -> ScoreDefinition:
@@ -320,6 +336,9 @@ class ScoreDefinitionViewSet(
             config=validated_data["config"],
             created_by=cast(User, self.request.user),
             base_version=validated_data.get("base_version"),
+        )
+        self._update_definition_metadata(
+            definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
         )
         definition.refresh_from_db(fields=["current_version", "updated_at"])
         return definition

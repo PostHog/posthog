@@ -25,8 +25,12 @@ export interface ScoreDefinitionDraft {
     numericMin: string
     numericMax: string
     numericStep: string
+    numericPassingEnabled: boolean
+    numericPassingOperator: 'gte' | 'lte'
+    numericPassingThreshold: string
     trueLabel: string
     falseLabel: string
+    booleanPassing: 'true' | 'false'
 }
 
 export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: CategoricalSelectionMode }[] = [
@@ -34,8 +38,8 @@ export const CATEGORICAL_SELECTION_MODE_OPTIONS: { label: string; value: Categor
     { label: 'Multi-select', value: 'multiple' },
 ]
 
-const DEFAULT_BOOLEAN_TRUE_LABEL = 'Good'
-const DEFAULT_BOOLEAN_FALSE_LABEL = 'Bad'
+const DEFAULT_BOOLEAN_TRUE_LABEL = 'True'
+const DEFAULT_BOOLEAN_FALSE_LABEL = 'False'
 
 export function formatKindLabel(kind: ScoreDefinitionKind): string {
     if (kind === 'categorical') {
@@ -161,8 +165,12 @@ export function createDraft(
         numericMin: numericConfig.min === undefined || numericConfig.min === null ? '' : String(numericConfig.min),
         numericMax: numericConfig.max === undefined || numericConfig.max === null ? '' : String(numericConfig.max),
         numericStep: numericConfig.step === undefined || numericConfig.step === null ? '' : String(numericConfig.step),
-        trueLabel: booleanConfig.true_label || DEFAULT_BOOLEAN_TRUE_LABEL,
-        falseLabel: booleanConfig.false_label || DEFAULT_BOOLEAN_FALSE_LABEL,
+        numericPassingEnabled: numericConfig.passing_rule != null,
+        numericPassingOperator: numericConfig.passing_rule?.operator ?? 'gte',
+        numericPassingThreshold: numericConfig.passing_rule == null ? '' : String(numericConfig.passing_rule.threshold),
+        trueLabel: booleanConfig.true_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_TRUE_LABEL),
+        falseLabel: booleanConfig.false_label ?? (baseDefinition ? '' : DEFAULT_BOOLEAN_FALSE_LABEL),
+        booleanPassing: booleanConfig.true_is_failure ? 'false' : 'true',
     }
 }
 
@@ -208,6 +216,12 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
         if (step !== null) {
             numericConfig.step = step
         }
+        if (draft.numericPassingEnabled) {
+            numericConfig.passing_rule = {
+                operator: draft.numericPassingOperator,
+                threshold: parseOptionalNumber(draft.numericPassingThreshold) ?? NaN,
+            }
+        }
 
         return numericConfig
     }
@@ -219,6 +233,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.falseLabel.trim()) {
         booleanConfig.false_label = draft.falseLabel.trim()
     }
+    booleanConfig.true_is_failure = draft.booleanPassing === 'false'
     return booleanConfig
 }
 
@@ -288,6 +303,19 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
         const maximum = parseOptionalNumber(draft.numericMax)
         if (minimum !== null && maximum !== null && minimum > maximum) {
             return 'Numeric max must be greater than or equal to min.'
+        }
+        const step = parseOptionalNumber(draft.numericStep)
+        if (step !== null && step <= 0) {
+            return 'Set the increment to a number greater than zero.'
+        }
+        if (draft.numericPassingEnabled) {
+            const threshold = parseOptionalNumber(draft.numericPassingThreshold)
+            if (threshold === null || !Number.isFinite(threshold)) {
+                return 'Enter a valid number for the passing threshold.'
+            }
+            if ((minimum !== null && threshold < minimum) || (maximum !== null && threshold > maximum)) {
+                return 'Set the passing threshold within the score bounds.'
+            }
         }
     }
 
