@@ -13,6 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { AskAdminToUpgrade } from './AskAdminToUpgrade'
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
@@ -60,7 +61,7 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel, mustAskAdminToUpgrade } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -76,9 +77,10 @@ export function PayGateMini({
                 feature_detail: featureDetail,
                 gate_variant: gateVariant,
                 cta_label: ctaLabel,
+                must_ask_admin_to_upgrade: mustAskAdminToUpgrade,
             })
         }
-    }, [feature, featureDetail, gateVariant, ctaLabel, productWithFeature?.type])
+    }, [feature, featureDetail, gateVariant, ctaLabel, productWithFeature?.type, mustAskAdminToUpgrade])
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
@@ -131,7 +133,9 @@ export function PayGateMini({
                 handleCtaClick={handleCtaClick}
             >
                 <div className="flex items-center justify-center deprecated-space-x-3">
-                    <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
+                    {!mustAskAdminToUpgrade && (
+                        <PayGateButton feature={feature} currentUsage={currentUsage} onClick={handleCtaClick} />
+                    )}
                     {docsLink && isCloudOrDev && (
                         <LemonButton
                             type="secondary"
@@ -186,6 +190,7 @@ function PayGateContent({
         gateVariant,
         isAddonProduct,
         featureInfoOnNextPlan,
+        mustAskAdminToUpgrade,
     } = useValues(payGateMiniLogic({ feature, currentUsage }))
 
     if (!productWithFeature || !featureInfo) {
@@ -209,8 +214,10 @@ function PayGateContent({
                 featureInfo,
                 productWithFeature,
                 isAddonProduct,
+                mustAskAdminToUpgrade,
                 handleCtaClick
             )}
+            {mustAskAdminToUpgrade && <AskAdminToUpgrade />}
             {isGrandfathered && <GrandfatheredMessage />}
             {featureInfo.docsUrl && <DocsLink url={featureInfo.docsUrl} />}
             {children}
@@ -224,7 +231,8 @@ const renderUsageLimitMessage = (
     gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
     featureInfo: BillingFeatureType,
     productWithFeature: BillingProductV2AddonType | BillingProductV2Type,
-    isAddonProduct?: boolean,
+    isAddonProduct: boolean | undefined,
+    mustAskAdminToUpgrade: boolean,
     handleCtaClick?: () => void
 ): JSX.Element => {
     if (featureAvailableOnOrg?.limit && gateVariant !== 'move-to-cloud') {
@@ -254,13 +262,15 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-secondary">
-                            Need unlimited projects? Check out one of our{' '}
-                            <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
-                                platform add-ons
-                            </Link>
-                            .
-                        </p>
+                        {!mustAskAdminToUpgrade && (
+                            <p className="mb-4 text-xs italic text-secondary">
+                                Need unlimited projects? Check out one of our{' '}
+                                <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
+                                    platform add-ons
+                                </Link>
+                                .
+                            </p>
+                        )}
                     </>
                 ) : !isAddonProduct ? (
                     <p>Upgrade to create more {featureInfo.name}</p>
