@@ -299,6 +299,20 @@ class BillingSerializer(serializers.Serializer):
     billing_limit = serializers.IntegerField()
 
 
+class ClaimCouponSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        required=False,
+        help_text="Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.",
+    )
+    campaign_slug = serializers.CharField(
+        required=False,
+        help_text=(
+            "Slug of a campaign to redeem. Give this or `code`, never both. "
+            "Any organization member can redeem an allowlisted campaign."
+        ),
+    )
+
+
 class BillingManagedByPartnerSerializer(serializers.Serializer):
     partner_name = serializers.CharField(
         allow_blank=True, help_text="Name of the partner that pays for this organization. Can be empty."
@@ -970,6 +984,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(request=ClaimCouponSerializer)
     @action(
         methods=["POST"],
         detail=False,
