@@ -15,7 +15,9 @@ import { currentRepository, type PiChats } from "../chats";
 import { ChatView } from "../chatView";
 import { copyToClipboard } from "../clipboard";
 import { Composer, isAppKey, isTyping } from "../composer";
+import { messageOf } from "../errors";
 import { useLocalChats } from "../hooks/useLocalChats";
+import { useNotice } from "../hooks/useNotice";
 import {
   activeWorkspace,
   assignTask,
@@ -83,9 +85,6 @@ const PAGE_SIZE = 10;
 // One shared empty list, so panes with no pending commands keep a stable prop.
 const NO_SHELLS: PendingShell[] = [];
 
-const messageOf = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
-
 interface OpenModal {
   sheet: Sheet;
   index: number;
@@ -97,7 +96,6 @@ interface OpenModal {
 }
 const REFRESH_MS = 10_000;
 const CLOSE_CONFIRM_MS = 1_000;
-const SEND_ERROR_MS = 8_000;
 // Log entries per preloaded run: roughly the last ten messages.
 const PREVIEW_ENTRIES = 300;
 
@@ -148,11 +146,7 @@ export function App({
     control: cloudControl,
     startLocal,
   } = session ?? {};
-  const [notice, setNotice] = useState<string | null>(null);
-  const flashNotice = (text: string): void => {
-    setNotice(text);
-    setTimeout(() => setNotice(null), SEND_ERROR_MS);
-  };
+  const { notice, flashNotice, showNotice, clearNotice } = useNotice();
   const [layout, setLayout] = useState<LayoutState>(loadLayout);
   // Tasks this app just started or resumed; they win until the list shows the same run.
   const [fresh, setFresh] = useState<Map<string, Task>>(new Map());
@@ -432,10 +426,10 @@ export function App({
         : null;
     if (target) {
       const live = target.control;
-      setNotice("Loading models…");
+      showNotice("Loading models…");
       live.models().then(
         ({ available, current }) => {
-          setNotice(null);
+          clearNotice();
           knownModels.current = available;
           if (current)
             setTaskModels((models) =>
@@ -548,7 +542,7 @@ export function App({
       },
       (index) => {
         const region = REGIONS[index];
-        setNotice("Finish signing in with your browser…");
+        showNotice("Finish signing in with your browser…");
         login(region.id, () => {}).then(
           () => flashNotice(`Signed in to ${region.label}`),
           (error: unknown) =>
@@ -759,10 +753,7 @@ export function App({
           next.delete(paneId);
           return next;
         });
-        setNotice(
-          `Couldn't send: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        setTimeout(() => setNotice(null), SEND_ERROR_MS);
+        flashNotice(`Couldn't send: ${messageOf(error)}`);
       },
     );
   };
@@ -810,11 +801,13 @@ export function App({
     if (!closeGuard.current.press(Date.now())) {
       const last =
         layout.workspaces.length === 1 && paneIds(workspace.root).length === 1;
-      setNotice(`Press again to ${last ? "quit" : "close this chat"}`);
-      setTimeout(() => setNotice(null), CLOSE_CONFIRM_MS);
+      flashNotice(
+        `Press again to ${last ? "quit" : "close this chat"}`,
+        CLOSE_CONFIRM_MS,
+      );
       return;
     }
-    setNotice(null);
+    clearNotice();
     const next = closeFocused(layout);
     if (next === "quit") exit();
     else setLayout(next);
