@@ -25,7 +25,10 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.facade.feature_flags import (
+    DATA_WAREHOUSE_SCENE_FLAG,
+    DATA_WAREHOUSE_SCENE_TRINO_FLAG,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +70,7 @@ ManagedWarehouseMonitoringMetric = Literal[
     "worker_crash_rate",
 ]
 ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
+DataOpsVariant = Literal["trino", "duckdb"]
 
 
 def managed_warehouse_domain() -> str:
@@ -88,8 +92,8 @@ def validate_warehouse_name(name: str | None) -> str | None:
     return None
 
 
-def is_enabled(organization_id: UUID | str) -> bool:
-    """Evaluate the managed-warehouse flag for the organization.
+def _organization_flag_enabled(flag: str, organization_id: UUID | str) -> bool:
+    """Evaluate one managed-warehouse flag for the organization.
 
     Identity is the organization so every team in the org resolves the same value.
     """
@@ -97,7 +101,7 @@ def is_enabled(organization_id: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                DATA_WAREHOUSE_SCENE_FLAG,
+                flag,
                 org_id,
                 groups={"organization": org_id},
                 group_properties={"organization": {"id": org_id}},
@@ -106,8 +110,26 @@ def is_enabled(organization_id: UUID | str) -> bool:
             )
         )
     except Exception:
-        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id)
+        logger.warning("Failed to evaluate managed warehouse feature flag", organization_id=org_id, flag=flag)
         return False
+
+
+def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
+    """Which Data ops variant the organization gets, or None when it has neither flag.
+
+    The Trino flag wins when both are on, so an organization never moves between variants
+    because of Trino's state.
+    """
+    if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_TRINO_FLAG, organization_id):
+        return "trino"
+    if _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
+        return "duckdb"
+    return None
+
+
+def is_enabled(organization_id: UUID | str) -> bool:
+    """Whether the organization has the managed warehouse through either flag."""
+    return data_ops_variant(organization_id) is not None
 
 
 def _present_connection(raw: dict) -> PresentedConnection:
@@ -141,7 +163,7 @@ def _request(
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global
     API paths (`/api/v1/{path}`).
 
-    `require_enabled` gates on the user-facing `data-warehouse-scene` flag and is the right
+    `require_enabled` gates on the user-facing managed warehouse flags and is the right
     default for UI-driven calls. Backend/background callers (e.g. the Dagster duckling
     backfill) must pass `require_enabled=False`: the flag is evaluated only-locally and a
     worker without the flag definition loaded would otherwise get a spurious 403 even when
