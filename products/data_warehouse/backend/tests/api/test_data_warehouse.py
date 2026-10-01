@@ -108,6 +108,28 @@ class TestDataWarehouseAPI(APIBaseTest):
             self.assertIsNone(body["trino"])
             mock_trino_status.assert_not_called()
 
+    def test_warehouse_status_skips_the_trino_read_until_the_warehouse_is_ready(self) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        with (
+            patch(
+                f"{views}.status_for",
+                return_value=Response({"state": "provisioning", "connection": pgwire}, status=200),
+            ),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": False, "table_suffix": None}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": False, "schema_name": None}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value="trino"),
+            patch(f"{views}.trino_status_for") as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIsNone(body["connection"])
+        self.assertIsNone(body["trino"])
+        mock_trino_status.assert_not_called()
+
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.execute_hogql_query")
     def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
         table = DataWarehouseTable.objects.create(

@@ -124,6 +124,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert "Trino" in response.json()["error"]
+        assert "managed-warehouse-trino-monitoring-get" in response.json()["error"]
         mock_snapshot.assert_not_called()
         mock_series.assert_not_called()
 

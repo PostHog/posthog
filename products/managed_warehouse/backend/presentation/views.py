@@ -1149,7 +1149,7 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
     time, and the connection target leave this function.
     """
     unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
-    resp = _request("GET", organization_id, "/trino")
+    resp = _request("GET", organization_id, "/trino", timeout=10)
     if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
         return unavailable
     if resp.data.get("enabled") is not True:
@@ -1167,8 +1167,16 @@ def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
         return unavailable
 
     raw_state = trino_status.get("state")
-    # A row that has not been reconciled yet has an empty state, which means pending.
-    state = cast(TrinoStatusState, raw_state) if raw_state in _TRINO_LIFECYCLE_STATES else "pending"
+    # A row that has not been reconciled yet has no state, which means pending.
+    if raw_state is None or raw_state == "":
+        state: TrinoStatusState = "pending"
+    elif isinstance(raw_state, str) and raw_state in _TRINO_LIFECYCLE_STATES:
+        state = cast(TrinoStatusState, raw_state)
+    else:
+        # The control plane has lifecycle states this view does not present, such as deleting. Showing
+        # them as pending would make the scene poll for a setup that never completes.
+        logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
+        return unavailable
     ready_at = trino_status.get("ready_at")
     return PresentedTrinoStatus(
         state=state,
