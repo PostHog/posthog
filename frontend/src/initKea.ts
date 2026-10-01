@@ -128,12 +128,12 @@ Owned by inviteLogic's inviteTeamMembersFailure listener.
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 /*
-Actions whose 400 is a validation result that their own failure listener shows to the user, so it
-is not reported as an exception. The alert simulate endpoint returns a 400 for configurations or
-data the detector cannot score (for example, too few rows). Owned by alertFormLogic's
-simulateAlertFailure listener.
+Write actions whose own logic toasts the backend's `alert_not_evaluable` 400. The simulate endpoint
+returns it when the configuration or the data cannot be scored (for example, too few rows), which
+the user can fix, so it is not reported as an exception. Other simulate 400s still report, because
+the endpoint also maps query failures to a 400. Owned by alertFormLogic's simulateAlertFailure listener.
 */
-const VALIDATION_SELF_HANDLED = new Set(['simulateAlert'])
+const NOT_EVALUABLE_SELF_HANDLED = new Set(['simulateAlert'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -273,12 +273,13 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                const isSelfHandledValidation = error?.status === 400 && VALIDATION_SELF_HANDLED.has(String(actionKey))
+                const isSelfHandledNotEvaluable =
+                    error?.code === 'alert_not_evaluable' && NOT_EVALUABLE_SELF_HANDLED.has(String(actionKey))
                 if (
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
-                    !isSelfHandledValidation
+                    !isSelfHandledNotEvaluable
                 ) {
                     posthog.captureException(error)
                 }
