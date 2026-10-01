@@ -100,7 +100,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
                     onClick={openListModal}
                     data-attr="broadcast-audience-add-list"
                 >
-                    Add people from a list
+                    Upload a list
                 </LemonButton>
             </div>
             <BroadcastAudienceCohorts />

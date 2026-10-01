@@ -33,11 +33,13 @@ describe('broadcastAudienceListLogic', () => {
         broadcastWizardLogic({ id: 'new' }).mount()
     })
 
-    it('saves a pasted list as a cohort and adds it to the audience', async () => {
+    it('saves an uploaded list as a cohort and adds it to the audience', async () => {
         const logic = broadcastAudienceListLogic({ id: 'new' })
         logic.mount()
         logic.actions.openListModal()
-        logic.actions.setPastedText('ada@example.com\ngrace@example.com')
+        logic.actions.setFile(
+            new File(['email\nada@example.com\ngrace@example.com\n'], 'people.csv', { type: 'text/csv' })
+        )
 
         await expectLogic(logic, () => {
             logic.actions.createListCohort()
@@ -61,7 +63,6 @@ describe('broadcastAudienceListLogic', () => {
         const logic = broadcastAudienceListLogic({ id: 'new' })
         logic.mount()
         logic.actions.openListModal()
-        logic.actions.setSource('upload')
         logic.actions.setFile(new File(['name,company\nAda,Acme\n'], 'people.csv', { type: 'text/csv' }))
 
         await expectLogic(logic, () => {
