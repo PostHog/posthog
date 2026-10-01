@@ -268,7 +268,7 @@ function loadSelectedSnapshotIfMissing(
     actions: visualReviewRunSceneLogicType['actions']
 ): void {
     const { selectedSnapshotId } = values
-    if (selectedSnapshotId && values.snapshotsLoaded && !values.selectedSnapshot && !values.deepLinkedSnapshotLoading) {
+    if (selectedSnapshotId && values.snapshotsLoaded && !values.selectedSnapshot) {
         actions.loadDeepLinkedSnapshot(selectedSnapshotId)
     }
 }
@@ -398,11 +398,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         deepLinkedSnapshot: [
             null as SnapshotApi | null,
             {
-                loadDeepLinkedSnapshot: async (snapshotId: string) => {
+                loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         include_quarantined: true,
                         snapshot_id: snapshotId,
                     })
+                    breakpoint()
                     return response.results[0] ?? null
                 },
             },

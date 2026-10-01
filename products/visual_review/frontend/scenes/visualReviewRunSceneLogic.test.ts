@@ -89,6 +89,40 @@ describe('visualReviewRunSceneLogic', () => {
             .toMatchValues({ snapshots: [CHANGED_SNAPSHOT], selectedSnapshot: UNCHANGED_SNAPSHOT })
     })
 
+    it('shows the latest deep link when an earlier one is still loading', async () => {
+        const otherUnchangedSnapshot = { id: 'snapshot-other', identifier: 'other-unchanged', result: 'unchanged' }
+        let releaseFirst: () => void = () => {}
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: async ({ request }) => {
+                    const snapshotId = new URL(request.url).searchParams.get('snapshot_id')
+                    if (snapshotId === UNCHANGED_SNAPSHOT.id) {
+                        await new Promise<void>((resolve) => {
+                            releaseFirst = resolve
+                        })
+                    }
+                    const results =
+                        snapshotId === UNCHANGED_SNAPSHOT.id
+                            ? [UNCHANGED_SNAPSHOT]
+                            : snapshotId === otherUnchangedSnapshot.id
+                              ? [otherUnchangedSnapshot]
+                              : [CHANGED_SNAPSHOT]
+                    return [200, { count: results.length, next: null, previous: null, results }]
+                },
+            },
+        })
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
+        await expectLogic(logic, () => logic.actions.loadSnapshots()).toDispatchActions(['loadDeepLinkedSnapshot'])
+
+        await expectLogic(logic, () => logic.actions.setSelectedSnapshotId(otherUnchangedSnapshot.id))
+            .toDispatchActions(['loadDeepLinkedSnapshotSuccess'])
+            .toMatchValues({ selectedSnapshot: otherUnchangedSnapshot })
+
+        releaseFirst()
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ selectedSnapshot: otherUnchangedSnapshot })
+    })
+
     it.each([
         { slow: 'slow', fast: 'quiet', manual: 0 },
         { slow: 'slow-failing', fast: 'flaky', manual: 3 },
