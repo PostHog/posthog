@@ -64,6 +64,8 @@ def _record_insight_views(
         return
     rows = sorted(last_viewed_at_by_insight_id.items())
     # Skip existing rows, including concurrent inserts, then update their timestamps below.
+    # TODO: Consider a single upsert once the uniqueness migration is fully deployed:
+    # https://github.com/PostHog/posthog/pull/106556. It must still preserve the newest timestamp.
     with transaction.atomic():
         InsightViewed.objects.bulk_create(
             [
