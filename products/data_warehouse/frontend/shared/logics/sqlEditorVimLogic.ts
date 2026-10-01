@@ -98,7 +98,7 @@ export interface sqlEditorVimLogicMeta {
             user: UserType | null,
             pendingSqlEditorConfiguration: SQLEditorConfiguration | null
         ) => UserUIConfiguration | null
-        sqlEditorConfiguration: (uiConfiguration: any) => SQLEditorConfiguration | null
+        sqlEditorConfiguration: (uiConfiguration: UserUIConfiguration | null) => SQLEditorConfiguration | null
         vimModeEnabled: (
             sqlEditorConfiguration: SQLEditorConfiguration | null,
             editorVimModeEnabled: boolean
