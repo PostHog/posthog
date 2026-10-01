@@ -57,13 +57,6 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
         systemTabId: 'system:meetings',
         featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
     },
-    {
-        kind: 'event_stream',
-        tagName: 'EventStream',
-        label: 'Event stream',
-        systemTabId: 'system:event_stream',
-        featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-    },
 ]
 
 export function listAvailableAccountViewComponents(featureFlags: FeatureFlagsSet): AccountViewComponentDefinition[] {

@@ -231,19 +231,28 @@ describe('reportCheckPresentation', () => {
             })
         })
 
-        it('says a check on an unresolved report waits for the resolve rather than naming a date it cannot keep', () => {
-            expect(
-                checkScheduledEntry({
-                    kind: 'metric_threshold',
-                    next_run_at: '2026-09-27T09:00:00Z',
-                    arms_on_resolve: true,
-                    soak_minutes: 4320,
+        it.each([
+            [4320, '3 days'],
+            [10076, '7 days'],
+            [2160, '1 day 12 hours'],
+            [95, '2 hours'],
+            [45, '45 minutes'],
+        ])(
+            'says a check on an unresolved report waits for the resolve, with a %i minute soak as %s',
+            (soakMinutes, label) => {
+                expect(
+                    checkScheduledEntry({
+                        kind: 'metric_threshold',
+                        next_run_at: '2026-09-27T09:00:00Z',
+                        arms_on_resolve: true,
+                        soak_minutes: soakMinutes,
+                    })
+                ).toEqual({
+                    tag: { label: 'Waiting for resolve', type: 'muted' },
+                    detail: `Starts ${label} after this report is resolved`,
                 })
-            ).toEqual({
-                tag: { label: 'Waiting for resolve', type: 'muted' },
-                detail: 'Starts 3 days after this report is resolved',
-            })
-        })
+            }
+        )
 
         it('separates a check that never ran from one that ran and never settled', () => {
             expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')

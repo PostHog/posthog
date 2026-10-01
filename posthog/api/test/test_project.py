@@ -1141,17 +1141,69 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_customer_analytics_config_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
+        )
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        default_pins = [{"kind": "custom_property", "id": definition_response.json()["id"]}]
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/",
-            {"customer_analytics_config": {"activity_event": "$pageview"}},
+            {
+                "customer_analytics_config": {
+                    "activity_event": "$pageview",
+                    "default_pinned_properties": default_pins,
+                }
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["customer_analytics_config"]["activity_event"], "$pageview")
+        self.assertEqual(
+            response.json()["customer_analytics_config"]["default_pinned_properties"],
+            default_pins,
+        )
 
         self.team.refresh_from_db()
         self.assertEqual(self.team.customer_analytics_config.activity_event, "$pageview")
+        self.assertEqual(self.team.customer_analytics_config.default_pinned_properties, default_pins)
+
+    def test_customer_analytics_default_pins_reject_invalid_references(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        definition_response = self.client.post(
+            f"/api/projects/{self.project.id}/custom_property_definitions/",
+            {"name": "Annual recurring revenue", "display_type": "currency", "is_big_number": True},
+            format="json",
+        )
+        self.assertEqual(definition_response.status_code, status.HTTP_201_CREATED, definition_response.json())
+        reference = {"kind": "custom_property", "id": definition_response.json()["id"]}
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"default_pinned_properties": [reference, reference]}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("duplicates", response.json()["detail"])
+
+    def test_project_member_cannot_change_customer_analytics_default_pins(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"customer_analytics_config": {"default_pinned_properties": []}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)
+        config.refresh_from_db()
+        self.assertEqual(config.default_pinned_properties, [])
 
     def test_customer_analytics_config_save_keeps_track_rules_written_meanwhile(self):
         config = get_or_create_team_extension(self.team, TeamCustomerAnalyticsConfig)

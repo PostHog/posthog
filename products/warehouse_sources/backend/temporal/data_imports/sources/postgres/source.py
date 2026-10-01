@@ -411,7 +411,13 @@ class PostgresSource(
     def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
         return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
 
-    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        keyset_full_load_enabled: bool = False,
+        schema_name: str | None = None,
+    ) -> bool:
         # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
         # its watermark and keeps the incremental budget. And a full load only resumes once the flag
         # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
@@ -1927,13 +1933,13 @@ class PostgresSource(
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
-        proof_time = async_to_sync(completed_listing_proof)(schema)
+        proof = async_to_sync(completed_listing_proof)(schema)
         # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
         # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
         # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
         # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
         # without the longer read.
-        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+        if proof is None and async_to_sync(buffer_expired_unread)(schema):
             inputs.logger.warning(
                 "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
             )
@@ -1953,7 +1959,7 @@ class PostgresSource(
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=proof_time,
+            proof=proof,
         )
         return SourceResponse(
             name=lanes[0].name,

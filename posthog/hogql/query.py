@@ -608,7 +608,7 @@ class HogQLQueryExecutor:
             sources = extract_warehouse_sources(self._get_select_query_type())
         except Exception:
             sources = []
-        # __preview_promptJev source queries read their tables in separate executions.
+        # jev source queries read their tables in separate executions.
         sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
         self.used_data_warehouse_sources = sources
         return sources
@@ -773,7 +773,7 @@ class HogQLQueryExecutor:
 
         validate_prompt_jev_access(self.team)
         PromptJevBudget().visit(self.select_query)
-        # The resolver types __preview_promptJev calls without model output, so an invalid query fails before any model call.
+        # The resolver types jev calls without model output, so an invalid query fails before any model call.
         Resolver(
             context=dataclasses.replace(
                 self.context,
@@ -818,12 +818,10 @@ class HogQLQueryExecutor:
             return PromptJevSource(response=response, column_types=executor._resolved_column_types())
 
         planner = PromptJevPlanner(execute=execute_source, runner=runner, tables=self._prompt_jev_tables)
-        with self.timings.measure("__preview_promptJev"):
+        with self.timings.measure("jev"):
             self.select_query = planner.visit(self.select_query)
         if PromptJevFinder.contains(self.select_query):
-            raise QueryError(
-                "Use __preview_promptJev in a named SELECT column and filter its results in an outer query."
-            )
+            raise QueryError("Use jev in a named SELECT column and filter its results in an outer query.")
 
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.referenced_saved_query_ids.clear()
@@ -842,9 +840,7 @@ class HogQLQueryExecutor:
         self._process_placeholders()
         if PromptJevFinder.contains(self.select_query):
             if embedded_select or not self._executing or self.connection_id is not None:
-                raise QueryError(
-                    "__preview_promptJev requires a ClickHouse-backed query execution and cannot be embedded."
-                )
+                raise QueryError("jev requires a ClickHouse-backed query execution and cannot be embedded.")
             self._evaluate_prompt_jev()
         if embedded_select:
             _EmbeddedSelectSettingsValidator().visit(self.select_query)

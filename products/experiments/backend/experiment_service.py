@@ -65,6 +65,7 @@ from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
+    validate_saved_metric_link_overrides,
 )
 from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
@@ -966,7 +967,7 @@ class ExperimentService:
         if not isinstance(saved_metrics_ids, list):
             raise ValidationError("Saved metrics must be a list")
 
-        for saved_metric in saved_metrics_ids:
+        for i, saved_metric in enumerate(saved_metrics_ids):
             if not isinstance(saved_metric, dict):
                 raise ValidationError("Saved metric must be an object")
             if "id" not in saved_metric:
@@ -975,6 +976,10 @@ class ExperimentService:
                 raise ValidationError("Metadata must be an object")
             if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
                 raise ValidationError("Metadata must have a type key")
+            if "metadata" in saved_metric:
+                validate_saved_metric_link_overrides(
+                    saved_metric["metadata"], error_prefix=f"Invalid saved metric metadata at index {i}: "
+                )
 
         saved_metrics = ExperimentSavedMetric.objects.filter(
             id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
@@ -1078,6 +1083,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
+        analytics_properties: dict[str, Any] | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         # Seed the dedup set with uuids the inline metrics must not collide with:
@@ -1234,6 +1240,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         )
 
@@ -1247,6 +1254,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
@@ -1256,6 +1264,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
@@ -1292,6 +1301,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
@@ -1305,6 +1315,8 @@ class ExperimentService:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
+        if analytics_properties:
+            analytics_metadata.update(analytics_properties)
 
         report_user_action(
             self.user,

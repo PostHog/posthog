@@ -391,6 +391,9 @@ tools:
     task-channels-context-generation-update:
         operation: task_channels_context_generation_update
         enabled: false
+    task-channels-contributors-retrieve:
+        operation: task_channels_contributors_retrieve
+        enabled: false
     task-channels-destroy:
         operation: task_channels_destroy
         enabled: false
@@ -667,6 +670,9 @@ tools:
         enabled: false
     tasks-presence-destroy:
         operation: tasks_presence_destroy
+        enabled: false
+    tasks-pull-request-titles-create:
+        operation: tasks_pull_request_titles_create
         enabled: false
     tasks-repo-routing-rules-create:
         operation: tasks_repo_routing_rules_create

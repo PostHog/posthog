@@ -759,7 +759,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
-                // One card per reason kind, plus one with no cited timestamps (no clip range on the tile).
+                // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
                     results: [
                         {
@@ -788,6 +788,7 @@ const meta: Meta = {
                                             { kind: 'text', value: ' Retried the payment form twice ' },
                                             { kind: 'chip', timestamp_ms: 154000 },
                                         ],
+                                        key_moment_ms: 154000,
                                     },
                                     signals_count: 2,
                                     verification: null,
@@ -1628,6 +1629,56 @@ const inconclusiveObservationDetail = observation({
 
 export const ObservationDetailMonitorInconclusive: StoryObj = observationDetailStory(inconclusiveObservationDetail)
 
+// The Session Replay "Summarize" button mints an inline scanner with the session summary template's prompt, so
+// its observations carry that template's written question.
+const summarizeButtonObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000da',
+    scanner_id: '00000000-0000-0000-0000-00000000001a',
+    scanner_origin: 'inline',
+    recording_subject_email: 'bob@example.com',
+    distinct_id: 'user_2m1x9d',
+    prompt_question: 'What did the user do in this session?',
+    scanner_snapshot: {
+        ...observation().scanner_snapshot!,
+        name: '',
+        scanner_config: {
+            prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+            length: 'medium',
+        },
+    },
+})
+
+export const ObservationDetailSummarizeButton: StoryObj = observationDetailStory(summarizeButtonObservationDetail)
+
+// A one-off scan asked through PostHog AI or MCP: an inline scanner with its own prompt and no written question.
+const inlineScanObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000db',
+    scanner_id: '00000000-0000-0000-0000-00000000001b',
+    scanner_origin: 'inline',
+    prompt_question: null,
+    previous_observation_id: null,
+    next_observation_id: null,
+    scanner_snapshot: {
+        ...monitorObservationDetail.scanner_snapshot!,
+        name: '',
+        scanner_config: { prompt: 'Did the user open the pricing page and leave without upgrading?' },
+    },
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.9,
+            verdict: 'yes',
+            reasoning:
+                'The user opened the pricing page twice, expanded the plan comparison, and left the app from there both times without starting a checkout.',
+        },
+        signals_count: 0,
+        verification: null,
+    },
+})
+
+export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inlineScanObservationDetail)
+
 export const ObservationDetailFeedbackPrompt: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
@@ -1655,12 +1706,12 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal-based creation flow when the flag's test variant is on: the two questions (goal, budget)
-// lead, with the template gallery kept below them as a start-from-a-template alternative.
+// The goal-based creation flow when the flag's test variant is on: a typed goal and budget on the
+// left, one-click starting points on the right.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
 }
 
@@ -1698,7 +1749,7 @@ const goalDraft: DraftScannerResponseApi = {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
     decorators: [
         (StoryFn) => {
@@ -1726,7 +1777,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
     decorators: [
         mswDecorator({
@@ -1810,9 +1861,16 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
 export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
+        // A draft request that never answers, because a failed one sends the page back to the goal step.
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/vision/scanners/draft/': (): Promise<never> => new Promise(() => {}),
+            },
+        }),
         (StoryFn) => {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()
