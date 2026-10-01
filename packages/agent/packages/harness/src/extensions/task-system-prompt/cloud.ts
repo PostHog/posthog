@@ -25,6 +25,8 @@ export interface CloudTaskPromptOptions {
   shouldAutoPublish: boolean;
   slackArtifactDelivery: SlackArtifactDelivery | null;
   slackChartDelivery: boolean;
+  // The Slack thread draws the agent's task list as a live checklist.
+  slackProgressChecklist: boolean;
   storeSkillsInstalledCount: number;
   taskId: string;
   taskRepositories: string[];
@@ -187,7 +189,17 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
-    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
+    const slackProgressInstructions =
+      isSlack && this.options.slackProgressChecklist
+        ? `
+# Progress checklist
+The Slack thread shows your task list as a live checklist while you work. When a request takes more than two steps, write a short task list before you start (3 to 6 tasks) with your task tools (TaskCreate and TaskUpdate, or update_plan). Mark a task in progress when you start it and completed when you finish it.
+- Write each task in plain words for someone who does not read code, for example "Find the signup event" or "Count weekly signups".
+- Do not put tool names, file paths, SQL, or IDs in a task.
+- Skip the list for a question you can answer in one step.
+`
+        : "";
+    const identityInstructions = `${slackIdentityInstructions}${slackProgressInstructions}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.

@@ -107,11 +107,11 @@ class TestSlackAgentDesignRelay:
         calls = await _run_relay(
             [
                 ("agent_text_delta", "Let me look at the data."),
-                ("agent_status_update", {"phase": "posthog_events"}),
-                ("agent_status_update", {"phase": "posthog_events"}),
+                ("agent_status_update", {"phase": "posthog:SQL"}),
+                ("agent_status_update", {"phase": "posthog:SQL"}),
                 ("agent_status_update", {"phase": "reading_code", "activity": "Search for callers"}),
                 ("agent_text_delta", "Now I need to look into this."),
-                ("agent_status_update", {"phase": "posthog_events"}),
+                ("agent_status_update", {"phase": "posthog:SQL"}),
                 ("agent_status_update", {"phase": "making_changes"}),
                 ("agent_text_delta", "Signups grew."),
             ]
@@ -119,8 +119,8 @@ class TestSlackAgentDesignRelay:
 
         assert sorted(calls.final_lines().values()) == [
             ("Making changes (1 edit)", None, "complete"),
-            ("Querying events (3 queries)", None, "complete"),
             ("Reading the code (1 lookup)", None, "complete"),
+            ("SQL (3 calls)", None, "complete"),
         ]
         assert calls.answer() == "Signups grew."
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
@@ -129,7 +129,7 @@ class TestSlackAgentDesignRelay:
         open_titles = [c.title for c in sent if c.status == "in_progress"]
         assert "Reading the code: Search for callers" in open_titles
         # With no shell description, the agent's own last sentence says what the call is for.
-        assert "Querying events: Look into this" in open_titles
+        assert "SQL: Look into this" in open_titles
         # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
         assert all(chunk.details is None for chunk in sent)
         assert all(stop.complete_task_details is None for stop in calls.stops)
@@ -146,7 +146,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.timeout(60, func_only=True)
     async def test_last_prose_burst_is_the_answer(self, tail: list[tuple[str, Any]]) -> None:
         calls = await _run_relay(
-            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog_events"}), *tail]
+            [("agent_text_delta", "Checking."), ("agent_status_update", {"phase": "posthog:SQL"}), *tail]
         )
 
         assert calls.answer() == "Answer."
@@ -154,7 +154,7 @@ class TestSlackAgentDesignRelay:
     @pytest.mark.parametrize(
         "signals, expected_line",
         [
-            ([("agent_status_update", {"phase": "posthog_events"})], "Querying events (1 query)"),
+            ([("agent_status_update", {"phase": "posthog:SQL"})], "SQL (1 call)"),
             ([("agent_text_delta", "Hi! What should I look at?")], "Writing the answer"),
         ],
         ids=["first_work_line", "answer_without_tools"],
@@ -182,19 +182,39 @@ class TestSlackAgentDesignRelay:
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_phases_past_the_line_limit_fold_into_other_work(self) -> None:
-        keys = [
-            "posthog_events",
-            "posthog_dashboards",
-            "posthog_errors",
-            "posthog_replays",
-            "posthog_flags",
-            "posthog_logs",
-            "posthog_ai",
-            "posthog_surveys",
-            "posthog_warehouse",
-        ]
+        keys = [f"posthog:Category {index}" for index in range(9)]
         calls = await _run_relay([("agent_status_update", {"phase": key}) for key in keys])
 
         titles = [title for title, _details, _status in calls.final_lines().values()]
         assert len(titles) == 7
         assert "Other work (3 steps)" in titles
+
+    @pytest.mark.parametrize(
+        "cancel, expected_status, expected_title",
+        [(False, "complete", "Done in "), (True, "error", "Stopped")],
+        ids=["turn_completes", "run_stops"],
+    )
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_agent_todo_list_replaces_the_phase_lines(
+        self, cancel: bool, expected_status: str, expected_title: str
+    ) -> None:
+        # Slack turns a step still pending at the end into a failure, so a finished turn must
+        # complete the leftovers, and a stopped run must not read as done.
+        plan = [
+            {"title": "Find the signup event", "status": "in_progress"},
+            {"title": "Count weekly signups", "status": "pending"},
+        ]
+        calls = await _run_relay(
+            [
+                ("agent_status_update", {"plan": plan}),
+                ("agent_status_update", {"phase": "reading_code"}),
+            ],
+            setup_title="Getting ready",
+            cancel=cancel,
+        )
+
+        assert sorted(calls.final_lines().values()) == [
+            ("Count weekly signups", None, expected_status),
+            ("Find the signup event", None, expected_status),
+        ]
+        assert [(s.plan_title or "").startswith(expected_title) for s in calls.stops] == [True]

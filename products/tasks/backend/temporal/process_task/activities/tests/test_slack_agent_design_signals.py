@@ -96,7 +96,7 @@ class TestSlackAgentDesignSignalEmitter:
                 "posthog_query",
                 "mcp__posthog__exec",
                 {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
-                {"phase": "posthog_events"},
+                {"phase": "posthog:SQL", "tool_title": "Execute SQL query"},
             ),
         ]
     )
@@ -111,6 +111,28 @@ class TestSlackAgentDesignSignalEmitter:
         signals = emitter.process(call)
 
         assert signals == [("agent_status_update", expected)]
+
+    def test_agent_todo_list_reaches_the_relay(self) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("thinking"))
+        plan = {
+            "type": "notification",
+            "notification": {
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "plan",
+                        "entries": [{"content": "Count weekly signups", "status": "in_progress"}],
+                    }
+                },
+            },
+        }
+
+        signals = emitter.process(plan)
+
+        assert signals == [
+            ("agent_status_update", {"plan": [{"title": "Count weekly signups", "status": "in_progress"}]})
+        ]
 
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)

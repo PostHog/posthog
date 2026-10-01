@@ -4,6 +4,7 @@ from typing import Any
 from parameterized import parameterized
 
 from products.tasks.backend.temporal.process_task.slack_progress_phases import (
+    agent_plan_steps,
     done_plan_title,
     intent_from_narrative,
     phase_for_tool_call,
@@ -35,67 +36,23 @@ class TestPhaseForToolCall:
     @parameterized.expand(
         [
             (
-                "sql_on_events",
-                _claude("mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT count() FROM events"}'}),
-                "posthog_events",
-            ),
-            (
-                "sql_schema_on_a_new_line",
-                _claude(
-                    "mcp__posthog__exec",
-                    {"command": 'call execute-sql {"query": "SELECT name\\nFROM system.information_schema.tables"}'},
-                ),
-                "posthog_schema",
-            ),
-            (
-                "sql_first_table_wins",
-                _claude(
-                    "mcp__posthog__exec",
-                    {"command": 'call execute-sql {"query": "SELECT 1 FROM persons JOIN events ON 1"}'},
-                ),
-                "posthog_people",
-            ),
-            (
-                "sql_system_object",
-                _claude(
-                    "mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT * FROM system.insights"}'}
-                ),
-                "posthog_dashboards",
-            ),
-            (
-                "sql_warehouse_table",
-                _claude(
-                    "mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT * FROM stripe_invoices"}'}
-                ),
-                "posthog_warehouse",
-            ),
-            (
-                "direct_sql_tool",
-                _claude("mcp__posthog__execute-sql", {"query": "SELECT 1 FROM sessions"}),
-                "posthog_sessions",
-            ),
-            ("schema_tool", _claude("mcp__posthog__exec", {"command": "call read-data-schema {}"}), "posthog_schema"),
-            (
-                "unknown_posthog_tool",
-                _claude("mcp__posthog__exec", {"command": "call annotation-list {}"}),
-                "posthog_other",
-            ),
-            (
-                "posthog_errors",
-                _claude("mcp__posthog__exec", {"command": "call error-tracking-issues-list {}"}),
-                "posthog_errors",
+                "posthog_sql",
+                _claude("mcp__posthog__exec", {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'}),
+                "posthog:SQL",
             ),
             (
                 "posthog_call_flags",
                 _claude("mcp__posthog__exec", {"command": "call --json dashboard-get {}"}),
-                "posthog_dashboards",
+                "posthog:Dashboards",
             ),
             (
                 "codex_posthog_replays",
-                _codex_mcp("posthog", "exec", {"command": "call session-recordings-list {}"}),
-                "posthog_replays",
+                _codex_mcp("posthog", "exec", {"command": "call query-session-recordings-list {}"}),
+                "posthog:Session replays",
             ),
-            ("posthog_direct_tool", _claude("mcp__posthog__feature-flag-get-all", {}), "posthog_flags"),
+            ("posthog_direct_tool", _claude("mcp__posthog__feature-flag-get-all", {}), "posthog:Feature flags"),
+            # A tool the catalogue does not know must not put its name on a line.
+            ("unknown_posthog_tool", _claude("mcp__posthog__exec", {"command": "call gateway__acme {}"}), "other_work"),
             # Looking up what the server offers is not work on the user's data.
             ("posthog_search", _claude("mcp__posthog__exec", {"command": "search error issues"}), None),
             ("read", _claude("Read", {"file_path": "/repo/a.py"}, kind="read"), "reading_code"),
@@ -128,12 +85,11 @@ class TestPhaseForToolCall:
         [
             ("shell", _claude("Bash", {}, kind="execute")),
             ("posthog_exec", _claude("mcp__posthog__exec", {})),
-            ("direct_sql_tool", _claude("mcp__posthog__execute-sql", {})),
         ]
     )
     def test_call_waits_for_its_command(self, _name: str, update: dict[str, Any]) -> None:
         # Claude streams the call before its input. Classifying it then would file every test run
-        # under "Running commands" and every PostHog query on the wrong line.
+        # under "Running commands" and hide every PostHog call.
         assert tool_call_from_acp_update(update) is None
 
     @parameterized.expand(
@@ -158,6 +114,25 @@ class TestPhaseForToolCall:
 
         assert tool_call is not None
         assert tool_call.description == expected
+
+
+class TestAgentPlanSteps:
+    def test_reads_the_todo_list_in_slack_statuses(self) -> None:
+        update = {
+            "sessionUpdate": "plan",
+            "entries": [
+                {"content": "Find the  signup event.", "status": "completed"},
+                {"content": "Count weekly signups", "status": "in_progress"},
+                {"content": "", "status": "pending"},
+                {"content": "Write the answer", "status": "pending"},
+            ],
+        }
+
+        assert agent_plan_steps(update) == [
+            {"title": "Find the signup event", "status": "complete"},
+            {"title": "Count weekly signups", "status": "in_progress"},
+            {"title": "Write the answer", "status": "pending"},
+        ]
 
 
 class TestIntentFromNarrative:
