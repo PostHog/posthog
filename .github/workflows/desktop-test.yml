@@ -37,9 +37,10 @@ jobs:
             pull-requests: read
         outputs:
             # On master pushes the filter step is skipped and everything runs.
-            code: ${{ steps.filter.outputs.code || 'true' }}
+            # The desktop app bundles the agent workspace, so a change there counts as desktop code.
+            code: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.code || 'true' }}
             workflow: ${{ steps.filter.outputs.workflow || 'true' }}
-            packages: ${{ steps.filter.outputs.packages }}
+            packages: ${{ steps.filter.outputs.agent == 'true' && 'true' || steps.filter.outputs.packages }}
         steps:
             # Own rate-limit bucket; the shared GITHUB_TOKEN goes hot at merge peaks.
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -74,6 +75,8 @@ jobs:
                         - "!products/desktop/LICENSE"
                         - "!products/desktop/.gitignore"
                         - "!products/desktop/.env.example"
+                      agent:
+                        - "packages/agent/**"
                       workflow:
                         - ".github/workflows/desktop-test.yml"
                       packages:
@@ -274,7 +277,7 @@ jobs:
         # once unit-test + electron-test have passed. There is intentionally NO
         # gate on the gateway config being present: if the POSTHOG_CODE_E2E_*
         # secret/vars are missing, the fail-loud guard
-        # (products/desktop/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than
+        # (packages/agent/packages/agent/e2e/guard.e2e.test.ts) REDS the run rather than
         # skipping to green. Fork PRs are skipped, since they never receive the
         # gateway secret and would red spuriously.
         #
@@ -334,7 +337,8 @@ jobs:
                   key: desktop-pnpm-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
 
             - name: Build agent dependencies
-              run: pnpm exec turbo build --filter=@posthog/agent^...
+              working-directory: packages/agent
+              run: pnpm install --frozen-lockfile && pnpm exec turbo build --filter=@posthog/agent^...
 
             - name: Download native codex binary
               # Non-fatal at the STEP so a failure surfaces as the fail-loud binary guard
@@ -344,9 +348,10 @@ jobs:
               run: node apps/code/scripts/download-binaries.mjs || echo "codex binary download failed; the binary guard test will red the run"
 
             - name: Run live e2e (both adapters)
+              working-directory: packages/agent
               run: pnpm --filter agent run test:e2e
               # The suite reads these POSTHOG_CODE_E2E_* names directly
-              # (products/desktop/packages/agent/e2e/config.ts). The personal API key is an org
+              # (packages/agent/packages/agent/e2e/config.ts). The personal API key is an org
               # secret; the URL and model/environment overrides are org vars.
               env:
                   POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
