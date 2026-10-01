@@ -167,6 +167,7 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.event_name == 'pull_request' && format('pr-{0}-{1}-{2}', github.event.pull_request.number, github.event.pull_request.head.sha, github.event.pull_request.updated_at) || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
+    THROWAWAY_RERUN_TOGGLE: ${{ vars.THROWAWAY_RERUN_TOGGLE }}
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the PR-base
     # and HEAD (push) key computations below can't drift.
