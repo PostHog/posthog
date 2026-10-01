@@ -375,6 +375,22 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(taxonomy_warnings("in_this_project"), [])
         self.assertEqual(len(taxonomy_warnings("in_another_project")), 1)
 
+    @parameterized.expand(
+        [
+            ("event", "posthog_eventdefinition", "SELECT count() FROM events WHERE event = 'purchase'"),
+            ("property", "posthog_propertydefinition", "SELECT properties.plan FROM events"),
+        ]
+    )
+    def test_metadata_does_not_warn_for_an_empty_taxonomy(self, _kind: str, table: str, query: str) -> None:
+        with CaptureQueriesContext(connection) as queries:
+            metadata = self._select(query)
+
+        self.assertEqual([w for w in metadata.warnings if "project taxonomy" in w.message], [])
+        # Without ORDER BY, Postgres can satisfy the emptiness probe's LIMIT with a scan of the whole table.
+        probes = [q["sql"] for q in queries.captured_queries if f'FROM "{table}"' in q["sql"] and "LIMIT 1" in q["sql"]]
+        self.assertEqual(len(probes), 1)
+        self.assertIn("ORDER BY", probes[0])
+
     def _select_with_unknown_properties(self, count: int) -> HogQLMetadataResponse:
         for index in range(count):
             PropertyDefinition.objects.create(team=self.team, name=f"suggestable_{index}")
