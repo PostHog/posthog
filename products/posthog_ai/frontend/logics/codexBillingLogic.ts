@@ -158,6 +158,8 @@ export function pickedCodexModelAccess(runtimeAdapter: string | null | undefined
     return billing.values.effectiveCodexModelAccess
 }
 
+export class CodexBillingUnresolvedError extends Error {}
+
 /**
  * The billing a new run must state, or `null` to leave the field off because the choice is not offered.
  *
@@ -166,12 +168,13 @@ export function pickedCodexModelAccess(runtimeAdapter: string | null | undefined
  * mounts, so this reads the saved choice and the ChatGPT connection itself.
  */
 export async function codexModelAccessForRun(
-    runtimeAdapter: string | null | undefined
+    resolveRuntimeAdapter: () => Promise<string | null>
 ): Promise<ModelAccessEnumApi | null> {
     if (!codexBillingEnabled()) {
         return null
     }
-    if (runtimeAdapter !== RuntimeAdapterEnumApi.Codex) {
+    const runtimeAdapter = await resolveRuntimeAdapter()
+    if (runtimeAdapter !== null && runtimeAdapter !== RuntimeAdapterEnumApi.Codex) {
         return ModelAccessEnumApi.PosthogGateway
     }
     const unmount = codexBillingLogic.mount()
@@ -179,12 +182,17 @@ export async function codexModelAccessForRun(
         if (codexBillingLogic.values.preferredCodexModelAccess !== ModelAccessEnumApi.OwnSubscription) {
             return ModelAccessEnumApi.PosthogGateway
         }
-        const integration = codexBillingLogic.values.codexIntegration ?? (await usersIntegrationsCodexRetrieve('@me'))
+        if (runtimeAdapter === null) {
+            throw new CodexBillingUnresolvedError()
+        }
+        const integration =
+            codexBillingLogic.values.codexIntegration ??
+            (await usersIntegrationsCodexRetrieve('@me').catch(() => {
+                throw new CodexBillingUnresolvedError()
+            }))
         return integration.status === CodexIntegrationStatusEnumApi.Connected
             ? ModelAccessEnumApi.OwnSubscription
             : ModelAccessEnumApi.PosthogGateway
-    } catch {
-        return ModelAccessEnumApi.PosthogGateway
     } finally {
         unmount()
     }

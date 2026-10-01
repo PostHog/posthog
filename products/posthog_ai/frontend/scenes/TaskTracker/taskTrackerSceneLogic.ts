@@ -31,7 +31,12 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
-import { codexBillingLogic, codexModelAccessForRun, usesChatGptPlan } from '../../logics/codexBillingLogic'
+import {
+    CodexBillingUnresolvedError,
+    codexBillingLogic,
+    codexModelAccessForRun,
+    usesChatGptPlan,
+} from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
@@ -190,6 +195,7 @@ export interface taskTrackerSceneLogicValues {
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     defaultRuntimeAdapter: string | null // taskRunDefaultsLogic
+    defaultsResolved: boolean // taskRunDefaultsLogic
     warmLease: WarmLease | null // taskWarmLogic
     repositories: string[] // tasksLogic
     taskListParams: TaskListParams // tasksLogic
@@ -432,7 +438,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             composerAttachmentsLogic({ attachmentsKey: props.panelId ?? 'scene' }),
             ['stagedAttachments'],
             taskRunDefaultsLogic,
-            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter'],
+            ['defaultModel', 'defaultEffort', 'defaultRuntimeAdapter', 'defaultsResolved'],
         ],
         actions: [
             runnerPanelLogic(props),
@@ -783,7 +789,15 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
 
             try {
-                const codexModelAccess = await codexModelAccessForRun(composerAdapter)
+                const codexModelAccess = await codexModelAccessForRun(async () => {
+                    if (values.isDefaultSelection && !values.defaultsResolved) {
+                        await taskRunDefaultsLogic.asyncActions.loadMyConfig()
+                        if (!values.defaultsResolved) {
+                            return null
+                        }
+                    }
+                    return values.composerAdapter
+                })
                 const onChatGptPlan = codexModelAccess === ModelAccessEnumApi.OwnSubscription
                 // Files can only be uploaded against something that already exists. A warm lease names a task
                 // and a run, so they go onto that run and ride its activation. Without one there is nothing
@@ -1005,6 +1019,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
+                }
+                if (error instanceof CodexBillingUnresolvedError) {
+                    lemonToast.error("Couldn't confirm your ChatGPT plan for this run. Please try again.")
                 }
                 cache.submittingTask = null
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')

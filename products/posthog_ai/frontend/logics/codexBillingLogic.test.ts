@@ -10,7 +10,12 @@ import { initKeaTests } from '~/test/init'
 
 import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { codexBillingLogic, codexModelAccessForRun, pickedCodexModelAccess } from './codexBillingLogic'
+import {
+    CodexBillingUnresolvedError,
+    codexBillingLogic,
+    codexModelAccessForRun,
+    pickedCodexModelAccess,
+} from './codexBillingLogic'
 
 const AUTH_FILE = JSON.stringify({
     tokens: { access_token: 'fake-access', refresh_token: 'fake-refresh', id_token: 'fake-id' },
@@ -90,10 +95,25 @@ describe('codexBillingLogic', () => {
                 useMocks({ get: { '/api/users/@me/integrations/codex/': { status } } })
 
                 expect(codexBillingLogic.findMounted()).toBeNull()
-                await expect(codexModelAccessForRun(adapter)).resolves.toBe(expected)
+                await expect(codexModelAccessForRun(async () => adapter)).resolves.toBe(expected)
                 logic.mount()
             }
         )
+
+        it.each([
+            ['the harness is unknown', null, [200, { status: 'connected' }]],
+            ['the connection lookup fails', RuntimeAdapterEnumApi.Codex, [500, {}]],
+        ])('with the plan saved, when %s, refuses to pick a billing', async (_name, adapter, response) => {
+            logic.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+            logic.unmount()
+            featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: true })
+            useMocks({ get: { '/api/users/@me/integrations/codex/': () => response } })
+
+            await expect(codexModelAccessForRun(async () => adapter)).rejects.toBeInstanceOf(
+                CodexBillingUnresolvedError
+            )
+            logic.mount()
+        })
     })
 
     it('leaves a resume billing off while the connection loads with the plan saved', async () => {
