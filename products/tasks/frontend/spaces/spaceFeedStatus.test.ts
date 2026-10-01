@@ -30,12 +30,12 @@ describe('spaceFeedStatus', () => {
     })
 
     it.each([
-        ['merged', 'Merged'],
-        ['closed', 'Closed'],
-        ['draft', 'Draft PR'],
-        ['unknown', 'PR ready'],
-    ] as const)('labels a run whose pull request is %s', (prState, label) => {
+        ['merged', 'Merged', 'completed'],
+        ['closed', 'Closed', 'destructive'],
+        ['draft', 'Draft PR', 'default'],
+        ['unknown', 'PR ready', 'info'],
+    ] as const)('labels a run whose pull request is %s', (prState, label, variant) => {
         const latestRun = run('completed', 'cloud', { pr_url: 'https://github.com/org/app/pull/1' })
-        expect(spaceFeedStatus(latestRun, prState)?.label).toEqual(label)
+        expect(spaceFeedStatus(latestRun, prState)).toMatchObject({ label, variant })
     })
 })

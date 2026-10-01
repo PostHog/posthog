@@ -132,6 +132,11 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         default="",
         help_text="Free-form description for the scanner management UI. Not used by the model.",
     )
+    goal = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The goal the creator typed or picked when an AI draft built this scanner, kept as written. Null for scanners built any other way.",
+    )
 
     scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
     scanner_config = models.JSONField(default=dict, help_text="Type-specific configuration; always includes `prompt`.")

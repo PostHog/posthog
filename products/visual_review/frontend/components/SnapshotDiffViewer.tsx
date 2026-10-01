@@ -564,7 +564,11 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                        <QuarantineAction
+                            identifier={snapshot.identifier}
+                            onQuarantine={onQuarantine}
+                            runType={runType}
+                        />
                     )}
                     {nudgedIdentifier && onQuarantine && (
                         <QuarantineModal
@@ -573,6 +577,7 @@ export function SnapshotDiffViewer({
                             identifier={nudgedIdentifier}
                             onQuarantine={onQuarantine}
                             initialReason="Keeps changing in unrelated PRs"
+                            runType={runType}
                         />
                     )}
                     {isQuarantined && onUnquarantine && (
