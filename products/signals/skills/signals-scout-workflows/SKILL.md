@@ -43,7 +43,7 @@ Close out empty. Re-running with the same key refreshes the timestamp. Never sug
 - `scout-scratchpad-search` (`text=workflow`) — what you already decided: steps you ruled out as noise, suggestions a human rejected and why, workflows whose owner keeps turning you down.
 - `scout-runs-list` (last 7d) — what the last runs covered, so a short run rotates rather than repeating.
 - `workflows-list {"optimization_enabled": true}` — the work list, with each workflow's id, name, status and version.
-- `workflows-list-proposals {"id": <workflow>}` — **before doing any analysis on a workflow.** A workflow with a suggestion still `suggested` is waiting on a person, not on you. A step whose suggestion was `rejected` is a human saying no: do not re-file the same idea in different words. A rejected suggestion stays rejected however many times the workflow is published since: `is_stale` reads against the version live now, not against the version the person was looking at, so it cannot tell you the idea went unjudged.
+- `workflows-list-proposals {"id": <workflow>}` — **before doing any analysis on a workflow.** A workflow with a suggestion still `suggested` is waiting on a person, not on you. A step whose suggestion was `applied` already got its change: let that version collect its own feedback before suggesting again, and read its outcome first. A step whose suggestion was `rejected` is a human saying no: do not re-file the same idea in different words. A rejected suggestion stays rejected however many times the workflow is published since: `is_stale` reads against the version live now, not against the version the person was looking at, so it cannot tell you the idea went unjudged.
 
 ### Read the numbers
 
@@ -84,7 +84,7 @@ Per-version reads are what make this checkable: `workflows-version-stats` with `
 
 File a suggestion through `workflows-suggest` when, and only when, all of these hold:
 
-- No suggestion for this workflow is still waiting on a person.
+- No suggestion for this workflow is still waiting on a person, and none was applied to the step you are reading.
 - The step clears the sample floor: at least 20 tracked sends in the window you read, and the version has been sending for at least 48 hours so its opens have had time to arrive.
 - The counter-metrics are not the story. If bounces or complaints are elevated, that is the finding, and it belongs in a report rather than in a copy change.
 - You can state the change as a concrete edit, not advice. "Shorten the subject" is advice. The new subject line is a change.
