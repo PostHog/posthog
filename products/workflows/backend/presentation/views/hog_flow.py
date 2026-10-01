@@ -730,8 +730,7 @@ def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
     # stay lenient.
     if not is_draft:
         return True
-    source = context.get("event_source")
-    return source is not None and source != EventSource.WEB
+    return _is_programmatic_save(context)
 
 
 def _normalize_slack_channel_filters(filters: dict) -> None:
