@@ -435,9 +435,6 @@ function MaterializationContent(): JSX.Element {
                             label={isMaterialized ? 'Materialization enabled' : 'Enable materialization'}
                             checked={isMaterialized}
                             onChange={handleToggleMaterialization}
-                            disabledReason={
-                                !canMaterialize && !isMaterialized ? (cannotMaterializeReason ?? undefined) : undefined
-                            }
                             bordered
                         />
                     </AccessControlAction>
