@@ -675,7 +675,8 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
             if not canvas_id:
                 raise ValueError("Slack canvas delivery did not return a canvas id")
             canvas_url = _slack_canvas_url(response, mapping.slack_workspace_id, canvas_id)
-            _post_canvas_created_message(slack, mapping, name, canvas_id, canvas_url)
+            if not _streams_slack_replies(run):
+                _post_canvas_created_message(slack, mapping, name, canvas_id, canvas_url)
         else:
             canvas_id = str((artifact.location or {}).get("canvas_id") or "")
             if not canvas_id:
@@ -704,6 +705,9 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         }
         if canvas_url:
             location["url"] = canvas_url
+        if artifact is None and _streams_slack_replies(run):
+            # The turn's streamed reply announces the canvas when it closes.
+            location["notice_status"] = "pending"
         return ArtifactCommit(
             adapter=self.adapter,
             location=location,
@@ -854,7 +858,10 @@ def has_pending_slack_image_artifacts(run: TaskRun) -> bool:
 
 
 def deliver_pending_slack_file_artifacts(
-    run: TaskRun, *, answer_sections: list[str] | None = None
+    run: TaskRun,
+    *,
+    answer_sections: list[str] | None = None,
+    append_blocks: Callable[[list[dict[str, Any]]], bool] | None = None,
 ) -> SlackFileDeliveryResult:
     """Deliver pending slack_file artifacts to the mapped thread.
 
@@ -869,6 +876,9 @@ def deliver_pending_slack_file_artifacts(
     as channel shares (these do need files:write), after the composed message.
     ``answer_posted`` tells the caller whether the answer text went out in the
     composed message so it isn't posted twice.
+
+    With ``append_blocks`` the chart cards go into a message the caller is streaming,
+    under the answer it already streamed, instead of a message of their own.
     """
     result = SlackFileDeliveryResult()
     mapping = _get_slack_mapping(run, raise_if_missing=False)
@@ -963,14 +973,17 @@ def deliver_pending_slack_file_artifacts(
                 delivered_artifact_ids.add(card.artifact.id)
                 _record_chart(card.artifact, None, "url" if card.image_url else "file_upload")
 
-        result.answer_posted = _post_composed_answer_message(
-            slack,
-            mapping=mapping,
-            image_cards=image_cards,
-            answer_sections=answer_sections or [],
-            mark_delivered=_mark_card_delivered,
-            deadline=deadline,
-        )
+        if append_blocks is not None:
+            _append_image_cards(image_cards, append_blocks=append_blocks, mark_delivered=_mark_card_delivered)
+        else:
+            result.answer_posted = _post_composed_answer_message(
+                slack,
+                mapping=mapping,
+                image_cards=image_cards,
+                answer_sections=answer_sections or [],
+                mark_delivered=_mark_card_delivered,
+                deadline=deadline,
+            )
         for card in image_cards:
             if card.artifact.id not in delivered_artifact_ids:
                 _record_chart(card.artifact, "message_not_posted")
@@ -1100,6 +1113,37 @@ class _SlackImageCard:
     image_url: str | None = None
     file_id: str | None = None
     file_response: dict[str, Any] | None = None
+
+
+def _append_image_cards(
+    image_cards: list[_SlackImageCard],
+    *,
+    append_blocks: Callable[[list[dict[str, Any]]], bool],
+    mark_delivered: Callable[[_SlackImageCard], None],
+) -> None:
+    """Append chart cards to a streamed message, as many per append as the block cap allows.
+
+    A rejected batch retries card by card, so one bad card can't sink the others. A card
+    that never lands stays pending for the next turn."""
+    batches: list[list[_SlackImageCard]] = [[]]
+    batch_size = 0
+    for card in image_cards:
+        size = len(_chart_card_blocks(card))
+        if batches[-1] and batch_size + size > _SLACK_MESSAGE_BLOCK_LIMIT:
+            batches.append([])
+            batch_size = 0
+        batches[-1].append(card)
+        batch_size += size
+    for batch in batches:
+        if append_blocks([block for card in batch for block in _chart_card_blocks(card)]):
+            for card in batch:
+                mark_delivered(card)
+            continue
+        if len(batch) == 1:
+            continue
+        for card in batch:
+            if append_blocks(_chart_card_blocks(card)):
+                mark_delivered(card)
 
 
 def _post_composed_answer_message(
@@ -1560,6 +1604,58 @@ def _slack_canvas_url(response: dict[str, Any] | None, workspace_id: str | None,
     if workspace_id and canvas_id:
         return f"https://app.slack.com/docs/{workspace_id}/{canvas_id}"
     return None
+
+
+def _streams_slack_replies(run: TaskRun) -> bool:
+    """Whether this run's Slack replies stream through the agent-design message."""
+    from products.tasks.backend.temporal.process_task.activities.feature_flags import (  # noqa: PLC0415 — keeps temporal off the artifact import path
+        AGENT_DESIGN_STATE_KEY,
+    )
+
+    return bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY))
+
+
+def stream_pending_slack_attachments(
+    run: TaskRun, *, append_blocks: Callable[[list[dict[str, Any]]], bool]
+) -> SlackFileDeliveryResult:
+    """Deliver the run's pending attachments into the reply the caller is streaming.
+
+    Chart and image cards and canvas notices go into the streamed message. Other files
+    still post as file shares in the thread, because Slack shows a file only as its own message.
+    """
+    result = deliver_pending_slack_file_artifacts(run, append_blocks=append_blocks)
+    _append_pending_canvas_notices(run, append_blocks)
+    return result
+
+
+def _append_pending_canvas_notices(run: TaskRun, append_blocks: Callable[[list[dict[str, Any]]], bool]) -> None:
+    canvases = (
+        TaskArtifact.objects.for_team(run.team_id)
+        .filter(task_id=run.task_id, adapter=TaskArtifact.Adapter.SLACK_CANVAS, status=TaskArtifact.Status.ACTIVE)
+        .order_by("created_at", "id")
+    )
+    for artifact in canvases:
+        location = artifact.location or {}
+        if location.get("notice_status") != "pending":
+            continue
+        if not append_blocks([_canvas_notice_block(artifact.name, location.get("url"))]):
+            continue
+        artifact.location = {**location, "notice_status": "posted"}
+        artifact.save(update_fields=["location", "updated_at"])
+
+
+def _canvas_notice_block(name: str, canvas_url: str | None) -> dict[str, Any]:
+    block: dict[str, Any] = {
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": f":spiral_note_pad: *{escape_slack_mrkdwn(name)}*"},
+    }
+    if canvas_url and len(canvas_url) <= _SLACK_BUTTON_URL_MAX_CHARS:
+        block["accessory"] = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Open canvas", "emoji": True},
+            "url": canvas_url,
+        }
+    return block
 
 
 def _post_canvas_created_message(

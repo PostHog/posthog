@@ -35,7 +35,7 @@ from .relay_sandbox_events import (
     SSE_CONNECT_TIMEOUT_SECONDS,
     SSE_READ_TIMEOUT_SECONDS,
     _extract_agent_message_text,
-    _extract_tool_call_step,
+    _extract_tool_call_phase,
     _is_session_update,
     _signal_safely,
 )
@@ -103,7 +103,7 @@ class SlackAgentDesignSignalEmitter:
             signals.append(("turn_started", {"slack_thread_context": self._slack_thread_context}))
 
         if self._turn_active:
-            step_payload = _extract_tool_call_step(event_data, self._emitted_tool_call_ids)
+            step_payload = _extract_tool_call_phase(event_data, self._emitted_tool_call_ids)
             if step_payload is not None:
                 signals.append(("agent_status_update", step_payload))
             if _is_session_update(event_data):

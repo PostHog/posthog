@@ -18,6 +18,14 @@ from products.slack_app.backend.slack_thread import (
 )
 
 
+def _streamed_text(mock_client: MagicMock) -> str:
+    return "".join(
+        chunk.get("text", "")
+        for call in mock_client.chat_appendStream.call_args_list
+        for chunk in call.kwargs["chunks"]
+    )
+
+
 class TestSlackThreadHandler(SimpleTestCase):
     @parameterized.expand(
         [
@@ -56,8 +64,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         handler.stop_status_stream(ts="1234.9999", final_markdown="Answering <@U094TR1E59V|Radu Raicea> now.")
 
-        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
-        streamed = "".join(chunk.get("text", "") for chunk in chunks)
+        streamed = _streamed_text(mock_client)
         assert "<@U094TR1E59V>" in streamed
         assert "Radu Raicea" not in streamed
 
@@ -71,9 +78,31 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         SlackThreadHandler(context).stop_status_stream(ts="1234.9999", final_markdown="Done, <@U123|Jane Doe>.")
 
-        chunks = mock_client.chat_appendStream.call_args.kwargs["chunks"]
-        streamed = "".join(chunk.get("text", "") for chunk in chunks)
-        assert streamed.count("<@U123>") == 1
+        assert _streamed_text(mock_client).count("<@U123>") == 1
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_stop_status_stream_puts_attachments_between_answer_and_mention(self, mock_get_client):
+        # Chart cards describe the answer above them, and the mention closes the reply with one ping.
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        context = SlackThreadContext(
+            integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
+        )
+        handler = SlackThreadHandler(context)
+
+        def append_attachments() -> None:
+            handler.append_status_blocks("1234.9999", [{"type": "image"}])
+
+        handler.stop_status_stream(
+            ts="1234.9999", final_markdown="Signups grew.", plan_title="Done", append_attachments=append_attachments
+        )
+
+        order = [
+            chunk.get("text") or chunk["type"]
+            for call in mock_client.chat_appendStream.call_args_list
+            for chunk in call.kwargs["chunks"]
+        ]
+        assert order[: order.index("\n\n<@U123>") + 1] == ["plan_update", "Signups grew.", "blocks", "\n\n<@U123>"]
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")

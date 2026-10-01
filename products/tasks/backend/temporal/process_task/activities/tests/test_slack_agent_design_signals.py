@@ -70,14 +70,16 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert signals == [("agent_text_delta", "second")]
 
-    def test_tool_call_emits_status_update_and_dedupes(self) -> None:
+    def test_tool_call_emits_its_phase_only_and_dedupes(self) -> None:
+        # The Slack plan names the kind of work, so the tool name and its arguments must not
+        # travel with the signal.
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
 
         first = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
         repeat = emitter.process(_tool_call("call-1", "Read", "/etc/hosts"))
 
-        assert first == [("agent_status_update", {"title": "Read", "details": "/etc/hosts"})]
+        assert first == [("agent_status_update", {"phase": "reading_code"})]
         assert repeat == []
 
     def test_turn_completed_emitted_only_when_turn_active(self) -> None:

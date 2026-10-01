@@ -17,7 +17,10 @@ from posthog.models.user import User
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.tasks.backend.logic.services.living_artifacts import SlackFileDeliveryResult
+from products.tasks.backend.logic.services.living_artifacts import (
+    SlackFileDeliveryResult,
+    stream_pending_slack_attachments,
+)
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
@@ -644,6 +647,58 @@ class TestRelaySlackMessage(TestCase):
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
         mock_post.assert_called_once_with("<@U123> Here's the trend.", with_footer=True, markdown=True)
+
+    @parameterized.expand(
+        [("slack_takes_the_blocks", True, "delivered"), ("slack_rejects_the_blocks", False, "pending")]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch(
+        "products.tasks.backend.logic.services.living_artifacts.get_delivery_image_url",
+        return_value="http://localhost:8010/exporter/export-chart.png?token=abc",
+    )
+    @override_settings(SITE_URL="http://localhost:8010")
+    def test_streamed_reply_carries_chart_and_canvas_cards(
+        self, _name, append_ok, expected_status, _mock_delivery_url, mock_integration_for_mapping
+    ):
+        # The streamed reply is the only delivery path under the agent design, so a chart it
+        # drops is lost, and one Slack rejected must stay pending for the next turn.
+        artifact, _storage_path = self._create_pending_slack_file_artifact(
+            name="Signups by week",
+            filename="signups.v1.png",
+            content_type="image/png",
+            metadata={},
+            export_asset_id=321,
+        )
+        TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=self.task,
+            task_run=self.task_run,
+            created_by=self.user,
+            name="Q3 review",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            adapter=TaskArtifact.Adapter.SLACK_CANVAS,
+            status=TaskArtifact.Status.ACTIVE,
+            location={"kind": "slack_canvas", "url": "https://app.slack.com/docs/T123/F9", "notice_status": "pending"},
+        )
+        slack = unittest.mock.MagicMock()
+        mock_integration_for_mapping.return_value.client = slack
+        mock_integration_for_mapping.return_value.missing_scopes.return_value = set()
+        appended: list[list[dict]] = []
+
+        def append_blocks(blocks: list[dict]) -> bool:
+            appended.append(blocks)
+            return append_ok
+
+        stream_pending_slack_attachments(self.task_run, append_blocks=append_blocks)
+        stream_pending_slack_attachments(self.task_run, append_blocks=append_blocks)
+
+        slack.chat_postMessage.assert_not_called()
+        block_types = [block["type"] for blocks in appended for block in blocks]
+        assert "image" in block_types
+        canvas_cards = [block for blocks in appended for block in blocks if "Q3 review" in str(block)]
+        assert len(canvas_cards) == (1 if append_ok else 2)
+        artifact.refresh_from_db()
+        self.assertEqual(artifact.location["delivery_status"], expected_status)
 
 
 class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):

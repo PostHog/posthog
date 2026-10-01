@@ -50,6 +50,10 @@ from products.tasks.backend.temporal.metrics import (
     increment_tool_call_only_heartbeat,
 )
 from products.tasks.backend.temporal.observability import emit_agent_log
+from products.tasks.backend.temporal.process_task.slack_progress_phases import (
+    phase_for_tool_call,
+    tool_call_from_acp_update,
+)
 from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_task_run_credential_user,
@@ -617,7 +621,7 @@ async def _relay_loop(
                                         arg={"slack_thread_context": slack_thread_context or {}},
                                     )
                                 if slack_turn_active[0]:
-                                    step_payload = _extract_tool_call_step(event_data, emitted_tool_call_ids)
+                                    step_payload = _extract_tool_call_phase(event_data, emitted_tool_call_ids)
                                     if step_payload is not None:
                                         # Flush buffered prose first to keep text-before-tool order.
                                         await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
@@ -828,29 +832,12 @@ def _is_active_agent_update(event_data: dict) -> bool:
     return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
 
 
-# Priority order for picking the plan-block step's details line from rawInput.
-_TOOL_ARGS_PREVIEW_KEYS = (
-    "file_path",
-    "notebook_path",
-    "path",
-    "command",  # Bash
-    "code",  # MCP exec / hogql / sql payloads
-    "query",
-    "pattern",
-    "url",
-    "description",
-    "prompt",  # Task / Agent sub-agent
-    "name",
-    "title",
-)
-_TOOL_ARGS_PREVIEW_LIMIT = 240
+def _extract_tool_call_phase(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
+    """Build ``{"phase": key}`` for the Slack plan block from an ACP tool_call/tool_call_update.
 
-
-def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
-    """Build {title, details} from an ACP tool_call/tool_call_update.
-
-    Streaming Claude tools arrive with empty rawInput first; we defer the
-    emit + seen-write until rawInput populates so the step gets a details line.
+    The plan names the kind of work only, so the payload carries no tool name and no arguments.
+    A Claude shell call arrives with an empty rawInput first; the id is not marked seen until
+    the command is known, so the next tool_call_update retries.
     """
     if not _is_session_update(event_data):
         return None
@@ -862,44 +849,13 @@ def _extract_tool_call_step(event_data: dict, seen: set[str]) -> dict[str, Any] 
     if not isinstance(tool_call_id, str) or tool_call_id in seen:
         return None
 
-    # Bare tool name ("Read", "Bash") from agent meta; fall back to rendered title.
-    meta = update.get("_meta") or {}
-    title = ((meta.get("claudeCode") or {}) if isinstance(meta, dict) else {}).get("toolName")
-    if not isinstance(title, str) or not title:
-        title = update.get("title")
-    if not isinstance(title, str) or not title:
+    tool_call = tool_call_from_acp_update(update)
+    if tool_call is None:
         return None
-
-    details = _tool_args_preview(update.get("rawInput"))
-    if not details:
-        # rawInput not assembled yet — next tool_call_update will retry here.
-        return None
-
     seen.add(tool_call_id)
-    return {"title": title, "details": details}
-
-
-def _tool_args_preview(raw_input: Any) -> str | None:
-    """First non-empty string from _TOOL_ARGS_PREVIEW_KEYS, trimmed to one line."""
-    if not isinstance(raw_input, dict):
-        return None
-    pick: str | None = None
-    for key in _TOOL_ARGS_PREVIEW_KEYS:
-        value = raw_input.get(key)
-        if isinstance(value, str) and value:
-            pick = value
-            break
-    if pick is None:
-        for value in raw_input.values():
-            if isinstance(value, str) and value.strip():
-                pick = value
-                break
-    if not pick:
-        return None
-    one_line = " ".join(pick.split())
-    if len(one_line) > _TOOL_ARGS_PREVIEW_LIMIT:
-        return one_line[: _TOOL_ARGS_PREVIEW_LIMIT - 1] + "…"
-    return one_line
+    phase = phase_for_tool_call(tool_call)
+    # A hidden tool still ends the narrative burst before it, so it is signaled without a phase.
+    return {"phase": phase.key if phase is not None else None}
 
 
 def _extract_agent_message_text(event_data: dict) -> str | None:
