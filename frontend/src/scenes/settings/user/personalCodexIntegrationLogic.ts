@@ -49,10 +49,10 @@ export interface personalCodexIntegrationLogicActions {
         errorObject?: any
     }
     connectCodexSuccess: (
-        codexIntegration: UserCodexIntegrationApi | null,
+        codexIntegration: UserCodexIntegrationApi,
         payload?: UserCodexAuthTokensApi
     ) => {
-        codexIntegration: UserCodexIntegrationApi | null
+        codexIntegration: UserCodexIntegrationApi
         payload?: UserCodexAuthTokensApi
     }
     disconnectCodex: () => any
@@ -64,10 +64,10 @@ export interface personalCodexIntegrationLogicActions {
         errorObject?: any
     }
     disconnectCodexSuccess: (
-        codexIntegration: UserCodexIntegrationApi | null,
+        codexIntegration: UserCodexIntegrationApi,
         payload?: any
     ) => {
-        codexIntegration: UserCodexIntegrationApi | null
+        codexIntegration: UserCodexIntegrationApi
         payload?: any
     }
     loadCodexIntegration: () => any
@@ -79,10 +79,10 @@ export interface personalCodexIntegrationLogicActions {
         errorObject?: any
     }
     loadCodexIntegrationSuccess: (
-        codexIntegration: UserCodexIntegrationApi | null,
+        codexIntegration: UserCodexIntegrationApi,
         payload?: any
     ) => {
-        codexIntegration: UserCodexIntegrationApi | null
+        codexIntegration: UserCodexIntegrationApi
         payload?: any
     }
     openConnectModal: () => {
@@ -122,7 +122,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
                 loadCodexIntegration: async () => await usersIntegrationsCodexRetrieve('@me'),
                 connectCodex: async (tokens: UserCodexAuthTokensApi) =>
                     await usersIntegrationsCodexCreate('@me', { tokens }),
-                disconnectCodex: async () => {
+                disconnectCodex: async (): Promise<UserCodexIntegrationApi> => {
                     await usersIntegrationsCodexDestroy('@me')
                     return { status: CodexIntegrationStatusEnumApi.NotConnected }
                 },
