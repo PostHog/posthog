@@ -32,12 +32,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.s
     IntercomEndpointConfig,
 )
 
+# Intercom hosts a workspace in one region and serves it only from that region's
+# API host — a request sent to another region's host is rejected, so the host has
+# to follow the workspace.
 INTERCOM_API_BASE = "https://api.intercom.io"
+INTERCOM_EU_API_BASE = "https://api.eu.intercom.io"
+INTERCOM_AU_API_BASE = "https://api.au.intercom.io"
+INTERCOM_API_HOSTS = (INTERCOM_API_BASE, INTERCOM_EU_API_BASE, INTERCOM_AU_API_BASE)
+
+# Intercom reports the European region as `Europe` on `/me` (the value the Intercom
+# destination template matches on), while its docs spell it `EU`. Accept both.
+_REGION_API_BASES = {
+    "us": INTERCOM_API_BASE,
+    "eu": INTERCOM_EU_API_BASE,
+    "europe": INTERCOM_EU_API_BASE,
+    "au": INTERCOM_AU_API_BASE,
+}
 # Version used for credential validation at source-create time, where no row pin exists yet.
 # Sync requests send the version resolved from the source pin (threaded into `intercom_source`).
 INTERCOM_API_VERSION = "2.13"
 
 logger = structlog.get_logger(__name__)
+
+
+def intercom_api_base(region: str | None) -> str:
+    """Map an Intercom workspace region onto its API host.
+
+    The region comes from `app.region` on the OAuth `/me` response, stored on the
+    integration at connect time. It is missing on integrations connected before
+    Intercom offered regional hosting, and those workspaces are all US, so an
+    unknown value falls back to the US host.
+    """
+    return _REGION_API_BASES.get((region or "").strip().lower(), INTERCOM_API_BASE)
 
 
 def _is_not_found(exc: HTTPError) -> bool:
@@ -306,9 +332,9 @@ def get_resource(
     return resource
 
 
-def _resolve_intercom_url(path_or_url: str) -> str:
+def _resolve_intercom_url(api_base: str, path_or_url: str) -> str:
     """Accept either an API path or a full URL (e.g. a `pages.next` link)."""
-    return path_or_url if path_or_url.startswith("http") else f"{INTERCOM_API_BASE}{path_or_url}"
+    return path_or_url if path_or_url.startswith("http") else f"{api_base}{path_or_url}"
 
 
 def _is_rate_limited(exc: HTTPError) -> bool:
@@ -364,18 +390,20 @@ def _request_with_rate_limit_retry(do_request: Callable[[], Response]) -> dict[s
     raise AssertionError("unreachable")
 
 
-def _intercom_get(session: Session, path_or_url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def _intercom_get(
+    session: Session, api_base: str, path_or_url: str, params: dict[str, Any] | None = None
+) -> dict[str, Any]:
     def do() -> Response:
-        response = session.get(_resolve_intercom_url(path_or_url), params=params, timeout=30)
+        response = session.get(_resolve_intercom_url(api_base, path_or_url), params=params, timeout=30)
         response.raise_for_status()
         return response
 
     return _request_with_rate_limit_retry(do)
 
 
-def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
+def _intercom_post(session: Session, api_base: str, path_or_url: str, body: dict[str, Any]) -> dict[str, Any]:
     def do() -> Response:
-        response = session.post(_resolve_intercom_url(path_or_url), json=body, timeout=30)
+        response = session.post(_resolve_intercom_url(api_base, path_or_url), json=body, timeout=30)
         response.raise_for_status()
         return response
 
@@ -384,6 +412,7 @@ def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> 
 
 def _iter_conversations(
     session: Session,
+    api_base: str,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[dict[str, Any]]:
@@ -392,7 +421,7 @@ def _iter_conversations(
     refetch parents whose timestamp advanced."""
     body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
     while True:
-        payload = _intercom_post(session, "/conversations/search", body)
+        payload = _intercom_post(session, api_base, "/conversations/search", body)
         yield from (payload.get("conversations") or [])
         next_block = (payload.get("pages") or {}).get("next") or {}
         cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
@@ -403,6 +432,7 @@ def _iter_conversations(
 
 def _conversation_parts_generator(
     session: Session,
+    api_base: str,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
 ) -> Iterator[dict[str, Any]]:
@@ -410,9 +440,9 @@ def _conversation_parts_generator(
     `updated_at >`; the part rows themselves carry their own `updated_at`,
     so the pipeline's cursor watermark advances per-part. `conversation_id`
     is injected onto each row for joinability."""
-    for conv in _iter_conversations(session, incremental_field, db_incremental_field_last_value):
+    for conv in _iter_conversations(session, api_base, incremental_field, db_incremental_field_last_value):
         try:
-            full = _intercom_get(session, f"/conversations/{conv['id']}")
+            full = _intercom_get(session, api_base, f"/conversations/{conv['id']}")
         except HTTPError as exc:
             if _is_not_found(exc):
                 logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
@@ -445,7 +475,7 @@ _SCROLL_SERVER_ERROR_MAX_RETRIES = 3
 _SCROLL_EXPIRED_MAX_RETRIES = 2
 
 
-def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> dict[str, Any]:
+def _scroll_companies_get(session: Session, api_base: str, scroll_param: str | None = None) -> dict[str, Any]:
     """Fetch one `/companies/scroll` page, retrying a transient 5xx inline.
 
     `scroll_param` is None to open the scroll, or the cursor from the prior page
@@ -455,7 +485,7 @@ def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> 
     params = {"scroll_param": scroll_param} if scroll_param is not None else None
     for attempt in range(_SCROLL_SERVER_ERROR_MAX_RETRIES + 1):
         try:
-            return _intercom_get(session, "/companies/scroll", params=params)
+            return _intercom_get(session, api_base, "/companies/scroll", params=params)
         except HTTPError as exc:
             if _is_server_error(exc) and attempt < _SCROLL_SERVER_ERROR_MAX_RETRIES:
                 wait = _SCROLL_SERVER_ERROR_BACKOFF_SECONDS * (2**attempt)
@@ -472,7 +502,7 @@ def _scroll_companies_get(session: Session, scroll_param: str | None = None) -> 
     raise AssertionError("unreachable")
 
 
-def _open_companies_scroll(session: Session) -> dict[str, Any]:
+def _open_companies_scroll(session: Session, api_base: str) -> dict[str, Any]:
     """Open a fresh companies scroll, waiting out a stale `scroll_exists` lock.
 
     See `_is_scroll_exists`: a scroll left open by an interrupted or concurrent
@@ -483,7 +513,7 @@ def _open_companies_scroll(session: Session) -> dict[str, Any]:
     yet at this stage)."""
     for attempt in range(_SCROLL_EXISTS_MAX_RETRIES + 1):
         try:
-            return _scroll_companies_get(session)
+            return _scroll_companies_get(session, api_base)
         except HTTPError as exc:
             if _is_scroll_exists(exc) and attempt < _SCROLL_EXISTS_MAX_RETRIES:
                 logger.warning(
@@ -498,7 +528,7 @@ def _open_companies_scroll(session: Session) -> dict[str, Any]:
     raise AssertionError("unreachable")
 
 
-def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
+def _iter_companies(session: Session, api_base: str) -> Iterator[dict[str, Any]]:
     """Walk every company via `GET /companies/scroll` (full refresh).
 
     `POST /companies/list` is hard-capped at 10,000 companies — paging past
@@ -511,9 +541,9 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
     scroll_param: str | None = None
     while True:
         if scroll_param is None:
-            payload = _open_companies_scroll(session)
+            payload = _open_companies_scroll(session, api_base)
         else:
-            payload = _scroll_companies_get(session, scroll_param)
+            payload = _scroll_companies_get(session, api_base, scroll_param)
         data = payload.get("data") or []
         if not data:
             return
@@ -523,7 +553,7 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
             return
 
 
-def _drain_company_ids(session: Session) -> list[str]:
+def _drain_company_ids(session: Session, api_base: str) -> list[str]:
     """Walk the whole companies scroll and collect every id, restarting the walk
     from the beginning if the scroll cursor expires mid-drain (404 on a
     continuation — see `_SCROLL_EXPIRED_MAX_RETRIES`).
@@ -536,7 +566,7 @@ def _drain_company_ids(session: Session) -> list[str]:
     and Temporal restarts the whole run from a freshly-wiped table instead.)"""
     for attempt in range(_SCROLL_EXPIRED_MAX_RETRIES + 1):
         try:
-            return [company["id"] for company in _iter_companies(session)]
+            return [company["id"] for company in _iter_companies(session, api_base)]
         except HTTPError as exc:
             if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
                 logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
@@ -546,7 +576,7 @@ def _drain_company_ids(session: Session) -> list[str]:
     raise AssertionError("unreachable")
 
 
-def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
+def _company_segments_generator(session: Session, api_base: str) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
     either parent or child.
@@ -559,10 +589,10 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     only the ids are held, not the full company payloads, so the memory
     footprint stays small. If the cursor is still invalidated mid-drain,
     `_drain_company_ids` restarts the walk from scratch."""
-    company_ids = _drain_company_ids(session)
+    company_ids = _drain_company_ids(session, api_base)
     for company_id in company_ids:
         try:
-            payload = _intercom_get(session, f"/companies/{company_id}/segments")
+            payload = _intercom_get(session, api_base, f"/companies/{company_id}/segments")
         except HTTPError as exc:
             if _is_not_found(exc):
                 logger.warning("intercom_company_not_found", company_id=company_id)
@@ -575,6 +605,7 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
 
 def _substream_items(
     session: Session,
+    api_base: str,
     endpoint: str,
     incremental_field: str | None,
     db_incremental_field_last_value: Optional[Any],
@@ -585,14 +616,17 @@ def _substream_items(
             # walk every conversation. `updated_at` is the only declared
             # cursor, so default to it for the parent search filter.
             incremental_field = "updated_at"
-        return _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
+        return _conversation_parts_generator(session, api_base, incremental_field, db_incremental_field_last_value)
     if endpoint == "company_segments":
-        return _company_segments_generator(session)
+        return _company_segments_generator(session, api_base)
     raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
 def validate_credentials(
-    access_token: str, schema_name: str | None = None, api_version: str = INTERCOM_API_VERSION
+    access_token: str,
+    schema_name: str | None = None,
+    api_version: str = INTERCOM_API_VERSION,
+    region: str | None = None,
 ) -> tuple[bool, str | None]:
     """Validate an Intercom access token by hitting `/me`.
 
@@ -610,7 +644,7 @@ def validate_credentials(
 
     try:
         response = _make_intercom_session(access_token, api_version).get(
-            f"{INTERCOM_API_BASE}/me",
+            f"{intercom_api_base(region)}/me",
             timeout=10,
         )
     except Exception as e:
@@ -633,11 +667,13 @@ def intercom_source(
     team_id: int,
     job_id: str,
     api_version: str,
+    region: str | None = None,
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
+    api_base = intercom_api_base(region)
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
 
     if cfg.paginator_kind == "substream":
@@ -645,17 +681,19 @@ def intercom_source(
         # per-row child fetch, so urllib3 keeps the connection alive instead
         # of re-handshaking per request.
         session = _make_intercom_session(access_token, api_version)
-        items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
+        items = lambda: _substream_items(
+            session, api_base, endpoint, incremental_field, db_incremental_field_last_value
+        )
     elif cfg.paginator_kind == "scroll":
         # The Scroll API doesn't fit the framework paginators (the cursor is a
         # `scroll_param`, not a request mutation), so `companies` walks it with a
         # custom iterator. One session is reused across the whole scroll walk.
         session = _make_intercom_session(access_token, api_version)
-        items = lambda: _iter_companies(session)
+        items = lambda: _iter_companies(session, api_base)
     else:
         config: RESTAPIConfig = {
             "client": {
-                "base_url": INTERCOM_API_BASE,
+                "base_url": api_base,
                 "auth": {
                     "type": "bearer",
                     "token": access_token,
