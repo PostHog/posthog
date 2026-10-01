@@ -55,20 +55,20 @@ def constant_and_called() -> dict[str, Any]:
     return {**stale_by_config(), "last_called_at": timezone.now()}
 
 
-class TestStaleFlagsDetect(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        # `settings.TEST` disables the SDK, which leaves the gate with no definitions to read
-        # and would turn every case below into {}. Stand the three SDK states the gate checks
-        # back up so these tests exercise detection rather than the gate.
-        for patcher in (
-            patch("posthoganalytics.disabled", False),
-            patch("posthoganalytics.feature_flag_definitions", return_value=LOADED_DEFINITIONS),
-            patch(LIVE_GATE_TARGET, return_value=True),
-        ):
-            patcher.start()
-            self.addCleanup(patcher.stop)
+def _sdk_holding_the_gate() -> Any:
+    """Stand the SDK back up, because `settings.TEST` disables it and the gate reads it.
 
+    Only the tests that reach `eligible_team_ids` need this. Detection tests call `detect`
+    directly and never meet the gate.
+    """
+    return patch.multiple(
+        "posthoganalytics",
+        disabled=False,
+        feature_flag_definitions=lambda: LOADED_DEFINITIONS,
+    )
+
+
+class TestStaleFlagsDetect(BaseTest):
     def _create_flag(self, key: str, **kwargs: Any) -> FeatureFlag:
         kwargs.setdefault("active", True)
         return FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, **kwargs)
@@ -645,9 +645,12 @@ class TestStaleFlagsDetect(BaseTest):
     def test_the_gate_keeps_only_the_teams_the_flag_enables(self) -> None:
         other = Team.objects.create(organization=self.organization, name="other")
 
-        with patch(
-            LIVE_GATE_TARGET, side_effect=lambda _k, distinct_id, **_kw: distinct_id == f"team-{self.team.id}"
-        ) as flag_read:
+        with (
+            _sdk_holding_the_gate(),
+            patch(
+                LIVE_GATE_TARGET, side_effect=lambda _k, distinct_id, **_kw: distinct_id == f"team-{self.team.id}"
+            ) as flag_read,
+        ):
             eligible = StaleFeatureFlagsCheck.eligible_team_ids([self.team.id, other.id])
 
         assert eligible == [self.team.id]
@@ -670,7 +673,7 @@ class TestStaleFlagsDetect(BaseTest):
         ]
     )
     def test_the_gate_drops_a_team_on_any_answer_but_true(self, _name: str, answer: Any) -> None:
-        with patch(LIVE_GATE_TARGET, return_value=answer):
+        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=answer):
             assert StaleFeatureFlagsCheck.eligible_team_ids([self.team.id]) == []
 
     @parameterized.expand(
@@ -706,7 +709,7 @@ class TestStaleFlagsDetect(BaseTest):
         # This is what the hook buys: the framework reads a team missing from a detector's
         # result as healthy and resolves it, but a team removed before detection is not in the
         # run at all. Every unreadable-gate case lands here, so none of them needs a guard.
-        with patch(LIVE_GATE_TARGET, return_value=False):
+        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
             _process_batch_detection([self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
 
         assert HealthIssue.objects.filter(team=self.team, status=HealthIssue.Status.ACTIVE).count() == 1
@@ -714,7 +717,11 @@ class TestStaleFlagsDetect(BaseTest):
     def test_the_gate_runs_no_query_when_no_team_is_enabled(self) -> None:
         self._create_flag("enabled-but-gated", **stale_by_usage())
 
-        with patch(LIVE_GATE_TARGET, return_value=False), CaptureQueriesContext(connection) as queries:
+        with (
+            _sdk_holding_the_gate(),
+            patch(LIVE_GATE_TARGET, return_value=False),
+            CaptureQueriesContext(connection) as queries,
+        ):
             result = _process_batch_detection([self.team.id], "stale_feature_flags", StaleFeatureFlagsCheck().detect)
 
         assert result.issues_upserted == 0
@@ -813,7 +820,8 @@ class TestStaleFlagsDetect(BaseTest):
         check = StaleFeatureFlagsCheck()
 
         def run() -> None:
-            _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
+            with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=True):
+                _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
 
         def active_issues():
             return HealthIssue.objects.filter(team=self.team, kind=check.kind, status=HealthIssue.Status.ACTIVE)
@@ -848,8 +856,8 @@ class TestStaleFlagsDetect(BaseTest):
         assert issue_a.status == HealthIssue.Status.RESOLVED
         assert active_issues().get(payload__flag_id=flag_a.id).id != issue_a.id
 
-        with patch(LIVE_GATE_TARGET, return_value=False):
-            run()
+        with _sdk_holding_the_gate(), patch(LIVE_GATE_TARGET, return_value=False):
+            _process_batch_detection([self.team.id], check.kind, check.detect, dry_run=False)
         assert active_issues().count() == 2
 
 
