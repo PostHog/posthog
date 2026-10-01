@@ -40,9 +40,11 @@ export interface TaskComposerProps {
     variant?: 'page' | 'inline'
     /** A host bumps this number to move focus to the input, for example when the user asks for a new session. */
     focusRequest?: number
+    /** Focus the input on mount. A host page that is not mainly a composer turns it off and uses `focusRequest`. */
+    autoFocus?: boolean
 }
 
-export function TaskComposer({ variant = 'page', focusRequest = 0 }: TaskComposerProps): JSX.Element {
+export function TaskComposer({ variant = 'page', focusRequest = 0, autoFocus = true }: TaskComposerProps): JSX.Element {
     const inline = variant === 'inline'
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
@@ -151,7 +153,11 @@ export function TaskComposer({ variant = 'page', focusRequest = 0 }: TaskCompose
                                     <Composer.Placeholder>
                                         {composerOverride?.placeholder ?? 'Describe the task in detail…'}
                                     </Composer.Placeholder>
-                                    <Composer.Textarea autoFocus onPaste={onPaste} data-attr="task-composer-input" />
+                                    <Composer.Textarea
+                                        autoFocus={autoFocus}
+                                        onPaste={onPaste}
+                                        data-attr="task-composer-input"
+                                    />
                                 </Composer.Field>
                                 <Composer.Footer className="flex flex-wrap items-center gap-1 pl-2">
                                     <ComposerModePicker

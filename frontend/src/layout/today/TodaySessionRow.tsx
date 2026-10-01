@@ -1,15 +1,17 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { TaskPullRequestChip } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
-
+import { sessionPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+import { TodaySessionBadges } from './TodaySessionBadges'
 import { TodaySessionMenu } from './TodaySessionMenu'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
-import { TodaySessionStatusIcon } from './TodaySessionStatusIcon'
+import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
 import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './todayWorkItems'
@@ -17,41 +19,63 @@ import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './to
 interface TodaySessionRowProps {
     item: TodayWorkItem
     pinned: boolean
+    /** False under the Pinned heading, which already says it for every row. */
+    showPinBadge: boolean
     dataAttr: string
     surface: TodaySessionSurface
     unread: boolean
+    selected?: boolean
+    /** Takes a modifier click over for the sidebar's multi-select. */
+    onSelectClick?: (event: React.MouseEvent<HTMLElement>) => void
 }
 
-export function TodaySessionRow({ item, pinned, dataAttr, surface, unread }: TodaySessionRowProps): JSX.Element {
+export function TodaySessionRow({
+    item,
+    pinned,
+    showPinBadge,
+    dataAttr,
+    surface,
+    unread,
+    selected = false,
+    onSelectClick,
+}: TodaySessionRowProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
-    const { pullRequestStates } = useValues(todaySpacesLogic)
+    const { pullRequestStates, spaceNames } = useValues(todaySpacesLogic)
+    const preview = useMemo(
+        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames }),
+        [item, unread, pinned, pullRequestStates, spaceNames]
+    )
 
     const [pullRequest] = item.pullRequests
+    const pinBadge = pinned && showPinBadge
+    const badgeCount = (pullRequest ? 1 : 0) + (pinBadge ? 1 : 0)
 
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
         return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
     }
-    return (
+    const row = (
         <TodaySpacesRow
             label={item.title || 'Untitled session'}
-            icon={<TodaySessionStatusIcon item={item} pinned={pinned} />}
+            // Unread shows only as a solid status dot; the title keeps its resting weight, like desktop.
+            icon={<TodaySessionStatusDot dot={preview.dot} />}
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}
             badge={
-                pullRequest ? (
-                    <TaskPullRequestChip
-                        pullRequest={pullRequest}
-                        label={`#${pullRequest.number}`}
-                        state={pullRequestStates[pullRequest.url]}
-                        size="row"
-                        dataAttr="today-pr-chip-sidebar"
+                badgeCount > 0 ? (
+                    <TodaySessionBadges
+                        pullRequest={pullRequest ?? null}
+                        pullRequestState={pullRequest ? pullRequestStates[pullRequest.url] : null}
+                        pinned={pinBadge}
                     />
                 ) : null
             }
-            unread={unread}
+            badgeCount={badgeCount === 2 ? 2 : 1}
+            ticker
+            selected={selected}
+            onClickCapture={onSelectClick}
             action={
                 <TodaySessionMenu
                     sessionId={item.id}
@@ -66,4 +90,5 @@ export function TodaySessionRow({ item, pinned, dataAttr, surface, unread }: Tod
             }
         />
     )
+    return <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
 }

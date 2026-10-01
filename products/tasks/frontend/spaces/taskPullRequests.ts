@@ -57,6 +57,37 @@ export function splitPullRequests(pullRequests: TaskPullRequest[]): {
     return { visible: pullRequests.slice(0, visibleCount), overflow: pullRequests.slice(visibleCount) }
 }
 
+const SPACE_PULL_REQUEST_LIMIT = 30
+
+export interface SessionPullRequest<T> {
+    pullRequest: TaskPullRequest
+    /** The newest session that reported the pull request. */
+    session: T
+}
+
+/** A space's pull requests for its PRs view, like PostHog Desktop's: newest session activity first, each PR once. */
+export function spacePullRequests<T extends { pullRequests: TaskPullRequest[]; timestamp: string | null }>(
+    sessions: T[],
+    limit = SPACE_PULL_REQUEST_LIMIT
+): SessionPullRequest<T>[] {
+    const timeOf = (session: T): number => (session.timestamp ? Date.parse(session.timestamp) : 0)
+    const byActivity = [...sessions].sort((first, second) => timeOf(second) - timeOf(first))
+    const seen = new Set<string>()
+    const result: SessionPullRequest<T>[] = []
+    for (const session of byActivity) {
+        for (const pullRequest of session.pullRequests) {
+            if (result.length >= limit) {
+                return result
+            }
+            if (!seen.has(pullRequest.url)) {
+                seen.add(pullRequest.url)
+                result.push({ pullRequest, session })
+            }
+        }
+    }
+    return result
+}
+
 /** `#123` when the pull request is in the task's repository, `repo#123` when it is in another one. */
 export function pullRequestLabel(pullRequest: TaskPullRequest, taskRepository: string | null | undefined): string {
     const [, repoName] = pullRequest.repository.split('/')

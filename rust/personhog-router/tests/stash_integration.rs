@@ -66,6 +66,7 @@ async fn make_backend(leader_addr: std::net::SocketAddr, stash: StashTable) -> A
         LeaderBackendConfig {
             num_partitions: NUM_PARTITIONS,
             timeout: Duration::from_secs(5),
+            num_channels: 1,
             http2_windows: Http2Windows::default(),
         },
         stash,

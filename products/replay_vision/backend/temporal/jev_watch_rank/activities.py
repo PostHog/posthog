@@ -195,8 +195,8 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 **{oid: p for oid, p in cached_watchable.items() if oid in window_strs},
                 **{oid: p for oid, p in judgment.probabilities.items() if p >= JEV_WATCHABLE_MIN},
             }
-            # A row whose judgment failed through its own batch (an invalid answer, a non-rate-limit
-            # gateway refusal) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
+            # A row whose judgment failed through its own batch (an invalid answer, a gateway
+            # refusal the batch caused) retries on later sweeps, but only MAX_JUDGE_ATTEMPTS times: the
             # newest-first pick would otherwise retry a deterministically failing batch every hour
             # and starve older rows. An exhausted row is recorded as judged with no score, so it
             # settles into the filler tier like a prose-less row. An outage charges nothing — its
