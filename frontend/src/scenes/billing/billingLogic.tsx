@@ -284,6 +284,7 @@ export interface billingLogicValues {
     platformAddons: BillingProductV2AddonType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
+    productsAtOrOverUsageLimit: BillingProductV2Type[]
     productsLoading: boolean
     redirectPath: string
     registeredCustomLimitKeys: string[]
@@ -645,6 +646,7 @@ export interface billingLogicMeta {
         startupProgramLabelPrevious: (billing: BillingType | null) => StartupProgramLabel | null
         isAnnualPlanCustomer: (billing: BillingType | null) => boolean
         isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
+        productsAtOrOverUsageLimit: (billing: BillingType | null) => BillingProductV2Type[]
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         showCreditCTAHero: (creditOverview: {
@@ -1214,6 +1216,11 @@ export const billingLogic = kea<billingLogicType>([
                     const product = billing?.products?.find((p) => p.type === productKey)
                     return isUsageAtOrOverLimit(product?.percentage_usage)
                 },
+        ],
+        productsAtOrOverUsageLimit: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingProductV2Type[] =>
+                billing?.products?.filter((p) => !!p.usage_key && isUsageAtOrOverLimit(p.percentage_usage)) || [],
         ],
         billingPeriodUTC: [
             (s) => [s.billing],
