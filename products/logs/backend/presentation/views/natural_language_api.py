@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from django.db import models
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -23,6 +25,12 @@ from products.logs.backend.natural_language_query import (
 )
 
 LOGS_NATURAL_LANGUAGE_SEARCH_FLAG = "logs-natural-language-search"
+
+
+class LogsNaturalLanguageFilterType(models.TextChoices):
+    LOG = "log"
+    LOG_ATTRIBUTE = "log_attribute"
+    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
 
 
 class _LogsNaturalLanguageDateRangeSerializer(serializers.Serializer):
@@ -68,7 +76,7 @@ class LogsNaturalLanguageQueryRequestSerializer(serializers.Serializer):
 class _LogsNaturalLanguageCandidateFilterSerializer(serializers.Serializer):
     key = serializers.CharField(help_text='Attribute key, or "message" for the log body text.')
     type = serializers.ChoiceField(
-        choices=["log", "log_attribute", "log_resource_attribute"],
+        choices=LogsNaturalLanguageFilterType.choices,
         help_text='"log" filters the log body. "log_attribute" and "log_resource_attribute" filter attributes.',
     )
     operator = serializers.CharField(help_text="Property operator, for example exact, icontains or is_set.")
