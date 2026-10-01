@@ -28,6 +28,7 @@ import {
     modelsForRuntimeAdapter,
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
+    ModelAccessEnumApi,
     ModelChoiceApi,
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
@@ -41,6 +42,21 @@ import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
 const STOP_SEPARATOR = '|'
+
+const BILLING_LABELS: Record<ModelAccessEnumApi, string> = {
+    [ModelAccessEnumApi.PosthogGateway]: 'PostHog credits',
+    [ModelAccessEnumApi.OwnSubscription]: 'OpenAI (ChatGPT plan)',
+}
+
+export interface ComposerCodexBilling {
+    value: ModelAccessEnumApi
+    /** The ChatGPT plan can only be picked once the user connected a ChatGPT account. */
+    planConnected: boolean
+    /** A live run keeps the billing it booted with. */
+    locked?: boolean
+    onChange: (value: ModelAccessEnumApi) => void
+    onConnectPlan: () => void
+}
 
 export interface ComposerModelEffortPickersProps {
     /** Models to offer, and the efforts each supports. Callers pass `modelCatalogueLogic`'s live catalogue. */
@@ -67,6 +83,8 @@ export interface ComposerModelEffortPickersProps {
      * the picker stays free of the app's routing, and an embedding host can send its own audience
      * somewhere else. Omit and the row is absent. */
     onOpenDefaultSettings?: () => void
+    /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
+    codexBilling?: ComposerCodexBilling
 }
 
 interface PickerSectionProps {
@@ -125,6 +143,7 @@ export function ComposerModelEffortPickers({
     isDefaultSelection = false,
     onResetToDefault,
     onOpenDefaultSettings,
+    codexBilling,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -187,6 +206,8 @@ export function ComposerModelEffortPickers({
         }
     }
 
+    const billing = selectedAdapter === RuntimeAdapterEnumApi.Codex ? codexBilling : undefined
+
     // With neither a configured default to fall back to nor a ladder to land on, there is nothing to reset to.
     const showReset = Boolean(onResetToDefault) || stops.length > 0
 
@@ -225,6 +246,9 @@ export function ComposerModelEffortPickers({
                         {effortOptions.length > 0 && (
                             <span className="text-muted">{getEffortLabel(selectedEffort)}</span>
                         )}
+                        {billing?.value === ModelAccessEnumApi.OwnSubscription && (
+                            <span className="text-muted">ChatGPT plan</span>
+                        )}
                         {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
@@ -261,6 +285,46 @@ export function ComposerModelEffortPickers({
                                         {getHarnessLabel(adapter)}
                                     </DropdownMenuRadioItem>
                                 ))}
+                            </PickerSection>
+                        )}
+
+                        {billing && (
+                            <PickerSection
+                                title="Billing"
+                                current={BILLING_LABELS[billing.value]}
+                                value={billing.value}
+                                onValueChange={(value) => {
+                                    billing.onChange(value as ModelAccessEnumApi)
+                                    setOpen(false)
+                                }}
+                                footer={
+                                    billing.planConnected || billing.locked ? undefined : (
+                                        <>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                onClick={() => selectAndClose(billing.onConnectPlan)}
+                                                data-attr="composer-codex-connect-plan"
+                                            >
+                                                Connect your ChatGPT account
+                                            </DropdownMenuItem>
+                                        </>
+                                    )
+                                }
+                            >
+                                {[ModelAccessEnumApi.PosthogGateway, ModelAccessEnumApi.OwnSubscription].map(
+                                    (value) => (
+                                        <DropdownMenuRadioItem
+                                            key={value}
+                                            value={value}
+                                            disabled={
+                                                billing.locked ||
+                                                (value === ModelAccessEnumApi.OwnSubscription && !billing.planConnected)
+                                            }
+                                        >
+                                            {BILLING_LABELS[value]}
+                                        </DropdownMenuRadioItem>
+                                    )
+                                )}
                             </PickerSection>
                         )}
 
