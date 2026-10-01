@@ -8,6 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { sessionPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodaySessionBadges } from './TodaySessionBadges'
+import { TodaySessionContextMenu } from './TodaySessionContextMenu'
 import { TodaySessionDialogs } from './TodaySessionDialogs'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
@@ -80,10 +81,12 @@ export function TodaySessionRow({
             onClickCapture={onSelectClick}
         />
     )
-    // Like Desktop, the row's actions live in its hover card, which opens the dialogs on the row's behalf.
+    // Like Desktop, the row's actions live in its hover card and its right-click menu, which open the dialogs on the row's behalf.
     return (
         <>
-            <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
+            <TodaySessionContextMenu target={preview.menu} surface={surface}>
+                <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
+            </TodaySessionContextMenu>
             <TodaySessionDialogs target={preview.menu} />
         </>
     )

@@ -8,6 +8,7 @@ import { TodayPreviewCard, TodayPreviewCardContext } from './todayPreviewCardCon
 import { TodayPreviewPayload } from './todayPreviewCards'
 import { TodaySessionHoverCard } from './TodaySessionHoverCard'
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
+import { todaySessionSelectionLogic } from './todaySessionSelectionLogic'
 import { TodaySpaceHoverCard } from './TodaySpaceHoverCard'
 
 /**
@@ -21,6 +22,8 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
     // "File to…" opens outside the card, so the pointer moving there reads as leaving it.
     const [submenuOpen, setSubmenuOpen] = useState(false)
     const { sessionDialogOpen } = useValues(todaySessionMenuLogic)
+    const { bulkArchiveConfirm } = useValues(todaySessionSelectionLogic)
+    const dialogOpen = sessionDialogOpen || bulkArchiveConfirm.open
     // A ref, so a hover that lands while a menu is open is refused on the same event.
     const menuOpen = useRef(false)
     const card = useMemo<TodayPreviewCard>(
@@ -45,9 +48,9 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
             {children}
             <PreviewCard.Root
                 handle={handle}
-                // A session dialog keeps the card shut, so the card can't open over it.
-                open={(open || submenuOpen) && !sessionDialogOpen}
-                onOpenChange={(next) => setOpen(next && !menuOpen.current && !sessionDialogOpen)}
+                // A session dialog or the bulk archive confirm keeps the card shut, so the card cannot open over it.
+                open={(open || submenuOpen) && !dialogOpen}
+                onOpenChange={(next) => setOpen(next && !menuOpen.current && !dialogOpen)}
             >
                 {({ payload }) =>
                     payload ? (
