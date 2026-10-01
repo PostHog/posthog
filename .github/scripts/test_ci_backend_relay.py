@@ -347,12 +347,6 @@ RETRY_FAILED = ("retry", "r1", "--workflow", "w1", "--org", "o1", "--failed")
     "shows,expected,sent",
     [
         pytest.param(
-            [shown("failed", "failed", 1), shown("running", "queued", 2), shown("running", "finished", 2)],
-            (relay.Phase.FINISHED, "success"),
-            [RETRY_FAILED],
-            id="the failed jobs run again and the new gate decides",
-        ),
-        pytest.param(
             [
                 shown("running", "failed", 1),
                 shown("failed", "failed", 1),

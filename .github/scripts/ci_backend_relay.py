@@ -81,6 +81,8 @@ PREREQUISITES = ("Repo checks (depot-ubuntu-24.04)", "Validate OpenAPI types")
 GATE_JOB_KEY = "ci-backend.yml:django_tests"
 DEPOT_LIVE_STATES = frozenset({"queued", "waiting", "running"})
 DEPOT_JOB_CONCLUSIONS = {"finished": "success", "failed": "failure"}
+# Under the `timeout-minutes` of the `Django Tests Pass` job, so the relay reports before GitHub ends the job.
+GATE_DEADLINE_MINUTES = 90
 
 
 class ReadRefusedError(RuntimeError):
@@ -401,7 +403,6 @@ def retry_failed_jobs(
     org: str,
     workflow: str,
     *,
-    deadline_minutes: int = 90,
     depot: Callable[..., Any] = depot_ci,
     clock: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -423,13 +424,14 @@ def retry_failed_jobs(
             shown = depot("workflow", "show", workflow, "--org", org)
             gate = next(job["status"] for job in shown["jobs"] if job["job_key"] == GATE_JOB_KEY)
             executions = len(shown["executions"])
-            sys.stdout.write(f"Depot workflow: {shown['workflow']['status']}, gate {gate}\n")
+            status = shown["workflow"]["status"]
+            sys.stdout.write(f"Depot workflow: {status}, gate {gate}\n")
             retried = executions_at_retry is not None and executions > executions_at_retry
             if gate == "finished" or (retried and gate not in DEPOT_LIVE_STATES):
                 phase = Phase.CANCELLED if gate == "cancelled" else Phase.FINISHED
                 return Progress(phase, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
             failures = 0
-            if executions_at_retry is None and shown["workflow"]["status"] not in DEPOT_LIVE_STATES:
+            if executions_at_retry is None and status not in DEPOT_LIVE_STATES:
                 sending = True
                 depot("retry", shown["run"]["run_id"], "--workflow", workflow, "--org", org, "--failed")
                 executions_at_retry = executions
@@ -440,7 +442,7 @@ def retry_failed_jobs(
             # A retry that failed is not sent again, because Depot can have accepted it.
             if sending or failures >= MAX_REFUSALS:
                 return None
-        if clock() - start >= deadline_minutes * 60:
+        if clock() - start >= GATE_DEADLINE_MINUTES * 60:
             return Progress(Phase.RUNNING, details_url=url)
         sleep(30)
 
@@ -467,7 +469,7 @@ def gate_verdict(
                 return retried
             sys.stdout.write("::warning::Cannot retry on Depot CI. This is the earlier verdict.\n")
             return settled
-    return poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
+    return poll(reader, event, GATE_CHECK, deadline_minutes=GATE_DEADLINE_MINUTES, absent_minutes=15)
 
 
 def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list[str]:
