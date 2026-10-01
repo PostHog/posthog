@@ -5151,15 +5151,15 @@ class TasksResolvedAIRunDefaultsSerializer(serializers.Serializer):
 
 
 class TasksAgentInstructionsSerializer(serializers.Serializer):
-    """Markdown instructions written into cloud task runs as the agent's user-level AGENTS.md."""
+    """Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs."""
 
     agent_instructions = serializers.CharField(
         allow_blank=True,
         max_length=AGENT_INSTRUCTIONS_MAX_LENGTH,
         trim_whitespace=False,
         help_text=(
-            "Markdown instructions the agent reads in every eligible cloud task run, the same way it "
-            "reads a local AGENTS.md. Send an empty string to clear."
+            "Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way "
+            "a local agent reads AGENTS.md. Send an empty string to clear."
         ),
     )
 
@@ -5173,7 +5173,7 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
     )
     agent_instructions = serializers.CharField(
         help_text=(
-            "Project instructions written into every eligible cloud task run, including autonomous "
+            "Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous "
             "runs such as scouts and loops. Empty when unset."
         )
     )
@@ -5191,7 +5191,7 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
     )
     agent_instructions = serializers.CharField(
         help_text=(
-            "Your personal instructions, written into cloud task runs you start, after the project "
+            "Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project "
             "instructions. Empty when unset."
         )
     )

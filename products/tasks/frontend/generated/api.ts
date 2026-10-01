@@ -2863,7 +2863,7 @@ export const getTasksMeConfigAgentInstructionsCreateUrl = (projectId: string) =>
 }
 
 /**
- * Set your personal instructions, written into cloud task runs you start after the project instructions. Autonomous runs never get them. Send an empty string to clear.
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Send an empty string to clear.
  */
 export const tasksMeConfigAgentInstructionsCreate = async (
     projectId: string,
@@ -2951,7 +2951,7 @@ export const getTasksConfigAgentInstructionsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Set the project instructions written into every eligible cloud task run as the agent's user-level AGENTS.md, including autonomous runs. Send an empty string to clear.
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
  */
 export const tasksConfigAgentInstructionsCreate = async (
     projectId: string,

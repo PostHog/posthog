@@ -128,8 +128,8 @@ class TasksTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=TasksAgentInstructionsSerializer,
         responses={200: TasksAgentInstructionsSerializer},
         description=(
-            "Set the project instructions written into every eligible cloud task run as the agent's "
-            "user-level AGENTS.md, including autonomous runs. Send an empty string to clear."
+            "Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every "
+            "eligible Tasks run, including autonomous runs. Send an empty string to clear."
         ),
     )
     @action(methods=["POST"], detail=False, url_path="agent_instructions", required_scopes=["task:write"])
@@ -199,7 +199,7 @@ class TasksUserConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=TasksAgentInstructionsSerializer,
         responses={200: TasksAgentInstructionsSerializer},
         description=(
-            "Set your personal instructions, written into cloud task runs you start after the "
+            "Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the "
             "project instructions. Autonomous runs never get them. Send an empty string to clear."
         ),
     )
