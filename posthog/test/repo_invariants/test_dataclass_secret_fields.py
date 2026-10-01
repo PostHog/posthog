@@ -7,15 +7,16 @@ Fields that are legitimately not secrets go in the exemptions file.
 
 Print the current violations (to fix them or to exempt a non-secret):
 
-    python posthog/test/test_dataclass_secret_fields.py
+    python posthog/test/repo_invariants/test_dataclass_secret_fields.py
 """
 
 import ast
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parents[2]
+REPO_ROOT = Path(__file__).parents[3]
 EXEMPTIONS_PATH = Path(__file__).parent / "dataclass_secret_field_exemptions.txt"
 SCANNED_ROOTS = ("posthog", "ee", "products", "dags", "common")
+FIELD_FUNCTION_NAMES = ("field", "dataclass_field")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache", "migrations", "test", "tests"}
 
 SECRET_NAME_TOKENS = (
@@ -71,7 +72,7 @@ def _hides_repr(value: ast.expr | None) -> bool:
     if not isinstance(value, ast.Call):
         return False
     dotted = _dotted_name(value.func)
-    if dotted is None or (dotted != "field" and not dotted.endswith(".field")):
+    if dotted is None or dotted.split(".")[-1] not in FIELD_FUNCTION_NAMES:
         return False
     return any(
         kw.arg == "repr" and isinstance(kw.value, ast.Constant) and kw.value.value is False for kw in value.keywords
@@ -139,7 +140,7 @@ def test_secret_dataclass_fields_hide_repr() -> None:
     assert not violations, (
         "Dataclass fields with secret-looking names must be declared with field(repr=False) "
         "so repr() cannot leak them into tracebacks and logs. Fix them, or if a flagged field "
-        "is genuinely not a secret, add it to posthog/test/dataclass_secret_field_exemptions.txt:\n"
+        "is genuinely not a secret, add it to posthog/test/repo_invariants/dataclass_secret_field_exemptions.txt:\n"
         + "\n".join(violations)
     )
 
