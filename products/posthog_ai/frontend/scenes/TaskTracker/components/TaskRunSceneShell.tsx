@@ -41,6 +41,8 @@ export interface TaskRunSceneShellProps {
     taskError: string | null
     onRetry: () => void
     isMobile: boolean
+    /** Off when a tab bar sits right under the header and draws its own rule. */
+    headerDivider?: boolean
     /** The run-log slot (the streamed thread). */
     children: ReactNode
 }
@@ -60,6 +62,7 @@ export function TaskRunSceneShell({
     taskError,
     onRetry,
     isMobile,
+    headerDivider = true,
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     return (
@@ -164,7 +167,7 @@ export function TaskRunSceneShell({
                             selectedRun && <TaskRunMetadata selectedRun={selectedRun} />
                         )}
 
-                        <LemonDivider className="hidden lg:block mb-0 mt-2" />
+                        {headerDivider && <LemonDivider className="hidden lg:block mb-0 mt-2" />}
                     </header>
 
                     {children}
