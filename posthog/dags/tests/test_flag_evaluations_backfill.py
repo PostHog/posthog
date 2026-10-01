@@ -258,10 +258,11 @@ def shard_backfill(
     *,
     instance: dagster.DagsterInstance | None = None,
     run_id: str = "backfill-run",
+    cluster: MagicMock | None = None,
 ) -> ShardBackfill:
     # The cluster is a mock, so the default config turns off the parts wait, which queries it.
     return ShardBackfill(
-        cluster=MagicMock(),
+        cluster=cluster or MagicMock(),
         shard_num=1,
         config=config or FlagEvaluationsBackfillConfig(max_unmerged_parts=0),
         instance=instance or dagster.DagsterInstance.ephemeral(),
@@ -658,12 +659,13 @@ def test_disk_headroom_leaves_out_the_share_the_mover_keeps_free(
 def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     readings: list[list[PolicyDisk]], overrides: dict[str, Any], sleeps: int, failure: str | None
 ) -> None:
-    backfill = shard_backfill(
-        FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides})
-    )
     host = MagicMock()
     host.connection_info.host = "replica-1"
-    backfill.cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+    cluster = MagicMock()
+    cluster.map_hosts_in_shard_by_role.return_value.result.side_effect = [{host: disks} for disks in readings]
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(**{"min_free_bytes": 1000, "max_unmerged_parts": 0, **overrides}), cluster=cluster
+    )
     yesterday = datetime.now(UTC).date() - timedelta(days=1)
     clock = [0.0]
 
