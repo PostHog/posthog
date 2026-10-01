@@ -49,8 +49,10 @@ export function captureCanvasAction(
     })
 }
 
-/** The error's class name, never its message: canvas errors can carry source, data, or secrets. */
+/** Custom error names can carry viewer data, so only report fixed categories. */
 export function canvasErrorType(message: string): string {
-    const match = /^([A-Z][A-Za-z]*Error)\b/.exec(message.trim())
+    const match = /^(Error|AggregateError|EvalError|RangeError|ReferenceError|SyntaxError|TypeError|URIError)\b/.exec(
+        message.trim()
+    )
     return match ? match[1] : 'unknown'
 }
