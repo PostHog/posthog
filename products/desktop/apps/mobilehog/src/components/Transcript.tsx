@@ -207,11 +207,12 @@ function SentPhoto({
 }) {
   const localUri = sentPhotoUri(photo.artifactId) ?? savedUri;
   const [localFailed, setLocalFailed] = useState(false);
-  const [remoteFailed, setRemoteFailed] = useState(false);
+  const [failedUri, setFailedUri] = useState<string | null>(null);
   const showLocal = !!localUri && !localFailed;
   const remote = usePhotoUrl(taskId, showLocal ? null : photo);
   const uri = showLocal ? localUri : remote.data;
-  if (remote.isError || remoteFailed) {
+  // The failure belongs to one URL, so a refreshed URL loads the photo again.
+  if (uri ? uri === failedUri : remote.isError) {
     return (
       <View
         accessibilityLabel={photo.name}
@@ -229,7 +230,7 @@ function SentPhoto({
       source={{ uri }}
       accessibilityLabel={photo.name}
       style={styles.userImage}
-      onError={() => (showLocal ? setLocalFailed(true) : setRemoteFailed(true))}
+      onError={() => (showLocal ? setLocalFailed(true) : setFailedUri(uri))}
     />
   );
 }
