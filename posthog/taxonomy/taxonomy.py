@@ -65,6 +65,7 @@ CAMPAIGN_PROPERTIES: list[str] = [
     "epik",  # pinterest
     "qclid",  # quora
     "sccid",  # snapchat
+    "oppref",  # openai ads
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -2063,6 +2064,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "sccid": {
             "label": "sccid",
             "description": "Snapchat Click ID",
+        },
+        "oppref": {
+            "label": "oppref",
+            "description": "OpenAI Ads Click ID",
         },
         "irclid": {
             "label": "irclid",

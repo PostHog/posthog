@@ -154,6 +154,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskPinRequestSerializer,
     TaskPinResponseSerializer,
     TaskPresenceBeaconRequestSerializer,
+    TaskPullRequestTitlesRequestSerializer,
+    TaskPullRequestTitlesSerializer,
     TaskRepositoriesResponseSerializer,
     TaskRunAnalysisActivityRequestSerializer,
     TaskRunAnalysisActivityResponseSerializer,
@@ -1107,6 +1109,24 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if page is not None:
             return self.get_paginated_response(TaskSummarySerializer(page, many=True).data)
         return Response(TaskSummarySerializer(summaries, many=True).data)
+
+    @validated_request(
+        request_serializer=TaskPullRequestTitlesRequestSerializer,
+        responses={200: OpenApiResponse(response=TaskPullRequestTitlesSerializer)},
+        summary="Fetch pull request titles for tasks",
+        description="Returns the GitHub titles of the pull requests that the latest run of each task opened.",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="pull_request_titles",
+        pagination_class=None,
+        required_scopes=["task:read"],
+        filter_backends=[],
+    )
+    def pull_request_titles(self, request, **kwargs):
+        titles = tasks_facade.get_pull_request_titles(self.team_id, request.user.id, request.validated_data["ids"])
+        return Response(TaskPullRequestTitlesSerializer({"titles": titles}).data)
 
     @validated_request(
         query_serializer=RepositoryReadinessQuerySerializer,

@@ -3,6 +3,7 @@
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
     Author,
     BranchPRMatch,
     CICardSummary,
@@ -22,6 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
+    ci_engine_field,
 )
 
 
@@ -55,6 +57,8 @@ class PullRequestSerializer(DataclassSerializer):
 
 
 class PRLifecycleEventSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = PRLifecycleEvent
         extra_kwargs = {
@@ -126,10 +130,12 @@ class WorkflowCostSerializer(DataclassSerializer):
 
 
 class RunCostSerializer(DataclassSerializer):
+    ci_engine = ci_engine_field()
+
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
-            "run_id": {"help_text": "GitHub Actions run id this cost is for."},
+            "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
             "estimated_cost_usd": {
@@ -293,6 +299,21 @@ class PullRequestListSerializer(DataclassSerializer):
             "truncated": {
                 "help_text": "True when more pull requests match than the cap; `items` is the newest `limit` rows "
                 "and the aggregate counts in ci_cards can exceed it.",
+            },
+            "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
+        }
+
+
+class AttentionPullRequestListSerializer(DataclassSerializer):
+    items = PullRequestListItemSerializer(
+        many=True, help_text="Open pull requests needing attention, failing CI first, then newest, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = AttentionPullRequestList
+        extra_kwargs = {
+            "total": {
+                "help_text": "Number of open pull requests needing attention, including the ones past the cap.",
             },
             "limit": {"help_text": "Maximum number of pull requests returned in `items`."},
         }

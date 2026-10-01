@@ -488,6 +488,15 @@ pub struct Config {
     #[envconfig(from = "FLAG_DEFINITIONS_SELF_HEAL_ENABLED", default = "true")]
     pub flag_definitions_self_heal_enabled: FlexBool,
 
+    // Second gate on the self-heal path, for the S3-hit trigger only. A cache miss is a 503
+    // and is rare; an S3 hit is a successful response and can be orders of magnitude more
+    // frequent, so the two triggers need separate switches. Default off so the enqueue rate
+    // can be watched in one environment before the rest follow. Has no effect while
+    // FLAG_DEFINITIONS_SELF_HEAL_ENABLED is off, which stays the switch that stops every
+    // enqueue.
+    #[envconfig(from = "FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED", default = "false")]
+    pub flag_definitions_rebuild_on_s3_hit_enabled: FlexBool,
+
     // Cluster switch for the /flags/definitions reader. When enabled, the flags-with-cohorts
     // payload and its ETag both come from the dedicated flags Redis instead of the shared one.
     //
@@ -1096,27 +1105,41 @@ impl Config {
     /// `test_flag_definitions_billing_counter` — their negative-case sleeps
     /// must cover at least one full flush window.
     pub fn default_test_config() -> Self {
+        Self::test_config_with_env(|name| std::env::var(name).ok())
+    }
+
+    fn test_config_with_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let url = |name: &str, default: &str| {
+            env(name)
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| default.to_string())
+        };
+        let database_url = url(
+            "TEST_DATABASE_URL",
+            "postgres://posthog:posthog@localhost:5432/test_posthog",
+        );
+        let persons_database_url = url(
+            "TEST_PERSONS_DATABASE_URL",
+            "postgres://posthog:posthog@localhost:5432/posthog_persons",
+        );
         Self {
             continuous_profiling: ContinuousProfilingConfig::default(),
             address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
-            redis_url: "redis://localhost:6379/".to_string(),
+            redis_url: url("TEST_REDIS_URL", "redis://localhost:6379/"),
             redis_reader_url: "".to_string(),
             flags_redis_url: "".to_string(),
             flags_redis_reader_url: "".to_string(),
             flags_redis_enabled: FlexBool(false),
             flag_definitions_self_heal_enabled: FlexBool(false),
+            flag_definitions_rebuild_on_s3_hit_enabled: FlexBool(false),
             flag_definitions_dedicated_redis_enabled: FlexBool(false),
             redis_response_timeout_ms: 100,
             redis_connection_timeout_ms: 5000,
-            write_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog"
-                .to_string(),
-            read_database_url: "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
-            persons_write_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
-                .to_string(),
-            persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
-                .to_string(),
-            behavioral_cohorts_read_database_url:
-                "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
+            write_database_url: database_url.clone(),
+            read_database_url: database_url.clone(),
+            persons_write_database_url: persons_database_url.clone(),
+            persons_read_database_url: persons_database_url,
+            behavioral_cohorts_read_database_url: database_url,
             flags_secret_keys: String::new(),
             secret_key: "test-secret-key-at-least-32-bytes-long".to_string(),
             realtime_cohort_evaluation_team_ids: TeamIdCollection::None,
@@ -1373,7 +1396,7 @@ mod tests {
 
     #[test]
     fn test_default_test_config() {
-        let config = Config::default_test_config();
+        let config = Config::test_config_with_env(|_| None);
         assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
         assert_eq!(
             config.write_database_url,
@@ -1402,24 +1425,38 @@ mod tests {
     }
 
     #[test]
+    fn test_default_test_config_env_overrides() {
+        let config = Config::test_config_with_env(|name| match name {
+            "TEST_DATABASE_URL" => Some("postgres://db/main".to_string()),
+            "TEST_PERSONS_DATABASE_URL" => Some("postgres://db/persons".to_string()),
+            "TEST_REDIS_URL" => Some("redis://cache/2".to_string()),
+            _ => None,
+        });
+        assert_eq!(config.write_database_url, "postgres://db/main");
+        assert_eq!(config.read_database_url, "postgres://db/main");
+        assert_eq!(
+            config.behavioral_cohorts_read_database_url,
+            "postgres://db/main"
+        );
+        assert_eq!(config.persons_write_database_url, "postgres://db/persons");
+        assert_eq!(config.persons_read_database_url, "postgres://db/persons");
+        assert_eq!(config.redis_url, "redis://cache/2");
+    }
+
+    #[test]
     fn test_default_test_config_static() {
         let config = &*DEFAULT_TEST_CONFIG;
+        let expected = Config::default_test_config();
         assert_eq!(config.address, SocketAddr::from_str("127.0.0.1:0").unwrap());
-        assert_eq!(
-            config.write_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
-        );
-        assert_eq!(
-            config.read_database_url,
-            "postgres://posthog:posthog@localhost:5432/test_posthog"
-        );
+        assert_eq!(config.write_database_url, expected.write_database_url);
+        assert_eq!(config.read_database_url, expected.read_database_url);
         assert_eq!(config.max_concurrency, 1000);
         assert_eq!(config.max_pg_connections, 10);
         assert_eq!(config.min_non_persons_reader_connections, 0);
         assert_eq!(config.min_non_persons_writer_connections, 0);
         assert_eq!(config.min_persons_reader_connections, 0);
         assert_eq!(config.min_persons_writer_connections, 0);
-        assert_eq!(config.redis_url, "redis://localhost:6379/");
+        assert_eq!(config.redis_url, expected.redis_url);
         assert_eq!(config.team_ids_to_track, TeamIdCollection::All);
         assert_eq!(
             config.new_analytics_capture_excluded_team_ids,

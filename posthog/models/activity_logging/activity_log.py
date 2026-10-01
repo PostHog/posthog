@@ -394,6 +394,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
         "full_refresh_interval_days": "full refresh interval (days)",
+        "full_refresh_time_of_day": "full refresh time (UTC)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
@@ -816,7 +817,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
-        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
@@ -1182,7 +1182,9 @@ def dict_changes_between(
     previous = previous or {}
     new = new or {}
 
-    fields = set(list(previous.keys()) + list(new.keys()))
+    # Callers pass a model's `__dict__`, which also holds private attributes set by signal
+    # handlers (for example a snapshot of the old API token). They are not fields, and can be secrets.
+    fields = {field for field in [*previous.keys(), *new.keys()] if not str(field).startswith("_")}
     if use_field_exclusions:
         fields = fields - set(field_exclusions.get(model_type, [])) - set(common_field_exclusions)
 

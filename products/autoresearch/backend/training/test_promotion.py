@@ -362,6 +362,19 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         # The next run reads this summary as the champion it has to beat.
         assert second.summary["champion_model_class"] == "xgboost.XGBClassifier"
 
+    def test_champion_fit_labels_at_the_run_anchor_the_agent_scored(self):
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8)
+
+        bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
+        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
+            with patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit:
+                with self.captureOnCommitCallbacks(execute=True):
+                    complete_training_run(run)
+
+        assert run.started_at is not None
+        assert fit.call_args.kwargs["anchor_ts"] == int(run.started_at.timestamp())
+
     def test_a_failed_champion_fit_does_not_fail_a_committed_completion(self):
         run = self._run()
         self._iteration(run, number=0, holdout=0.8)
