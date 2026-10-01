@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -49,9 +50,16 @@ describe('optOutListLogic usage tracking', () => {
             skipped: 1,
             errors: [],
         })
-        logic.actions.setCsvFile(
-            new File(['email\njamie@example.com\nalex@example.com\nalex@example.com\n'], 'opt-outs.csv')
-        )
+        // jsdom cannot stream a File through Papa, so hand the parsed rows straight to its callback.
+        jest.spyOn(Papa, 'parse').mockImplementation(((_file: File, config: Papa.ParseLocalConfig<string[]>) => {
+            config.complete?.(
+                {
+                    data: [['email'], ['jamie@example.com'], ['alex@example.com'], ['sam@example.com']],
+                } as Papa.ParseResult<string[]>,
+                _file
+            )
+        }) as any)
+        logic.actions.setCsvFile(new File([''], 'opt-outs.csv'))
 
         await expectLogic(logic, () => {
             logic.actions.importCsv()
