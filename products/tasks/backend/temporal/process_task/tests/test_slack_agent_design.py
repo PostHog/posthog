@@ -9,20 +9,17 @@ from parameterized import parameterized
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.object_tags.slack import split_incomplete_tag_suffix
 
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
-    AppendSlackAgentDesignStepsInput,
     StopSlackAgentDesignStreamInput,
-    append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
 )
 
 PROJECT_URL = "https://us.posthog.com/project/7"
 
 
-class TestBufferedSlackAgentDesignStream(SimpleTestCase):
+class TestStreamedAnswerCodeElements(SimpleTestCase):
     @parameterized.expand(
         [
             ("backticks", "```", True),
@@ -33,40 +30,25 @@ class TestBufferedSlackAgentDesignStream(SimpleTestCase):
     )
     @patch.object(SlackThreadHandler, "project_url", new_callable=PropertyMock, return_value=PROJECT_URL)
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_buffered_code_elements_reach_slack_intact(
+    def test_code_elements_reach_slack_intact(
         self, _name: str, fence: str, closed: bool, mock_get_client: MagicMock, _project_url: PropertyMock
     ) -> None:
-        # Goes through the activities, so the rewriter runs on every flush. A tag cut by a flush
-        # boundary is held back and sent whole in the next one, and a tag inside a fence stays
-        # literal, so the example arrives as the agent typed it.
+        # The final answer goes through the tag rewriter. A tag inside a fence stays literal,
+        # so the example arrives as the agent typed it.
         client = mock_get_client.return_value
         context = {"integration_id": 1, "channel": "C001", "thread_ts": "1234.5678"}
-        updates = [f"Before\n\n{fence}xml\n", '<insight id="1">', "Example</insight>\n"]
+        answer = f'Before\n\n{fence}xml\n<insight id="1">Example</insight>\n'
         if closed:
-            updates.append(f"{fence}\n\nAfter\n")
-        pending = ""
-        for update in updates:
-            split = split_incomplete_tag_suffix(pending + update)
-            pending = split.held
-            if split.sendable:
-                append_slack_agent_design_steps(
-                    AppendSlackAgentDesignStepsInput(
-                        slack_thread_context=context,
-                        ts="1234.9999",
-                        markdown_text=split.sendable,
-                    )
-                )
+            answer += f"{fence}\n\nAfter\n"
+
         stop_slack_agent_design_stream(
-            StopSlackAgentDesignStreamInput(
-                slack_thread_context=context,
-                ts="1234.9999",
-                final_markdown=pending,
-            )
+            StopSlackAgentDesignStreamInput(slack_thread_context=context, ts="1234.9999", final_markdown=answer)
         )
+
         streamed = "".join(
             chunk.get("text", "") for call in client.chat_appendStream.call_args_list for chunk in call.kwargs["chunks"]
         )
-        assert streamed == "".join(updates)
+        assert streamed == answer
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
