@@ -293,14 +293,19 @@ fn parse_bool_str(raw: &str) -> Parsed<bool> {
     }
 }
 
-/// `product_tour_id` must be a string, forwarded unchanged. A blank string
-/// means "not set".
+/// `product_tour_id` is a string, forwarded unchanged. An integer becomes its
+/// decimal string; any other number is invalid. A blank string means "not set".
 fn coerce_product_tour_id(v: &Value) -> Parsed<String> {
     match v {
         Value::Null => Parsed::Unset,
         Value::String(s) if s.trim().is_empty() => Parsed::Unset,
         Value::String(s) => Parsed::Set(s.clone()),
-        _ => Parsed::Invalid,
+        Value::Number(n) => n
+            .as_i64()
+            .map(|i| i.to_string())
+            .or_else(|| n.as_u64().map(|u| u.to_string()))
+            .map_or(Parsed::Invalid, Parsed::Set),
+        Value::Bool(_) | Value::Array(_) | Value::Object(_) => Parsed::Invalid,
     }
 }
 
@@ -1157,6 +1162,9 @@ mod tests {
     #[rstest::rstest]
     #[case::string(serde_json::json!("tour-123"), Some("tour-123"))]
     #[case::padded_kept_unchanged(serde_json::json!(" tour-123 "), Some(" tour-123 "))]
+    #[case::integer(serde_json::json!(999), Some("999"))]
+    #[case::negative_integer(serde_json::json!(-5), Some("-5"))]
+    #[case::integer_above_i64(serde_json::json!(u64::MAX), Some("18446744073709551615"))]
     #[case::null_is_unset(serde_json::json!(null), None)]
     #[case::empty_is_unset(serde_json::json!(""), None)]
     #[case::blank_is_unset(serde_json::json!("  "), None)]
@@ -1169,9 +1177,8 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case::integer(serde_json::json!(999))]
-    #[case::negative_integer(serde_json::json!(-5))]
     #[case::float(serde_json::json!(1.5))]
+    #[case::integral_float(serde_json::json!(42.0))]
     #[case::bool(serde_json::json!(true))]
     #[case::array(serde_json::json!(["a"]))]
     #[case::object(serde_json::json!({"nested": true}))]
@@ -1186,7 +1193,7 @@ mod tests {
     #[test]
     fn raw_options_invalid_keys_reported_once_in_check_order() {
         let raw = RawOptions(serde_json::json!({
-            "product_tour_id": 7,
+            "product_tour_id": 7.5,
             "disable_skew_correction": [false],
             "cookieless_mode": {"bad": true},
             "process_person_profile": null

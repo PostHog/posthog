@@ -4954,7 +4954,7 @@ mod tests {
         };
         let bad_cookieless = event("user-3", serde_json::json!({"cookieless_mode": "maybe"}));
         let bad_cookieless_again = event("user-4", serde_json::json!({"cookieless_mode": [1]}));
-        let bad_tour = event("user-1", serde_json::json!({"product_tour_id": 5}));
+        let bad_tour = event("user-1", serde_json::json!({"product_tour_id": true}));
         let cookieless_ok = event(
             "$posthog_cookieless",
             serde_json::json!({"cookieless_mode": true}),
@@ -4964,7 +4964,8 @@ mod tests {
             serde_json::json!({
                 "cookieless_mode": "YES",
                 "disable_skew_correction": "off",
-                "process_person_profile": 0.0
+                "process_person_profile": 0.0,
+                "product_tour_id": 5
             }),
         );
         let lenient_placeholder_ok = event(
