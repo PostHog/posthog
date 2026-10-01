@@ -204,9 +204,17 @@ def _partition_file_stats(
     ]
 
 
+@frozen
+class _SmallFileFragmentation:
+    fragmented: bool
+    max_removable: int
+    total_removable: int
+    compactable_over_budget: bool
+
+
 def _small_file_fragmentation(
     partitions: Iterable[_PartitionFileStats], table_wide_small_files: bool
-) -> tuple[bool, int, int, bool]:
+) -> _SmallFileFragmentation:
     partitions = list(partitions)
     max_removable = max((partition.removable_files for partition in partitions), default=0)
     total_removable = sum(partition.removable_files for partition in partitions)
@@ -219,7 +227,12 @@ def _small_file_fragmentation(
         or (table_wide_small_files and total_removable >= DEFAULT_COMPACT_REMOVABLE_FILES_THRESHOLD)
         or compactable_over_budget
     )
-    return fragmented, max_removable, total_removable, compactable_over_budget
+    return _SmallFileFragmentation(
+        fragmented=fragmented,
+        max_removable=max_removable,
+        total_removable=total_removable,
+        compactable_over_budget=compactable_over_budget,
+    )
 
 
 class DeltaMaintenance:
@@ -443,12 +456,12 @@ class DeltaMaintenance:
             # Repartition detection runs after this pass and compares partition bytes to its budget.
             # Small files take more bytes at rest than the same rows after compaction, so an
             # over-budget partition that compaction can shrink must be compacted before it is measured.
-            fragmented, max_removable, total_removable, compactable_over_budget = _small_file_fragmentation(
-                partitions, table_wide_small_files
-            )
+            small_file_stats = _small_file_fragmentation(partitions, table_wide_small_files)
+            fragmented = small_file_stats.fragmented
             stats += (
-                f", max_removable_files_per_partition={max_removable}, removable_files={total_removable}, "
-                f"compactable_over_budget={compactable_over_budget}"
+                f", max_removable_files_per_partition={small_file_stats.max_removable}, "
+                f"removable_files={small_file_stats.total_removable}, "
+                f"compactable_over_budget={small_file_stats.compactable_over_budget}"
             )
         if not fragmented:
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
@@ -468,7 +481,7 @@ class DeltaMaintenance:
 
         if compact_small_files:
             partitions = await asyncio.to_thread(_partition_file_stats, table, plan.target_size)
-            fragmented, _, _, _ = _small_file_fragmentation(partitions, table_wide_small_files)
+            fragmented = _small_file_fragmentation(partitions, table_wide_small_files).fragmented
             if not fragmented:
                 await self._logger.adebug(
                     f"compact_if_fragmented: skipping; no files are removable at planned target_size="
