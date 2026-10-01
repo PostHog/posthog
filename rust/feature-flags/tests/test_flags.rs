@@ -227,8 +227,9 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
 
 #[rstest]
 #[case("2")]
+#[case("3")]
 #[tokio::test]
-async fn it_get_new_response_when_version_is_2(#[case] version: &str) -> Result<()> {
+async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();
@@ -1741,7 +1742,8 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 
 #[tokio::test]
 async fn test_minimal_flag_called_events_reaches_v2_and_v3_but_not_legacy_response() -> Result<()> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.flags_v3_response_enabled = true;
     let distinct_id = "user1".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;

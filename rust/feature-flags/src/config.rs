@@ -688,6 +688,10 @@ pub struct Config {
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
+    /// Serve the v3 record on `/flags?v=3` and above. Off, those requests get the v2 record.
+    #[envconfig(from = "FLAGS_V3_RESPONSE_ENABLED", default = "false")]
+    pub flags_v3_response_enabled: bool,
+
     // Flag definitions rate limiting
     // Default rate limit for all teams (requests per minute)
     // Can be overridden per-team using LOCAL_EVAL_RATE_LIMITS
@@ -1175,6 +1179,7 @@ impl Config {
             element_chain_as_string_excluded_teams: TeamIdCollection::None,
             debug: FlexBool(false),
             flags_session_replay_quota_check: false,
+            flags_v3_response_enabled: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             flag_definitions_conditional_rate_per_minute: 6000,
@@ -1377,6 +1382,7 @@ mod tests {
         assert_eq!(config.new_analytics_capture_endpoint, "/i/v0/e/");
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
+        assert!(!config.flags_v3_response_enabled);
         assert_eq!(config.skip_writes, FlexBool(false));
         // Bot filter ships in LogOnly mode by default — pin the safe
         // posture so a future env-var rename / refactor can't silently

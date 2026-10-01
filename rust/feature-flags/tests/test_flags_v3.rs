@@ -46,28 +46,56 @@ fn email(pattern: &str) -> Value {
     json!([{"key": "email", "type": "person", "operator": "icontains", "value": pattern}])
 }
 
-/// A team with one person, three v1 flags and six v2 flags covering every boolean outcome.
-async fn server() -> Result<(ServerHandle, String)> {
+fn corpus_flag(case: &Value, id: i32) -> Value {
+    json!({
+        "id": id, "team_id": 0, "key": case["id"], "name": case["id"], "active": true,
+        "deleted": false, "version": 1, "has_experiment": false, "filters": case["config"],
+    })
+}
+
+async fn serve(
+    v3_enabled: bool,
+    distinct_id: &str,
+    properties: Value,
+    mut flags: Vec<Value>,
+) -> Result<(ServerHandle, String)> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.internal_request_token = Some(INTERNAL_TOKEN.to_string());
+    config.flags_v3_response_enabled = v3_enabled;
     let redis = setup_redis_client(Some(config.redis_url.clone())).await;
     let team = insert_new_team_in_redis(redis.clone()).await?;
     let db = TestContext::new(None).await;
     db.insert_new_team(Some(team.id)).await?;
-    db.insert_person(
-        team.id,
-        "ann".to_string(),
-        Some(json!({"email": "ann@example.com"})),
+    db.insert_person(team.id, distinct_id.to_string(), Some(properties))
+        .await?;
+    for flag in &mut flags {
+        flag["team_id"] = json!(team.id);
+    }
+    insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
+    Ok((ServerHandle::for_config(config).await, team.api_token))
+}
+
+/// A team with one person, three v1 flags and six v2 flags covering every boolean outcome.
+async fn server(v3_enabled: bool) -> Result<(ServerHandle, String)> {
+    let flags = boolean_flags();
+    serve(
+        v3_enabled,
+        "ann",
+        json!({"email": "ann@example.com"}),
+        flags,
     )
-    .await?;
-    let mut flags = vec![
+    .await
+}
+
+fn boolean_flags() -> Vec<Value> {
+    vec![
         json!({
-            "id": 1, "team_id": team.id, "key": "v1-on", "name": "v1-on", "active": true,
+            "id": 1, "team_id": 0, "key": "v1-on", "name": "v1-on", "active": true,
             "deleted": false, "version": 5, "has_experiment": false,
             "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
         }),
         json!({
-            "id": 2, "team_id": team.id, "key": "v1-variant", "name": "v1-variant", "active": true,
+            "id": 2, "team_id": 0, "key": "v1-variant", "name": "v1-variant", "active": true,
             "deleted": false, "version": 6, "has_experiment": false,
             "filters": {
                 "groups": [{"properties": [], "rollout_percentage": 100, "variant": "compact"}],
@@ -76,7 +104,7 @@ async fn server() -> Result<(ServerHandle, String)> {
             },
         }),
         json!({
-            "id": 9, "team_id": team.id, "key": "v1-free-key", "name": "v1-free-key", "active": true,
+            "id": 9, "team_id": 0, "key": "v1-free-key", "name": "v1-free-key", "active": true,
             "deleted": false, "version": 7, "has_experiment": false,
             "filters": {
                 "groups": [{"properties": [], "rollout_percentage": 100, "variant": "provider/model-1.2 beta"}],
@@ -125,12 +153,7 @@ async fn server() -> Result<(ServerHandle, String)> {
                 ])
             )]),
         ),
-    ];
-    for flag in &mut flags {
-        flag["team_id"] = json!(team.id);
-    }
-    insert_flags_for_team_in_redis(redis, team.id, Some(json!(flags).to_string())).await?;
-    Ok((ServerHandle::for_config(config).await, team.api_token))
+    ]
 }
 
 async fn post(
@@ -164,7 +187,7 @@ fn keys(value: &Value) -> Vec<&str> {
 
 #[tokio::test]
 async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
-    let (server, token) = server().await?;
+    let (server, token) = server(true).await?;
     let body = json!({"token": token, "distinct_id": "ann"});
 
     let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
@@ -338,7 +361,7 @@ async fn v3_returns_the_typed_record_for_v1_and_v2_flags() -> Result<()> {
 
 #[tokio::test]
 async fn v2_legacy_and_decide_shapes_are_unchanged() -> Result<()> {
-    let (server, token) = server().await?;
+    let (server, token) = server(true).await?;
     let body = json!({"token": token, "distinct_id": "ann"});
 
     let v2 = post(&server, "v=2&config=false", &[], body.clone()).await?;
@@ -380,5 +403,119 @@ async fn v2_legacy_and_decide_shapes_are_unchanged() -> Result<()> {
     assert_eq!(minimal["flags"], json!({}));
     assert_eq!(minimal["supportedCompression"], json!(["gzip", "gzip-js"]));
     wire::validate_v3(&minimal).unwrap();
+    Ok(())
+}
+
+#[tokio::test]
+async fn v3_and_above_serve_the_v2_record_while_the_setting_is_off() -> Result<()> {
+    let string_case = corpus::value_cases()
+        .into_iter()
+        .find(|case| case["id"] == "v2_value.string.target")
+        .unwrap();
+    let mut flags = boolean_flags();
+    flags.push(corpus_flag(&string_case, 10));
+    let (server, token) = serve(false, "ann", json!({"email": "ann@example.com"}), flags).await?;
+    let body = json!({"token": token, "distinct_id": "ann"});
+    let request_id = [("X-REQUEST-ID", "00000000-0000-4000-8000-000000000003")];
+    let without_time = |mut response: Value| {
+        response.as_object_mut().unwrap().remove("evaluatedAt");
+        response
+    };
+
+    for config in ["config=false", "config=true"] {
+        let v2 = post(&server, &format!("v=2&{config}"), &request_id, body.clone()).await?;
+        assert_eq!(v2["flags"]["v2_value.string.target"]["variant"], "compact");
+        assert_eq!(v2["flags"]["v2-true"]["enabled"], true);
+        assert_eq!(v2["flags"]["v1-variant"]["variant"], "compact");
+        for version in ["v=3", "v=99"] {
+            let response = post(
+                &server,
+                &format!("{version}&{config}"),
+                &request_id,
+                body.clone(),
+            )
+            .await?;
+            assert_eq!(
+                without_time(response),
+                without_time(v2.clone()),
+                "{version}&{config}"
+            );
+        }
+    }
+
+    let get = |version: &str| {
+        reqwest::Client::new()
+            .get(format!("http://{}/flags?{version}", server.addr))
+            .header(request_id[0].0, request_id[0].1)
+            .send()
+    };
+    let minimal_v2: Value = get("v=2").await?.json().await?;
+    let minimal_v3: Value = get("v=3").await?.json().await?;
+    assert_eq!(without_time(minimal_v3), without_time(minimal_v2));
+    Ok(())
+}
+
+#[tokio::test]
+async fn v3_carries_every_typed_corpus_value_through_the_request_path() -> Result<()> {
+    let cases: Vec<_> = corpus::value_cases()
+        .into_iter()
+        .filter(|case| case["expected"]["status"] == "success")
+        .collect();
+    assert_eq!(cases.len(), 38);
+    let context = &cases[0]["context"];
+    assert!(cases.iter().all(|case| &case["context"] == context));
+    let distinct_id = context["identifier"].as_str().unwrap();
+    let flags = cases
+        .iter()
+        .zip(100..)
+        .map(|(case, id)| corpus_flag(case, id));
+    let (server, token) = serve(
+        true,
+        distinct_id,
+        context["properties"].clone(),
+        flags.collect(),
+    )
+    .await?;
+    let body = json!({"token": token, "distinct_id": distinct_id});
+    let v3 = post(&server, "v=3&config=false", &[], body.clone()).await?;
+    wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{error:?}"));
+    let v2 = post(&server, "v=2&config=false", &[], body).await?;
+    let decoded = |payload: &Value| {
+        payload
+            .as_str()
+            .map_or(Value::Null, |p| serde_json::from_str(p).unwrap())
+    };
+
+    for case in &cases {
+        let key = case["id"].as_str().unwrap();
+        let (expected, legacy) = (&case["expected"], &case["legacy"]);
+        let record = &v3["flags"][key];
+        assert_eq!(record["value"], expected["value"], "{key}");
+        assert_eq!(record["reason"]["code"], expected["reason"], "{key}");
+        assert_eq!(
+            record["reason"]["condition_index"], expected["rule"]["index"],
+            "{key}"
+        );
+        assert_eq!(
+            record["metadata"].get("rule_id"),
+            expected["rule"].get("id"),
+            "{key}"
+        );
+        assert_eq!(
+            record["metadata"].get("rule_type"),
+            expected["rule"].get("rule_type"),
+            "{key}"
+        );
+        assert_eq!(record["metadata"]["payload"], Value::Null, "{key}");
+
+        let v2_record = &v2["flags"][key];
+        assert_eq!(v2_record["enabled"], legacy["enabled"], "{key}");
+        assert_eq!(v2_record["variant"], legacy["variant"], "{key}");
+        assert_eq!(
+            decoded(&v2_record["metadata"]["payload"]),
+            legacy["payload"],
+            "{key}"
+        );
+    }
     Ok(())
 }
