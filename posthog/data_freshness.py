@@ -21,7 +21,7 @@ from enum import StrEnum
 from functools import lru_cache, partial
 from typing import Optional
 
-from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
+from django.db.models import BigIntegerField, Case, CharField, Max, Model, QuerySet, Value, When
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -79,6 +79,21 @@ class ProbeWindow:
 
 # Returns the last time each team received data, omitting teams with none.
 SourceProbe = Callable[[list[int], ProbeWindow], dict[int, datetime]]
+
+
+def latest_per_team[M: Model](
+    queryset: QuerySet[M], field: str, team_ids: list[int], window: ProbeWindow
+) -> dict[int, datetime]:
+    """The newest `field` value per team within the window, for a probe over a Postgres timestamp column."""
+    rows = (
+        queryset.filter(team_id__in=team_ids, **{f"{field}__gte": window.cutoff, f"{field}__lte": window.horizon})
+        .values("team_id")
+        .annotate(latest=Max(field))
+    )
+    # Evaluated inside the block: the timeout is transaction-local, so a lazily-built queryset
+    # would escape it.
+    with execute_with_timeout(POSTGRES_TIMEOUT_MS):
+        return {row["team_id"]: row["latest"] for row in rows}
 
 
 @dataclass(frozen=True, kw_only=True)
