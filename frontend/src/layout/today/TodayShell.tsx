@@ -14,6 +14,7 @@ import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar
 import { NewSpaceDialog } from 'products/tasks/frontend/spaces/NewSpaceDialog'
 
 import { TodayLibrarySidebar } from './TodayLibrarySidebar'
+import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
@@ -67,7 +68,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             {activePane === 'home' ? (
                 <TodayHomeSidebar />
             ) : activePane === 'spaces' ? (
-                <TodaySpacesSidebar />
+                <TodayPreviewCardProvider>
+                    <TodaySpacesSidebar />
+                </TodayPreviewCardProvider>
             ) : activePane === 'library' ? (
                 <TodayLibrarySidebar />
             ) : (

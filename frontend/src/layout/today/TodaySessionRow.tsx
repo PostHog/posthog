@@ -1,11 +1,13 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useMemo } from 'react'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sessionPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodaySessionBadges } from './TodaySessionBadges'
-import { todaySessionDot } from './todaySessionDot'
 import { TodaySessionMenu } from './TodaySessionMenu'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
@@ -35,7 +37,11 @@ export function TodaySessionRow({
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
-    const { pullRequestStates } = useValues(todaySpacesLogic)
+    const { pullRequestStates, spaceNames } = useValues(todaySpacesLogic)
+    const preview = useMemo(
+        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames }),
+        [item, unread, pinned, pullRequestStates, spaceNames]
+    )
 
     const [pullRequest] = item.pullRequests
     const pinBadge = pinned && showPinBadge
@@ -44,11 +50,11 @@ export function TodaySessionRow({
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
         return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
     }
-    return (
+    const row = (
         <TodaySpacesRow
             label={item.title || 'Untitled session'}
             // Unread shows only as a solid status dot; the title keeps its resting weight, like desktop.
-            icon={<TodaySessionStatusDot dot={todaySessionDot(item, unread)} />}
+            icon={<TodaySessionStatusDot dot={preview.dot} />}
             to={urls.aiTask(item.id)}
             active={location.pathname.endsWith('/ai') && searchParams.task === item.id}
             dataAttr={dataAttr}
@@ -77,4 +83,5 @@ export function TodaySessionRow({
             }
         />
     )
+    return <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
 }

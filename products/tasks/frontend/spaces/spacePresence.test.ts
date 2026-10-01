@@ -1,5 +1,5 @@
 import { TaskUserBasicInfoApi } from '../generated/api.schemas'
-import { presenceBySpace } from './spacePresence'
+import { lastActivityBySpace, presenceBySpace } from './spacePresence'
 
 const NOW = Date.parse('2026-09-28T18:30:00Z')
 
@@ -24,7 +24,7 @@ const task = (
     archived,
 })
 
-describe('presenceBySpace', () => {
+describe('spacePresence', () => {
     test.each([
         {
             name: 'orders people newest first and marks only those active in the last 3 minutes as live',
@@ -54,7 +54,7 @@ describe('presenceBySpace', () => {
                 'space-b': { people: ['grace'], liveUuids: [] },
             },
         },
-    ])('$name', ({ tasks, expected }) => {
+    ])('presenceBySpace $name', ({ tasks, expected }) => {
         const result = presenceBySpace(tasks, NOW)
         const simplified = Object.fromEntries(
             Object.entries(result).map(([space, presence]) => [
@@ -63,5 +63,23 @@ describe('presenceBySpace', () => {
             ])
         )
         expect(simplified).toEqual(expected)
+    })
+
+    test.each([
+        {
+            name: 'keeps the newest activity per space, whatever the page order',
+            tasks: [task('ada', 300), task('grace', 5), task('ada', 60, 'space-b')],
+            expected: { 'space-a': 5, 'space-b': 60 },
+        },
+        {
+            name: 'counts old activity and tasks without an author, but not archived or loose tasks',
+            tasks: [task(null, 600), task('gone', 1, 'space-a', true), task('loose', 1, null)],
+            expected: { 'space-a': 600 },
+        },
+    ])('lastActivityBySpace $name', ({ tasks, expected }) => {
+        const minutesAgo = Object.fromEntries(
+            Object.entries(lastActivityBySpace(tasks)).map(([space, at]) => [space, (NOW - Date.parse(at)) / 60_000])
+        )
+        expect(minutesAgo).toEqual(expected)
     })
 })

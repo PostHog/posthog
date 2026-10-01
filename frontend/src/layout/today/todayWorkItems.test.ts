@@ -193,4 +193,15 @@ describe('todayWorkItems', () => {
 
         expect(activeCloudRunId(item)).toBe(runId)
     })
+
+    it.each([
+        ['the closing message, trimmed', { final_message: '  Opened the pull request.\n' }, 'Opened the pull request.'],
+        ['nothing when the run saved no message', { pr_url: 'https://github.com/a/b/pull/1' }, null],
+        ['nothing for a blank message', { final_message: '   ' }, null],
+        ['nothing for a message that is not text', { final_message: { text: 'hi' } }, null],
+    ])('reads %s from the latest run', (_name, output, message) => {
+        const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
+
+        expect(item.finalMessage).toBe(message)
+    })
 })

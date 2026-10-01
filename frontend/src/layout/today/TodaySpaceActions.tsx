@@ -18,11 +18,13 @@ import { urls } from 'scenes/urls'
 
 import { ChannelDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { spaceLabel, spaceNewSessionUrl, todaySpacesLogic } from './todaySpacesLogic'
 
 export function TodaySpaceActions({ space }: { space: ChannelDTOApi }): JSX.Element {
     const { pendingSpaceIds } = useValues(todaySpacesLogic)
     const { toggleStar, copySpaceLink } = useActions(todaySpacesLogic)
+    const reportMenuOpen = useTodayPreviewMenuReport()
     const saving = pendingSpaceIds.includes(space.id)
     const newSessionLabel = `New session in ${spaceLabel(space)}`
     const menuLabel = saving ? 'Saving your last change' : 'More actions'
@@ -45,7 +47,7 @@ export function TodaySpaceActions({ space }: { space: ChannelDTOApi }): JSX.Elem
                 </TooltipTrigger>
                 <TooltipContent>{newSessionLabel}</TooltipContent>
             </Tooltip>
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={reportMenuOpen}>
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}

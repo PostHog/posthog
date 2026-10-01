@@ -1,16 +1,41 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { ReactNode } from 'react'
+
+import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { sessionPreview, spacePreview } from '~/layout/today/todayPreviewCards'
+import { TodaySessionHoverCard } from '~/layout/today/TodaySessionHoverCard'
+import { TodaySpaceHoverCard } from '~/layout/today/TodaySpaceHoverCard'
+import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+
+const ADA = {
+    id: 1,
+    uuid: 'user-ada',
+    distinct_id: 'user-ada',
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+    email: 'ada@example.com',
+}
+const GRACE = {
+    id: 7,
+    uuid: 'user-grace',
+    distinct_id: 'user-grace',
+    first_name: 'Grace',
+    last_name: 'Hopper',
+    email: 'grace@example.com',
+}
 
 const SPACES = [
     {
@@ -43,6 +68,7 @@ const SPACES = [
         repositories: ['example-org/web', 'example-org/billing'],
         auto_archive_after_days: null,
         created_at: '2026-09-02T09:00:00Z',
+        created_by: ADA,
         starred: true,
         system_role: null,
     },
@@ -373,4 +399,61 @@ export const NarrowWindowWithSidebar: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Home'))
     },
+}
+
+// The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
+function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
+    return (
+        <div className="p-4">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+                {children}
+            </Card>
+        </div>
+    )
+}
+
+export const SessionHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodaySessionHoverCard
+                preview={sessionPreview(
+                    sessionItem({
+                        ...RECENT_SESSIONS[1],
+                        latest_run: {
+                            ...RECENT_SESSIONS[1].latest_run,
+                            output: {
+                                pr_url: 'https://github.com/example-org/webapp/pull/421',
+                                final_message:
+                                    'The webhook now retries three times with a backoff. I opened a pull request with the change and a test for the failure case.',
+                            },
+                        },
+                    } as unknown as TaskListItemApi),
+                    {
+                        unread: false,
+                        pinned: true,
+                        pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
+                        spaceNames: { 'space-checkout': 'checkout' },
+                    }
+                )}
+            />
+        </HoverCardFrame>
+    ),
+}
+
+export const SpaceHoverCard: Story = {
+    render: () => (
+        <HoverCardFrame>
+            <TodaySpaceHoverCard
+                preview={spacePreview(
+                    {
+                        ...SPACES[2],
+                        repositories: ['example-org/web', 'example-org/billing', 'example-org/api', 'example-org/docs'],
+                    } as ChannelDTOApi,
+                    'checkout',
+                    { people: [GRACE, ADA], liveUuids: [GRACE.uuid] },
+                    '2026-09-28T18:28:00Z'
+                )}
+            />
+        </HoverCardFrame>
+    ),
 }
