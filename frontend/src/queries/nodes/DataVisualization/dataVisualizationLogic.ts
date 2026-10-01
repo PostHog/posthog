@@ -672,6 +672,7 @@ export interface dataVisualizationLogicValues {
     hasSortedTable: boolean
     hogVm: HogVm | null
     hogVmLoadError: unknown
+    hogVmLoadFailed: boolean
     isChartSettingsPanelOpen: boolean
     isColumnPinned: (columnName: string) => boolean
     isPinningEnabled: boolean
@@ -990,6 +991,7 @@ export interface dataVisualizationLogicMeta {
             effectiveVisualizationType: ChartDisplayType,
             conditionalFormattingRules: ConditionalFormattingRule[]
         ) => boolean
+        hogVmLoadFailed: (needsHogVm: boolean, hogVmLoadError: unknown) => boolean
         isTableVisualization: (effectiveVisualizationType: ChartDisplayType) => boolean
         showTableSettings: (effectiveVisualizationType: ChartDisplayType) => boolean
         isColumnPinned: (pinnedColumns: string[]) => (columnName: string) => boolean
@@ -1916,6 +1918,10 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (s) => [s.effectiveVisualizationType, s.conditionalFormattingRules],
             (visualizationType: ChartDisplayType, rules: ConditionalFormattingRule[]): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable && rules.length > 0,
+        ],
+        hogVmLoadFailed: [
+            (s) => [s.needsHogVm, s.hogVmLoadError],
+            (needsHogVm: boolean, hogVmLoadError: unknown): boolean => needsHogVm && !!hogVmLoadError,
         ],
         isTableVisualization: [
             (s) => [s.effectiveVisualizationType],

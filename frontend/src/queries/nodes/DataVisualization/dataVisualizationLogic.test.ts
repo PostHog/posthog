@@ -700,6 +700,28 @@ describe('dataVisualizationLogic', () => {
         tableLogic.unmount()
     })
 
+    test.each([
+        { name: 'shows a Hog VM load failure while the table needs the VM', rules: [equalsRule], failed: true },
+        { name: 'hides a Hog VM load failure once the table has no rules', rules: [], failed: false },
+    ])('$name', async ({ rules, failed }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-load-failure',
+            query: {
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { conditionalFormatting: rules },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+        await expectLogic(tableLogic).toFinishAllListeners()
+
+        tableLogic.actions.setHogVmLoadError(new Error('chunk failed'))
+
+        await expectLogic(tableLogic).toMatchValues({ hogVmLoadFailed: failed })
+        tableLogic.unmount()
+    })
+
     it('does not mutate the original query when updating y-axis formatting', async () => {
         const queryWithAxisSettings: DataVisualizationNode = {
             ...defaultQuery,

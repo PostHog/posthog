@@ -166,7 +166,7 @@ export const Table = (props: TableProps): JSX.Element => {
         hasSortedTable,
         hasMoreData,
         hogVm,
-        hogVmLoadError,
+        hogVmLoadFailed,
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
@@ -337,7 +337,7 @@ export const Table = (props: TableProps): JSX.Element => {
 
     return (
         <>
-            {hogVmLoadError ? (
+            {hogVmLoadFailed ? (
                 <LemonBanner
                     type="warning"
                     className="mb-2"
