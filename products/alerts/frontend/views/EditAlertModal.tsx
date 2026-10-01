@@ -314,6 +314,11 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             labels: series.labels?.slice(0, -skipped),
         }))
     }, [alertForm.evaluation_delay_intervals, indexedResults, query])
+    const previewHistoryTooShort =
+        !useAlertCheckPreview &&
+        (alertForm.evaluation_delay_intervals ?? 0) > 0 &&
+        !!indexedResults?.some((series) => series.data.length > 0) &&
+        !!delayedPreviewResults?.every((series) => series.data.length === 0)
 
     // The monitored trends series' values, for the live preview sparkline. Picked by the alert's
     // series_index so the preview matches what the alert actually evaluates.
@@ -465,6 +470,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}
+            previewHistoryTooShort={previewHistoryTooShort}
             loading={!useAlertCheckPreview && (insightLoading || insightDataLoading)}
         />
     )

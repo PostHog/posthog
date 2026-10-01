@@ -105,13 +105,12 @@ def extract_detector_series(
     if calculation_result.result is None:
         raise RuntimeError(f"No results found for insight with id = {insight.id}")
     if not calculation_result.result:
-        return apply_evaluation_delay(
-            ExtractionResult(
-                series=[], is_breakdown=has_breakdown, interval_type=query.interval, empty_query_result=True
-            ),
-            delay=evaluation_delay_intervals,
-            minimum_points=min_points_to_evaluate(detector_config),
-            timezone=team.timezone,
+        if evaluation_delay_intervals:
+            raise DelayedEvaluationUnavailable(
+                "No series is available to score. Wait for more data or check the insight."
+            )
+        return ExtractionResult(
+            series=[], is_breakdown=has_breakdown, interval_type=query.interval, empty_query_result=True
         )
 
     if has_breakdown:

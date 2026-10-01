@@ -125,6 +125,20 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertIn("less than lower threshold", result.breaches[0])
         self.assertNotIn("previous hour", result.breaches[0])
 
+    def test_empty_detector_result_skips_without_a_baseline(self) -> None:
+        self.alert.detector_config = {"type": "zscore", "window": 30}
+        self.query["breakdownFilter"] = {"breakdown": "$browser", "breakdown_type": "event"}
+        with patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight") as calculate:
+            calculate.return_value.result = []
+            result = check_alert_for_insight(self.alert)
+            self.alert.evaluation_delay_intervals = 0
+            without_delay = check_alert_for_insight(self.alert)
+        self.assertIsNone(result.value)
+        self.assertEqual(result.breaches, [])
+        self.assertIn("No series is available to score", result.skipped_reason)
+        self.assertEqual(without_delay.value, 0)
+        self.assertIsNone(without_delay.skipped_reason)
+
     @parameterized.expand([(False, 31), (True, 31), (True, 0)])
     def test_missing_eligible_value_is_skipped(self, detector: bool, missing_index: int) -> None:
         self.alert.detector_config = {"type": "zscore", "window": 30} if detector else None
