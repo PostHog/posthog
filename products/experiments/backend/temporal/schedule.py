@@ -19,7 +19,6 @@ from products.experiments.backend.temporal.models import (
     SCHEDULED_RECALCULATION_WORKFLOW_NAME,
     ExperimentPrecomputeCanaryInputs,
     ExperimentPrecomputeEnrollmentCensusInputs,
-    ScheduledRecalculationWorkflowInputs,
 )
 
 CANARY_SCHEDULE_ID = "experiment-precompute-canary-schedule"
@@ -79,42 +78,57 @@ async def create_experiment_precompute_enrollment_census_schedule(client: Client
         await a_create_schedule(client, ENROLLMENT_CENSUS_SCHEDULE_ID, schedule, trigger_immediately=False)
 
 
-SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX = "experiment-scheduled-recalculation-hour"
+SCHEDULED_RECALCULATION_SCHEDULE_ID = "experiment-scheduled-recalculation"
+
+# Each hour had its own schedule before the workflow resolved the hour itself. Temporal keeps a
+# schedule until it is deleted, so the replaced ones are removed when the single one is created.
+LEGACY_HOURLY_SCHEDULE_ID_PREFIX = "experiment-scheduled-recalculation-hour"
 
 
 async def create_experiment_scheduled_recalculation_schedules(client: Client) -> None:
-    """Create or update 24 schedules, one per hour, that start a real metrics recalculation for
-    every eligible experiment belonging to teams configured for that hour.
+    """Create or update the hourly schedule that starts a real metrics recalculation for every
+    experiment eligible in the hour it fires.
 
-    Each fires at :30, after the daily timeseries schedule at :00, so the timeseries sync publish
-    usually lands before a real run supersedes it. 24 separate schedules rather than one hourly
-    schedule, matching the timeseries workflows: a run longer than an hour cannot overlap itself,
-    so no overlap policy is needed.
+    Fires at :30, after the daily timeseries schedule at :00, so the timeseries sync publish
+    usually lands before a real run supersedes it. The workflow takes no input: discovery reads
+    the hour and selects the teams configured for it, so one schedule serves all 24 hours.
+
+    SKIP overlap: a run that outlives its hour must not stack on the next one.
+    """
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            SCHEDULED_RECALCULATION_WORKFLOW_NAME,
+            id=f'{SCHEDULED_RECALCULATION_SCHEDULE_ID}-{{{{.ScheduledTime.Format "2006-01-02T15"}}}}',
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(cron_expressions=["30 * * * *"]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, SCHEDULED_RECALCULATION_SCHEDULE_ID):
+        await a_update_schedule(client, SCHEDULED_RECALCULATION_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, SCHEDULED_RECALCULATION_SCHEDULE_ID, schedule, trigger_immediately=False)
+
+    await _delete_legacy_hourly_schedules(client)
+
+
+async def _delete_legacy_hourly_schedules(client: Client) -> None:
+    """Remove the 24 per-hour schedules the single schedule replaces.
+
+    Without this they keep firing alongside it, starting the workflow 25 times an hour.
     """
     for hour in range(24):
-        schedule_id = f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}"
-
-        schedule = Schedule(
-            action=ScheduleActionStartWorkflow(
-                SCHEDULED_RECALCULATION_WORKFLOW_NAME,
-                ScheduledRecalculationWorkflowInputs(hour=hour),
-                id=f'{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}-{{{{.ScheduledTime.Format "2006-01-02"}}}}',
-                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            ),
-            spec=ScheduleSpec(cron_expressions=[f"30 {hour} * * *"]),
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-        )
-
-        if await a_schedule_exists(client, schedule_id):
-            await a_update_schedule(client, schedule_id, schedule)
-        else:
-            await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
+        try:
+            await a_delete_schedule(client, f"{LEGACY_HOURLY_SCHEDULE_ID_PREFIX}-{hour:02d}")
+        except Exception:
+            pass  # Already gone, which is the steady state after the first run.
 
 
 async def delete_experiment_scheduled_recalculation_schedules(client: Client) -> None:
-    """Delete all 24 scheduled recalculation schedules."""
-    for hour in range(24):
-        try:
-            await a_delete_schedule(client, f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}")
-        except Exception:
-            pass  # Schedule might not exist
+    """Delete the scheduled recalculation schedule, and any legacy per-hour ones left behind."""
+    try:
+        await a_delete_schedule(client, SCHEDULED_RECALCULATION_SCHEDULE_ID)
+    except Exception:
+        pass  # Schedule might not exist
+    await _delete_legacy_hourly_schedules(client)

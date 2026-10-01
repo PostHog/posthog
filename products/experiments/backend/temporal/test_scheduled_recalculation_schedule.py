@@ -5,7 +5,8 @@ from django.conf import settings
 
 from products.experiments.backend.temporal.models import SCHEDULED_RECALCULATION_WORKFLOW_NAME
 from products.experiments.backend.temporal.schedule import (
-    SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX,
+    LEGACY_HOURLY_SCHEDULE_ID_PREFIX,
+    SCHEDULED_RECALCULATION_SCHEDULE_ID,
     create_experiment_scheduled_recalculation_schedules,
 )
 
@@ -14,41 +15,53 @@ pytestmark = pytest.mark.asyncio
 MODULE = "products.experiments.backend.temporal.schedule"
 
 
-async def test_creates_one_schedule_per_hour_offset_from_the_timeseries_run():
+async def test_creates_one_hourly_schedule_offset_from_the_timeseries_run():
     with (
         patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=False)),
         patch(f"{MODULE}.a_create_schedule", AsyncMock()) as create,
         patch(f"{MODULE}.a_update_schedule", AsyncMock()) as update,
+        patch(f"{MODULE}.a_delete_schedule", AsyncMock()),
     ):
         await create_experiment_scheduled_recalculation_schedules(AsyncMock())
 
-    assert create.await_count == 24
+    assert create.await_count == 1
     update.assert_not_awaited()
 
-    schedule_ids = [call.args[1] for call in create.await_args_list]
-    assert schedule_ids[0] == f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-00"
-    assert schedule_ids[23] == f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-23"
-
-    # Every field a typo could break, checked per schedule rather than at the ends: a wrong
-    # workflow name or task queue fails only in production, where nothing reports it.
-    for hour, call in enumerate(create.await_args_list):
-        schedule_id, schedule = call.args[1], call.args[2]
-        assert schedule_id == f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}"
-        # :30, so the daily timeseries run at :00 publishes before a real run supersedes it.
-        assert schedule.spec.cron_expressions == [f"30 {hour} * * *"]
-        assert schedule.action.workflow == SCHEDULED_RECALCULATION_WORKFLOW_NAME
-        assert schedule.action.task_queue == settings.GENERAL_PURPOSE_TASK_QUEUE
-        assert schedule.action.args[0].hour == hour
-        assert schedule.action.id.startswith(f"{SCHEDULED_RECALCULATION_SCHEDULE_ID_PREFIX}-{hour:02d}-")
+    # Every field a typo could break: a wrong workflow name or task queue fails only in
+    # production, where nothing reports it.
+    call = create.await_args_list[0]
+    schedule_id, schedule = call.args[1], call.args[2]
+    assert schedule_id == SCHEDULED_RECALCULATION_SCHEDULE_ID
+    # :30, so the daily timeseries run at :00 publishes before a real run supersedes it.
+    assert schedule.spec.cron_expressions == ["30 * * * *"]
+    assert schedule.action.workflow == SCHEDULED_RECALCULATION_WORKFLOW_NAME
+    assert schedule.action.task_queue == settings.GENERAL_PURPOSE_TASK_QUEUE
+    # No input: discovery resolves the hour, so one schedule serves every hour.
+    assert schedule.action.args == []
 
 
-async def test_existing_schedules_are_updated_not_recreated():
+async def test_the_replaced_per_hour_schedules_are_deleted():
+    # Temporal keeps a schedule until it is deleted, so leaving the 24 behind would start the
+    # workflow 25 times an hour.
+    with (
+        patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=False)),
+        patch(f"{MODULE}.a_create_schedule", AsyncMock()),
+        patch(f"{MODULE}.a_delete_schedule", AsyncMock()) as delete,
+    ):
+        await create_experiment_scheduled_recalculation_schedules(AsyncMock())
+
+    deleted = [call.args[1] for call in delete.await_args_list]
+    assert deleted == [f"{LEGACY_HOURLY_SCHEDULE_ID_PREFIX}-{hour:02d}" for hour in range(24)]
+
+
+async def test_an_existing_schedule_is_updated_not_recreated():
     with (
         patch(f"{MODULE}.a_schedule_exists", AsyncMock(return_value=True)),
         patch(f"{MODULE}.a_create_schedule", AsyncMock()) as create,
         patch(f"{MODULE}.a_update_schedule", AsyncMock()) as update,
+        patch(f"{MODULE}.a_delete_schedule", AsyncMock()),
     ):
         await create_experiment_scheduled_recalculation_schedules(AsyncMock())
 
-    assert update.await_count == 24
+    assert update.await_count == 1
     create.assert_not_awaited()
