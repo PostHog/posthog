@@ -15,7 +15,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from ..facade.enums import BriefingStatus, BriefingTrigger
-from ..feature_flags import is_enabled_for
+from ..feature_flags import may_get_briefing
 from ..logic import generate
 from ..logic.briefings import create_briefing
 from ..logic.eligibility import due_edition
@@ -93,14 +93,14 @@ def _due_briefings() -> list[DailyBriefing]:
             break
         team, user = teams.get(team_id), users.get(user_id)
         already_created = (team_id, user_id, slot.local_day, slot.edition) in existing
-        # Someone who opened Today may have lost the flag since. They get no row and no workflow.
-        if already_created or team is None or user is None or not is_enabled_for(user, team):
+        if already_created or team is None or user is None or not may_get_briefing(user, team):
             continue
-        created.append(
-            create_briefing(
-                team=team, user=user, slot=slot, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
-            )
+        # None when the person opened the edition themselves since the rows were read.
+        briefing = create_briefing(
+            team=team, user=user, slot=slot, timezone_name=timezone_name, trigger=BriefingTrigger.SCHEDULED
         )
+        if briefing is not None:
+            created.append(briefing)
     return created
 
 

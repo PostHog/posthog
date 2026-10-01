@@ -1,7 +1,8 @@
-"""Feature-flag gate for the Today briefing.
+"""Who gets a Today briefing.
 
 The briefing is part of the new navigation, so it uses the same flag: a person gets a briefing
-only when `today-rail-nav` is on for them. The API, the scheduler and the agent run all check it.
+only when `today-rail-nav` is on for them. The API checks the flag; the scheduler and the agent
+run, which act without a request, also check that the person can still open the project.
 """
 
 import structlog
@@ -30,3 +31,9 @@ def is_enabled_for(user: User, team: Team) -> bool:
     except Exception:
         logger.warning("today_flag_check_failed", exc_info=True)
         return False
+
+
+def may_get_briefing(user: User, team: Team) -> bool:
+    """Whether a run may start for this person outside a request. Someone who opened Today may have
+    left the organization or lost the project since, and must not get its data gathered for them."""
+    return user.teams.filter(id=team.id).exists() and is_enabled_for(user, team)

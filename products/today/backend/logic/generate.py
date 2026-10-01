@@ -15,7 +15,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
 from ..facade.enums import BriefingStatus
-from ..feature_flags import is_enabled_for
+from ..feature_flags import may_get_briefing
 from ..models import DailyBriefing
 from .agent_output import BriefingOutput, problems_with, strict_schema, to_content, to_fact_sheet
 from .briefings import recent_ready_briefings, store_briefing
@@ -66,11 +66,11 @@ def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
 def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext, str, str] | None:
     """The sandbox context and the prompt, or None when the person may not get a briefing.
 
-    The flag can turn off after the row was created, so the row is deleted then: a briefing
-    nobody can open is not worth a sandbox.
+    The flag or the person's access can go after the row was created, so the row is deleted then:
+    a briefing nobody can open is not worth a sandbox.
     """
     briefing, team, user = _load(team_id, briefing_id)
-    if not is_enabled_for(user, team) or not team.organization.is_ai_data_processing_approved:
+    if not may_get_briefing(user, team) or not team.organization.is_ai_data_processing_approved:
         briefing.delete()
         return None
     briefing.status = BriefingStatus.WRITING

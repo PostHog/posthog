@@ -69,6 +69,13 @@ class Migration(migrations.Migration):
                         name="today_briefing_pending_idx",
                     ),
                 ],
+                "constraints": [
+                    models.UniqueConstraint(
+                        condition=models.Q(("status__in", ["collecting", "writing"])),
+                        fields=("team_id", "user_id", "local_day", "edition"),
+                        name="today_briefing_one_pending",
+                    )
+                ],
             },
             managers=[
                 ("all_teams", django.db.models.manager.Manager()),

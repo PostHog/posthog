@@ -185,16 +185,19 @@ class TestNoBriefingWithoutTheFlag(TodayTeamScopedTestMixin, BaseTest):
     @parameterized.expand(
         [
             # Prague is UTC+2, so 05:50 UTC is 07:50 and 09:50 UTC is 11:50 local time.
-            ("morning edition", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, [BriefingEdition.MORNING]),
-            ("midday edition", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), True, [BriefingEdition.MIDDAY]),
-            ("between editions", datetime(2026, 9, 30, 7, 0, tzinfo=UTC), True, []),
-            ("flag off", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), False, []),
+            ("morning edition", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, True, [BriefingEdition.MORNING]),
+            ("midday edition", datetime(2026, 9, 30, 9, 50, tzinfo=UTC), True, True, [BriefingEdition.MIDDAY]),
+            ("between editions", datetime(2026, 9, 30, 7, 0, tzinfo=UTC), True, True, []),
+            ("flag off", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), False, True, []),
+            ("left the organization", datetime(2026, 9, 30, 5, 50, tzinfo=UTC), True, False, []),
         ]
     )
-    def test_scheduler_writes_each_edition_ahead_only_with_the_flag(
-        self, _name: str, now: datetime, enabled: bool, expected: list[BriefingEdition]
+    def test_scheduler_writes_each_edition_ahead_only_for_people_who_may_get_one(
+        self, _name: str, now: datetime, enabled: bool, member: bool, expected: list[BriefingEdition]
     ) -> None:
         self._viewer_row()
+        if not member:
+            self.organization_membership.delete()
 
         with time_machine.travel(now, tick=False), patch(FLAG, return_value=enabled):
             created = _due_briefings()

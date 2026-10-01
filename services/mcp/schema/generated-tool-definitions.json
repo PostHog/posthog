@@ -12469,7 +12469,7 @@
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         },
         "feature_flag": "today-rail-nav",
         "feature_flag_behavior": "enable"

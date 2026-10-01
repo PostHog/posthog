@@ -4,6 +4,7 @@ import asyncio
 from datetime import date, datetime, timedelta
 
 from django.conf import settings
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
@@ -51,16 +52,31 @@ def start_generation(briefing: DailyBriefing) -> None:
 
 def create_briefing(
     *, team: Team, user: User, slot: EditionSlot, timezone_name: str, trigger: BriefingTrigger
-) -> DailyBriefing:
-    return DailyBriefing.objects.for_team(team.id).create(
-        team_id=team.id,
-        user_id=user.id,
-        local_day=slot.local_day,
-        edition=slot.edition,
-        timezone=timezone_name,
-        trigger=trigger,
-        status=BriefingStatus.COLLECTING,
-    )
+) -> DailyBriefing | None:
+    """The new row, or None when a concurrent request created the edition's pending row first."""
+    try:
+        with transaction.atomic():
+            return DailyBriefing.objects.for_team(team.id).create(
+                team_id=team.id,
+                user_id=user.id,
+                local_day=slot.local_day,
+                edition=slot.edition,
+                timezone=timezone_name,
+                trigger=trigger,
+                status=BriefingStatus.COLLECTING,
+            )
+    except IntegrityError:
+        return None
+
+
+def start_briefing(
+    *, team: Team, user: User, slot: EditionSlot, timezone_name: str, trigger: BriefingTrigger
+) -> DailyBriefing | None:
+    """Create the edition's row and start its run. None when another request started it a moment earlier."""
+    briefing = create_briefing(team=team, user=user, slot=slot, timezone_name=timezone_name, trigger=trigger)
+    if briefing is not None:
+        start_generation(briefing)
+    return briefing
 
 
 @frozen
@@ -108,10 +124,10 @@ def get_or_start_briefing(
     current = _current(team, user, slot)
     if current is None:
         # The scheduler writes both editions ahead for recent viewers; this covers everyone else.
-        briefing = create_briefing(
-            team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN
-        )
-        start_generation(briefing)
+        briefing = start_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.FIRST_OPEN)
+        if briefing is None:
+            # Two tabs or a poll racing the first load: the request that lost the race shows the winner's row.
+            return get_or_start_briefing(team=team, user=user, timezone_name=timezone_name, now=now)
         current = CurrentBriefing(shown=briefing, generating=False)
     now = timezone.now()
     # The scheduler only asks who viewed in the last 14 days, so the stamp does not need every poll.
@@ -128,8 +144,10 @@ def refresh_briefing(*, team: Team, user: User, timezone_name: str | None) -> Da
     current = _current(team, user, slot)
     if current is not None and (current.generating or current.shown.status in _PENDING):
         return current.shown
-    briefing = create_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
-    start_generation(briefing)
+    briefing = start_briefing(team=team, user=user, slot=slot, timezone_name=tz, trigger=BriefingTrigger.REFRESH)
+    if briefing is None:
+        # Another request started this edition's run between the read and the write; wait for that one.
+        return refresh_briefing(team=team, user=user, timezone_name=timezone_name)
     return briefing
 
 

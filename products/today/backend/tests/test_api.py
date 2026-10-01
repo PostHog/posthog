@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from rest_framework import status
 
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
+from products.today.backend.logic import briefings
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 
@@ -34,6 +35,25 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         rows = DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id)
         assert [(row.trigger, row.timezone) for row in rows] == [(BriefingTrigger.FIRST_OPEN, "Europe/Prague")]
+        assert sync_connect.return_value.start_workflow.call_count == 1
+
+    def test_first_opens_racing_each_other_start_one_run(self, sync_connect: MagicMock) -> None:
+        sync_connect.return_value.start_workflow = AsyncMock()
+        url = f"/api/projects/{self.team.id}/today/briefing/"
+        real_current = briefings._current
+        reads = {"count": 0}
+
+        # Both requests read the day's rows before either wrote; only the retry sees the winner's row.
+        def stale_for_both_requests(*args, **kwargs):
+            reads["count"] += 1
+            return None if reads["count"] <= 2 else real_current(*args, **kwargs)
+
+        with self._flag(True), patch.object(briefings, "_current", side_effect=stale_for_both_requests):
+            first = self.client.get(url)
+            second = self.client.get(url)
+
+        assert second.json()["id"] == first.json()["id"]
+        assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=self.user.id).count() == 1
         assert sync_connect.return_value.start_workflow.call_count == 1
 
     def test_opening_after_noon_starts_the_midday_edition(self, sync_connect: MagicMock) -> None:

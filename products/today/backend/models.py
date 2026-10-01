@@ -44,6 +44,14 @@ class DailyBriefing(ProductTeamModel):
                 condition=models.Q(status__in=["collecting", "writing"]),
             ),
         ]
+        # One run per edition at a time: two requests that both find no briefing must not both start a sandbox.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "user_id", "local_day", "edition"],
+                condition=models.Q(status__in=["collecting", "writing"]),
+                name="today_briefing_one_pending",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user_id} {self.local_day} {self.edition} {self.status}"
