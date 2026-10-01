@@ -82,7 +82,7 @@ export interface llmPlaygroundModelLogicActions {
             provider: string | null
             providerKeyId: string | null
         },
-        promptId?: string
+        promptId?: string | undefined
     ) => {
         promptId: string | undefined
         selection: {
