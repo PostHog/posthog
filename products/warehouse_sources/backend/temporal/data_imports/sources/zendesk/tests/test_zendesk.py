@@ -512,6 +512,24 @@ class TestZendeskSinceCursorPaginator:
         endpoint_config = _endpoint(get_resource("activities", should_use_incremental_field=True))
         assert isinstance(endpoint_config["paginator"], ZendeskSinceCursorPaginator)
 
+    def test_drops_since_from_a_restored_checkpoint(self) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached —
+        # that's the exact failure this paginator exists to fix. A retry must not resume
+        # straight back into the same URL, or it hits the same 400 forever.
+        p = ZendeskSinceCursorPaginator(next_url_path="links.next")
+        dirty_next_url = (
+            f"{BASE}/api/v2/activities.json?page%5Bafter%5D=abc123&page%5Bsize%5D=100&since=1970-01-01+00%3A00%3A00+UTC"
+        )
+
+        p.set_resume_state({"next_url": dirty_next_url})
+
+        req = Request(method="GET", url=f"{BASE}/api/v2/activities.json")
+        req.params = {"page[size]": 100, "since": "1970-01-01T00:00:00Z"}
+        p.init_request(req)
+
+        assert "since" not in req.url
+        assert "page%5Bafter%5D=abc123" in req.url
+
 
 class TestZendeskDeclarativeIncremental:
     def test_activities_uses_the_server_side_since_filter(self) -> None:

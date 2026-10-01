@@ -557,6 +557,14 @@ class ZendeskSinceCursorPaginator(JSONLinkPaginator):
         if self._next_url:
             self._next_url = _without_query_param(self._next_url, "since")
 
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        # A run that already failed on this URL checkpointed it with `since` still attached
+        # (that's the exact failure this paginator exists to fix) — clean it here too, or a
+        # retry just resumes straight back into the same 400.
+        super().set_resume_state(state)
+        if self._next_url:
+            self._next_url = _without_query_param(self._next_url, "since")
+
 
 class ZendeskAfterUrlPaginator(JSONLinkPaginator):
     """Cursor pagination for `/api/v2/ticket_audits`, which returns its next-page link as
