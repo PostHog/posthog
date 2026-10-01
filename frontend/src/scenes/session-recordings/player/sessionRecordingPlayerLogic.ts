@@ -26,6 +26,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import {
     AudioMuteReplayerPlugin,
     COMMON_REPLAYER_CONFIG,
+    speedDependentStyleRules,
     CanvasReplayerPlugin,
     CorsPlugin,
     SnapshotStore,
@@ -34,6 +35,7 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { findLastIndex } from 'lib/utils/arrays'
@@ -145,6 +147,172 @@ export interface Player {
 // on the missing head. Detect that state so a seek can re-init the replayer instead of failing.
 function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean {
     return !!replayer && !replayer.iframe?.contentDocument?.head
+}
+
+interface RenderedScrollDiagnostic {
+    rendered_doc_scroll_y: number | null
+    rendered_doc_scroll_x: number | null
+    rendered_max_scroll_y: number | null
+    rendered_max_scroll_x: number | null
+    rendered_scrolled_element_count: number | null
+    rendered_top_scroll_node_id: number | null
+    rendered_top_scroll_y: number | null
+    rendered_scroll_samples: string | null
+}
+
+const EMPTY_RENDERED_SCROLL: RenderedScrollDiagnostic = {
+    rendered_doc_scroll_y: null,
+    rendered_doc_scroll_x: null,
+    rendered_max_scroll_y: null,
+    rendered_max_scroll_x: null,
+    rendered_scrolled_element_count: null,
+    rendered_top_scroll_node_id: null,
+    rendered_top_scroll_y: null,
+    rendered_scroll_samples: null,
+}
+
+// The offset between two browsers starts small and grows as playback proceeds, so a single first-frame
+// reading would miss it. Sample across the timeline instead: throttle to one reading per interval and
+// cap the total, so diffing the two browsers' samples by playhead time shows the offset accumulate.
+const RENDERED_SAMPLE_INTERVAL_MS = 2000
+const RENDERED_SAMPLE_MAX = 40
+
+interface RenderedSampleCache {
+    renderedSampleCount?: number
+    lastRenderedSampleAt?: number
+    // Playhead buckets already sampled, so the 40-sample budget spreads across the whole recording
+    // instead of being spent in the first ~78s of playback by the wall-clock throttle alone.
+    renderedSamplePlayheadBuckets?: Set<number>
+    droppedFrames?: number
+    frameCount?: number
+    maxFrameTime?: number
+}
+
+// Reads the scroll offsets the player actually rendered in the replay iframe. The event-derived
+// 'recording anchor diagnostic' proves two browsers receive identical scroll events; this reads the
+// resulting DOM, so a browser that restores a nested scroll container to a different offset from the
+// same events shows up as a different rendered_top_scroll_y. Node ids come from the rrweb mirror, so
+// they line up with primary_scroll_node_id in the event-side diagnostic.
+function readRenderedScroll(replayer: Replayer | undefined): RenderedScrollDiagnostic {
+    try {
+        const doc = replayer?.iframe?.contentDocument
+        if (!doc) {
+            return EMPTY_RENDERED_SCROLL
+        }
+        const mirror = (replayer as unknown as { getMirror?: () => { getId?: (node: Node) => number } }).getMirror?.()
+        const docEl = doc.scrollingElement || doc.documentElement
+
+        const scrolled: { id: number; y: number; x: number; sh: number; ch: number }[] = []
+        const all = doc.querySelectorAll('*')
+        for (let i = 0; i < all.length; i++) {
+            const el = all[i] as HTMLElement
+            const y = el.scrollTop
+            const x = el.scrollLeft
+            if (y > 0 || x > 0) {
+                scrolled.push({ id: mirror?.getId?.(el) ?? -1, y, x, sh: el.scrollHeight, ch: el.clientHeight })
+            }
+        }
+        scrolled.sort((a, b) => b.y - a.y)
+        const top = scrolled[0]
+
+        return {
+            rendered_doc_scroll_y: docEl?.scrollTop ?? null,
+            rendered_doc_scroll_x: docEl?.scrollLeft ?? null,
+            rendered_max_scroll_y: scrolled.reduce((m, s) => Math.max(m, s.y), 0),
+            rendered_max_scroll_x: scrolled.reduce((m, s) => Math.max(m, s.x), 0),
+            rendered_scrolled_element_count: scrolled.length,
+            rendered_top_scroll_node_id: top ? top.id : null,
+            rendered_top_scroll_y: top ? top.y : null,
+            // Bounded so the payload stays small on pages with many scroll containers
+            rendered_scroll_samples: JSON.stringify(scrolled.slice(0, 12)),
+        }
+    } catch {
+        return EMPTY_RENDERED_SCROLL
+    }
+}
+
+// A recorded scroll replayed with behavior:'smooth' is neutralized to instant when the OS asks for
+// reduced motion, so a viewer with this setting on cannot reproduce the drift.
+function prefersReducedMotion(): boolean | null {
+    try {
+        return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    } catch {
+        return null
+    }
+}
+
+// TODO: temporary diagnostic for the cross-browser rendered-scroll investigation. Emits one sample per
+// interval, tagged with the playhead so the two browsers' samples line up in time. The runtime fields
+// (speed, skip-inactivity, reduced-motion, frame timing) explain why the offset is per-viewer rather
+// than per-browser. Remove this and readRenderedScroll once the cause is found.
+function captureRenderedScrollSample(args: {
+    replayer: Replayer | undefined
+    recordingId: string
+    timestamp: number | undefined
+    rrwebPlayerTime: number | null | undefined
+    recordingDurationMs: number | undefined
+    speed: number | undefined
+    skippingInactivity: boolean | undefined
+    cache: RenderedSampleCache
+}): void {
+    const { replayer, recordingId, timestamp, rrwebPlayerTime, recordingDurationMs, speed, skippingInactivity, cache } =
+        args
+    try {
+        if ((cache.renderedSampleCount ?? 0) >= RENDERED_SAMPLE_MAX) {
+            return
+        }
+        // Reading scroll before the replay iframe document exists yields an empty sample that would
+        // still burn a slot; skip without counting so the first real frame gets sampled instead.
+        if (!replayer || isReplayerDocumentUnavailable(replayer)) {
+            return
+        }
+        // Reserve one sample per playhead bucket so coverage spans the whole recording, not just the start.
+        const playheadBucket =
+            rrwebPlayerTime != null && recordingDurationMs && recordingDurationMs > 0
+                ? Math.max(
+                      0,
+                      Math.min(
+                          RENDERED_SAMPLE_MAX - 1,
+                          Math.floor((rrwebPlayerTime / recordingDurationMs) * RENDERED_SAMPLE_MAX)
+                      )
+                  )
+                : null
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets ??= new Set()
+            if (cache.renderedSamplePlayheadBuckets.has(playheadBucket)) {
+                return
+            }
+        }
+        const nowMs = performance.now()
+        if (
+            cache.lastRenderedSampleAt !== undefined &&
+            nowMs - cache.lastRenderedSampleAt < RENDERED_SAMPLE_INTERVAL_MS
+        ) {
+            return
+        }
+        cache.lastRenderedSampleAt = nowMs
+        cache.renderedSampleCount = (cache.renderedSampleCount ?? 0) + 1
+        if (playheadBucket !== null) {
+            cache.renderedSamplePlayheadBuckets?.add(playheadBucket)
+        }
+        posthog.capture('recording anchor diagnostic rendered', {
+            recording_id: recordingId,
+            is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+            sample_index: cache.renderedSampleCount,
+            rrweb_player_time: rrwebPlayerTime ?? null,
+            current_timestamp: timestamp ?? null,
+            // Runtime knobs that explain a per-viewer, not per-browser, difference
+            player_speed: speed ?? null,
+            skipping_inactivity: skippingInactivity ?? null,
+            prefers_reduced_motion: prefersReducedMotion(),
+            dropped_frames: cache.droppedFrames ?? null,
+            frame_count: cache.frameCount ?? null,
+            max_frame_time_ms: cache.maxFrameTime ?? null,
+            ...readRenderedScroll(replayer),
+        })
+    } catch {
+        // diagnostics must never break playback
+    }
 }
 
 export enum SessionRecordingPlayerMode {
@@ -2470,15 +2638,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 ...COMMON_REPLAYER_CONFIG,
                 insertStyleRules: [
                     ...(COMMON_REPLAYER_CONFIG.insertStyleRules || []),
-                    // At high speeds, CSS animations/transitions aren't sped up by rrweb,
-                    // causing visual artifacts. Snap them to their end state instead of suppressing
-                    // them entirely — `animation: none` left content stuck at its pre-animation state
-                    // (e.g. opacity: 0) on sites that use keyframes for content reveal.
-                    ...(values.speed >= 2
-                        ? [
-                              '*, *::before, *::after { animation-duration: 1ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; animation-fill-mode: forwards !important; transition-duration: 0s !important; transition-delay: 0s !important; }',
-                          ]
-                        : []),
+                    ...speedDependentStyleRules(values.speed),
                 ],
                 // these two settings are attempts to improve performance of running two Replayers at once
                 // the main player and a preview player
@@ -2776,6 +2936,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.groupedAssetErrors = null
             cache.rrwebWarningSummary = null
             cache.rrwebWarningCount = 0
+            cache.renderedSampleCount = 0
+            cache.renderedSamplePlayheadBuckets = new Set()
+            cache.lastRenderedSampleAt = undefined
             if (cache.diagnosticsFlushTimer) {
                 clearTimeout(cache.diagnosticsFlushTimer)
                 cache.diagnosticsFlushTimer = null
@@ -3281,6 +3444,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
                 // The normal loop. Progress the player position and continue the loop
                 actions.setCurrentTimestamp(newTimestamp)
+
+                // Flag-gated so only targeted viewers run the DOM read; everyone else skips the block entirely
+                if (
+                    props.mode !== SessionRecordingPlayerMode.Preview &&
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_BROWSER_SCROLL_BUG]
+                ) {
+                    captureRenderedScrollSample({
+                        replayer: values.player?.replayer,
+                        recordingId: props.sessionRecordingId,
+                        timestamp: newTimestamp,
+                        rrwebPlayerTime,
+                        recordingDurationMs: values.sessionPlayerData?.durationMs,
+                        speed: values.speed,
+                        skippingInactivity: values.isSkippingInactivity,
+                        cache,
+                    })
+                }
 
                 // Throttled position update for loading scheduler (every 5s)
                 if (shouldUpdatePlaybackPosition(newTimestamp, cache.lastPlaybackPositionUpdate)) {

@@ -201,6 +201,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    ci_idle_skips: int = 0
     dev_stack_preview_enabled: bool = False
     babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
     ci_resume_snapshot_created: bool = False
@@ -308,6 +309,7 @@ class TaskEvent(StrEnum):
 class CIFollowUpDecision(StrEnum):
     FIRE = "fire"
     SKIP = "skip"
+    WAIT = "wait"
     NO_PR = "no_pr"
     TERMINAL = "terminal"
 
@@ -325,6 +327,7 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     DEFAULT_CI_MESSAGE,
     IN_FLIGHT_TURN_IDLE_TIMEOUT_SECONDS,
     INACTIVITY_TIMEOUT,
+    MAX_CI_IDLE_SKIPS,
     MAX_CI_REPETITIONS,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
@@ -400,6 +403,9 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
+# Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
+_SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
+
 # Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
 # histories of such runs proceeded into provisioning; the marker keeps their replays
 # deterministic. Same two-step cleanup lifecycle as above.
@@ -419,6 +425,7 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 _PATCH_ID_DELIVERED_PR_TIMEOUT_STATUS = "tasks-delivered-pr-timeout-status"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
+_PATCH_ID_CI_IDLE_SKIP_CAP = "tasks-ci-idle-skip-cap"
 
 AGENT_LOST_ERROR_MESSAGE = "The agent stopped before finishing its turn"
 
@@ -531,6 +538,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
+        self._ci_idle_skips: int = 0
         self._last_active_time: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
@@ -559,6 +567,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._self_driving_quota_next_check_at: Optional[datetime] = None
         self._self_driving_quota_checks_active: bool = True
         self._current_slack_relay_workflow_id: Optional[str] = None
+        # A relay started during provisioning that the first turn_started must reuse.
+        self._early_slack_relay_open: bool = False
         self._agent_shadow_launched = False
         self._first_command_dispatched_recorded = False
         self._first_agent_activity_recorded = False
@@ -567,6 +577,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_ready_at: datetime | None = None
         self._boot_telemetry_tasks: list[asyncio.Task[None]] = []
         self._progress_chain: asyncio.Task[None] | None = None
+        self._slack_setup_chain: asyncio.Task[None] | None = None
         self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
 
@@ -666,6 +677,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _dispatch_followup(self, followup: PendingFollowup) -> None:
         self._last_active_time = workflow.now()
         self._first_user_message_received = True
+        self._ci_idle_skips = 0
         if self._should_skip_followup(followup.message, followup.artifact_ids):
             workflow.logger.warning(
                 "empty_followup_skipped",
@@ -884,6 +896,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.create_pr
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
+            and self._ci_idle_skips < MAX_CI_IDLE_SKIPS
         )
         # When CI follow-up is scheduled, the inactivity timer must outlive
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
@@ -1024,12 +1037,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR is in the merge queue, skipping CI follow-up",
                 extra={"run_id": self.context.run_id, "pr_url": pr_context.pr_url},
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT
         fingerprint_changed = self._pr_fingerprint != pr_context.fingerprint
+        idle = CIFollowUpDecision.WAIT if pr_context.ci_status == "pending" else CIFollowUpDecision.SKIP
         if not ci_follow_up_actionable_gate():
             # Legacy replay path: any fingerprint change fires; feedback is not consulted.
             if not fingerprint_changed:
-                return CIFollowUpDecision.SKIP
+                return idle
             self._pr_fingerprint = pr_context.fingerprint
             return CIFollowUpDecision.FIRE
         # New unresolved review threads are feedback for the agent, and comparing
@@ -1046,7 +1060,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "pr_state": pr_context.pr_state,
                 },
             )
-            return CIFollowUpDecision.SKIP
+            return idle
         self._pr_fingerprint = pr_context.fingerprint
         fire = (fingerprint_changed and is_pr_actionable(pr_context)) or new_feedback
         workflow.logger.info(
@@ -1062,7 +1076,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "fire": fire,
             },
         )
-        return CIFollowUpDecision.FIRE if fire else CIFollowUpDecision.SKIP
+        return CIFollowUpDecision.FIRE if fire else idle
 
     async def _emit_pr_opened_progress(self, pr_url: str) -> None:
         # First time we observe a PR: surface "Opened pull request" + "Keeping CI green" so the UI moves
@@ -1155,7 +1169,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "PR is in the merge queue, skipping CI follow-up",
                 extra={"run_id": self.context.run_id, "pr_url": snapshot.pr_url},
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT
         attention = self._babysit_journal.attention(snapshot)
         if attention.is_empty:
             if (
@@ -1191,7 +1205,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "head_sha": snapshot.head_sha,
                 },
             )
-            return CIFollowUpDecision.SKIP
+            return CIFollowUpDecision.WAIT if snapshot.ci_status == "pending" else CIFollowUpDecision.SKIP
         self._pending_babysit = _BabysitDispatch(snapshot=snapshot, attention=attention)
         workflow.logger.info(
             "PR needs attention, dispatching CI follow-up",
@@ -1378,16 +1392,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case CIFollowUpDecision.FIRE:
                                 workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 self._ci_resume_snapshot_created = False
+                                self._ci_idle_skips = 0
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR | CIFollowUpDecision.TERMINAL:
                                 # No PR will ever appear — stop the CI loop entirely.
                                 self._ci_repetitions = MAX_CI_REPETITIONS
-                            case CIFollowUpDecision.SKIP:
+                            case CIFollowUpDecision.SKIP | CIFollowUpDecision.WAIT:
                                 # Bound the next get_pr_context call to +CI_FOLLOW_UP_DELAY.
                                 # Without this, _wait_for_ci_follow_up returns immediately
                                 # whenever last_active_time is older than the delay, and the
                                 # workflow tight-loops calling GET /repos/.../pulls/{n}.
                                 self._last_active_time = workflow.now()
+                                if (
+                                    follow_up_result == CIFollowUpDecision.SKIP
+                                    and self.context.mode != "interactive"
+                                    and workflow.patched(_PATCH_ID_CI_IDLE_SKIP_CAP)
+                                ):
+                                    self._ci_idle_skips += 1
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
@@ -1812,6 +1833,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Agent-design path owns this surface via per-turn relay children.
         if not self._is_agent_design_enabled:
             await self._post_slack_update()
+        elif self._slack_thread_context:
+            # The first turn's relay starts now, so the plan shows while the sandbox provisions.
+            await self._start_slack_agent_design_relay(self._slack_thread_context, setup_title=sandbox_label)
+            self._early_slack_relay_open = True
 
         sandbox_output = await self._get_sandbox_for_repository()
         sandbox_id = sandbox_output.sandbox_id
@@ -1955,6 +1980,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 connect_token=self._sandbox_connect_token,
                 jwt_kid=self._sandbox_jwt_kid,
                 ci_repetitions=self._ci_repetitions,
+                ci_idle_skips=self._ci_idle_skips,
                 pr_fingerprint=self._pr_fingerprint,
                 pr_unresolved_threads=self._pr_unresolved_threads,
                 babysit_journal=self._babysit_journal,
@@ -2000,6 +2026,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
         self._dev_stack_preview_enabled = resumed.dev_stack_preview_enabled
         self._ci_repetitions = resumed.ci_repetitions
+        self._ci_idle_skips = resumed.ci_idle_skips
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._babysit_journal = resumed.babysit_journal
@@ -2465,7 +2492,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -2523,7 +2550,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -2764,6 +2791,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         scoped id is what actually goes on the wire — callers don't need to
         think about uniqueness.
         """
+        if self._early_slack_relay_open and group == "setup" and step in _SLACK_SETUP_PROGRESS_STEPS:
+            self._forward_slack_setup_step(step, status, label)
         activity_input = EmitProgressInput(
             run_id=self.context.run_id,
             step=step,
@@ -2783,6 +2812,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         emission.add_done_callback(lambda finished: self._pending_progress_activities.pop(finished, None))
         if wait:
             await emission
+
+    def _forward_slack_setup_step(self, step: str, status: str, label: str) -> None:
+        """Show a sandbox setup step in the Slack plan, in the order the steps happen."""
+        payload = {"step": step, "status": status, "title": label}
+        self._slack_setup_chain = asyncio.create_task(
+            self._signal_slack_setup_step_in_order(self._slack_setup_chain, payload)
+        )
+
+    async def _signal_slack_setup_step_in_order(
+        self, previous: "asyncio.Task[None] | None", payload: dict[str, str]
+    ) -> None:
+        if previous is not None:
+            await asyncio.wait([previous])
+        if not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.setup_step, payload)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_setup_step_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
 
     async def _emit_progress_in_order(
         self,
@@ -3409,27 +3461,39 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def turn_started(self, payload: dict[str, Any]) -> None:
         if not self._is_agent_design_enabled:
             return
+        if self._early_slack_relay_open:
+            # The relay started during provisioning already streams the first turn.
+            self._early_slack_relay_open = False
+            return
         # Any orphaned previous-turn child times out on its own.
         slack_ctx = payload.get("slack_thread_context") or self._slack_thread_context or {}
         if not slack_ctx:
             return
+        await self._start_slack_agent_design_relay(slack_ctx)
+
+    async def _start_slack_agent_design_relay(
+        self, slack_ctx: dict[str, Any], setup_title: Optional[str] = None
+    ) -> None:
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
         await workflow.start_child_workflow(
             SlackAgentDesignRelayWorkflow.run,
-            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx, run_id=self.context.run_id),
+            SlackAgentDesignRelayInput(
+                slack_thread_context=slack_ctx, run_id=self.context.run_id, setup_title=setup_title
+            ),
             id=relay_workflow_id,
             task_queue=workflow.info().task_queue,
             # Cancel on parent close so the relay's finally block runs
             # stop_slack_agent_design_stream — otherwise the plan-block
             # stream is orphaned until Slack's own GC.
             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-            execution_timeout=timedelta(hours=1),
+            # The first turn's relay also spans provisioning, and a coding turn can run for hours.
+            execution_timeout=timedelta(hours=6),
         )
 
     @temporalio.workflow.signal
     async def agent_status_update(self, payload: dict[str, Any]) -> None:
-        """Forward {title, details} step update to the current per-turn child."""
+        """Forward a {phase} tool-call update to the current per-turn child."""
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         try:

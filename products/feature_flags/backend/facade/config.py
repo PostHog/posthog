@@ -8,12 +8,13 @@ unrelated to ``filters.version``.
 
 Detection follows the Feature Flag Rules v2 contract: an absent ``version`` or a number that
 equals 1 selects v1, a number that equals 2 selects v2, and everything else is unsupported.
-A JSON string or boolean never selects a version. An unsupported document is never read as
-v1, so a reader with only a v1 branch checks the format before it touches any v1 key.
+A JSON string or boolean never selects a version, and a stored value that is not an object
+(a list, say) is unsupported outright. An unsupported document is never read as v1, so a
+reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
-route on (return type, ordered rule identities, experiment identity) and nothing else. The
-full v2 schema lives in the contract; do not grow this module into a second copy of it.
+route on (return type, ordered rule identities and values, experiment identity) and nothing
+else. The full v2 schema lives in the contract; do not grow this module into a second copy of it.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``): consumer model
 modules import this at module level.
@@ -45,8 +46,13 @@ class ConfigFormatError(ValueError):
         self.config_format = config_format
 
 
-def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
-    if not filters or "version" not in filters:
+def detect_config_format(filters: object) -> ConfigFormat:
+    if filters is None:
+        return ConfigFormat(kind="v1", raw_version=None)
+    if not isinstance(filters, Mapping):
+        # A list, string or number is no config document at all, so it is never read as v1.
+        return ConfigFormat(kind="unsupported", raw_version=None)
+    if "version" not in filters:
         return ConfigFormat(kind="v1", raw_version=None)
     version = filters["version"]
     # bool is an int subclass, so ``True == 1`` would read as v1 without this guard.
@@ -59,11 +65,25 @@ def detect_config_format(filters: Mapping[str, Any] | None) -> ConfigFormat:
     return ConfigFormat(kind="unsupported", raw_version=version)
 
 
+def require_v1_config(filters: Mapping[str, Any] | None) -> None:
+    """Raise ``ConfigFormatError`` unless ``filters`` is a config version 1 document."""
+    config_format = detect_config_format(filters)
+    if config_format.kind != "v1":
+        raise ConfigFormatError(config_format)
+
+
+def is_v1_config(filters: object) -> bool:
+    """Whether a stored ``filters`` value is a config version 1 document (or null)."""
+    return detect_config_format(filters).kind == "v1"
+
+
 @frozen
 class RuleV2:
     id: str
     rule_type: RuleType
     experiment_id: int | None
+    # None for an experiment rule, whose values sit on its variants.
+    value: FlagValue | None
 
     def __post_init__(self) -> None:
         if self.rule_type not in get_args(RuleType):
@@ -106,4 +126,5 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
         id=rule["id"],
         rule_type=rule_type,
         experiment_id=rule["experiment_id"] if rule_type == "experiment" else None,
+        value=None if rule_type == "experiment" else rule["value"],
     )

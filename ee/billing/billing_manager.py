@@ -278,14 +278,29 @@ def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool
     raise BillingQueryRejected()
 
 
+class BillingServiceResponseError(Exception):
+    """Billing answered with a status code the caller does not accept."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        # The message and the body keep the positions callers already read: see
+        # `_raise_billing_error` in ee/api/billing.py, which parses the status out of the message.
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", body)
+        self.status_code = status_code
+        self.body = body
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+            body: Any = res.json()
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            # A body that is not JSON, such as the empty body of a proxy timeout, is still the
+            # answer the caller has to report. Read it as text, so the decode failure does not
+            # become the reported cause of the error.
+            body = res.text
+
+        raise BillingServiceResponseError(res.status_code, body)
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -855,6 +870,23 @@ class BillingManager:
 
     def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
         return self._organization_get(organization, grants, "forecast/")
+
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
 
     def get_organization_invoices(
         self,

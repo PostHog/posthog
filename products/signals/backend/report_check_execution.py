@@ -54,12 +54,17 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_RETRY_WAITS,
+    DEFAULT_CHECK_SOAK_HOURS,
+    MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
     CheckConfigValidationError,
+    CheckInconclusiveReason,
     CheckOutcome,
     MetricThresholdConfig,
     parse_check_config,
+    soak_minutes_from_gap,
 )
 from products.signals.backend.report_metric_refresh import measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
@@ -83,14 +88,8 @@ MAX_CHECK_ERROR_REASON_LENGTH = 300
 # a fix that stopped holding is a finding somebody already decided was worth fixing once.
 CHECK_FAILURE_SIGNAL_WEIGHT = 1.0
 
-# A check stops running while its report is soft-deleted or suppressed, and runs again when the report
-# comes back. Its horizon keeps advancing meanwhile: a check that outlives `expires_at` while paused
-# expires like any other, because the soak window is the author's deadline, not the report's.
-CHECKABLE_REPORT_STATUSES = tuple(
-    status
-    for status in SignalReport.Status.values
-    if status not in {SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED}
-)
+# Rows moved back to `pending` per tick because their report is not resolved. Bounded the same way.
+MAX_CHECK_PARKS_PER_TICK = 500
 
 
 @frozen
@@ -99,6 +98,7 @@ class CheckRunSummary:
     passed: int
     failed: int
     errored: int
+    inconclusive: int = 0
     # An `agent` check the tick started a scout run for, and one the fleet could not take yet.
     # Neither is an outcome: both rows are still active and still owe a verdict.
     dispatched: int = 0
@@ -110,6 +110,13 @@ class CheckVerdict:
     outcome: CheckOutcome
     explanation: str
     observed_value: float | None = None
+    # Required on an `inconclusive` verdict and refused on any other, so a stored reason always
+    # explains the outcome next to it.
+    reason: CheckInconclusiveReason | None = None
+
+    def __post_init__(self) -> None:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("an `inconclusive` verdict needs a reason, and no other verdict takes one")
 
 
 @frozen
@@ -229,6 +236,11 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
 
     Re-arming anchors on `now` rather than the missed slot, so a coordinator outage cannot leave a
     recurring check owing a burst of catch-up runs.
+
+    An `inconclusive` verdict never counts toward `MAX_CONSECUTIVE_CHECK_ERRORS`, because the run
+    worked. Only `awaiting_data` keeps the check open. It retires as `inconclusive` when its retries
+    run out or the next look would fall past the horizon, so a check that said why on every run does
+    not end as a silent `expired`.
     """
     if verdict.outcome == "failed":
         return _CheckTransition(
@@ -249,6 +261,19 @@ def _next_state(check: SignalReportCheck, verdict: CheckVerdict, now: datetime) 
             status=SignalReportCheck.Status.ACTIVE, next_run_at=retry_at, runs_remaining=check.runs_remaining
         )
 
+    if verdict.outcome == "inconclusive":
+        retries = check.consecutive_inconclusive
+        can_wait = verdict.reason == "awaiting_data" and retries < len(AWAITING_DATA_RETRY_WAITS)
+        next_look_at = now + AWAITING_DATA_RETRY_WAITS[retries] if can_wait else None
+        # `>=`, because a row due exactly at its horizon is swept rather than collected.
+        if next_look_at is None or next_look_at >= check.expires_at:
+            return _CheckTransition(
+                status=SignalReportCheck.Status.INCONCLUSIVE, next_run_at=None, runs_remaining=check.runs_remaining
+            )
+        return _CheckTransition(
+            status=SignalReportCheck.Status.ACTIVE, next_run_at=next_look_at, runs_remaining=check.runs_remaining
+        )
+
     runs_remaining = max(0, check.runs_remaining - 1)
     if runs_remaining == 0 or check.run_interval_minutes is None:
         return _CheckTransition(status=SignalReportCheck.Status.PASSED, next_run_at=None, runs_remaining=runs_remaining)
@@ -267,6 +292,8 @@ def record_check_verdict(
     now: datetime | None = None,
     attribution: ArtefactAttribution | None = None,
     run_id: str | None = None,
+    skill_name: str | None = None,
+    refusal_reason: str | None = None,
 ) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
@@ -274,7 +301,8 @@ def record_check_verdict(
     records nothing.
 
     `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
-    has neither, so it keeps the `system()` attribution the executor writes under.
+    has neither, so it keeps the `system()` attribution the executor writes under. `skill_name` and
+    `refusal_reason` name the scout and the gate when the fleet refused to run an `agent` check.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -288,6 +316,9 @@ def record_check_verdict(
     config = parsed if isinstance(parsed, MetricThresholdConfig) else None
 
     with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
             .select_for_update()
@@ -301,7 +332,14 @@ def record_check_verdict(
         current.runs_remaining = transition.runs_remaining
         current.last_run_at = now
         current.last_outcome = verdict.outcome
-        current.consecutive_errors = current.consecutive_errors + 1 if verdict.outcome == "errored" else 0
+        current.last_outcome_reason = verdict.reason
+        if verdict.outcome == "errored":
+            current.consecutive_errors += 1
+        elif verdict.outcome != "inconclusive":
+            current.consecutive_errors = 0
+        current.consecutive_inconclusive = (
+            current.consecutive_inconclusive + 1 if verdict.outcome == "inconclusive" else 0
+        )
         if transition.next_run_at is not None:
             current.next_run_at = transition.next_run_at
         # Whatever the verdict, no run is waiting on this check any more. Clearing it here rather
@@ -314,7 +352,9 @@ def record_check_verdict(
                 "runs_remaining",
                 "last_run_at",
                 "last_outcome",
+                "last_outcome_reason",
                 "consecutive_errors",
+                "consecutive_inconclusive",
                 "next_run_at",
                 "dispatched_at",
                 "updated_at",
@@ -329,6 +369,7 @@ def record_check_verdict(
                 title=current.title,
                 outcome=verdict.outcome,
                 explanation=verdict.explanation,
+                reason=verdict.reason,
                 observed_value=verdict.observed_value,
                 baseline_value=config.baseline_value if config is not None else None,
                 threshold=_describe_comparison(config.comparison) if config is not None else None,
@@ -345,7 +386,16 @@ def record_check_verdict(
         # the caller's row, where both call paths already select it with its organization; the
         # locked row selects neither, and widening the lock to reach them would take `FOR UPDATE`
         # on `Team`.
-        transaction.on_commit(partial(capture_report_check_evaluated, check.team, current, run_id=run_id))
+        transaction.on_commit(
+            partial(
+                capture_report_check_evaluated,
+                check.team,
+                current,
+                run_id=run_id,
+                skill_name=skill_name,
+                reason=refusal_reason,
+            )
+        )
 
 
 def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
@@ -372,8 +422,10 @@ def resurface_failed_check(
     """Emit the breach as a signal, so the pipeline authors a fresh report for the relapse.
 
     This is the same rule the grouping stage already applies to a resolved report: a signal that
-    would have joined it starts a new report linked by `related_to` rather than reopening a
-    terminal one. Best-effort — the verdict is already on the report's log, and losing the
+    would have joined it starts a new report rather than reopening a terminal one. Grouping reads
+    the `report_id` in `extra` and writes a typed `follow_up_of` link from the fresh report back to
+    this one, carrying the verdict as the link's reason, so research starts from the fix the check
+    was measuring. Best-effort, because the verdict is already on the report's log and losing the
     re-surface must not fail the tick that recorded it.
     """
     from asgiref.sync import async_to_sync  # noqa: PLC0415
@@ -490,6 +542,54 @@ def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
         logger.exception("signals.report_check.expired_report_failed")
 
 
+def park_checks_on_unresolved_reports(now: datetime) -> int:
+    """Move active checks whose report is not resolved back to `pending`. Returns how many moved.
+
+    A check can be active on an unresolved report in three ways: a report that left `resolved`
+    (reopened, archived, or restored somewhere else), a row written active before the create path
+    made the report decide, and any write path that skips `create_check`. Such a check must not run
+    or spend its error budget before a fix is live. As a pending row, the next resolve arms it
+    through `arm_pending_checks` with a fresh soak, and the expiry sweep retires it if the report
+    never resolves.
+
+    A dated row keeps the gap its author left as its soak. The error streak and any open dispatch
+    are cleared, so retry accounting starts again after the next resolve.
+    """
+    active = list(
+        SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
+        .exclude(report__status=SignalReport.Status.RESOLVED)
+        .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
+            :MAX_CHECK_PARKS_PER_TICK
+        ]
+    )
+    parked = 0
+    for check in active:
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
+        parked += (
+            SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
+            .exclude(report__status=SignalReport.Status.RESOLVED)
+            .update(
+                status=SignalReportCheck.Status.PENDING,
+                soak_minutes=soak_minutes,
+                next_run_at=now + timedelta(minutes=soak_minutes),
+                expires_at=now + MAX_CHECK_HORIZON,
+                consecutive_errors=0,
+                dispatched_at=None,
+                updated_at=now,
+            )
+        )
+    if parked:
+        logger.info("signals.report_check.parked_on_unresolved_report", parked=parked)
+    return parked
+
+
 def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -> list[SignalReportCheck]:
     """The checks to run this tick, most overdue first and capped per team.
 
@@ -503,7 +603,10 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
             status=SignalReportCheck.Status.ACTIVE,
             next_run_at__lte=now,
             expires_at__gt=now,
-            report__status__in=CHECKABLE_REPORT_STATUSES,
+            # A check re-measures a fix, so it runs only while its report is resolved. The park step
+            # moves any other active row back to `pending`; this filter keeps a row it has not reached
+            # yet out of the tick.
+            report__status=SignalReport.Status.RESOLVED,
         )
         .select_related("report", "report__team", "team__organization")
         # Rank each team's rows against its own, then read those ranks in order, so every team's
@@ -532,7 +635,7 @@ def collect_due_checks(now: datetime, *, limit: int = MAX_CHECK_RUNS_PER_TICK) -
 
 
 def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK_RUNS_PER_TICK) -> CheckRunSummary:
-    """Expire what timed out, then advance every check due this tick by one step.
+    """Expire what timed out, park what lost its resolve, then advance every due check by one step.
 
     A `metric_threshold` check is measured and recorded here. An `agent` check is dispatched (or
     its overdue dispatch is written off), and the run it started records the verdict later, so the
@@ -541,8 +644,16 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
 
     now = now or timezone.now()
     expired = expire_overdue_checks(now)
+    park_checks_on_unresolved_reports(now)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
-    counts: dict[str, int] = {"passed": 0, "failed": 0, "errored": 0, "dispatched": 0, "deferred": 0}
+    counts: dict[str, int] = {
+        "passed": 0,
+        "failed": 0,
+        "errored": 0,
+        "inconclusive": 0,
+        "dispatched": 0,
+        "deferred": 0,
+    }
     for check in collect_due_checks(now, limit=limit):
         if time.monotonic() >= deadline:
             break

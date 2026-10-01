@@ -76,6 +76,7 @@ import {
 } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -1447,15 +1448,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ content }) => {
+        updateReviewers: async ({ content, optimistic }) => {
+            let saved = false
             try {
                 await api.signalReports.setReviewers(props.reportId, content)
+                saved = true
                 await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 actions.setOptimisticReviewers(null)
+            }
+            // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
+            // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
+            if (saved) {
+                const reviewerUuids = optimistic
+                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
+                    .filter((uuid): uuid is string => !!uuid)
+                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)
             }
         },
         // Post an inline review comment as the user. The comment is inserted optimistically (marked
