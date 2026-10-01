@@ -110,6 +110,9 @@ export interface personalCodexIntegrationLogicActions {
     pasteFromClipboard: () => {
         value: true
     }
+    rejectAuthFile: (error: string) => {
+        error: string
+    }
     setConnectError: (connectError: string | null) => {
         connectError: string | null
     }
@@ -138,6 +141,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
         pasteFromClipboard: true,
         setConnectError: (connectError: string | null) => ({ connectError }),
         submitAuthFile: true,
+        rejectAuthFile: (error: string) => ({ error }),
     }),
 
     loaders(({ values }) => ({
@@ -194,6 +198,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             '',
             {
                 pasteAuthFile: (_, { authFileText }) => authFileText,
+                rejectAuthFile: () => '',
                 openConnectModal: () => '',
                 closeConnectModal: () => '',
                 connectCodexSuccess: () => '',
@@ -203,6 +208,7 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             null as string | null,
             {
                 setConnectError: (_, { connectError }) => connectError,
+                rejectAuthFile: (_, { error }) => error,
                 pasteAuthFile: () => null,
                 openConnectModal: () => null,
             },
@@ -252,10 +258,14 @@ export const personalCodexIntegrationLogic = kea<personalCodexIntegrationLogicTy
             }
         },
         submitAuthFile: () => {
+            // A second clipboard read can land while the first connect runs. Its refresh token is single-use.
+            if (values.connecting) {
+                return
+            }
             const result = parseCodexAuthFile(values.authFileText)
             if (result.tokens === null) {
                 posthog.capture('codex subscription connect failed', { reason: 'invalid_auth_file' })
-                actions.setConnectError(result.error)
+                actions.rejectAuthFile(result.error)
                 return
             }
             void clearClipboard()

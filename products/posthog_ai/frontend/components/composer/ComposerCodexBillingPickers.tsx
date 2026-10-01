@@ -14,8 +14,8 @@ export interface ComposerCodexBillingPickersProps extends Omit<ComposerModelEffo
 }
 
 /**
- * The model picker plus the Codex billing row. Rendered only behind the rollout flag, and it is the only
- * thing that mounts `codexBillingLogic`, so users without the flag never load their ChatGPT connection.
+ * The model picker plus the Codex billing row. Rendered only behind the rollout flag, so users without the
+ * flag never load their ChatGPT connection.
  */
 export function ComposerCodexBillingPickers({
     lockedCodexModelAccess,

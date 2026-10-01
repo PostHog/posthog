@@ -1,8 +1,11 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { personalCodexIntegrationLogic } from 'scenes/settings/user/personalCodexIntegrationLogic'
 
+import { usersIntegrationsCodexRetrieve } from '~/generated/core/api'
 import { CodexIntegrationStatusEnumApi, type UserCodexIntegrationApi } from '~/generated/core/api.schemas'
 
 import { ModelAccessEnumApi, RuntimeAdapterEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -118,20 +121,58 @@ export const codexBillingLogic = kea<codexBillingLogicType>([
     })),
 ])
 
+function codexBillingEnabled(): boolean {
+    return !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]
+}
+
+/** Whether a run on this harness bills to the ChatGPT plan, as far as the mounted picker knows now. */
+export function usesChatGptPlan(runtimeAdapter: string | null | undefined): boolean {
+    return (
+        codexBillingEnabled() &&
+        runtimeAdapter === RuntimeAdapterEnumApi.Codex &&
+        codexBillingLogic.findMounted()?.values.effectiveCodexModelAccess === ModelAccessEnumApi.OwnSubscription
+    )
+}
+
 /**
- * The billing a new run must state, or `null` to leave the field off.
- *
- * Only the billing picker mounts this logic, and it renders only behind the rollout flag, so an unmounted
- * logic means the choice is not offered. When it is offered the choice is always sent: a resumed run
- * otherwise keeps the billing of the run it continues, and the backend refuses a ChatGPT plan on Claude.
+ * The billing the mounted picker shows now, or `null` when the choice is not offered. A resume starts from
+ * the run composer, whose picker is mounted, so this is enough there and keeps the send synchronous.
  */
-export function codexModelAccessForRun(runtimeAdapter: string | null | undefined): ModelAccessEnumApi | null {
-    const billing = codexBillingLogic.findMounted()
-    if (!billing) {
+export function pickedCodexModelAccess(runtimeAdapter: string | null | undefined): ModelAccessEnumApi | null {
+    if (!codexBillingEnabled()) {
         return null
     }
-    return runtimeAdapter === RuntimeAdapterEnumApi.Codex &&
-        billing.values.effectiveCodexModelAccess === ModelAccessEnumApi.OwnSubscription
-        ? ModelAccessEnumApi.OwnSubscription
-        : ModelAccessEnumApi.PosthogGateway
+    return usesChatGptPlan(runtimeAdapter) ? ModelAccessEnumApi.OwnSubscription : ModelAccessEnumApi.PosthogGateway
+}
+
+/**
+ * The billing a new run must state, or `null` to leave the field off because the choice is not offered.
+ *
+ * When it is offered the choice is always sent: a resumed run otherwise keeps the billing of the run it
+ * continues, and the backend refuses a ChatGPT plan on Claude. A seeded task can submit before the picker
+ * mounts, so this reads the saved choice and the ChatGPT connection itself.
+ */
+export async function codexModelAccessForRun(
+    runtimeAdapter: string | null | undefined
+): Promise<ModelAccessEnumApi | null> {
+    if (!codexBillingEnabled()) {
+        return null
+    }
+    if (runtimeAdapter !== RuntimeAdapterEnumApi.Codex) {
+        return ModelAccessEnumApi.PosthogGateway
+    }
+    const unmount = codexBillingLogic.mount()
+    try {
+        if (codexBillingLogic.values.preferredCodexModelAccess !== ModelAccessEnumApi.OwnSubscription) {
+            return ModelAccessEnumApi.PosthogGateway
+        }
+        const integration = codexBillingLogic.values.codexIntegration ?? (await usersIntegrationsCodexRetrieve('@me'))
+        return integration.status === CodexIntegrationStatusEnumApi.Connected
+            ? ModelAccessEnumApi.OwnSubscription
+            : ModelAccessEnumApi.PosthogGateway
+    } catch {
+        return ModelAccessEnumApi.PosthogGateway
+    } finally {
+        unmount()
+    }
 }

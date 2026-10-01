@@ -53,7 +53,7 @@ import type { PendingAttachment } from '../utils/attachments'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
-import { codexModelAccessForRun } from './codexBillingLogic'
+import { codexBillingLogic, pickedCodexModelAccess, usesChatGptPlan } from './codexBillingLogic'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
@@ -1178,8 +1178,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedMode,
                 { resume_from_run_id: props.runId }
             )
+            // A run on the ChatGPT plan boots cold, so its draft releases the warm like an empty one.
             getWarmLogic()?.actions.noteDraft(
-                Boolean(values.composerForm.draft.trim()),
+                Boolean(values.composerForm.draft.trim()) &&
+                    !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel)),
                 createRequest as WarmTaskResumeRequestApi
             )
         }
@@ -1486,6 +1488,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
 
             setEffort: noteTerminalDraft,
             setMode: noteTerminalDraft,
+            [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: noteTerminalDraft,
             setComposerFormValue: noteTerminalDraft,
             setComposerFormValues: noteTerminalDraft,
             handleTerminalStatus: () => {
@@ -1538,7 +1541,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
                     // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
-                    const codexModelAccess = codexModelAccessForRun(
+                    const codexModelAccess = pickedCodexModelAccess(
                         getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
                     )
                     const createRequest = buildRunCreateRequest(

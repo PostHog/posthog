@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { platformCommandControlKey } from 'lib/utils/dom'
@@ -83,6 +83,13 @@ export function CodexConnectModal({ opener }: CodexConnectModalProps): JSX.Eleme
                         <span>{PLATFORM_HINTS[loginPlatform]}</span> Open the link that it shows, sign in, and enter the
                         one-time code. The command copies your sign-in to the clipboard and deletes its temporary
                         folder, so nothing stays on your computer.
+                    </p>
+                    <p className="mb-0 text-xs text-secondary">
+                        You need the{' '}
+                        <Link to="https://developers.openai.com/codex/cli" target="_blank">
+                            Codex CLI
+                        </Link>
+                        . Install it with <code>npm install -g @openai/codex</code>.
                     </p>
                     <p className="mb-0 text-xs text-secondary">
                         Turn on device code login in your ChatGPT security settings first. In a ChatGPT workspace, an

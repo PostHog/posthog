@@ -31,7 +31,7 @@ import type { IntegrationType } from '../../../../../frontend/src/types'
 import { attachedContextItemKey, attachedContextLogic, runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
-import { codexModelAccessForRun } from '../../logics/codexBillingLogic'
+import { codexBillingLogic, codexModelAccessForRun, usesChatGptPlan } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import type { ComposerOverride } from '../../logics/composerOverrideLogic'
@@ -317,6 +317,9 @@ export interface taskTrackerSceneLogicActions {
     maybeAutoSelectIntegration: () => {
         value: true
     }
+    noteNewTaskDraft: () => {
+        value: true
+    }
     openExistingTask: (task: Task) => {
         task: Task
     }
@@ -470,6 +473,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         clearConsentBlock: true,
         // Pulls any pending `composerSeedLogic` seed into the composer (prefill + optional auto-submit).
         applyComposerSeed: true,
+        noteNewTaskDraft: true,
     }),
 
     reducers({
@@ -639,16 +643,26 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // Consent gates warming as it gates submitting (see `submitNewTask`): a warm boots a cloud
             // sandbox and clones the selected repository, so it must not run before the organization
             // accepts AI data processing.
-            if (!values.activeCreation && values.dataProcessingAccepted) {
-                const request = buildWarmRequest(
-                    { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
-                    values.catalogue,
-                    values.displayModel,
-                    values.displayEffort
-                )
-                if (request) {
-                    actions.noteDraft(values.newTaskData.description.trim().length > 0, request)
-                }
+            actions.noteNewTaskDraft()
+        },
+        // A run on the ChatGPT plan can't use a warm sandbox, so switching the billing re-decides the warm.
+        [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: () => {
+            actions.noteNewTaskDraft()
+        },
+        noteNewTaskDraft: () => {
+            if (values.activeCreation || !values.dataProcessingAccepted) {
+                return
+            }
+            const request = buildWarmRequest(
+                { ...values.newTaskData, repositoryConfig: values.effectiveRepositoryConfig },
+                values.catalogue,
+                values.displayModel,
+                values.displayEffort
+            )
+            if (request) {
+                // An empty draft releases the warm, and so does the ChatGPT plan, which boots cold.
+                const hasText = values.newTaskData.description.trim().length > 0
+                actions.noteDraft(hasText && !usesChatGptPlan(values.composerAdapter), request)
             }
         },
         // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
@@ -703,8 +717,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             const description = values.newTaskData.description.trim()
             const { permissionMode } = values.newTaskData
             const repositoryConfig = values.effectiveRepositoryConfig
-            const codexModelAccess = codexModelAccessForRun(values.composerAdapter)
-            const onChatGptPlan = codexModelAccess === ModelAccessEnumApi.OwnSubscription
+            const composerAdapter = values.composerAdapter
 
             if (!description) {
                 lemonToast.error('Description is required')
@@ -744,7 +757,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 currentMode: permissionMode,
                 currentRuntimeAdapter:
                     values.isDefaultSelection && !values.defaultRuntimeAdapter ? null : values.composerAdapter,
-                currentCodexModelAccess: codexModelAccess,
+                currentCodexModelAccess: usesChatGptPlan(composerAdapter) ? ModelAccessEnumApi.OwnSubscription : null,
                 contextItems: props.contextItems,
             })
             cache.disposables.add(
@@ -770,6 +783,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             )
 
             try {
+                const codexModelAccess = await codexModelAccessForRun(composerAdapter)
+                const onChatGptPlan = codexModelAccess === ModelAccessEnumApi.OwnSubscription
                 // Files can only be uploaded against something that already exists. A warm lease names a task
                 // and a run, so they go onto that run and ride its activation. Without one there is nothing
                 // to upload to yet, so warm reuse is given up and the files are staged on the cold task.
