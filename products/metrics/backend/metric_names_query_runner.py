@@ -81,7 +81,7 @@ class MetricNamesQueryRunner:
         *,
         search: str = "",
         limit: int = 100,
-        lookback: dt.timedelta = dt.timedelta(days=7),
+        lookback: dt.timedelta = dt.timedelta(hours=24),
         services: Sequence[str] = (),
         include_sparklines: bool = True,
         names: Sequence[str] = (),

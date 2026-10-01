@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Tables whose starting rows the app loads: (table name, function that builds the INSERT).
 # Reference tables whose rows never change at runtime declare them in the schema instead.
 SEED_DATA_TABLES = ((EXCHANGE_RATE_TABLE_NAME, EXCHANGE_RATE_DATA_BACKFILL_SQL),)
+DECLARED_DATA_TABLES = ("channel_definition", "web_bot_definition")
 
 
 class ClickHouseDatabase:
@@ -30,7 +31,7 @@ class ClickHouseDatabase:
 
     # CREATE statements of every object, as ClickHouse reports them after `apply_schema`.
     _snapshot: ClassVar[dict[str, str]] = {}
-    # Rows of every table that holds some after `apply_schema` and `seed`.
+    # Reference rows declared by OpenTofu; application rows must not enter fixture snapshots.
     _snapshot_rows: ClassVar[dict[str, list[tuple]]] = {}
 
     def __init__(self) -> None:
@@ -83,12 +84,8 @@ class ClickHouseDatabase:
             {"database": self.name},
         )
         ClickHouseDatabase._snapshot = dict(rows)
-        tables_with_rows = sync_execute(
-            "SELECT name FROM system.tables WHERE database = %(database)s AND engine LIKE '%%MergeTree' AND total_rows > 0",
-            {"database": self.name},
-        )
         ClickHouseDatabase._snapshot_rows = {
-            name: sync_execute(f"SELECT * FROM `{name}`") for (name,) in tables_with_rows
+            name: sync_execute(f"SELECT * FROM `{name}`") for name in DECLARED_DATA_TABLES
         }
 
     @classmethod

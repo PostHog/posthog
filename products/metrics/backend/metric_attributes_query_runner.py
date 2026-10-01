@@ -25,13 +25,13 @@ from products.metrics.backend.search import ilike_pattern
 _SERVICE_NAME_KEYS: frozenset[str] = frozenset({"service_name", "service.name"})
 
 # `time_bucket` floors timestamps to hourly buckets (see the materialized views in
-# posthog/clickhouse/schema/modules/metrics/storage.tf); widen the lower bound so points near
+# posthog/clickhouse/schema/catalog/metrics/main.tf); widen the lower bound so points near
 # the window start aren't dropped with their bucket.
 _TIME_BUCKET_INTERVAL = dt.timedelta(hours=1)
 
 # Without an explicit window, suggest from recent data only — same lookback the
 # metric names picker uses.
-_DEFAULT_LOOKBACK = dt.timedelta(days=7)
+_DEFAULT_LOOKBACK = dt.timedelta(hours=24)
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
 # of erroring the way the chart queries do.

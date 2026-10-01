@@ -512,11 +512,11 @@ module "metrics4_names_family" {
   name     = "metrics4_names"
   database = var.database
   layout   = "global"
-  columns  = local.metric_names3_columns
+  columns  = concat(local.metric_names3_columns, [{ name = "service_name", type = "LowCardinality(String)" }])
   storage = {
     engine       = "AggregatingMergeTree"
     partition_by = "toDate(original_expiry_time_bucket)"
-    order_by     = "(team_id, time_bucket, metric_name, original_expiry_time_bucket)"
+    order_by     = "(team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)"
     ttl          = var.ttl ? "original_expiry_timestamp" : null
   }
   routing = {
@@ -1098,14 +1098,16 @@ module "metrics4_input_to_metrics4_names" {
         metric_name,
         toStartOfHour(timestamp) AS time_bucket,
         toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-        maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+        maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+        service_name
     FROM ${var.database}.metrics4_input AS input
     WHERE has_labels
     GROUP BY
         team_id,
         time_bucket,
         metric_name,
-        original_expiry_time_bucket
+        original_expiry_time_bucket,
+        service_name
   SQL
   override = try(local.deployment.overrides["metrics4_input_to_metrics4_names"], {})
 

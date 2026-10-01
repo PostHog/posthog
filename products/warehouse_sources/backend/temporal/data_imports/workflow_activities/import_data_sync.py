@@ -135,14 +135,17 @@ class ImportDataActivityInputs:
         }
 
 
-def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+def _resolve_reset_pipeline(
+    inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
+) -> bool:
     if inputs.reset_pipeline is not None:
         return inputs.reset_pipeline
     if schema.sync_type_config.get("reset_pipeline", False) is True:
         return True
-    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
-    # retry after the wipe carries on with the re-import instead of wiping it again.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
 
 
 @database_sync_to_async_pool
@@ -447,7 +450,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
 
-        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
