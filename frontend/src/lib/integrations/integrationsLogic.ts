@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import {
+    integrationsCreate,
     integrationsGithubAvailableInstallationsRetrieve,
     integrationsGithubReposRetrieve,
     integrationsGithubLinkExistingCreate,
@@ -126,6 +127,7 @@ export interface integrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -237,6 +239,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         searchParams: any
@@ -372,6 +375,7 @@ export interface integrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[],
@@ -435,6 +439,7 @@ export interface integrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[]
@@ -492,6 +497,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
     }
@@ -556,6 +562,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics',
         payload?: {
@@ -605,6 +612,7 @@ export interface integrationsLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         payload?: {
@@ -700,6 +708,7 @@ export interface integrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]
@@ -1178,6 +1187,46 @@ export const integrationsLogic = kea<integrationsLogicType>([
             cache.disposables.dispose('focusRefetch')
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
+            if (kind === 'twitter-ads') {
+                // The server binds the temporary token to the initiating user and project instead of a state cookie.
+                let replaceUrl = urls.settings('project-integrations')
+                try {
+                    if (searchParams.denied) {
+                        lemonToast.info('X Ads connection cancelled.')
+                    } else {
+                        const parsedTeamId = Number(getCookie('ph_twitter_ads_team_id'))
+                        const projectId =
+                            Number.isFinite(parsedTeamId) && parsedTeamId > 0
+                                ? String(parsedTeamId)
+                                : String(values.currentProjectId)
+                        const integration = await integrationsCreate(projectId, {
+                            kind,
+                            config: {
+                                oauth_token: searchParams.oauth_token,
+                                oauth_verifier: searchParams.oauth_verifier,
+                            },
+                        })
+                        const nextUrl =
+                            typeof integration.config === 'object' &&
+                            integration.config !== null &&
+                            'next' in integration.config &&
+                            typeof integration.config.next === 'string'
+                                ? integration.config.next
+                                : replaceUrl
+                        const url = new URL(nextUrl, window.location.origin)
+                        url.searchParams.set(OAUTH_INTEGRATION_ID_PARAM, String(integration.id))
+                        replaceUrl = url.pathname + url.search + url.hash
+                        actions.loadIntegrations()
+                        lemonToast.success('Integration successful.')
+                    }
+                } catch (e) {
+                    toastApiError(e)
+                } finally {
+                    router.actions.replace(replaceUrl)
+                }
+                return
+            }
+
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id, team_id } = fromParamsGivenUrl(state)
             const resolvedKind = kind
