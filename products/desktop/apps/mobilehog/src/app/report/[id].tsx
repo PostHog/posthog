@@ -3,7 +3,7 @@ import { isDismissedReport } from "@posthog/core/inbox/reportMembership";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Glass } from "@/components/Glass";
 import { CardButton, ReportDetail } from "@/components/ReportCard";
@@ -50,6 +50,7 @@ export default function ReportScreen() {
     // Unknown task state must not offer a second task on live work.
     isTaskLookupPending: liveTask.isPending || liveTask.isError,
   });
+  const taskCheckFailed = liveTask.isError && canCreateImplementationPr(report);
 
   const onDismiss = (): void => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
@@ -68,10 +69,20 @@ export default function ReportScreen() {
   return (
     <View style={styles.root}>
       <ReportDetail report={report} />
-      {canDismiss || canStart ? (
+      {canDismiss || canStart || taskCheckFailed ? (
         <View style={[styles.actions, { paddingBottom: insets.bottom + 12 }]}>
           {dismiss.isError ? (
             <Text style={styles.error}>Could not dismiss. Try again.</Text>
+          ) : null}
+          {taskCheckFailed ? (
+            <Pressable
+              disabled={liveTask.isFetching}
+              onPress={() => liveTask.refetch()}
+            >
+              <Text style={styles.error}>
+                Could not check task status. Tap to try again.
+              </Text>
+            </Pressable>
           ) : null}
           <Glass style={styles.actionsGlass} tint={colors.glassTint}>
             {canDismiss ? (
