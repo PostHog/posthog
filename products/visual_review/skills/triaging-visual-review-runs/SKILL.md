@@ -160,6 +160,7 @@ Quarantine call shape (`quarantine-create`):
 - `id` — the repo UUID (the run's `repo_id`), and `run_type` — the failing run's `run_type`. Both are route parameters.
 - `identifier`, and a `reason` with the evidence, for example "unstable on master: 7 failed default-branch runs in 7 days, chart animation timing; unrelated to PR 1234".
 - `source_run_id` — the run that failed. `expires_at` — omit it for 30 days, or set an earlier date, never a later one.
+- `notify_owners: true` — posts the quarantine to the owning team's Slack channel, so the people who must fix the story hear about it.
 - Then call `recompute-create { id: <run_id> }` on the PR's newest non-stale run of the same `run_type`, and check `ci_rerun_triggered`.
 
 Toleration call shape — both fields are required:
