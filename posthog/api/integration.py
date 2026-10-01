@@ -2452,8 +2452,7 @@ class IntegrationViewSet(
     )
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        email = EmailIntegration(self.get_object())
-        verification_result = email.verify()
+        verification_result = self._get_email_integration().verify()
         return Response(verification_result)
 
     @validated_request(
@@ -2463,10 +2462,15 @@ class IntegrationViewSet(
     )
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        email = EmailIntegration(instance)
-        email.update_native_integration(request.validated_data["config"], instance.team_id)
+        email = self._get_email_integration()
+        email.update_native_integration(request.validated_data["config"], email.integration.team_id)
         return Response(IntegrationSerializer(email.integration).data)
+
+    def _get_email_integration(self) -> EmailIntegration:
+        instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("This endpoint is only supported for email integrations")
+        return EmailIntegration(instance)
 
     @validated_request(
         query_serializer=DomainConnectCheckQuerySerializer,

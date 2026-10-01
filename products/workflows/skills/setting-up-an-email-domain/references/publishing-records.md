@@ -14,6 +14,9 @@ Before writing anything, list the existing records at each name you are about to
 | MAIL FROM SPF (TXT)    | `<mail_from>.<domain>`        | Add it, merging into an existing SPF record at that name the same way as above.                                                                                                          |
 | DMARC (TXT)            | `_dmarc.<domain>`             | Add it only if no `v=DMARC1` record exists. If one exists, leave it alone: it is the domain owner's policy, and a second DMARC record invalidates both.                                  |
 
+Verify never checks the two SPF records: their status copies the ownership and MX records.
+Publish or merge them even when they show `success`.
+
 `<domain>` is the sending domain, for example `mail.example.com`, which may sit inside the zone `example.com`.
 Names from the tool are fully qualified; convert them to the form your DNS tool expects, usually relative to the zone.
 

@@ -98,7 +98,7 @@ tools:
         description: >
             Build a signed URL that adds an email sender's DNS records at the domain's DNS host in one step. Call it
             with context `email` and the sender's integration_id after integrations-domain-connect-check-retrieve says
-            the domain is supported. You cannot open this URL yourself: give it to the person you work with. They sign
+            the domain is supported. Do not use it when integrations-email-verify-create already reports the DMARC record as `success`: the domain has its own DMARC policy, and this URL always adds a second one, which invalidates both. Publish the other records by hand in that case. You cannot open this URL yourself: give it to the person you work with. They sign
             in at their DNS host and approve the records there; nothing changes until they approve. Omit redirect_uri.
             Then call integrations-email-verify-create until it reports success. If this tool returns an error, fall
             back to adding the records from integrations-email-verify-create by hand.
@@ -115,8 +115,7 @@ tools:
         title: Check one-click DNS setup for a domain
         description: >
             Check whether a domain's DNS host supports one-click record setup with Domain Connect (for example
-            Cloudflare or Vercel). Pass the sending domain of an email sender, for example `mail.example.com`. When
-            `supported` is true, use integrations-domain-connect-apply-url-create to get a URL the person approves at
+            Cloudflare or Vercel). Pass the sending domain of an email sender, for example `mail.example.com`. When `supported` is true and the domain has no DMARC record yet, use integrations-domain-connect-apply-url-create to get a URL the person approves at
             their DNS host. When it is false, add the records from integrations-email-verify-create yourself, or give
             them to the person to add.
         feature_flag: workflows-email-domain-agent-setup
@@ -128,7 +127,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Create an email sender
         description: >
             Create an email sender for Workflows on a custom domain, for example hello@mail.example.com. This registers
@@ -136,7 +135,7 @@ tools:
             the other email tools take. The sender cannot send until its domain is verified. Next, call
             integrations-email-verify-create to get the DNS records the domain needs, then publish them: either with
             integrations-domain-connect-check-retrieve and integrations-domain-connect-apply-url-create, or with your
-            own DNS tools. Calling it again with the same email updates that sender. Free mailbox domains such as
+            own DNS tools. Do not call it for an address that already has a sender: re-creating it marks the sender unverified until the next successful verify. Use integrations-email-partial-update to change an existing sender. mail_from_subdomain applies to the whole domain: when the domain already has a sender, pass that sender's MAIL FROM label (the subdomain of its MX record from integrations-email-verify-create), or the existing senders stop verifying. Free mailbox domains such as
             gmail.com are rejected, and a domain already used by another organization fails.
         exclude_params:
             - kind
@@ -158,8 +157,7 @@ tools:
         title: Update an email sender
         description: >
             Change an email sender's display name or its MAIL FROM subdomain. Send the full config with the sender's
-            current `email`, which cannot change. Changing mail_from_subdomain changes the MX and SPF records the domain
-            needs, so call integrations-email-verify-create afterwards and publish the new records.
+            current `email`, which cannot change. mail_from_subdomain applies to every sender on the domain and changes the MX and SPF records the domain needs, so confirm it with the person first, then call integrations-email-verify-create and publish the new records.
         param_overrides:
             config:
                 input_schema: EmailSenderConfigSchema
@@ -178,8 +176,7 @@ tools:
         description: >
             Check an email sender's domain with the email provider and return the DNS records it needs, each with its
             hostname, type, value and status. Use the records to publish DNS: through the person's DNS host with
-            integrations-domain-connect-apply-url-create, or with your own DNS tools. When you add them yourself, add
-            only records whose status is not `success`, and never create a second `_dmarc` TXT record: if the domain
+            integrations-domain-connect-apply-url-create, or with your own DNS tools. When you add them yourself, add the records whose status is not `success` plus both SPF TXT records, which verify never checks (their status copies other records), and never create a second `_dmarc` TXT record: if the domain
             already has one, keep it and skip the DMARC record. Repeat this call until `status` is `success`, waiting at
             least a minute between calls. DNS usually shows up within minutes but can take up to 72 hours. A success
             makes every sender on the domain in this project able to send.

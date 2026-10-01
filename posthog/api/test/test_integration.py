@@ -1742,35 +1742,97 @@ class TestIntegrationAPIKeyAccess:
         assert expected_provider in response.json()["detail"]
 
     @pytest.mark.parametrize(
-        "method,url_suffix,body,scope,expected_status,expected_detail",
+        "method,url_suffix,body,scope,level,expected_status,expected_json",
         [
-            ("get", "domain-connect/check/?domain=mail.example.com", None, "integration:read", 200, None),
-            ("post", "domain-connect/apply-url/", {"context": "email"}, "integration:read", 403, "integration:write"),
+            (
+                "get",
+                "domain-connect/check/?domain=mail.example.com",
+                None,
+                "integration:read",
+                OrganizationMembership.Level.MEMBER,
+                200,
+                {"supported": False, "provider_name": None},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
+                {"context": "email"},
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
             (
                 "post",
                 "domain-connect/apply-url/",
                 {"context": "email"},
                 "integration:write",
+                OrganizationMembership.Level.ADMIN,
                 400,
-                "integration_id is required for email context",
+                {"detail": "integration_id is required for email context"},
             ),
-            ("post", "{email_id}/email/verify/", None, "integration:read", 403, "integration:write"),
-            ("post", "{email_id}/email/verify/", None, "integration:write", 200, None),
-            ("patch", "{email_id}/email/", {"config": {}}, "integration:read", 403, "integration:write"),
+            (
+                "post",
+                "{email_id}/email/verify/",
+                None,
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
+            (
+                "post",
+                "{email_id}/email/verify/",
+                None,
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                200,
+                {"status": "pending", "dnsRecords": [ANY]},
+            ),
+            (
+                "post",
+                "{twilio_id}/email/verify/",
+                None,
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                400,
+                {"detail": "This endpoint is only supported for email integrations"},
+            ),
+            (
+                "patch",
+                "{email_id}/email/",
+                {"config": {}},
+                "integration:read",
+                OrganizationMembership.Level.ADMIN,
+                403,
+                {"detail": "API key missing required scope 'integration:write'"},
+            ),
             (
                 "patch",
                 "{email_id}/email/",
                 {"config": {"email": "hello@mail.example.com", "name": "Acme", "provider": "ses"}},
                 "integration:write",
+                OrganizationMembership.Level.ADMIN,
                 200,
-                None,
+                {"kind": "email", "config": ANY},
             ),
         ],
     )
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch(
         "products.workflows.backend.facade.api.verify_ses_email_domain",
-        return_value={"status": "pending", "dnsRecords": []},
+        return_value={
+            "status": "pending",
+            "dnsRecords": [
+                {
+                    "type": "dkim",
+                    "recordType": "CNAME",
+                    "recordHostname": "token._domainkey.mail.example.com",
+                    "recordValue": "token.dkim.amazonses.com",
+                    "status": "pending",
+                }
+            ],
+        },
     )
     @patch("posthog.api.integration.discover_domain_connect", return_value=None)
     def test_email_domain_actions_with_scoped_api_key(
@@ -1782,11 +1844,12 @@ class TestIntegrationAPIKeyAccess:
         url_suffix,
         body,
         scope,
+        level,
         expected_status,
-        expected_detail,
+        expected_json,
         client: HttpClient,
     ):
-        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        OrganizationMembership.objects.filter(user=self.user).update(level=level)
         email_integration = Integration.objects.create(
             team=self.team,
             kind="email",
@@ -1797,17 +1860,17 @@ class TestIntegrationAPIKeyAccess:
         PersonalAPIKey.objects.create(
             label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=[scope]
         )
+        path = url_suffix.format(email_id=email_integration.id, twilio_id=self.twilio_integration.id)
 
         response = getattr(client, method)(
-            f"/api/environments/{self.team.pk}/integrations/{url_suffix.format(email_id=email_integration.id)}",
+            f"/api/environments/{self.team.pk}/integrations/{path}",
             data=json.dumps(body) if body is not None else None,
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {key_value}",
         )
 
         assert response.status_code == expected_status, response.json()
-        if expected_detail:
-            assert expected_detail in response.json()["detail"]
+        assert response.json() == {**response.json(), **expected_json}
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):

@@ -87,7 +87,10 @@ class EmailDomainDnsRecordSerializer(serializers.Serializer):
     )
     recordType = serializers.ChoiceField(choices=EmailDomainRecordType.choices, help_text="DNS record type.")
     recordHostname = serializers.CharField(
-        help_text="Fully qualified record name. Many DNS hosts append the zone, so enter only the part before it."
+        help_text=(
+            "Fully qualified record name, or `@` for the sending domain itself. "
+            "Many DNS hosts append the zone, so enter only the part before it."
+        )
     )
     recordValue = serializers.CharField(help_text="Exact record value to publish.")
     status = serializers.ChoiceField(
