@@ -23,7 +23,18 @@ function text(prompt: ContentBlock[]): string {
     .join("\n");
 }
 
-/** One instance per cloud process. Only actual human turns call dispatch. */
+export interface ContextOutcome {
+  stopReason: string;
+  usage?: unknown;
+  _meta?: { traceId?: unknown } | null;
+}
+
+export interface ContextDelivery<Prompt> {
+  prompt: Prompt;
+  finish(result?: ContextOutcome, failed?: boolean): Promise<void>;
+}
+
+/** One instance per cloud process. Only actual human turns prepare context. */
 export class ContextSelection {
   enabled = false;
   private history = "";
@@ -43,12 +54,47 @@ export class ContextSelection {
     send: (blocks: ContentBlock[]) => Promise<PromptResponse>,
   ): Promise<PromptResponse> {
     if (!this.enabled || !messageId) return send(prompt);
+    const delivery = await this.preparePrompt({
+      runId,
+      messageId,
+      prompt,
+      userText: text(prompt.filter((block) => !isHidden(block))),
+      restoredHistory: text(prompt.filter(isHidden)),
+      inject: (blocks, context) => [...blocks, hiddenTextBlock(context)],
+    });
+    try {
+      const result = await send(delivery.prompt);
+      await delivery.finish(result);
+      this.recordUser(text(prompt.filter((block) => !isHidden(block))));
+      return result;
+    } catch (error) {
+      await delivery.finish(undefined, true);
+      throw error;
+    }
+  }
+
+  async preparePrompt<Prompt>({
+    runId,
+    messageId,
+    prompt,
+    userText,
+    restoredHistory = "",
+    historySource = "resume_prompt",
+    inject,
+  }: {
+    runId: string;
+    messageId: string | undefined;
+    prompt: Prompt;
+    userText: string;
+    restoredHistory?: string;
+    historySource?: "runtime" | "resume_prompt";
+    inject: (prompt: Prompt, context: string) => Prompt;
+  }): Promise<ContextDelivery<Prompt>> {
+    if (!this.enabled || !messageId) return { prompt, finish: async () => {} };
     let prepared:
       | Awaited<ReturnType<PostHogAPIClient["prepareContextSelection"]>>
       | undefined;
-    const userText = text(prompt.filter((block) => !isHidden(block)));
-    const history =
-      this.history || text(prompt.filter(isHidden)).slice(-12_000);
+    const history = this.history || restoredHistory.slice(-12_000);
     try {
       prepared = await this.api.prepareContextSelection({
         run_id: runId,
@@ -56,7 +102,7 @@ export class ContextSelection {
         prompt: userText.slice(-20_000),
         prompt_char_count: userText.length,
         history,
-        history_source: this.history ? "runtime" : "resume_prompt",
+        history_source: this.history ? "runtime" : historySource,
         baseline: hash(prompt),
         runtime_version: this.runtimeVersion,
       });
@@ -69,13 +115,13 @@ export class ContextSelection {
       // Selection is optional. An unavailable evidence store must never produce an injection.
     }
     let submitted = prepared?.context
-      ? [...prompt, hiddenTextBlock(prepared.context)]
+      ? inject(prompt, prepared.context)
       : prompt;
     const deliveryId = randomUUID();
     let sentAt: number | undefined;
     const receipt = async (
       status: "dispatching" | "completed" | "failed",
-      result?: PromptResponse,
+      result?: ContextOutcome,
     ): Promise<boolean> => {
       if (!prepared?.selection_id) return true;
       try {
@@ -113,16 +159,18 @@ export class ContextSelection {
       submitted = prompt;
       await receipt("dispatching");
     }
-    try {
-      sentAt = performance.now();
-      const result = await send(submitted);
-      await receipt("completed", result);
-      this.history = `${this.history}\nUser: ${userText}`.slice(-12_000);
-      return result;
-    } catch (error) {
-      await receipt("failed");
-      throw error;
-    }
+    sentAt = performance.now();
+    return {
+      prompt: submitted,
+      finish: async (result, failed = false) => {
+        await receipt(failed ? "failed" : "completed", result);
+      },
+    };
+  }
+
+  recordUser(text: string): void {
+    if (!this.enabled) return;
+    this.history = `${this.history}\nUser: ${text}`.slice(-12_000);
   }
 
   recordAssistant(text: string): void {

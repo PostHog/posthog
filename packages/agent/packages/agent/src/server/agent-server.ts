@@ -2995,8 +2995,7 @@ export class AgentServer {
       );
     }
     this.contextSelection.enabled =
-      taskRun.state.context_selection_eligible === true &&
-      this.getRuntimeAdapter() === "claude";
+      taskRun.state.context_selection_eligible === true;
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =

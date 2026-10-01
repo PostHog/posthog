@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -105,6 +106,22 @@ class TestSelectionOrchestration(SimpleTestCase):
         self.actor.is_staff = False
         self.assertEqual(selection_mode(self.task_run, self.actor), "disabled")
         self.assertEqual(flag.call_count, 1)
+
+    @parameterized.expand(
+        [
+            ("claude", Task.Runtime.ACP, "claude", "treatment"),
+            ("codex", Task.Runtime.ACP, "codex", "treatment"),
+            ("pi", Task.Runtime.PI, None, "treatment"),
+            ("unknown", Task.Runtime.ACP, "unknown", "disabled"),
+        ]
+    )
+    @patch("products.context_layer.backend.selection_service.get_feature_flag_or_none", return_value="treatment")
+    def test_runtime_eligibility(self, name, runtime, adapter, expected, flag) -> None:
+        self.task_run.task.runtime = runtime
+        self.task_run.state = {"runtime_adapter": adapter} if adapter else {}
+        self.assertEqual(selection_mode(self.task_run, self.actor), expected)
+        self.task_run.environment = TaskRun.Environment.LOCAL
+        self.assertEqual(selection_mode(self.task_run, self.actor), "disabled")
 
     @patch("products.context_layer.backend.selection_service.get_feature_flag_or_none", return_value=False)
     def test_kill_switch_disables_existing_conversation(self, flag) -> None:

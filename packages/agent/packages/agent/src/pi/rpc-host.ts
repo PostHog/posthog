@@ -15,6 +15,7 @@ import {
   createPiTaskSystemPromptExtension,
   resolvePiTaskContext,
 } from "@posthog/harness/extensions/task-system-prompt";
+import { PiContextSelection } from "./context-selection";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -26,7 +27,8 @@ import { sanitizePiHostEnvironment } from "./rpc-environment";
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
-  method: "get_queue" | "clear_queue";
+  method: "get_queue" | "clear_queue" | "register_context_input";
+  contextInput?: { id: string; text: string | null };
 }
 
 function argumentValue(name: string): string | undefined {
@@ -101,6 +103,11 @@ if (bootstrap.enrichment) {
   runtimeExtensions.push(createPiEnrichmentExtension(bootstrap.enrichment));
 }
 
+const contextSelection = bootstrap.contextSelection
+  ? new PiContextSelection(bootstrap.contextSelection, sessionManager)
+  : undefined;
+if (contextSelection) runtimeExtensions.push(contextSelection.extension);
+
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
@@ -149,13 +156,33 @@ process.on("message", (message: unknown) => {
   if (
     request.type !== "posthog_pi_host_request" ||
     typeof request.id !== "string" ||
-    (request.method !== "get_queue" && request.method !== "clear_queue")
+    (request.method !== "get_queue" &&
+      request.method !== "clear_queue" &&
+      request.method !== "register_context_input")
   ) {
     return;
   }
 
   try {
     const session = runtime.session;
+    if (request.method === "register_context_input") {
+      if (
+        !contextSelection ||
+        typeof request.contextInput?.id !== "string" ||
+        (request.contextInput?.text !== null &&
+          typeof request.contextInput?.text !== "string")
+      ) {
+        throw new Error("Context selection input unavailable");
+      }
+      if (request.contextInput.text === null)
+        contextSelection.unregister(request.contextInput.id);
+      else
+        contextSelection.register(
+          request.contextInput.id,
+          request.contextInput.text,
+        );
+    }
+    if (request.method === "clear_queue") contextSelection?.clearPending();
     const data =
       request.method === "clear_queue"
         ? session.clearQueue()

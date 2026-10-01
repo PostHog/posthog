@@ -161,6 +161,7 @@ export class PiAgentServer {
   private rtkSavingsAttempted = false;
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
+  private contextSelectionEnabled = false;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -606,6 +607,8 @@ export class PiAgentServer {
         }),
     ]);
     const runState = taskRun?.state;
+    this.contextSelectionEnabled =
+      runState?.context_selection_eligible === true;
     seedRunUsage(this.runUsage, runState?.token_usage);
     // Before the prompt: its skills-store section counts the stubs on disk.
     const storeSkillsInstalledCount = await syncStoreSkills(
@@ -676,6 +679,15 @@ export class PiAgentServer {
       cliPath: this.config.piRpcHostPath,
       model: this.config.model,
       sessionFile: restoredSessionFile,
+      contextSelection: this.contextSelectionEnabled
+        ? {
+            apiUrl: this.config.apiUrl,
+            apiKey: this.config.apiKey,
+            projectId: this.config.projectId,
+            runId: payload.run_id,
+            runtimeVersion: this.agentVersion,
+          }
+        : undefined,
       enrichment: {
         apiUrl: this.config.apiUrl,
         projectId: this.config.projectId,
@@ -997,8 +1009,36 @@ export class PiAgentServer {
     id: string,
     steer: boolean,
   ): Promise<unknown> {
-    const send = (type: "prompt" | "follow_up" | "steer") =>
-      runtime.sendCommand({ id, type, message: content, images });
+    const send = async (type: "prompt" | "follow_up" | "steer") => {
+      if (this.contextSelectionEnabled && type !== "steer") {
+        try {
+          await runtime.client.registerContextInput(id, content);
+        } catch (error) {
+          this.logger.debug("Context selection registration failed", {
+            messageId: id,
+            error,
+          });
+        }
+      }
+      const unregister = async () => {
+        if (this.contextSelectionEnabled && type !== "steer") {
+          await runtime.client.registerContextInput(id, null).catch(() => {});
+        }
+      };
+      try {
+        const response = await runtime.sendCommand({
+          id,
+          type,
+          message: content,
+          images,
+        });
+        if (response?.success === false) await unregister();
+        return response;
+      } catch (error) {
+        await unregister();
+        throw error;
+      }
+    };
     const state = await runtime.client.getState();
     if (!state.isStreaming) {
       return send("prompt");

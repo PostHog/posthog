@@ -482,38 +482,51 @@ describe("PiAgentServer", () => {
     expect(appendTaskRunLog.mock.calls[0]?.[2]).toHaveLength(100);
   });
 
-  it("uses the durable message id for an idle native Pi prompt", async () => {
-    const sendCommand = vi.fn(
-      async (_command: Record<string, unknown>) => ({}),
-    );
-    const server = new PiAgentServer(config()) as unknown as {
-      session: unknown;
-      executeCommand(
-        method: string,
-        params: Record<string, unknown>,
-      ): Promise<unknown>;
-    };
-    server.session = {
-      runtime: {
-        client: {
-          getState: vi.fn(async () => ({ isStreaming: false })),
+  it.each([false, true])(
+    "uses the durable message id for an idle native Pi prompt (context selection %s)",
+    async (enabled) => {
+      const sendCommand = vi.fn(
+        async (_command: Record<string, unknown>) => ({}),
+      );
+      const registerContextInput = vi.fn(async () => {});
+      const server = new PiAgentServer(config()) as unknown as {
+        session: unknown;
+        contextSelectionEnabled: boolean;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.contextSelectionEnabled = enabled;
+      server.session = {
+        runtime: {
+          client: {
+            registerContextInput,
+            getState: vi.fn(async () => ({ isStreaming: false })),
+          },
+          sendCommand,
         },
-        sendCommand,
-      },
-    };
+      };
 
-    await server.executeCommand("user_message", {
-      content: "hello",
-      messageId: "message-1",
-    });
+      await server.executeCommand("user_message", {
+        content: "hello",
+        messageId: "message-1",
+      });
 
-    expect(sendCommand).toHaveBeenCalledWith({
-      id: "message-1",
-      type: "prompt",
-      message: "hello",
-      images: [],
-    });
-  });
+      if (enabled) {
+        expect(registerContextInput).toHaveBeenCalledWith("message-1", "hello");
+        expect(registerContextInput.mock.invocationCallOrder[0]).toBeLessThan(
+          sendCommand.mock.invocationCallOrder[0],
+        );
+      } else expect(registerContextInput).not.toHaveBeenCalled();
+      expect(sendCommand).toHaveBeenCalledWith({
+        id: "message-1",
+        type: "prompt",
+        message: "hello",
+        images: [],
+      });
+    },
+  );
 
   it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
     const sendCommand = vi.fn(

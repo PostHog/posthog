@@ -20,6 +20,7 @@ import type { TaskContext } from "@posthog/agent-contracts/task-context";
 import type { PiEnrichmentConfig } from "@posthog/harness/extensions/enrichment";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import { buildLocalToolsServer } from "../adapters/codex-app-server/local-tools-mcp";
+import type { PiContextSelectionConfig } from "./context-selection";
 import { safePiEnvironment } from "./rpc-environment";
 import type {
   PiExtensionEvent,
@@ -39,6 +40,7 @@ export type PiRpcClient = RpcClient & {
   onEvent(listener: PiRpcEventListener): () => void;
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
+  registerContextInput(id: string, text: string | null): Promise<void>;
   onMcpToolPermissionRequest(
     listener: (request: McpToolPermissionRequest) => void,
   ): () => void;
@@ -59,6 +61,7 @@ export interface PiRpcProviderOptions {
 export interface PiRpcBootstrap {
   providerOptions: PiRpcProviderOptions;
   enrichment?: PiEnrichmentConfig;
+  contextSelection?: PiContextSelectionConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   taskContext: TaskContext;
@@ -152,7 +155,8 @@ export function createLocalRuntimeMcpServers(cwd: string): PiRuntimeMcpServers {
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
-  method: "get_queue" | "clear_queue";
+  method: "get_queue" | "clear_queue" | "register_context_input";
+  contextInput?: { id: string; text: string | null };
 }
 
 interface PiMcpPermissionRequestMessage {
@@ -334,8 +338,13 @@ class SecurePiRpcClient extends RpcClient {
     });
   }
 
+  async registerContextInput(id: string, text: string | null): Promise<void> {
+    await this.sendHostRequest("register_context_input", { id, text });
+  }
+
   private sendHostRequest(
     method: PiHostRequest["method"],
+    contextInput?: PiHostRequest["contextInput"],
   ): Promise<PiQueueSnapshot> {
     const process = (this as unknown as RpcClientInternals).process;
     if (!process?.connected) {
@@ -347,13 +356,17 @@ class SecurePiRpcClient extends RpcClient {
       type: "posthog_pi_host_request",
       id,
       method,
+      ...(contextInput ? { contextInput } : {}),
     };
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.hostRequests.delete(id);
-        reject(new Error(`Pi RPC host request timed out: ${method}`));
-      }, 10_000);
+      const timeout = setTimeout(
+        () => {
+          this.hostRequests.delete(id);
+          reject(new Error(`Pi RPC host request timed out: ${method}`));
+        },
+        method === "register_context_input" ? 1_000 : 10_000,
+      );
       this.hostRequests.set(id, { resolve, reject, timeout });
       process.send?.(request, (error) => {
         if (!error) {
@@ -448,6 +461,7 @@ export type PiRpcClientOptions = Pick<RpcClientOptions, "cliPath" | "model"> & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
   enrichment?: PiEnrichmentConfig;
+  contextSelection?: PiContextSelectionConfig;
   runtimeMcpServers?: PiRuntimeMcpServers;
   mcpToolPolicies?: McpToolPolicy[];
   taskContext: TaskContext;
@@ -460,6 +474,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     sessionFile,
     providerOptions,
     enrichment,
+    contextSelection,
     runtimeMcpServers,
     mcpToolPolicies,
     taskContext,
@@ -482,6 +497,7 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
     {
       providerOptions,
       enrichment,
+      contextSelection,
       runtimeMcpServers,
       mcpToolPolicies,
       taskContext,

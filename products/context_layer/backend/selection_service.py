@@ -55,8 +55,13 @@ def selection_mode(run: TaskRun, actor: User) -> str:
     if (
         not actor.is_staff
         or run.team_id not in settings.CONTEXT_SELECTION_ALLOWED_TEAM_IDS
-        or (run.state or {}).get("runtime_adapter", "claude") != "claude"
-        or run.task.runtime != Task.Runtime.ACP
+        or not (
+            run.task.runtime == Task.Runtime.PI
+            or (
+                run.task.runtime == Task.Runtime.ACP
+                and (run.state or {}).get("runtime_adapter", "claude") in ("claude", "codex")
+            )
+        )
         or run.environment != TaskRun.Environment.CLOUD
         or run.task.origin_product not in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.SLACK)
     ):
@@ -127,7 +132,7 @@ def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[st
             "corpus_revision": None,
             "historical_replay": False,
         },
-        "runtime": "claude",
+        "runtime": "pi" if run.task.runtime == Task.Runtime.PI else (run.state or {}).get("runtime_adapter", "claude"),
         "agent_configuration": {key: (run.state or {}).get(key) for key in ("model", "systemPrompt", "store_skills")},
         "baseline_reference": {"run_id": str(run.id), "storage": "task_run_logs"},
     }

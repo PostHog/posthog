@@ -684,10 +684,10 @@ or stream echo, and never submits the message again.
 
 ## Context selection experiment
 
-Cloud Claude runs started from PostHog AI web or Slack can opt into `phai-context-selection`.
+Cloud Claude, Codex, and Pi runs started from PostHog AI web or Slack can opt into `phai-context-selection`.
 The flag must return `shadow`, `control`, or `treatment`; boolean enablement does not enroll a run.
 Assignment uses the task ID and persists across its runs. Turning the flag off stops selection on the next human turn.
-Runs booted while disabled require a new run to enroll. Pi, desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
+Runs booted while disabled require a new run to enroll. Desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
 
 The default `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` is empty. Configure only projects containing synthetic or PostHog-owned data; the current actor must also be staff.
 `CONTEXT_SELECTION_PROVIDER` explicitly selects `typesafe` (default, existing NORMAL egress lane) or `gateway`.
@@ -706,7 +706,10 @@ A retry of an already recorded message does not repeat selection and proceeds wi
 A failed receipt write removes context before dispatch. Preparation and receipt failures also emit diagnostics into the existing run logs.
 
 Selection records retain authorized candidate snapshots, source revisions, projection identity, model requests and normalized responses, decisions, stage timings, rendered context, bounded request/history, and relevant run configuration.
-Receipts include exact submitted ACP prompt blocks (up to 256 KiB), their SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
+Receipts include exact submitted ACP prompt blocks or native Pi context messages, system prompt, and model (up to 256 KiB), their SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
+Pi registers human message IDs before sending their native commands, persists queued registrations in the native session, and selects when those messages reach the model. The context extension supplies hidden reference messages without changing the visible user prompt. Native commands, unregistered inputs, and steering do not run selection. Skill/template expansion that changes the registered text prevents a match and skips selection.
+Pi receipts finish on the first native model turn after selection, with `pi_model_turn` usage scope; RPC acknowledgments never count as completion. Subsequent trajectory remains in native session and task logs. Missing trace IDs remain explicit gaps. In-process tool continuations retain already-exposed context; a resumed process does not reconstruct those temporary context messages and selects again only for newly registered human input.
+
 A dispatching receipt alone does not prove adapter acceptance. Terminal receipt failures remain unknown; task/run joins remain usable without a trace ID.
 Provider responses completing after the deadline are not collected. Their candidates are marked timed out. The source search is lexical plus Business Knowledge hybrid retrieval, not the prototype's SQLite FTS implementation.
 

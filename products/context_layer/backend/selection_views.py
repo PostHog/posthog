@@ -66,7 +66,9 @@ class ReceiptSerializer(serializers.Serializer):
         required=False, min_value=0, help_text="Observed adapter call duration; absent before dispatch."
     )
     usage = serializers.JSONField(required=False, allow_null=True, help_text="Adapter-reported usage, when available.")
-    prompt = serializers.JSONField(help_text="Exact ACP blocks submitted to the adapter; limited to 256 KiB.")
+    prompt = serializers.JSONField(
+        help_text="Exact ACP blocks or native Pi context messages submitted to the runtime; limited to 256 KiB."
+    )
 
     def validate_prompt(self, value: object) -> object:
         if len(json.dumps(value).encode()) > 262_144:
