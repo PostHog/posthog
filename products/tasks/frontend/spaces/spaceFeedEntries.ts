@@ -123,6 +123,7 @@ function canvasOrderItem(canvas: CanvasApi, key: string): TodayWorkItem {
         originProduct: null,
         source: null,
         repository: null,
+        branch: null,
         pullRequests: [],
         finalMessage: null,
     }

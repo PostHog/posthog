@@ -4,6 +4,7 @@ import {
     computeBulkPinDirection,
     computeRangeSelection,
     orderedVisibleSessionIds,
+    rightClickActsOnSelection,
     toggleSelection,
 } from './todaySessionSelection'
 import { TodayWorkSectionId } from './todaySpacesLogic'
@@ -16,6 +17,14 @@ function item(id: string, kind: TodayWorkItem['kind'] = 'session'): TodayWorkIte
 }
 
 describe('todaySessionSelection', () => {
+    it.each<[string, string[], string, boolean]>([
+        ['a row inside a selection gets the selection menu', ['t1', 't2'], 't2', true],
+        ['a row outside the selection gets its own menu', ['t1', 't2'], 't3', false],
+        ['a lone picked row gets its own menu', ['t1'], 't1', false],
+    ])('right-click: %s', (_, selected, target, expected) => {
+        expect(rightClickActsOnSelection(selected, target)).toBe(expected)
+    })
+
     it.each<[string, string | null, string, string[], TodaySessionSelection]>([
         ['selects a forward range', 't2', 't4', [], { ids: ['t2', 't3', 't4'], anchorId: 't4' }],
         ['selects a backward range', 't4', 't2', [], { ids: ['t2', 't3', 't4'], anchorId: 't2' }],
