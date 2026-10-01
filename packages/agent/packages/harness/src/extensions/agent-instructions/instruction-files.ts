@@ -44,7 +44,14 @@ export function applyInstructionsBlock(
   if (!instructions) {
     return rest ? `${rest}\n` : null;
   }
-  const block = `${BLOCK_START}\n${instructions.trim()}\n${BLOCK_END}`;
+  // A marker inside the text would end the block early, and a later clear would leave the rest behind.
+  const body = instructions
+    .split(BLOCK_START)
+    .join("")
+    .split(BLOCK_END)
+    .join("")
+    .trim();
+  const block = `${BLOCK_START}\n${body}\n${BLOCK_END}`;
   return rest ? `${rest}\n\n${block}\n` : `${block}\n`;
 }
 

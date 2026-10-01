@@ -12278,6 +12278,21 @@
         },
         "feature_flag": "context-layer"
     },
+    "tasks-config-agent-instructions-create": {
+        "description": "Set the project's agent instructions: markdown every eligible cloud task run on the project loads as its user-level AGENTS.md, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set project agent instructions",
+        "title": "Set project agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-config-create": {
         "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12294,7 +12309,7 @@
         "feature_flag": "tasks"
     },
     "tasks-config-list": {
-        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored.",
+        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored. Also returns the project's agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get project task run defaults",
@@ -12353,6 +12368,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-me-config-agent-instructions-create": {
+        "description": "Set the caller's personal agent instructions: markdown added after the project instructions on cloud task runs the caller starts. Autonomous runs never load them. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set my agent instructions",
+        "title": "Set my agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-me-config-create": {
         "description": "Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12369,7 +12399,7 @@
         "feature_flag": "tasks"
     },
     "tasks-me-config-list": {
-        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it).",
+        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get my task run defaults",

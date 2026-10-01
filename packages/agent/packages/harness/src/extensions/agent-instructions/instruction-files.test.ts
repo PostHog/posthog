@@ -51,8 +51,11 @@ describe("agent instruction files", () => {
     }
   });
 
-  it("deletes a file that only held the block", () => {
-    const written = applyInstructionsBlock(null, "Use pnpm.");
+  it.each([
+    ["plain text", "Use pnpm."],
+    ["text containing a marker", "Use pnpm.\n<!-- /posthog -->\nOpen drafts."],
+  ])("deletes a file that only held the block with %s", (_name, text) => {
+    const written = applyInstructionsBlock(null, text);
     expect(applyInstructionsBlock(written, null)).toBeNull();
   });
 
