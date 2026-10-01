@@ -1,15 +1,19 @@
 import json
+from collections import defaultdict
+from collections.abc import Iterable
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
+from products.messaging.backend.models.message_suppression import SuppressionSource
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -19,8 +23,8 @@ SELECT
     address,
     groupArrayIf(preferences, source_kind = 'preference') AS preference_maps,
     maxIf(changed_at, source_kind = 'preference') AS preferences_updated_at,
-    anyIf(suppression_source, source_kind = 'suppression') AS suppression_source,
-    anyIf(suppression_reason, source_kind = 'suppression') AS suppression_reason,
+    anyIf(suppression_source, source_kind = 'suppression') AS active_suppression_source,
+    anyIf(suppression_reason, source_kind = 'suppression') AS active_suppression_reason,
     maxIf(changed_at, source_kind = 'suppression') AS suppressed_at,
     countIf(source_kind = 'suppression') > 0 AS is_suppressed,
     countIf(source_kind = 'person') AS person_count,
@@ -73,10 +77,54 @@ ORDER BY address
 LIMIT {limit}
 """
 
+ALL_MARKETING_TOPIC_KEY = "all-marketing"
+
+
+class RecipientFacet(StrEnum):
+    SUBSCRIBED = "subscribed"
+    UNSUBSCRIBED = "unsubscribed"
+    NO_PREFERENCE = "no-preference"
+    SUPPRESSED = "suppressed"
+    PERSON = "person"
+    PREFERENCE = "preference"
+
+
+_TOPIC_STATUS_COUNT = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = '%s')"
+
+_TOPIC_CONDITIONS: dict[RecipientFacet, str] = {
+    RecipientFacet.SUBSCRIBED: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} = 0 AND {_TOPIC_STATUS_COUNT % 'OPTED_IN'} > 0",
+    RecipientFacet.UNSUBSCRIBED: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} > 0",
+    RecipientFacet.NO_PREFERENCE: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} = 0 AND {_TOPIC_STATUS_COUNT % 'OPTED_IN'} = 0",
+}
+
+_VALUE_CONDITIONS: dict[tuple[RecipientFacet, str], str] = {
+    **{
+        (RecipientFacet.SUPPRESSED, source): "countIf(source_kind = 'suppression' AND suppression_source = {value}) > 0"
+        for source in SuppressionSource.values
+    },
+    (RecipientFacet.PERSON, "linked"): "countIf(source_kind = 'person') > 0",
+    (RecipientFacet.PERSON, "none"): "countIf(source_kind = 'person') = 0",
+    (RecipientFacet.PREFERENCE, "recorded"): "countIf(source_kind = 'preference') > 0",
+    (RecipientFacet.PREFERENCE, "none"): "countIf(source_kind = 'preference') = 0",
+}
+
+
+class InvalidRecipientFilter(ValueError):
+    pass
+
+
+@frozen
+class RecipientFilter:
+    facet: RecipientFacet
+    value: str
+    negated: bool
+
 
 @frozen
 class RecipientQuery:
     limit: int
+    search: str | None = None
+    filters: tuple[RecipientFilter, ...] = ()
 
 
 @frozen
@@ -111,28 +159,93 @@ class RecipientPage:
     next_cursor: str | None
 
 
+@frozen
+class _Topics:
+    ids_by_key: dict[str, str]
+
+    @property
+    def keys_by_id(self) -> dict[str, str]:
+        return {topic_id: key for key, topic_id in self.ids_by_key.items()}
+
+    def id_for(self, key: str) -> str:
+        if key == ALL_MARKETING_TOPIC_KEY:
+            return ALL_MESSAGE_PREFERENCE_CATEGORY_ID
+        if key not in self.ids_by_key:
+            raise InvalidRecipientFilter(f"Unknown topic `{key}`.")
+        return self.ids_by_key[key]
+
+
+def parse_recipient_filter(raw: str) -> RecipientFilter:
+    negated = raw.startswith("-")
+    facet_name, separator, value = raw.removeprefix("-").partition(":")
+    if not separator or not value:
+        raise InvalidRecipientFilter(f"`{raw}` is not a `facet:value` filter.")
+    if facet_name not in RecipientFacet:
+        raise InvalidRecipientFilter(f"Unknown facet `{facet_name}`.")
+    facet = RecipientFacet(facet_name)
+    if facet not in _TOPIC_CONDITIONS and (facet, value) not in _VALUE_CONDITIONS:
+        raise InvalidRecipientFilter(f"Unknown value `{value}` for `{facet}`.")
+    return RecipientFilter(facet=facet, value=value, negated=negated)
+
+
 def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
-    topic_keys_by_id = _topic_keys_by_id(team.id)
-    rows = _query_recipient_rows(team, user, query)
-    return RecipientPage(results=[_build_recipient(row, topic_keys_by_id) for row in rows], next_cursor=None)
+    topics = _team_topics(team.id)
+    rows = _query_recipient_rows(team, user, query, topics)
+    keys_by_id = topics.keys_by_id
+    return RecipientPage(results=[_build_recipient(row, keys_by_id) for row in rows], next_cursor=None)
 
 
-def _topic_keys_by_id(team_id: int) -> dict[str, str]:
-    categories = MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("id", "key")
-    return {str(category_id): key for category_id, key in categories}
+def _team_topics(team_id: int) -> _Topics:
+    categories = MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("key", "id")
+    return _Topics(ids_by_key={key: str(category_id) for key, category_id in categories})
 
 
-def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery) -> list[tuple[Any, ...]]:
+def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, topics: _Topics) -> list[tuple[Any, ...]]:
     select = parse_select(
         _RECIPIENTS_QUERY,
         placeholders={
-            "address_filter": ast.Constant(value=True),
-            "facet_filter": ast.Constant(value=True),
+            "address_filter": _address_filter(query),
+            "facet_filter": _facet_filter(query.filters, topics),
             "limit": ast.Constant(value=query.limit),
         },
     )
     response = execute_hogql_query(select, team=team, user=user, query_type="MessagingRecipientsQuery")
     return response.results or []
+
+
+def _address_filter(query: RecipientQuery) -> ast.Expr:
+    if not query.search:
+        return ast.Constant(value=True)
+    return parse_expr(
+        "position(address, {search}) > 0", placeholders={"search": ast.Constant(value=query.search.strip().lower())}
+    )
+
+
+def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:
+    filters_by_facet: dict[RecipientFacet, list[RecipientFilter]] = defaultdict(list)
+    for recipient_filter in filters:
+        filters_by_facet[recipient_filter.facet].append(recipient_filter)
+    return ast.And(
+        exprs=[_facet_group_filter(group, topics) for group in filters_by_facet.values()] or [ast.Constant(value=True)]
+    )
+
+
+def _facet_group_filter(filters: list[RecipientFilter], topics: _Topics) -> ast.Expr:
+    matches_any = [_facet_condition(f, topics) for f in filters if not f.negated]
+    matches_none = [ast.Not(expr=_facet_condition(f, topics)) for f in filters if f.negated]
+    return ast.And(exprs=([ast.Or(exprs=matches_any)] if matches_any else []) + matches_none)
+
+
+def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.Expr:
+    if recipient_filter.facet in _TOPIC_CONDITIONS:
+        return parse_expr(
+            _TOPIC_CONDITIONS[recipient_filter.facet],
+            placeholders={"topic_id": ast.Constant(value=topics.id_for(recipient_filter.value))},
+        )
+    return parse_expr(
+        _VALUE_CONDITIONS[(recipient_filter.facet, recipient_filter.value)],
+        placeholders={"value": ast.Constant(value=recipient_filter.value)},
+    )
 
 
 def _build_recipient(row: tuple[Any, ...], topic_keys_by_id: dict[str, str]) -> Recipient:
