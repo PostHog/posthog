@@ -1215,11 +1215,11 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
     )
 
     # A draft has no current result: rows from before a reset carry the earlier start date in their key.
-    launched = [experiment for experiment in rows if experiment.start_date is not None]
+    launched_rows = [experiment for experiment in rows if experiment.start_date is not None]
     # A calculation key resolves the team's experiment defaults, so read them once per team, not once per experiment.
-    team_configs = team_experiments_configs({experiment.team_id for experiment in launched})
+    team_configs = team_experiments_configs({experiment.team_id for experiment in launched_rows})
     outcome_metrics: dict[int, OutcomeMetric] = {}
-    for experiment in launched:
+    for experiment in launched_rows:
         metric = _outcome_metric(experiment, team_configs[experiment.team_id])
         if metric is not None:
             outcome_metrics[experiment.id] = metric
