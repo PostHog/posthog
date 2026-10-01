@@ -73,7 +73,6 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.delay import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
     THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
@@ -107,6 +106,7 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_alert_destinations,
     validate_destination_data,
 )
+from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
