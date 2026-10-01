@@ -14,6 +14,10 @@ until GitHub has updated that ref. When the ref is missing, Depot ends the run w
 workflows; when it stays stale, Depot fails to compile. Depot also cancels some runs under
 its concurrency policy before they start. Each case leaves the event with no Depot run, so
 it stays here.
+
+Merge queue batches have their own percent, CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT, so the
+merge gate moves to Depot separately from source pull requests. Batches ignore the routing
+labels, so setting that percent to 0 keeps every new batch on GitHub Actions.
 """
 
 import os
@@ -110,6 +114,15 @@ def handoff_conclusion(check_runs: list[dict], pr_number: int) -> str | None:
     return conclusions[0] if conclusions else None
 
 
+def by_bucket(pr_number: int | None, percent: int, label: str) -> Decision:
+    if pr_number is None:
+        return Decision("github", "no pull request number to hash")
+    bucket = bucket_of(pr_number)
+    if bucket < percent:
+        return Decision("depot", f"{label} {bucket} < {percent}%")
+    return Decision("github", f"{label} {bucket} >= {percent}%")
+
+
 def decide(
     event: str,
     percent: int,
@@ -119,14 +132,15 @@ def decide(
     is_draft: bool,
     prior_handoff: str | None = None,
     head_ref: str = "",
+    merge_queue_percent: int = 0,
 ) -> Decision:
     if event != "pull_request":
         return Decision("github", f"{event} events stay on GitHub Actions")
-    if head_ref.startswith(MERGE_QUEUE_PREFIX):
-        return Decision("github", "merge queue batches stay on GitHub Actions")
     prior_engine = ENGINE_BY_HANDOFF_CONCLUSION.get(prior_handoff or "")
     if prior_engine:
         return Decision(prior_engine, f"an earlier run of this commit chose {prior_engine}")
+    if head_ref.startswith(MERGE_QUEUE_PREFIX):
+        return by_bucket(pr_number, merge_queue_percent, "merge queue bucket")
     if LABEL_FORCE_GITHUB in labels:
         return Decision("github", f"label {LABEL_FORCE_GITHUB}")
     if is_fork:
@@ -135,12 +149,7 @@ def decide(
         return Decision("github", "no-ci drafts skip on GitHub Actions and run nowhere else")
     if LABEL_FORCE_DEPOT in labels:
         return Decision("depot", f"label {LABEL_FORCE_DEPOT}")
-    if pr_number is None:
-        return Decision("github", "no pull request number to hash")
-    bucket = bucket_of(pr_number)
-    if bucket < percent:
-        return Decision("depot", f"bucket {bucket} < {percent}%")
-    return Decision("github", f"bucket {bucket} >= {percent}%")
+    return by_bucket(pr_number, percent, "bucket")
 
 
 def fetch_handoff_checks(repo: str, sha: str, token: str, *, opener: Any = None) -> list[dict]:
@@ -225,6 +234,7 @@ def main() -> int:
             is_draft=env.get("IS_DRAFT", "false") == "true",
             prior_handoff=prior_handoff,
             head_ref=env.get("HEAD_REF", ""),
+            merge_queue_percent=parse_percent(env.get("MERGE_QUEUE_PERCENT")),
         )
 
     prior_handoff = None

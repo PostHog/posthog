@@ -522,6 +522,7 @@ jobs:
               if: github.event_name == 'pull_request'
               env:
                   PERCENT: ${{ vars.CI_BACKEND_DEPOT_PERCENT }}
+                  MERGE_QUEUE_PERCENT: ${{ vars.CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT }}
                   EVENT: ${{ github.event_name }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
