@@ -342,15 +342,30 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
         ),
 })
 
+export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
+export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
+    exclude_unchanged: zod
+        .boolean()
+        .default(visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault)
+        .describe(
+            'Whether to leave out snapshots whose result is `unchanged`. Defaults to false. Pass true to list only the changed, new and removed snapshots, which is what a review needs. A large run holds thousands of unchanged snapshots and few changes.'
+        ),
     include_quarantined: zod
         .boolean()
-        .optional()
+        .default(visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault)
         .describe(
             'Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    snapshot_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.'
+        ),
 })
 
 /**
