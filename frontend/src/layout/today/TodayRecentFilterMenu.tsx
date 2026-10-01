@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { TodayFilterMenuTrigger } from './TodayFilterMenuTrigger'
+import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import {
     DEFAULT_RECENT_FILTERS,
     RECENT_CREATED_BY_OPTIONS,
@@ -33,6 +34,7 @@ export function TodayRecentFilterMenu(): JSX.Element {
         recentGrouping,
     } = useValues(todaySpacesLogic)
     const { setRecentFilters, clearRecentFilters, setRecentSort, setRecentGrouping } = useActions(todaySpacesLogic)
+    const { openAppearanceDialog } = useActions(todayListAppearanceLogic)
 
     return (
         <DropdownMenu>
@@ -93,6 +95,10 @@ export function TodayRecentFilterMenu(): JSX.Element {
                     onChange={(sources) => setRecentFilters({ ...filters, sources })}
                     dataAttr="today-recent-filter-source"
                 />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={openAppearanceDialog} data-attr="today-recent-filter-appearance">
+                    Edit list item appearance…
+                </DropdownMenuItem>
                 {active && (
                     <>
                         <DropdownMenuSeparator />

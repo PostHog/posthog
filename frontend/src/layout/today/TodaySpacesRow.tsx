@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import { TodayListItemDetail } from './todayListAppearance'
 import { TodayOverflowText } from './TodayOverflowText'
 
 // The label's right padding for the icon-sized slots that sit over the end of the row.
@@ -28,6 +29,8 @@ interface TodaySpacesRowProps {
     selected?: boolean
     /** Runs before the link navigates, so a modifier click can take the click over. */
     onClickCapture?: (event: React.MouseEvent<HTMLElement>) => void
+    /** A second line under the label, like Desktop's list item appearance. Empty keeps the row on one line. */
+    details?: TodayListItemDetail[]
 }
 
 export function TodaySpacesRow({
@@ -43,6 +46,7 @@ export function TodaySpacesRow({
     ticker = false,
     selected = false,
     onClickCapture,
+    details = [],
 }: TodaySpacesRowProps): JSX.Element {
     const [hovered, setHovered] = useState(false)
     const [keyboardFocused, setKeyboardFocused] = useState(false)
@@ -73,22 +77,44 @@ export function TodaySpacesRow({
                 onBlur={ticker ? () => setKeyboardFocused(false) : undefined}
                 className={cn(
                     'min-w-0 text-xs font-medium text-foreground',
+                    // Desktop's two-line row: the second line outgrows the fixed row height, so padding stands in for it.
+                    details.length > 0 && 'h-auto py-1',
                     // Like Desktop, the open row takes a stronger tint than the other selected rows.
                     selected ? (active ? 'bg-primary/20' : 'bg-primary/10') : active && 'bg-fill-selected',
                     TRAILING_PADDING[restSlots]
                 )}
             >
-                <span className="flex size-3.5 shrink-0 items-center justify-center">{icon}</span>
-                {ticker ? (
-                    <TodayOverflowText
-                        reveal={hovered || keyboardFocused}
-                        className={cn('flex-1', unread && 'font-semibold')}
-                    >
-                        {label}
-                    </TodayOverflowText>
-                ) : (
-                    <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>{label}</span>
-                )}
+                <span
+                    className={cn(
+                        'flex size-3.5 shrink-0 items-center justify-center',
+                        details.length > 0 && 'self-start pt-0.5'
+                    )}
+                >
+                    {icon}
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                    {ticker ? (
+                        <TodayOverflowText
+                            reveal={hovered || keyboardFocused}
+                            className={cn(unread && 'font-semibold')}
+                        >
+                            {label}
+                        </TodayOverflowText>
+                    ) : (
+                        <span className={cn('min-w-0 truncate', unread && 'font-semibold')}>{label}</span>
+                    )}
+                    {details.length > 0 && (
+                        <span className="truncate text-xxs text-muted-foreground">
+                            {details.map((detail, index) => (
+                                // Every part is its own element, so a page translator can't break the line when the details change.
+                                <Fragment key={detail.field}>
+                                    {index > 0 && <span> · </span>}
+                                    <span title={detail.title}>{detail.text}</span>
+                                </Fragment>
+                            ))}
+                        </span>
+                    )}
+                </span>
                 {trailingDot ? (
                     <span className="sr-only">Unread</span>
                 ) : (
