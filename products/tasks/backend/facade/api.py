@@ -6244,6 +6244,14 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     return build_task_review(team_id, task_id, user_id, page)
 
 
+def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dict[str, str]:
+    from products.tasks.backend.logic.pull_request_titles import (  # noqa: PLC0415 — keep GitHub integration deps off the api import path
+        pull_request_titles,
+    )
+
+    return pull_request_titles(team_id, user_id, task_ids)
+
+
 def get_task_detail(
     task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
 ) -> contracts.TaskDetailDTO | None:

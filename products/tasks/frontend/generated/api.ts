@@ -92,6 +92,8 @@ import type {
     TaskPinRequestApi,
     TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
+    TaskPullRequestTitlesApi,
+    TaskPullRequestTitlesRequestApi,
     TaskRepositoriesResponseApi,
     TaskReviewApi,
     TaskRunAnalysisActivityRequestApi,
@@ -2937,6 +2939,27 @@ export const tasksPinnedRetrieve = async (
     return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksPullRequestTitlesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/pull_request_titles/`
+}
+
+/**
+ * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * @summary Fetch pull request titles for tasks
+ */
+export const tasksPullRequestTitlesCreate = async (
+    projectId: string,
+    taskPullRequestTitlesRequestApi: TaskPullRequestTitlesRequestApi,
+    options?: RequestInit
+): Promise<TaskPullRequestTitlesApi> => {
+    return apiMutator<TaskPullRequestTitlesApi>(getTasksPullRequestTitlesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPullRequestTitlesRequestApi),
     })
 }
 

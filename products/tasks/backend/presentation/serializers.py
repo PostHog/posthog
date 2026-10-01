@@ -2198,6 +2198,28 @@ class TaskSummariesRequestSerializer(serializers.Serializer):
     )
 
 
+TASK_PULL_REQUEST_TITLES_MAX_IDS = 30
+
+
+class TaskPullRequestTitlesRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=TASK_PULL_REQUEST_TITLES_MAX_IDS,
+        help_text=f"Task IDs whose latest run's pull request titles to fetch (max {TASK_PULL_REQUEST_TITLES_MAX_IDS}).",
+    )
+
+
+class TaskPullRequestTitlesSerializer(serializers.Serializer):
+    titles = serializers.DictField(
+        child=serializers.CharField(),
+        help_text=(
+            "Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub "
+            "could not return its title."
+        ),
+    )
+
+
 class TaskRunSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the latest run.")
     status = serializers.ChoiceField(choices=tasks_facade.TaskRunStatus.choices, allow_null=True)
