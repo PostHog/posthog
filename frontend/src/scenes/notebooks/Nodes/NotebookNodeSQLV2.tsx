@@ -46,6 +46,8 @@ export type NotebookNodeSQLV2Result = {
     stdout?: string
     stderr?: string
     media?: NotebookNodeSQLV2Media[]
+    // A Python node's last expression as text, for a value that is not a dataframe.
+    result_text?: string
 }
 
 export type NotebookNodeSQLV2Attributes = {

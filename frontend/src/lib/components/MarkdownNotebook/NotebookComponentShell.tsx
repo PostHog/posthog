@@ -63,6 +63,9 @@ import {
 } from './types'
 import { getNodeFingerprint } from './utils'
 
+const EDIT_FOCUS_TIMEOUT_MS = 10_000
+const EDIT_FOCUS_RETRY_MS = 50
+
 export type ComponentTitleTone = 'default' | 'insight' | 'sql' | 'data' | 'media' | 'experiment' | 'code' | 'posthog'
 
 export type ComponentTitleDisplay = {
@@ -379,15 +382,16 @@ export function NotebookComponentShell({
         return () => jupyterStore.setRunHandler(node.id, null)
     }, [jupyterStore, node.id, runHandler])
 
-    // A cell added in edit mode mounts its code editor a few frames after the cell itself, and
+    // A cell added in edit mode mounts its code editor some time after the cell itself, and
     // Monaco ignores focus until it has finished setting up, so the request retries until the
-    // caret has actually landed in the editor.
+    // caret has actually landed in the editor. Timers rather than animation frames, because a
+    // hidden tab never runs a frame.
     useEffect(() => {
         if (!jupyterStore || !isJupyterEditFocusRequested) {
             return
         }
-        let frame = 0
-        let attempts = 0
+        const deadline = Date.now() + EDIT_FOCUS_TIMEOUT_MS
+        let timer = 0
         const tryFocus = (): void => {
             const shell = shellRef.current
             if (shell) {
@@ -396,14 +400,17 @@ export function NotebookComponentShell({
             const activeElement = document.activeElement
             const hasEditorFocus =
                 !!shell && !!activeElement?.closest('.monaco-editor') && shell.contains(activeElement)
-            if (hasEditorFocus || attempts++ > 120) {
+            // Focus that moved elsewhere in the meantime was the user's choice; do not pull it back.
+            const userMovedOn =
+                !!shell && !!activeElement && activeElement !== document.body && !shell.contains(activeElement)
+            if (hasEditorFocus || userMovedOn || Date.now() > deadline) {
                 jupyterStore.requestEditFocus(null)
                 return
             }
-            frame = requestAnimationFrame(tryFocus)
+            timer = window.setTimeout(tryFocus, EDIT_FOCUS_RETRY_MS)
         }
         tryFocus()
-        return () => cancelAnimationFrame(frame)
+        return () => window.clearTimeout(timer)
         // oxlint-disable-next-line exhaustive-deps
     }, [jupyterStore, isJupyterEditFocusRequested])
 

@@ -16,6 +16,7 @@ const SHORT_ID = 'jupyter-mode'
 
 const CELLS = {
     load: 'jupyter-cell-load',
+    count: 'jupyter-cell-count',
     frame: 'jupyter-cell-frame',
     error: 'jupyter-cell-error',
     sql: 'jupyter-cell-sql',
@@ -29,6 +30,12 @@ const markdown = [
         returnVariable: 'df_signups',
         code: "import pandas as pd\n\nprint(f'Loaded {len(events):,} events')",
         result: { columns: [], row_count: 0, stdout: 'Loaded 12,408 events\n' },
+    }),
+    serializeMarkdownNotebookComponent('PythonV2', {
+        nodeId: CELLS.count,
+        returnVariable: 'df_count',
+        code: 'len(events)',
+        result: { columns: [], row_count: 0, result_text: '12408' },
     }),
     serializeMarkdownNotebookComponent('PythonV2', {
         nodeId: CELLS.frame,
@@ -126,14 +133,14 @@ export const JupyterMode: Story = {
     play: async ({ canvasElement }) => {
         await waitFor(
             () => {
-                if (canvasElement.querySelectorAll('.MarkdownNotebook__jupyter-cell').length < 4) {
+                if (canvasElement.querySelectorAll('.MarkdownNotebook__jupyter-cell').length < 5) {
                     throw new Error('Jupyter cells have not rendered yet')
                 }
             },
             { timeout: 30000 }
         )
         const logic = notebookJupyterLogic.findMounted({ shortId: SHORT_ID })
-        ;[CELLS.load, CELLS.frame, CELLS.error, CELLS.sql].forEach((nodeId, index) =>
+        ;[CELLS.load, CELLS.count, CELLS.frame, CELLS.error, CELLS.sql].forEach((nodeId, index) =>
             logic?.actions.assignExecutionCount(nodeId, index + 1)
         )
     },

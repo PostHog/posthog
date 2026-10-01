@@ -48,6 +48,22 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(len(envelope["first_page"]), 50)
         self.assertTrue(envelope["has_more"])
 
+    @parameterized.expand(
+        [
+            ("number", "words = ['a', 'b', 'c']\nlen(words)", "3"),
+            ("string", "'hello'", "'hello'"),
+            ("container", "{'a': 1}", "{'a': 1}"),
+            # Jupyter shows nothing for a statement, a None value, or a line ending in `;`.
+            ("statement", "x = 1", ""),
+            ("none", "None", ""),
+            ("semicolon", "len([1, 2]);", ""),
+            # A frame shows as the table, not as text.
+            ("frame", "import pandas as pd\npd.DataFrame({'a': [1]})", ""),
+        ]
+    )
+    def test_last_value_is_shown_like_jupyter_out(self, _name, code, expected):
+        self.assertEqual(self._run(code).get("result_text", ""), expected)
+
     def test_stdout_is_captured(self):
         envelope = self._run("print('hello from the kernel')")
         self.assertIn("hello from the kernel", envelope["stdout"])

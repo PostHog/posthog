@@ -59,7 +59,8 @@ export function NotebookJupyterCellOutput({
     // The kernel's row_count is the page size for a paged frame, so it only counts as the total
     // once the whole frame fits on the first page.
     const totalRowCount = result && !result.has_more && result.row_count >= firstPageLength ? result.row_count : null
-    const hasValue = !!dataframeResult || media.length > 0
+    const resultText = !dataframeResult && !runError ? result?.result_text : undefined
+    const hasValue = !!dataframeResult || media.length > 0 || !!resultText
 
     if (!status && !result?.stdout && !result?.stderr && !runError && !hasValue) {
         return null
@@ -88,6 +89,11 @@ export function NotebookJupyterCellOutput({
                     <img src={`data:${item.mime_type};base64,${item.data}`} alt="Cell output" />
                 </OutputRow>
             ))}
+            {resultText ? (
+                <OutputRow prompt={outPrompt}>
+                    <pre>{resultText}</pre>
+                </OutputRow>
+            ) : null}
             {dataframeResult && !runError ? (
                 <OutputRow prompt={outPrompt}>
                     {valueOverride ?? (

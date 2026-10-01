@@ -1209,6 +1209,8 @@ export interface NotebookSQLV2EnvelopeApi {
     stderr?: string
     /** Rich outputs from a Python node run, e.g. matplotlib figures as PNGs. */
     media?: NotebookSQLV2MediaApi[]
+    /** The plain-text form of a Python node's last expression, as Jupyter shows it under Out[n]. Absent when the cell ends in a statement, a None value, a semicolon, or a dataframe. */
+    result_text?: string
     /** Result column names. */
     columns?: string[]
     /** ClickHouse type per column, as [name, type] pairs; used by the visualization tab. */

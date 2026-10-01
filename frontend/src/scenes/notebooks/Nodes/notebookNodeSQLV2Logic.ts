@@ -813,6 +813,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                               stdout: result.stdout ?? '',
                               stderr: result.stderr ?? '',
                               media: result.media ?? [],
+                              ...(result.result_text ? { result_text: result.result_text } : {}),
                           }
                         : null
                     const resultMetadata = envelopeResult ? notebookResultPreview(envelopeResult) : null

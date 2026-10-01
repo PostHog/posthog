@@ -39,6 +39,7 @@ from typing import Any, NamedTuple
 import duckdb
 import pandas as pd
 import pyarrow as pa
+from IPython.core.displayhook import DisplayHook
 from IPython.core.interactiveshell import InteractiveShell
 from IPython.utils.capture import capture_output
 
@@ -364,6 +365,7 @@ class KernelSession:
             )
 
         result_df = self._result_frame(output_name, execution.result)
+        result_text = self._result_text(execution.result, node.get("code") or "")
         if output_name:
             if result_df is not None:
                 # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB
@@ -390,7 +392,25 @@ class KernelSession:
             has_more=has_more,
             media=media,
             result_id=result_id,
+            result_text=result_text,
         )
+
+    def _result_text(self, value: Any, code: str) -> str:
+        """The cell's last value as Jupyter's `Out[n]` shows it. A frame shows as the table instead.
+
+        Jupyter shows nothing for a statement or a None value (IPython leaves the result None),
+        nor for a last line ending in `;`, which IPython still evaluates but does not display.
+        """
+        if value is None or isinstance(value, pd.DataFrame | pd.Series):
+            return ""
+        if DisplayHook.semicolon_at_end_of_expression(code):
+            return ""
+        try:
+            data, _ = self.shell.display_formatter.format(value, include={"text/plain"})
+            text = str(data.get("text/plain", ""))
+        except Exception:  # noqa: BLE001 — a broken __repr__ must not fail a run that already succeeded
+            text = f"<{type(value).__name__} object>"
+        return _truncate_stream(text)
 
     def _bind_variables(self, variables: dict[str, Any]) -> None:
         """Bind the notebook's variables as globals, fresh on every run.

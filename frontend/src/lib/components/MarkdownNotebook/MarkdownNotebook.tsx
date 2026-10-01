@@ -5267,6 +5267,11 @@ function MarkdownNotebookEditor({
     }
     const jupyterStore = jupyterStoreRef.current
     const jupyterCommandSinkRef = useRef<HTMLDivElement | null>(null)
+    // Runs once React has rendered a just-committed document, to focus a cell that did not exist
+    // before. A timer rather than an animation frame, because a hidden tab never runs a frame.
+    const afterJupyterCommit = (callback: () => void): void => {
+        window.setTimeout(callback, 0)
+    }
 
     const getNotebookNodes = (): NotebookBlockNode[] =>
         documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
@@ -5474,7 +5479,7 @@ function MarkdownNotebookEditor({
             jupyterStore.requestEditFocus(cellMode === 'edit' && isJupyterCellNode(firstNode) ? firstNode.id : null)
         } else {
             // Text renders on the next commit, so focus it once it exists.
-            requestAnimationFrame(() => focusJupyterCell(firstNode.id, cellMode))
+            afterJupyterCommit(() => focusJupyterCell(firstNode.id, cellMode))
         }
     }
 
@@ -5554,7 +5559,7 @@ function MarkdownNotebookEditor({
             { coalesce: false }
         )
         if (neighbour) {
-            requestAnimationFrame(() =>
+            afterJupyterCommit(() =>
                 afterDelete === 'edit-previous'
                     ? focusJupyterCellEdge(neighbour.id, 'end')
                     : focusJupyterCell(neighbour.id, 'command')
@@ -5587,7 +5592,7 @@ function MarkdownNotebookEditor({
         commitDocument({ ...documentRef.current, nodes }, { coalesce: false })
         const firstRestoredId = restoredIds[0]
         if (firstRestoredId) {
-            requestAnimationFrame(() => focusJupyterCell(firstRestoredId, 'command'))
+            afterJupyterCommit(() => focusJupyterCell(firstRestoredId, 'command'))
         }
     }
 
@@ -5627,7 +5632,7 @@ function MarkdownNotebookEditor({
         }
         if (firstConvertedId) {
             const convertedId = firstConvertedId
-            requestAnimationFrame(() => focusJupyterCell(convertedId, 'command'))
+            afterJupyterCommit(() => focusJupyterCell(convertedId, 'command'))
         }
     }
 
@@ -5687,7 +5692,7 @@ function MarkdownNotebookEditor({
                 },
                 { coalesce: false }
             )
-            requestAnimationFrame(() => focusJupyterCell(targets[0].id, 'command'))
+            afterJupyterCommit(() => focusJupyterCell(targets[0].id, 'command'))
             return
         }
         const codeNodes = targets.map(getJupyterCodeCellNode)
@@ -5789,7 +5794,7 @@ function MarkdownNotebookEditor({
             { coalesce: false }
         )
         if (cell.kind === 'markdown') {
-            requestAnimationFrame(() => focusJupyterCell(cell.id, 'command'))
+            afterJupyterCommit(() => focusJupyterCell(cell.id, 'command'))
         } else {
             focusNodeRef.current = cell.id
         }

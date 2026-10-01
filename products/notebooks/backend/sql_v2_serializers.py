@@ -303,6 +303,14 @@ class NotebookSQLV2EnvelopeSerializer(serializers.Serializer):
         default=list,
         help_text="Rich outputs from a Python node run, e.g. matplotlib figures as PNGs.",
     )
+    result_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "The plain-text form of a Python node's last expression, as Jupyter shows it under Out[n]. "
+            "Absent when the cell ends in a statement, a None value, a semicolon, or a dataframe."
+        ),
+    )
     columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
