@@ -1,6 +1,7 @@
 import { PostHogAPIClient } from "@posthog/api-client/posthog-client";
+import type { Task } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { WorkList } from "./work";
+import { findTask, WorkList } from "./work";
 
 function fakeApi(total: number, hang = false) {
   const requests: URL[] = [];
@@ -68,5 +69,23 @@ describe("WorkList", () => {
     const list = new WorkList(api, 50);
 
     await expect(list.listRecent(10)).rejects.toThrow("Timed out loading work");
+  });
+});
+
+describe("findTask", () => {
+  const task = (runId: string, title: string): Task =>
+    ({ id: "t1", title, latest_run: { id: runId } }) as Task;
+
+  it.each([
+    ["a just-started run until the list catches up", "r1", "r2", "started"],
+    ["the listed task once it shows the same run", "r2", "r2", "listed"],
+  ])("returns %s", (_, listedRun, freshRun, expected) => {
+    const found = findTask("t1", {
+      listed: [task(listedRun, "listed")],
+      known: new Map(),
+      fresh: new Map([["t1", task(freshRun, "started")]]),
+    });
+
+    expect(found?.title).toBe(expected);
   });
 });
