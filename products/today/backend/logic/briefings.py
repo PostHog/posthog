@@ -270,7 +270,6 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
                 kind=metric.kind,
                 role=metric.role,
                 value=metric.value,
-                value_at=metric.value_at,
                 series=metric.series,
                 value_format=metric.value_format,
                 unit=metric.unit,

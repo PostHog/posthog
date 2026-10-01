@@ -59,15 +59,15 @@ export interface TodayChatPreview {
     timestamp: string | null
 }
 
-/** What a Today briefing item's hover card says. The item carries everything the card shows, so it opens without a request. */
-export interface TodayBriefingItemPreview {
-    kind: 'briefing_item'
+/** What a briefing report's hover card says. The item carries everything the card shows, so it opens without a request. */
+export interface TodayReportPreview {
+    kind: 'report'
     item: BriefingItemApi
     /** Where the card opened: a link in the briefing text, or a left-bar row. */
     surface: 'briefing' | 'sidebar'
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayBriefingItemPreview
+export type TodayPreviewPayload = TodaySessionPreview | TodaySpacePreview | TodayChatPreview | TodayReportPreview
 
 export function spaceKind(space: Pick<ChannelDTOApi, 'channel_type' | 'system_role'>): TodaySpaceKind {
     if (space.system_role === 'personal' || space.channel_type === 'personal') {

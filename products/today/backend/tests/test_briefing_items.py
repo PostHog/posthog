@@ -44,13 +44,12 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
         pull_request_state="merged",
         pull_request_url="https://github.com/example/app/pull/1",
         metrics=[
-            signals.BriefingReportMetric(
+            signals.ReportMetricSnapshot(
                 metric_id="affected-users",
                 title="Affected users",
                 kind="affected_users",
                 role="primary",
                 value=42.0,
-                value_at=datetime(2026, 9, 30, 12, 0, tzinfo=UTC),
                 series=[10.0, 20.0, 42.0],
                 value_format="count",
                 unit="users",

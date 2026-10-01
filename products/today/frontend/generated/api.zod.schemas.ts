@@ -86,7 +86,6 @@ export const BriefingItemMetricApi = zod.object({
             "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
         ),
     value: zod.number().describe('The latest saved snapshot of the metric.'),
-    value_at: zod.iso.datetime({ offset: true }).nullable().describe('When the snapshot was measured.'),
     series: zod
         .array(zod.number())
         .nullable()
@@ -151,7 +150,6 @@ export const BriefingItemReportApi = zod.object({
                         "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
                     ),
                 value: zod.number().describe('The latest saved snapshot of the metric.'),
-                value_at: zod.iso.datetime({ offset: true }).nullable().describe('When the snapshot was measured.'),
                 series: zod
                     .array(zod.number())
                     .nullable()
@@ -284,10 +282,6 @@ export const BriefingItemApi = zod.object({
                                     "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
                                 ),
                             value: zod.number().describe('The latest saved snapshot of the metric.'),
-                            value_at: zod.iso
-                                .datetime({ offset: true })
-                                .nullable()
-                                .describe('When the snapshot was measured.'),
                             series: zod
                                 .array(zod.number())
                                 .nullable()
@@ -457,10 +451,6 @@ export const BriefingApi = zod.object({
                                                 "`primary` for the report's key observation, otherwise `supporting`.\n\n\* `primary` - primary\n\* `supporting` - supporting"
                                             ),
                                         value: zod.number().describe('The latest saved snapshot of the metric.'),
-                                        value_at: zod.iso
-                                            .datetime({ offset: true })
-                                            .nullable()
-                                            .describe('When the snapshot was measured.'),
                                         series: zod
                                             .array(zod.number())
                                             .nullable()

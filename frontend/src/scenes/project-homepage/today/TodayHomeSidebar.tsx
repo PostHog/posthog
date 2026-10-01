@@ -17,7 +17,7 @@ import { TodayNavItem } from './TodayNavItem'
 import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
 
 function PersonalBriefingNavItems(): JSX.Element {
-    const { briefingItems, briefingItemPreviews, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const { location } = useValues(router)
     const currentPath = removeProjectIdIfPresent(location.pathname)
@@ -27,7 +27,7 @@ function PersonalBriefingNavItems(): JSX.Element {
             {briefingItems.map((item) => {
                 const href = itemHref(item)
                 const source = itemSource(item)
-                const preview = briefingItemPreviews.sidebar[item.key]
+                const preview = reportPreviews.sidebar[item.key]
                 const row = (
                     <TodayNavItem
                         key={item.key}

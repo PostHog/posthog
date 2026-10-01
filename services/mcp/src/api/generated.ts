@@ -18046,11 +18046,6 @@ export namespace Schemas {
       /** The latest saved snapshot of the metric. */
       value: number;
       /**
-         * When the snapshot was measured.
-         * @nullable
-         */
-      value_at: string | null;
-      /**
          * Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.
          * @nullable
          */

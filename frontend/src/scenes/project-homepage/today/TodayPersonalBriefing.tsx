@@ -14,7 +14,7 @@ import { TodayIcon } from './TodayIcon'
 import { todayLogic } from './todayLogic'
 
 function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): JSX.Element {
-    const { briefingItems, briefingItemPreviews, hoveredItemKey } = useValues(todayLogic)
+    const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
     const { itemOpened, setHoveredItemKey } = useActions(todayLogic)
     const item = segment.item_key ? briefingItems.find((candidate) => candidate.key === segment.item_key) : undefined
     if (!item) {
@@ -37,7 +37,7 @@ function PersonalBriefingSegment({ segment }: { segment: BriefingSegmentApi }): 
             {segment.text}
         </Link>
     )
-    const preview = briefingItemPreviews.briefing[item.key]
+    const preview = reportPreviews.briefing[item.key]
     const linkWithCard = preview ? (
         <TodayPreviewTrigger payload={preview} inline>
             {link}

@@ -172,8 +172,8 @@ describe('todayLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess'])
-        expect(Object.keys(logic.values.briefingItemPreviews.briefing)).toEqual(['report:a'])
-        expect(Object.keys(logic.values.briefingItemPreviews.sidebar)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.reportPreviews.briefing)).toEqual(['report:a'])
+        expect(Object.keys(logic.values.reportPreviews.sidebar)).toEqual(['report:a'])
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {

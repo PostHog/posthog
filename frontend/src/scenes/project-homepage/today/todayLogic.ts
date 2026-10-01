@@ -13,7 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import type { TodayBriefingItemPreview } from '~/layout/today/todayPreviewCards'
+import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { TeamType, UserType } from '~/types'
 
 import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
@@ -29,7 +29,6 @@ import {
     isBriefingSettled,
     isExternalHref,
     itemHref,
-    itemReportId,
 } from './todayBriefingItems'
 import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
@@ -111,7 +110,7 @@ export interface todayLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
     briefing: TodayBriefingSegment[][]
-    briefingItemPreviews: Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>>
+    reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
     briefingItems: BriefingItemApi[]
     briefingPolls: number
     briefingProgress: TodayBriefingProgress | null
@@ -172,12 +171,12 @@ export interface todayLogicActions {
         item: BriefingItemApi
         surface: TodayItemOpenSurface
     }
-    itemPreviewed: (
-        item: BriefingItemApi,
-        surface: TodayBriefingItemPreview['surface']
+    reportPreviewed: (
+        itemKey: string,
+        surface: TodayReportPreview['surface']
     ) => {
-        item: BriefingItemApi
-        surface: TodayBriefingItemPreview['surface']
+        itemKey: string
+        surface: TodayReportPreview['surface']
     }
     loadPersonalBriefing: () => any
     loadPersonalBriefingFailure: (
@@ -279,9 +278,9 @@ export interface todayLogicMeta {
         inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
         briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
         briefingProgress: (briefingItems: BriefingItemApi[]) => TodayBriefingProgress | null
-        briefingItemPreviews: (
+        reportPreviews: (
             briefingItems: BriefingItemApi[]
-        ) => Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>>
+        ) => Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
         briefingWaiting: (
             personalBriefing: BriefingApi | null,
             gaveUpWaitingFor: string | null,
@@ -308,7 +307,7 @@ export const todayLogic = kea<todayLogicType>([
         setHoveredItemKey: (itemKey: string | null) => ({ itemKey }),
         openItem: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
         itemOpened: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
-        itemPreviewed: (item: BriefingItemApi, surface: TodayBriefingItemPreview['surface']) => ({ item, surface }),
+        reportPreviewed: (itemKey: string, surface: TodayReportPreview['surface']) => ({ itemKey, surface }),
         pollBriefing: true,
         stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
     }),
@@ -468,18 +467,16 @@ export const todayLogic = kea<todayLogicType>([
         ],
         // Only reports get a hover card. The card stores its trigger's payload, so each report keeps one
         // object per surface across renders.
-        briefingItemPreviews: [
+        reportPreviews: [
             (s) => [s.briefingItems],
             (
                 briefingItems: BriefingItemApi[]
-            ): Record<TodayBriefingItemPreview['surface'], Record<string, TodayBriefingItemPreview>> => {
-                const previews = (
-                    surface: TodayBriefingItemPreview['surface']
-                ): Record<string, TodayBriefingItemPreview> =>
+            ): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> => {
+                const previews = (surface: TodayReportPreview['surface']): Record<string, TodayReportPreview> =>
                     Object.fromEntries(
                         briefingItems
-                            .filter((item) => itemReportId(item) !== null)
-                            .map((item) => [item.key, { kind: 'briefing_item', item, surface }])
+                            .filter((item) => item.group === 'report')
+                            .map((item) => [item.key, { kind: 'report', item, surface }])
                     )
                 return { briefing: previews('briefing'), sidebar: previews('sidebar') }
             },
@@ -605,9 +602,13 @@ export const todayLogic = kea<todayLogicType>([
                     surface,
                 })
             },
-            itemPreviewed: ({ item, surface }) => {
+            reportPreviewed: ({ itemKey, surface }) => {
+                const item = values.briefingItems.find((candidate) => candidate.key === itemKey)
+                if (!item) {
+                    return
+                }
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today item previewed', {
+                posthog.capture('today report previewed', {
                     group: item.group,
                     source: item.source,
                     reason: item.reason,

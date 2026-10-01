@@ -703,3 +703,37 @@ def metric_batch_error(metrics: Sequence[ReportMetric]) -> str | None:
     if affected_users_count > 1:
         return "a report accepts at most one affected_users metric"
     return None
+
+
+class ReportMetricSnapshot(BaseModel):
+    """The saved figure of one report metric, without its live query.
+
+    Reading a snapshot this way skips the query validation `ReportMetric` runs, so a caller that
+    only shows saved figures does not pay for checking a query it never executes.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    metric_id: str
+    title: str
+    kind: ReportMetricKind
+    role: ReportMetricRole = "supporting"
+    value: float
+    series: list[float] | None = None
+    value_format: ReportMetricValueFormat = "number"
+    unit: str | None = None
+
+
+def saved_metric_snapshots(raw_metrics: object) -> list[ReportMetricSnapshot]:
+    """The metrics in a report's stored `metrics` list that have a saved value. Malformed entries are skipped."""
+    if not isinstance(raw_metrics, list):
+        return []
+    snapshots: list[ReportMetricSnapshot] = []
+    for raw in raw_metrics:
+        if not isinstance(raw, dict) or raw.get("value") is None:
+            continue
+        try:
+            snapshots.append(ReportMetricSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return snapshots

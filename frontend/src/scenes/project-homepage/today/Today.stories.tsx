@@ -7,7 +7,7 @@ import { Card } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
-import { TodayBriefingItemHoverCard } from 'scenes/project-homepage/today/TodayBriefingItemHoverCard'
+import { TodayReportHoverCard } from 'scenes/project-homepage/today/TodayReportHoverCard'
 import { urls } from 'scenes/urls'
 
 import { todayListAppearanceLogic } from '~/layout/today/todayListAppearanceLogic'
@@ -416,7 +416,6 @@ const PERSONAL_BRIEFING: BriefingApi = {
                         kind: 'affected_users',
                         role: 'primary',
                         value: 52,
-                        value_at: '2026-09-28T05:40:00Z',
                         series: [12, 18, 15, 22, 31, 40, 52],
                         value_format: 'count',
                         unit: 'users',
@@ -933,22 +932,20 @@ export const SpaceHoverCard: Story = {
     ),
 }
 
-export const BriefingItemHoverCard: Story = {
+export const ReportHoverCard: Story = {
     render: () => (
         <HoverCardFrame>
-            <TodayBriefingItemHoverCard
-                preview={{ kind: 'briefing_item', item: PERSONAL_BRIEFING.items[0], surface: 'sidebar' }}
-            />
+            <TodayReportHoverCard preview={{ kind: 'report', item: PERSONAL_BRIEFING.items[0], surface: 'sidebar' }} />
         </HoverCardFrame>
     ),
 }
 
-export const BriefingItemHoverCardResolved: Story = {
+export const ReportHoverCardResolved: Story = {
     render: () => (
         <HoverCardFrame>
-            <TodayBriefingItemHoverCard
+            <TodayReportHoverCard
                 preview={{
-                    kind: 'briefing_item',
+                    kind: 'report',
                     item: { ...PERSONAL_BRIEFING.items[1], state: 'done' },
                     surface: 'sidebar',
                 }}

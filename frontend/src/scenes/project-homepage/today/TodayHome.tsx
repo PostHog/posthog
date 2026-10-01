@@ -17,7 +17,7 @@ export function TodayHome(): JSX.Element {
             {reportId ? (
                 <TodayReportPage key={reportId} reportId={reportId} />
             ) : (
-                <TodayPreviewCardProvider side="bottom">
+                <TodayPreviewCardProvider>
                     <TodayBriefing />
                 </TodayPreviewCardProvider>
             )}

@@ -23,7 +23,6 @@ class BriefingItemMetric:
     kind: str
     role: str
     value: float
-    value_at: datetime | None
     series: list[float] | None
     value_format: str
     unit: str | None

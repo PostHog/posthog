@@ -19,7 +19,7 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { TodayHoverCardFact } from '~/layout/today/TodayHoverCardFact'
-import type { TodayBriefingItemPreview } from '~/layout/today/todayPreviewCards'
+import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 
 import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/components/cards/ReportCardImpactMetric'
 import { reportMetricChartType, reportMetricRowParts } from 'products/signals/frontend/inbox/utils/reportMetrics'
@@ -33,13 +33,14 @@ import { todayLogic } from './todayLogic'
  * picked it, what happened to it since, its priority, implementation pull request, summary and headline
  * metric. Everything comes with the briefing, so the card opens without a request.
  */
-export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefingItemPreview }): JSX.Element {
+export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview }): JSX.Element {
     const { item } = preview
-    const { itemPreviewed } = useActions(todayLogic)
+    const { reportPreviewed } = useActions(todayLogic)
     const theme = useChartTheme()
+    // Keyed on the report, not the item object: a poll replaces the object while the card stays open.
     useEffect(() => {
-        itemPreviewed(item, preview.surface)
-    }, [item, preview.surface, itemPreviewed])
+        reportPreviewed(item.key, preview.surface)
+    }, [item.key, preview.surface, reportPreviewed])
 
     const stateLabel = itemStateLabel(item)
     const report = item.report
@@ -49,7 +50,7 @@ export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefing
     const series = metric?.series?.filter((point) => Number.isFinite(point)) ?? []
 
     return (
-        <div className="flex flex-col" data-attr="today-briefing-item-hover-card">
+        <div className="flex flex-col" data-attr="today-report-hover-card">
             {/* `flex-nowrap` keeps the state badge beside a long title. */}
             <Item size="xs" className="flex-nowrap items-start">
                 <ItemContent className="min-w-0">
@@ -81,7 +82,7 @@ export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefing
                                     <LinkPrimitive
                                         to={report.pull_request_url}
                                         target="_blank"
-                                        data-attr="today-briefing-item-hover-card-pr"
+                                        data-attr="today-report-hover-card-pr"
                                         // Dotted at rest, so the one mark that opens something reads as a link.
                                         className="flex min-w-0 items-center gap-1 font-normal text-foreground underline decoration-dotted underline-offset-2"
                                     >
@@ -125,7 +126,7 @@ export function TodayBriefingItemHoverCard({ preview }: { preview: TodayBriefing
                                     theme={theme}
                                     type={reportMetricChartType(metric)}
                                     height={32}
-                                    dataAttr="today-briefing-item-hover-card-sparkline"
+                                    dataAttr="today-report-hover-card-sparkline"
                                 />
                             )}
                         </ItemContent>

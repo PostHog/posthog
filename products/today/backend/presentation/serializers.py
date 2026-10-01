@@ -48,7 +48,6 @@ class BriefingItemMetricSerializer(DataclassSerializer):
         help_text="`primary` for the report's key observation, otherwise `supporting`.",
     )
     value = serializers.FloatField(help_text="The latest saved snapshot of the metric.")
-    value_at = serializers.DateTimeField(allow_null=True, help_text="When the snapshot was measured.")
     series = serializers.ListField(
         child=serializers.FloatField(),
         allow_null=True,
@@ -67,7 +66,7 @@ class BriefingItemReportSerializer(DataclassSerializer):
     priority = serializers.CharField(allow_null=True, help_text="The report's priority, P0 to P4, or null if unset.")
     summary = serializers.CharField(help_text="The report's summary, shortened to a few sentences.")
     pull_request_state = serializers.ChoiceField(
-        choices=["draft", "open", "closed", "merged"],
+        choices=signals.IMPLEMENTATION_PR_STATES,
         allow_null=True,
         help_text="State of the report's implementation pull request, or null when it has none.",
     )

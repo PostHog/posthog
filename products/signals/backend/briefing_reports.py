@@ -7,7 +7,6 @@ person, and how". It does not order across relations; the caller does that.
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Literal
 
 from django.db.models import Count, Q, QuerySet
 
@@ -23,14 +22,9 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     implementation_pr_report_filter,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_claims import reports_with_active_claim
-from products.signals.backend.report_metrics import (
-    ReportMetric,
-    ReportMetricKind,
-    ReportMetricRole,
-    ReportMetricValueFormat,
-)
+from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
@@ -72,22 +66,10 @@ class BriefingReport:
     pr_merged_probability: float | None
 
 
-PullRequestState = Literal["draft", "open", "closed", "merged"]
-
-
-@frozen
-class BriefingReportMetric:
-    """A report metric's saved snapshot, in the shape the inbox list shows it. Never the live query."""
-
-    metric_id: str
-    title: str
-    kind: ReportMetricKind
-    role: ReportMetricRole
-    value: float
-    value_at: datetime | None
-    series: list[float] | None
-    value_format: ReportMetricValueFormat
-    unit: str | None
+# The implementation pull request states a briefing shows. `unknown` reads as no state.
+IMPLEMENTATION_PR_STATES: tuple[str, ...] = tuple(
+    state for state in SignalReportAssignment.PrState.values if state != SignalReportAssignment.PrState.UNKNOWN
+)
 
 
 @frozen
@@ -98,10 +80,11 @@ class BriefingReportDetails:
     status: str
     priority: str | None
     summary: str
-    pull_request_state: PullRequestState | None
+    # One of IMPLEMENTATION_PR_STATES, or None when the report has no implementation PR.
+    pull_request_state: str | None
     pull_request_url: str | None
     # Only metrics with a saved snapshot: the briefing shows figures, it never runs a query.
-    metrics: list[BriefingReportMetric]
+    metrics: list[ReportMetricSnapshot]
 
 
 def _latest_artefacts(report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
@@ -268,8 +251,8 @@ def reports_for_briefing(
         BriefingReport(
             report_id=str(report.id),
             relation=relation,
-            title=" ".join((report.title or "").split())[:200] or "Untitled report",
-            summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
+            title=_trimmed(report.title, 200) or "Untitled report",
+            summary=_trimmed(report.summary, _SUMMARY_LIMIT),
             status=report.status,
             priority=priorities.get(str(report.id)),
             has_implementation_pr=report.id in with_pr,
@@ -301,41 +284,14 @@ def open_report_counts(*, team_id: int, user: User, exclude_report_ids: Sequence
     return OpenReportCounts(for_person=row["for_person"], in_project=row["in_project"])
 
 
-def _snapshot_metrics(raw_metrics: object) -> list[BriefingReportMetric]:
-    if not isinstance(raw_metrics, list):
-        return []
-    metrics: list[BriefingReportMetric] = []
-    for raw in raw_metrics:
-        try:
-            metric = ReportMetric.model_validate(raw)
-        except pydantic.ValidationError:
-            continue
-        if metric.value is None:
-            continue
-        metrics.append(
-            BriefingReportMetric(
-                metric_id=metric.metric_id,
-                title=metric.title,
-                kind=metric.kind,
-                role=metric.role,
-                value=metric.value,
-                value_at=metric.value_at,
-                series=metric.series,
-                value_format=metric.value_format,
-                unit=metric.unit,
-            )
-        )
-    return metrics
-
-
-def _pull_request_state(state: str, merged: bool) -> PullRequestState | None:
+def _pull_request_state(state: str, merged: bool) -> str | None:
     if merged:
-        return "merged"
-    match state:
-        case "draft" | "open" | "closed" | "merged":
-            return state
-        case _:
-            return None
+        return SignalReportAssignment.PrState.MERGED
+    return state if state in IMPLEMENTATION_PR_STATES else None
+
+
+def _trimmed(text: str | None, limit: int) -> str:
+    return " ".join((text or "").split())[:limit]
 
 
 def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingReportDetails]:
@@ -360,12 +316,12 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
                 report_id=report_id,
                 status=report.status,
                 priority=priorities.get(report_id),
-                summary=" ".join((report.summary or "").split())[:_SUMMARY_LIMIT],
+                summary=_trimmed(report.summary, _SUMMARY_LIMIT),
                 pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
                 if pull_request
                 else None,
                 pull_request_url=pull_request.url if pull_request else None,
-                metrics=_snapshot_metrics(report.metrics),
+                metrics=saved_metric_snapshots(report.metrics),
             )
         )
     return details
