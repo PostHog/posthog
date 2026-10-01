@@ -455,6 +455,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"prompt": "p", "alow_inconclusive": True},
                 "Unknown scanner configuration keys: alow_inconclusive.",
             ),
+            (
+                "per_scan_field_in_config",
+                ScannerType.SUMMARIZER,
+                {"prompt": "p", "chapter_target": 50},
+                "Unknown scanner configuration keys: chapter_target.",
+            ),
         ]
     )
     def test_validation_returns_specific_message_per_invalid_config(
