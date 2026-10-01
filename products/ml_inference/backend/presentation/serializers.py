@@ -122,4 +122,4 @@ class DecideResponseSerializer(serializers.Serializer):
         help_text="One answer per question, under the ids the request used.",
     )
     input_tokens = serializers.IntegerField(help_text="Tokens the model read, which is what the request is billed on.")
-    latency_ms = serializers.IntegerField(allow_null=True, help_text="Time the model spent answering, if reported.")
+    latency_ms = serializers.FloatField(allow_null=True, help_text="Time the model spent answering, if reported.")

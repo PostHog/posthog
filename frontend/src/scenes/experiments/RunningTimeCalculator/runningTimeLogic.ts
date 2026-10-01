@@ -26,7 +26,6 @@ import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,
     getOrderedMetricsWithResults,
-    initializeMetricOrdering,
     isExperimentConflictError,
     toConcurrencyPayload,
 } from '../utils'
@@ -651,7 +650,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         running_time_calculation: updatedRunningTimeCalculation,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     running_time_calculation: response.running_time_calculation ?? updatedRunningTimeCalculation,
                 })
@@ -667,7 +666,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     const fresh: Experiment = await api.get(
                         `api/projects/${currentProjectId}/experiments/${props.experiment.id}`
                     )
-                    actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(fresh)))
+                    actions.setUnmodifiedExperiment(structuredClone(fresh))
                     actions.setExperiment({ running_time_calculation: fresh.running_time_calculation })
                 } catch {
                     // Leave state as-is; the next full experiment load resyncs the snapshot.

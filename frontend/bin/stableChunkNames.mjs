@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { CHUNK_IMPORT_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
+
 /**
  * Stable chunk names.
  *
@@ -48,18 +50,29 @@ export function chunkIdentity(output) {
 // the import map. The same path passed to new URL(), fetch() or a Worker must stay a real URL.
 const IMPORT_OF_PATH = /(\bfrom\s*|\bimport\s*\(?\s*)(["'])\/static\/([^"'\s]+?\.js)\2/g
 
-/** Replaces every import of a known chunk by path with an import of its identity specifier. */
-export function rewriteChunkSource(source, identityByFile) {
+const isDynamicImport = (keyword) => keyword.trimEnd().endsWith('(')
+
+/**
+ * Replaces every import of a known chunk by path with an import of its identity specifier. A
+ * dynamic import of a chunk in `cssChunkFiles` goes through `window.ESBUILD_IMPORT`, which waits
+ * for the stylesheets that chunk registers.
+ */
+export function rewriteChunkSource(source, identityByFile, cssChunkFiles = new Set()) {
     return source.replace(SOURCE_MAP_COMMENT, '').replace(IMPORT_OF_PATH, (match, keyword, quote, file) => {
         if (!identityByFile.has(file)) {
             return match
         }
-        const replacement = `${keyword}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
+        const importer = cssChunkFiles.has(file) && isDynamicImport(keyword) ? `${CHUNK_IMPORT_GLOBAL}(` : keyword
+        const replacement = `${importer}${quote}${SPECIFIER_PREFIX}${identityByFile.get(file)}${quote}`
         // Pad to the original byte length so every other offset in the file is unchanged and the
         // esbuild-emitted source map (which points at byte offsets) still lines up. `from"…"`,
         // `import"…"` and `import("…")` all allow whitespace after the closing quote.
         return replacement.padEnd(match.length, ' ')
     })
+}
+
+export function alphanumericStem(name) {
+    return name.replace(/[^A-Za-z0-9]+(.?)/g, (_, next) => next.toUpperCase())
 }
 
 export function stableFileName(originalFile, rewrittenSource) {
@@ -69,12 +82,14 @@ export function stableFileName(originalFile, rewrittenSource) {
     if (prefix === originalFile) {
         throw new Error(`stable chunks: ${originalFile} does not end in the expected -<hash>.js suffix`)
     }
-    return `${prefix}-${STABLE_NAME_MARKER}${shortHash(rewrittenSource)}.js`
+    return `${alphanumericStem(prefix)}-${STABLE_NAME_MARKER}${shortHash(rewrittenSource)}.js`
 }
 
 /**
  * Plans the stable copy of a build. `outputs` is the esbuild metafile's `outputs`, and
  * `readSource(outputPath)` returns an output file's contents. Pure apart from `readSource`.
+ *
+ * `preludes` maps an output path to a function of its specifier that returns the chunk's first line.
  *
  * Returns, per JS output, its identity, stable file name and rewritten source, plus the import
  * map.
@@ -99,19 +114,20 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
         identityByFile.set(fileOf(outputPath), identity)
     }
 
+    const cssChunkFiles = new Set([...preludes.keys()].map(fileOf))
     const plan = new Map()
     const imports = {}
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
         const rawSource = readSource(outputPath)
-        const source = rewriteChunkSource(rawSource, identityByFile)
-        // Every replacement preserves length, except an identity collision with a short entry name
-        // (see rewriteChunkSource). When that happens the map's byte offsets no longer line up.
+        const source = rewriteChunkSource(rawSource, identityByFile, cssChunkFiles)
+        // Every replacement preserves length, unless it outgrows a very short chunk name (an identity
+        // collision, or ESBUILD_IMPORT). When that happens the map's byte offsets no longer line up.
         const mapValid = source.length === rawSource.replace(SOURCE_MAP_COMMENT, '').length
         // A prelude goes on its own first line, so the map only needs to shift down one line.
-        const prelude = preludes.get(outputPath) ?? null
-        const finalSource = prelude ? `${prelude}\n${source}` : source
         const identity = identityByFile.get(file)
+        const prelude = preludes.get(outputPath)?.(`${SPECIFIER_PREFIX}${identity}`) ?? null
+        const finalSource = prelude ? `${prelude}\n${source}` : source
         const stableFile = stableFileName(file, finalSource)
         plan.set(outputPath, { identity, file, stableFile, source: finalSource, mapValid, prelude })
         imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`

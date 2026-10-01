@@ -301,6 +301,8 @@ Removing an eligible entry cannot permit an earlier request.
 
 **5.20** Each worker creates one Kafka group member for each configured target partition. Group assignments do not overlap, so ready group members supply batches from different partitions. The worker joins their batches into one fetch pass. The target must be from one to four and defaults to two. The worker starts the fetch pass when all target batches arrive or the join window ends. If fewer batches arrive, the worker processes the available batches. A later group can run concurrently instead of waiting behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members.
 
+**5.21** When `SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL` is true, the worker does not join batches. Each group member batch adds its jobs to one candidate pool for the worker and finishes when its own jobs finish. The pool applies the registrable-domain and origin limits across the worker, not per batch. It selects the eligible registrable domain whose first waiting job entered the pool earliest. The order uses the time the worker received the job, not the age of the record, because the pass deadline and the batch timeout count from that time. An origin in its crawl delay is not eligible until the delay passes. At the pass deadline, the batch's waiting jobs leave the pool as pass-deadline deferrals. A group member reads its next batch only when fewer than `SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS` of its waiting jobs can run, and fewer than `SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER` of its jobs wait. A registrable domain counts as runnable only up to its concurrency limit. A member also reads its next batch when a fetch worker finds no eligible job and the member is under the queued-job limit. The member waits at most 30 seconds for room. After that it reads its next batch anyway, so its queued jobs can pass the limit by about one batch until pass deadlines remove them.
+
 ### 6. Smokescreen
 
 **6.1** Smokescreen is the authoritative network boundary for outbound requests in production. It must refuse a connection to an IP address that is not globally routable.
@@ -418,6 +420,8 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 `v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The parser accepts and removes the legacy optional `lowOriginDiversityDeferred` field.
 
+Each frontier or delay record also carries a `capture-timestamp-ms` header. Its value is the smallest `firstSeenAtMs` of the record's jobs. The lane reads the header to report its capture watermark (requirement 11.13) without parsing the record.
+
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
 **10.5** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
@@ -480,6 +484,8 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
 
 Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
+
+**11.13** The lane reports `ml_replay_capture_watermark_timestamp_seconds{data="image_urls"}` for each frontier partition. The value is the earliest `capture-timestamp-ms` among the records that the lane holds on the partition, or that it finished in the last 10 minutes. A record stays held until the consumer stores an offset past it. The mirror, the scrub lane, the Parquet sink, and the retry lane report the same gauge. The minimum over the lanes on a data path is how far back that data is complete in the training bucket. A record that waits in Kafka behind the consumer position does not count until the lane reads it. A URL in a delay topic that no retry consumer reads never counts again.
 
 ### 12. Conditional requests
 

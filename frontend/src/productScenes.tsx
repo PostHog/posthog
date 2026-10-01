@@ -22,8 +22,15 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
     AIObservabilityDataset: () =>
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
-    AIObservabilityEvaluations: () =>
-        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
+    AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
+    AIObservabilityScorers: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityOfflineExperiments: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
+    AIObservabilityOfflineExperiment: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentScene'),
+    AIObservabilityOfflineScorerHistory: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineScorerHistoryScene'),
     AIObservabilityEvaluation: () =>
         import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
     AIObservabilityEvaluationTemplates: () =>
@@ -39,10 +46,16 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Alerts: () => import('../../products/alerts/frontend/AlertsScene'),
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
-    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
+    Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
+    AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
+    BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
+    BusinessKnowledgePlayground: () =>
+        import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
     BusinessKnowledgeSettings: () =>
-        import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeSettingsScene'),
-    BusinessKnowledgeSource: () => import('../../products/business_knowledge/frontend/scenes/KnowledgeSourceScene'),
+        import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeSource: () =>
+        import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),
@@ -96,6 +109,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTrackingFingerprint: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintScene/ErrorTrackingFingerprintScene'),
     Experiments: () => import('../../products/experiments/frontend/scenes/ExperimentsScene'),
+    ExperimentsStaffTools: () => import('../../products/experiments/frontend/scenes/ExperimentsStaffToolsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
@@ -155,6 +169,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
+    TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
+    TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     TracingRetentionNew: () =>
@@ -173,6 +189,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     VisualReviewSnapshotOverview: () =>
         import('../../products/visual_review/frontend/scenes/VisualReviewSnapshotOverviewScene'),
     VisualReviewFlakiness: () => import('../../products/visual_review/frontend/scenes/VisualReviewFlakinessScene'),
+    PipelineOverview: () =>
+        import('../../products/warehouse_sources/frontend/scenes/PipelineOverviewScene/PipelineOverviewScene'),
     Heatmaps: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmaps/HeatmapsScene'),
     Heatmap: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapScene'),
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),

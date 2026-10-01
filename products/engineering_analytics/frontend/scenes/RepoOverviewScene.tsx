@@ -34,7 +34,9 @@ export function RepoOverviewScene(): JSX.Element {
         activityTruncated,
         repoActivityLoading,
         repoActivityFailed,
-        attentionPrs,
+        attention,
+        attentionFailed,
+        attentionLoading,
         jobsAvailable,
         overviewDefaultBranch,
         notConnected,
@@ -43,17 +45,11 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const {
-        pullRequestsLoading,
-        pullRequestsStatus,
-        workflowHealth,
-        workflowHealthLoadError,
-        workflowHealthLoading,
-        sourceId,
-        activeSource,
-    } = useValues(engineeringAnalyticsLogic)
-    const { loadPullRequests, loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
-    const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
+    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, activeSource } =
+        useValues(engineeringAnalyticsLogic)
+    const { loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
+    const { loadAttention, loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } =
+        useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
     // Window/source changes reload the overview, activity, and workflow health (the date-scoped
@@ -63,9 +59,9 @@ export function RepoOverviewScene(): JSX.Element {
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
-    // table then displays them merge-queue-first. attentionPrs is already ordered failing-first.
-    const shownPrs = attentionPrs.slice(0, prPreviewCount)
-    const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
+    // table then displays them merge-queue-first. The server already orders them failing-first.
+    const shownPrs = attention.rows.slice(0, prPreviewCount)
+    const canShowMorePrs = shownPrs.length < attention.rows.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
     const rankedWorkflows = jobsAvailable
         ? [...workflowHealth].sort((a, b) => (b.estimatedCostUsd ?? -1) - (a.estimatedCostUsd ?? -1))
@@ -250,13 +246,13 @@ export function RepoOverviewScene(): JSX.Element {
                 title="Pull requests needing attention"
                 note="Current open backlog. Not affected by the date range."
             >
-                {pullRequestsStatus === 'error' ? (
-                    <CIAnalyticsLoadError onRetry={loadPullRequests} loading={pullRequestsLoading} />
+                {attentionFailed ? (
+                    <CIAnalyticsLoadError onRetry={loadAttention} loading={attentionLoading} />
                 ) : (
                     <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                         <PullRequestTable
                             rows={shownPrs}
-                            loading={pullRequestsLoading}
+                            loading={attentionLoading}
                             sourceId={sourceId}
                             embedded
                             pageSize={HUB_PREVIEW_MAX}
@@ -265,8 +261,8 @@ export function RepoOverviewScene(): JSX.Element {
                         />
                         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
                             <span>
-                                Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing
-                                attention
+                                Showing <span translate="no">{shownPrs.length}</span> of{' '}
+                                <span translate="no">{humanFriendlyNumber(attention.total)}</span> needing attention
                             </span>
                             <div className="flex items-center gap-3">
                                 {canShowMorePrs && (

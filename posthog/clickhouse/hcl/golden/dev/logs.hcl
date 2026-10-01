@@ -2030,7 +2030,7 @@ SQL
   }
 
   table "metrics4_names" {
-    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket"]
+    order_by     = ["team_id", "time_bucket", "metric_name", "original_expiry_time_bucket", "service_name"]
     partition_by = "toDate(original_expiry_time_bucket)"
     ttl          = "original_expiry_timestamp"
     settings = {
@@ -2050,6 +2050,9 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "SimpleAggregateFunction(max, DateTime64(6))"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_names"
@@ -2743,6 +2746,18 @@ SQL
       type  = "String"
       alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
     }
+    column "lc_plan_fingerprint" {
+      type  = "String"
+      alias = "ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), '')"
+    }
+    column "lc_estimated_rows" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0)"
+    }
+    column "lc_estimated_bytes" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -2917,6 +2932,7 @@ SQL
       index_granularity                       = "8192"
       index_granularity_bytes                 = "104857600"
       map_serialization_version               = "with_buckets"
+      storage_policy                          = "s3_tiered"
       ttl_only_drop_parts                     = "1"
     }
     column "time_bucket" {
@@ -3078,20 +3094,27 @@ SQL
       type        = "bloom_filter(0.001)"
       granularity = 16
     }
-    index "idx_trace_bloom_part" {
+    index "idx_trace_bloom_part_v2" {
       expr        = "trace_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
-    index "idx_span_id_bloom_part" {
+    index "idx_span_id_bloom_part_v2" {
       expr        = "span_id"
-      type        = "bloom_filter(0.00001)"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
-    projection "projection_index_span_id" {
+    projection "projection_index_team_span_id" {
       query = <<SQL
-SELECT _part_offset
+SELECT team_id, _part_offset
 ORDER BY span_id
+SQL
+
+    }
+    projection "projection_index_team_trace_id" {
+      query = <<SQL
+SELECT team_id, _part_offset
+ORDER BY trace_id
 SQL
 
     }
@@ -3107,13 +3130,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
 SQL
 
     }
@@ -5045,6 +5061,71 @@ SELECT
   1 AS value,
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type
+SQL
+
+  }
+
+  view "metrics4_view" {
+    query = <<SQL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  timestamp,
+  observed_timestamp,
+  original_expiry_timestamp,
+  service_name,
+  metric_type,
+  value,
+  count,
+  histogram_bounds,
+  histogram_counts,
+  trace_id,
+  span_id,
+  trace_flags,
+  has_labels,
+  unit,
+  aggregation_temporality,
+  is_monotonic,
+  instrumentation_scope
+FROM posthog.metrics2
+WHERE
+  (time_bucket > toDateTime('2026-08-25 00:00:00'))
+AND
+  (time_bucket < toDateTime('2026-09-14 00:00:00'))
+AND
+  (timestamp > toDateTime('2026-08-25 00:00:00'))
+AND
+  (timestamp < toDateTime('2026-09-14 00:00:00'))
+UNION ALL
+SELECT
+  team_id,
+  metric_name,
+  time_bucket,
+  series_fingerprint,
+  resource_fingerprint,
+  point_timestamp AS timestamp,
+  point_observed_timestamp AS observed_timestamp,
+  toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
+  service_name,
+  metric_type,
+  point_value AS value,
+  point_count AS count,
+  histogram_bounds,
+  point_histogram_counts AS histogram_counts,
+  point_trace_id AS trace_id,
+  point_span_id AS span_id,
+  point_trace_flags AS trace_flags,
+  toBool(has_labels) AS has_labels,
+  unit,
+  aggregation_temporality,
+  toBool(is_monotonic) AS is_monotonic,
+  instrumentation_scope
+FROM
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
 SQL
 
   }

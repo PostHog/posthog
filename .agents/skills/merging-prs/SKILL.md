@@ -34,7 +34,23 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,b
 
 - **Not open** (already merged/closed) → report and stop.
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
+- **Cancelled runs on the head** → check for these before the failing-checks stop below, because a cancelled run also turns `statusCheckRollup` to `FAILURE`. A push can start two runs of a workflow for one head, and the concurrency group cancels one. GitHub keeps both runs' checks, and a newer green check with the same name does not clear them. A cancelled run that carries a required check (a workflow's `... Tests Pass` gate, or the org-level `semgrep` workflow) keeps the merge box blocked and Trunk at "Not ready". Rerun every cancelled run rather than working out which ones carry one. Reruns need the developer's permission.
+
+  ```bash
+  # GitHub Actions. `gh run rerun` returns 404 for the org-level semgrep workflow; the API call works for every run.
+  gh api "repos/$REPO/actions/runs?head_sha=<head-sha>&per_page=100" --paginate \
+      --jq '.workflow_runs[] | select(.conclusion == "cancelled")
+          | select((.pull_requests | length) == 0 or any(.pull_requests[]; .number == <n>))
+          | "\(.id)\t\(.name)"'
+  gh api -X POST "repos/$REPO/actions/runs/<run-id>/rerun"
+
+  # Depot CI. A run with more than one workflow also needs --workflow <workflow-id>, listed by `depot ci status <run-id>`.
+  depot ci run list --repo "$REPO" --sha <head-sha> --status cancelled
+  depot ci rerun <run-id>
+  ```
+
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
+
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
 - **Head is on a fork** (`isCrossRepository == true`) → backend CI ran on GitHub Actions, so the required check is on the head as usual. Depot's optional checks are absent; that is expected and needs no action.
 - **Missing approval** (`reviewDecision == "REVIEW_REQUIRED"`, or a stamphog approval was dismissed) → ask stamphog for a review. Stamphog is the automated review-and-approve flow ([the engine README](../../../products/stamphog/packages/pr-approval-agent/README.md)): on an `APPROVED` verdict the Stamphog app posts the approval that satisfies the required review. Use the MCP route first, and the label only when MCP is not available.

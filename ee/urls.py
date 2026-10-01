@@ -91,11 +91,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.code_based_verification_bypass_admin import (
-        CodeBasedVerificationBypassViewSet,
-        CodeBasedVerificationGlobalDisableViewSet,
-        code_based_verification_bypass_view,
-    )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
@@ -107,7 +102,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_stats_view,
         notebook_markdown_migration_view,
     )
-    from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
@@ -120,41 +114,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/redisvalues", redis_values_view, name="redis_values"),
         path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/radar-bypass/",
-            admin.site.admin_view(radar_bypass_view),
-            name="radar-bypass",
-        ),
-        path(
-            "admin/api/radar-bypass/",
-            RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="radar-bypass-api-list",
-        ),
-        path(
-            "admin/api/radar-bypass/<str:email>/",
-            RadarBypassViewSet.as_view({"delete": "destroy"}),
-            name="radar-bypass-api-detail",
-        ),
-        path(
-            "admin/code-based-verification-bypass/",
-            admin.site.admin_view(code_based_verification_bypass_view),
-            name="code-based-verification-bypass",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/",
-            CodeBasedVerificationBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="code-based-verification-bypass-api-list",
-        ),
-        path(
-            "admin/api/code-based-verification-bypass/<str:email>/",
-            CodeBasedVerificationBypassViewSet.as_view({"delete": "destroy"}),
-            name="code-based-verification-bypass-api-detail",
-        ),
-        path(
-            "admin/api/code-based-verification-global-disable/",
-            CodeBasedVerificationGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
-            name="code-based-verification-global-disable-api",
-        ),
         path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),

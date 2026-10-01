@@ -575,7 +575,7 @@ export function WorkColumn() {
           <div
             className={cn(
               "px-2 pb-1 font-medium text-[11px] text-muted-foreground",
-              index === 0 ? "pt-1" : "mt-2 border-border/70 border-t pt-2",
+              index === 0 ? "pt-1" : "pt-3",
             )}
           >
             {section.label}

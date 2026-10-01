@@ -208,9 +208,10 @@ class TestDataForSEOSource:
         inputs.schema_name = schema_name
         inputs.logger = MagicMock()
         with patch(f"{MODULE}.dataforseo_source") as source_fn:
-            with pytest.raises(ValueError, match="Add at least one keyword"):
+            with pytest.raises(ValueError, match="Add at least one keyword") as exc_info:
                 DataForSEOSource().source_for_pipeline(_make_config(keywords=" , "), MagicMock(), inputs)
         source_fn.assert_not_called()
+        assert error_message_matches(str(exc_info.value), DataForSEOSource().get_non_retryable_errors().keys())
 
     def test_source_for_pipeline_allows_missing_keywords_for_target_tables(self) -> None:
         # Only the keyword-scoped tables need keywords; a domain table must still sync without them.

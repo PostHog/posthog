@@ -64,6 +64,12 @@ _FIRST_STEP_STARTED_AT = (
 )
 
 
+def branch(jobs_alias: str, runs_alias: str) -> str:
+    """A job's branch: its own, else its run's. A reader that joins a job to its run reads this, because
+    Depot CI job rows carry no branch."""
+    return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
+
+
 def build_query(table_name: str, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
@@ -104,10 +110,16 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
             -- timestamps, which never match the join keys) reads first_attempt as NULL, so the
             -- comparison yields 0. min(run_attempt) stays Nullable, which makes the LEFT JOIN
             -- non-match default NULL rather than 0 (a 0 default would flag every unmatched row).
-            ifNull(job.run_attempt > dupes.first_attempt, 0) AS is_rerun_copy
+            ifNull(job.run_attempt > dupes.first_attempt, 0) AS is_rerun_copy,
+            job.ci_engine AS ci_engine,
+            job.native_run_id AS native_run_id,
+            job.native_workflow_run_id AS native_workflow_run_id,
+            job.native_job_id AS native_job_id,
+            job.native_attempt_id AS native_attempt_id
         FROM (
             SELECT
                 id,
+                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
                 name,
@@ -134,16 +146,17 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
         -- GROUP BY unambiguously names the parsed values.
         LEFT JOIN (
             SELECT
+                ci_engine,
                 run_id,
                 name,
                 parseDateTimeBestEffort(started_at) AS started_key,
                 parseDateTimeBestEffort(completed_at) AS completed_key,
                 min(run_attempt) AS first_attempt
             FROM {table_source}
-            GROUP BY run_id, name, started_key, completed_key
+            GROUP BY ci_engine, run_id, name, started_key, completed_key
             HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL
         ) AS dupes
-            ON job.run_id = dupes.run_id
+            ON job.run_id = dupes.run_id AND job.ci_engine = dupes.ci_engine
             AND job.name = dupes.name
             AND job.started_at = dupes.started_key
             AND job.completed_at = dupes.completed_key

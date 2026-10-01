@@ -31,6 +31,7 @@ import type {
     TicketApi,
     TicketFullEmailApi,
     TicketMessageApi,
+    TicketNoteCreateRequestApi,
     TicketReplyRequestApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
@@ -293,6 +294,30 @@ export const conversationsTicketsMessagesFullEmailRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getConversationsTicketsNotesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/notes/`
+}
+
+/**
+ * Add a private note to a ticket.
+ *
+ * The note is visible to your team only. The request has no privacy field, so this
+ * endpoint never sends anything to the customer.
+ */
+export const conversationsTicketsNotesCreate = async (
+    projectId: string,
+    id: string,
+    ticketNoteCreateRequestApi: TicketNoteCreateRequestApi,
+    options?: RequestInit
+): Promise<TicketMessageApi> => {
+    return apiMutator<TicketMessageApi>(getConversationsTicketsNotesCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketNoteCreateRequestApi),
+    })
 }
 
 export const getConversationsTicketsNotesPartialUpdateUrl = (projectId: string, id: string, messageId: string) => {

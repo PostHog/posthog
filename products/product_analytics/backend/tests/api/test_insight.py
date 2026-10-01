@@ -22,6 +22,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 
@@ -52,8 +53,10 @@ from posthog.hogql.query import execute_hogql_query
 from posthog import settings
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.errors import wrap_clickhouse_query_error
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -846,14 +849,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
-        from posthog.models.tagged_item import TaggedItem
 
         insight = Insight.objects.create(
             short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
         )
         for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
             tag = Tag.objects.create(name=tag_name, team=self.team)
-            TaggedItem.objects.create(insight=insight, tag=tag)
+            insight.tagged_items.create(tag=tag)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -4191,30 +4193,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
 
 class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
-    @parameterized.expand(
-        [
-            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
-            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
-            ("HogVMException", "Global variable not found: variables", None),
-        ]
-    )
-    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    def test_retrieve_degrades_in_place_for_exposed_errors(
-        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
-    ) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
-        from posthog.errors import ExposedCHQueryError
-
-        from common.hogvm.python.utils import HogVMException
-
-        error_classes: dict[str, type] = {
-            "ExposedCHQueryError": ExposedCHQueryError,
-            "ExposedHogQLError": ExposedHogQLError,
-            "HogVMException": HogVMException,
-        }
-        mock_calculate.side_effect = error_classes[_name](error_message)
-
+    def _query_status_of_a_failed_refresh(self) -> dict:
         insight = Insight.objects.create(
             team=self.team,
             query={
@@ -4228,10 +4207,67 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         # The failure must ride on query_status so a dashboard tile renders its own error state
         # while the response as a whole succeeds.
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        query_status = response.json()["query_status"]
+        return response.json()["query_status"]
+
+    @parameterized.expand(
+        [
+            ("ExposedCHQueryError", "NO_COMMON_TYPE error from ClickHouse", None),
+            ("ExposedHogQLError", "Invalid HogQL syntax", "hogql_error"),
+            ("HogVMException", "Global variable not found: variables", None),
+            ("RuntimeError", "Unexpected calculation failure", None),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_degrades_in_place_for_non_capacity_errors(
+        self, _name: str, error_message: str, expected_error_code: str | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        from posthog.hogql.errors import ExposedHogQLError
+
+        from posthog.errors import ExposedCHQueryError
+
+        from common.hogvm.python.utils import HogVMException
+
+        error_classes: dict[str, type] = {
+            "ExposedCHQueryError": ExposedCHQueryError,
+            "ExposedHogQLError": ExposedHogQLError,
+            "HogVMException": HogVMException,
+            "RuntimeError": RuntimeError,
+        }
+        mock_calculate.side_effect = error_classes[_name](error_message)
+
+        query_status = self._query_status_of_a_failed_refresh()
+
         self.assertTrue(query_status["error"])
         self.assertIn(error_message, query_status["error_message"])
         self.assertEqual(query_status["error_code"], expected_error_code)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail),
+            (
+                "org_concurrency_limit",
+                ConcurrencyLimitExceeded("internal limiter details"),
+                "concurrency_limit_exceeded",
+            ),
+            (
+                "no_free_clickhouse_connection",
+                wrap_clickhouse_query_error(ServerException("no free connection", 203)),
+                ClickHouseAtCapacity.default_detail,
+            ),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_retrieve_labels_every_capacity_failure_as_rate_limited(
+        self, _name: str, error: Exception, expected_message: str, mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = error
+
+        query_status = self._query_status_of_a_failed_refresh()
+
+        # The dashboard retries on this code, so every transient capacity failure has to carry it.
+        self.assertTrue(query_status["error"])
+        self.assertEqual(query_status["error_code"], "rate_limited")
+        self.assertEqual(query_status["error_message"], expected_message)
 
 
 class TestInsightQueryScan(APIBaseTest):
@@ -4331,6 +4367,49 @@ class TestInsightQueryScan(APIBaseTest):
         self.assertIsNone(body["query_scan"])
         self.assertNotIn("cache_key", body["query_status"])
         self.assertNotIn("query_scan", body["query_status"])
+
+
+class TestInsightWarnings(APIBaseTest):
+    WARNING = {
+        "type": "warehouse_sync",
+        "message": "Last sync of `costs` (from DoIt) failed.",
+        "schema_name": "costs",
+        "source_id": "source-1",
+        "source_type": "DoIt",
+        "status": "Failed",
+        "table_name": "doit_costs",
+    }
+
+    @parameterized.expand([("a project member", False, [WARNING]), ("a shared link viewer", True, None)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_an_insight_carries_its_warehouse_sync_warnings(
+        self, _name: str, shared: bool, expected: list[dict] | None, mock_calculate: mock.MagicMock
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+        )
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+            warnings=[self.WARNING],
+        )
+        url = f"/api/projects/{self.team.id}/insights/{insight.id}/"
+        if shared:
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, insight=insight, enabled=True, access_token="xyz"
+            )
+            self.client.logout()
+            url += f"?sharing_access_token={sharing_configuration.access_token}"
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["warnings"], expected)
 
 
 class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

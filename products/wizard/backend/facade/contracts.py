@@ -19,6 +19,7 @@ from .enums import (
     WizardRunStatus,
     WizardSessionRunPhase,
     WizardSessionTaskStatus,
+    WizardTaskStatus,
 )
 
 STALE_AFTER = timedelta(minutes=10)
@@ -153,6 +154,48 @@ class WizardRunCreatorDTO:
 
 
 @frozen
+class UpdateWizardRunTaskInput:
+    """
+    Payload used to update a single task of a WizardRun.
+    """
+
+    title: str
+    status: WizardTaskStatus
+
+
+@frozen
+class UpdateWizardRunTaskListInput:
+    """
+    Payload used to update the list of tasks of a WizardRun.
+
+    The Wizard's LLM generates and updates the task list, as a snaphost.
+    This is why the input shape doesn't have timestamps. Those will computed
+    server-side.
+    """
+
+    tasks: tuple[UpdateWizardRunTaskInput, ...]
+
+
+@frozen
+class WizardRunTaskDTO:
+    """
+    A single task of a WizardRun.
+
+    Note: the datetimes are computed server-side,
+          since the Wizard only sends the current list's snapshot.
+          This is why it is only shown to the user.
+    """
+
+    title: str
+    status: WizardTaskStatus
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    failed_at: datetime | None
+    error_message: str | None
+
+
+@frozen
 class WizardRunDTO:
     id: UUID
     team_id: int
@@ -170,6 +213,7 @@ class WizardRunDTO:
     finished_at: datetime | None
     deadline_at: datetime | None
     created_by: WizardRunCreatorDTO | None = None
+    tasks: tuple[WizardRunTaskDTO, ...] = ()
 
 
 @frozen
@@ -177,6 +221,7 @@ class ListWizardRunsInput:
     team_id: int
     offset: int
     limit: int
+    statuses: tuple[WizardRunStatus, ...] = ()
 
 
 @frozen

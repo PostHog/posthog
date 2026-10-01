@@ -172,7 +172,12 @@ export function Playlist({
                                 <Spinner textColored /> Loading older recordings
                             </>
                         ) : hasNext ? (
-                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                            <LemonButton
+                                data-attr="list-load-older"
+                                onClick={() => maybeLoadSessionRecordings('older')}
+                            >
+                                Load more
+                            </LemonButton>
                         ) : (
                             'No more results'
                         )}
@@ -183,6 +188,7 @@ export function Playlist({
                             <div className="flex gap-2">
                                 {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
                                     <LemonButton
+                                        data-attr="list-empty-widen-date-range"
                                         type="secondary"
                                         size="small"
                                         onClick={() =>
@@ -194,7 +200,12 @@ export function Playlist({
                                         Search last {filters.date_from === '-3d' ? '7' : '30'} days
                                     </LemonButton>
                                 )}
-                                <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
+                                <LemonButton
+                                    data-attr="list-empty-expand-filters"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsFiltersExpanded(true)}
+                                >
                                     Show filters
                                 </LemonButton>
                             </div>
@@ -247,6 +258,7 @@ export function Playlist({
                 data-attr="expand-playlist"
             >
                 <LemonButton
+                    data-attr="list-toggle-collapse"
                     icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
                     tooltip="Expand playlist"
                     size="xsmall"
@@ -277,6 +289,7 @@ export function Playlist({
                         Showing {pluralize(filters.session_ids.length, 'selected recording')}
                     </span>
                     <LemonButton
+                        data-attr="list-clear-session-ids"
                         className="shrink-0"
                         size="xsmall"
                         type="tertiary"
@@ -452,11 +465,7 @@ const CollectionEmptyState = ({
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
-                    <p>
-                        To add recordings to this collection, go to the{' '}
-                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
-                        "+ Add to collection" and select this collection from the list.
-                    </p>
+                    <p>Use "Add recordings" above to browse recordings and add them to this collection.</p>
                 </div>
             )}
         </div>

@@ -10,6 +10,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    RESEARCH_WITHHELD_SCOPES,
     McpScopePreset,
     PosthogMcpScopes,
     SandboxOAuthApplication,
@@ -258,6 +259,12 @@ def create_oauth_access_token_for_run(
     """
     if scopes is None:
         scopes = dispatched_run_scopes(task, state)
+        # Only the provisioning activities omit `scopes`, and their token is the one the agent
+        # server uses to upload the run's own log through `append_log`, which requires
+        # `task:write`. The research MCP session keeps the withheld posture because
+        # `start_agent_server` mints its token with explicit scopes.
+        if scopes == "signals_research":
+            scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))

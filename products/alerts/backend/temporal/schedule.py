@@ -15,9 +15,6 @@ SCHEDULE_ID = "alerts-platform-check-due-schedule"
 
 
 async def create_alerts_platform_tick_schedule(client: "Client") -> None:
-    if settings.CLOUD_DEPLOYMENT != "DEV":
-        return
-
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "alerts-platform-orchestrate",

@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'environment-secret-api-keys'
     | 'environment-surveys'
     | 'environment-task-agents'
+    | 'environment-ai-subscriptions'
     | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
@@ -119,6 +120,7 @@ export type SettingId =
     | 'base-currency'
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
+    | 'business-knowledge-github-repos'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
     | 'change-password'
@@ -289,6 +291,7 @@ export type SettingId =
     | 'surveys-default-appearance'
     | 'surveys-interface'
     | 'task-agent-my-preference'
+    | 'ai-subscription-codex'
     | 'task-agent-project-default'
     | 'theme'
     | 'tracing-distinct-id-attribute-keys'
@@ -335,6 +338,12 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+
+    /**
+     * Shows the setting only to organization admins and owners.
+     * Use it for an organization-scoped API, because a project admin can be an ordinary organization member.
+     */
+    organizationAdminOnly?: boolean
 
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),

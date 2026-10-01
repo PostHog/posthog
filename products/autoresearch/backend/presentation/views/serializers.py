@@ -80,9 +80,13 @@ def validate_event_target(target_event: str, *, error_key: str) -> None:
     _validate_target_event_value(target_event, error_key=error_key)
 
 
-def _require_action_scope(request: Request | None) -> None:
+def has_action_scope(request: Request | None) -> bool:
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and not any(scope in scopes for scope in _ACTION_READ_SCOPES):
+    return scopes is None or any(scope in scopes for scope in _ACTION_READ_SCOPES)
+
+
+def require_action_scope(request: Request | None) -> None:
+    if not has_action_scope(request):
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
@@ -124,7 +128,7 @@ def resolve_target(
             raise serializers.ValidationError(
                 {"target_definition": "Action target requires a positive integer 'action_id'."}
             )
-        _require_action_scope(request)
+        require_action_scope(request)
         try:
             action_name, action_id = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
@@ -650,14 +654,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
 
     # Fields a trained model was fit against. Once any model exists they are frozen: scoring keeps
     # loading the trained artifact, so changing them would silently answer a different question.
-    MODEL_DEFINING_FIELDS = (
-        "target_event",
-        "target_definition",
-        "horizon_days",
-        "training_lookback_days",
-        "training_population",
-        "inference_population",
-    )
+    MODEL_DEFINING_FIELDS = api.MODEL_DEFINING_FIELDS
 
     @property
     def _pipeline_id(self) -> Any:
@@ -1177,8 +1174,9 @@ class ValidationWarningSerializer(serializers.Serializer):
     # A CharField on purpose: a ChoiceField named `code` collides with another product's `code` enum in drf-spectacular.
     code = serializers.CharField(
         help_text=(
-            "Machine-readable warning code. 'population_too_large' and 'horizon_exceeds_lookback' mean a "
-            "training run would fail: fix the definition before creating. 'low_volume', 'low_positives' and "
+            "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
+            "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
+            "severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1241,7 +1239,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "'population_too_large' or 'horizon_exceeds_lookback' cannot train."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score."
         )
     )
     requires_acknowledgement = serializers.BooleanField(
@@ -1273,6 +1271,15 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
             "Why validation did not run, or null when it did. A query error in the definition itself "
             "is passed through; any other failure is a generic message and the detail is logged."
         ),
+    )
+
+
+class StartTrainingRequestSerializer(serializers.Serializer):
+    iteration_budget = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text="Override the pipeline iteration budget for this training run.",
     )
 
 
@@ -1642,10 +1649,7 @@ class PopulationSpecField(serializers.JSONField):
 class ResolveTemplateRequestSerializer(serializers.Serializer):
     template_key = serializers.ChoiceField(
         choices=TEMPLATE_KEY_CHOICES,
-        help_text=(
-            "Template to resolve. Use autoresearch-templates-list to see all available templates "
-            "with descriptions. Required."
-        ),
+        help_text="Template to resolve. The templates endpoint lists each one with its description. Required.",
     )
     target_event = serializers.CharField(
         required=False,
