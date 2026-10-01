@@ -24,6 +24,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryActionStep,
+    GroupPropertyFilter,
     PersonPropertyFilter,
     PropertyOperator,
 )
@@ -35,7 +36,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
+from posthog.models.group.util import create_group
 from posthog.models.person.util import get_person_by_distinct_id
+from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -46,6 +49,7 @@ EVENTS_FLAG_KEY = "flag-written-to-events"
 FLAG_EVALUATIONS_FLAG_KEY = "flag-written-to-flag-evaluations"
 FLAG_EVALUATIONS_DISTINCT_ID = "flag-evaluations-user"
 FLAG_EVALUATIONS_EMAIL = "flag-user@example.com"
+FLAG_EVALUATIONS_GROUP_KEY = "flag-org"
 FLAG_CALL_TIMESTAMP = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
 
 
@@ -1254,6 +1258,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                             "$feature_flag_response": "variant-a",
                             "$current_url": "https://example.com/pricing",
                             "$lib": "web",
+                            "$group_0": FLAG_EVALUATIONS_GROUP_KEY,
                         }
                     ),
                     FLAG_CALL_TIMESTAMP,
@@ -1272,6 +1277,15 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk,
             distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
             properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=FLAG_EVALUATIONS_GROUP_KEY,
+            properties={"industry": "software"},
         )
         row_uuid = self._create_flag_calls_in_both_tables(person_id=person.uuid)
 
@@ -1295,12 +1309,16 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT
                     ),
                     PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT),
+                    GroupPropertyFilter(
+                        key="industry", value="software", operator=PropertyOperator.EXACT, group_type_index=0
+                    ),
                 ],
                 after="-30d",
             )
             response = EventsQueryRunner(query=query, team=self.team).run()
 
         assert isinstance(response, CachedEventsQueryResponse)
+        assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]
         assert {

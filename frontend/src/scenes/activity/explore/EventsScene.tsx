@@ -34,8 +34,8 @@ export function EventsScene(): JSX.Element {
                 }}
             />
             {showFlagCallsNote && (
-                <LemonBanner type="info">
-                    Feature flag calls are stored separately from other events. Filter by the "Feature flag called"
+                <LemonBanner type="info" dismissKey="activity-flag-calls-stored-separately">
+                    Feature flag calls are stored separately from other events. Filter by only the "Feature flag called"
                     event to see them.
                 </LemonBanner>
             )}

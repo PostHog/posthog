@@ -20,7 +20,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.lazy_join_tags import PERSONS
+from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSONS
 from posthog.hogql.database.models import ExpressionField, LazyJoin
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import (
@@ -88,9 +88,9 @@ EVENTS_LIST_TABLE = EventsListTable(
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
-    # The lazy join resolver registers an unaliased posthog.flag_evaluations as "posthog__flag_evaluations".
-    # It looks for a join's source table by chain[0], which is "posthog". Without the alias that lookup misses.
-    # The resolver then prints the persons join before the override join that its condition reads.
+    # Resolver.visit_join_expr names an unaliased posthog.flag_evaluations "posthog__flag_evaluations".
+    # LazyTableResolver looks for a join's source table by chain[0], which is "posthog". That lookup misses.
+    # It then prints the persons join before the override join that the persons join condition reads.
     alias="flag_evaluations",
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
     # person_id holds the id that flag_evaluations resolved through person merges.
@@ -163,6 +163,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if self.query.source is not None:
             self.source_runner.validate()
 
+    def _person_display_name_key(self, table: EventsListTable) -> str:
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        props = person_display_name_property_exprs(property_keys, "person.properties")
+        return f"coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id})"
+
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
         person_indices: list[int] = []
@@ -176,10 +181,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 select_input.append("distinct_id")
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
-                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = person_display_name_property_exprs(property_keys, "person.properties")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id}), distinct_id)"
-                select_input.append(expr)
+                select_input.append(f"({self._person_display_name_key(table)}, distinct_id)")
             else:
                 select_input.append(col)
         return select_input, [
@@ -327,7 +329,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 having_list = [expr for expr in where_exprs if has_aggregation(expr)]
                 having: ast.Expr | None = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
-            order_by = self._order_by_exprs(select_input, select, aggregations, has_any_aggregation)
+            order_by = self._order_by_exprs(table, select_input, select, aggregations, has_any_aggregation)
 
             with self.timings.measure("select"):
                 if self.query.source is not None:
@@ -387,6 +389,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             # selects of these columns resolve as they do on events.
             for name in ("elements_chain", "person_mode"):
                 flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
+            # Group property filters, including test account filters, read group_N.properties as they do on events.
+            for index in range(5):
+                flag_evaluations.fields[f"group_{index}"] = LazyJoin(
+                    from_field=[f"$group_{index}"],
+                    join_table=context.database.get_table("groups"),
+                    resolver=GROUP_N,
+                    resolver_params={"group_index": index},
+                )
         return context
 
     def _filter_where_exprs(self) -> list[ast.Expr]:
@@ -510,6 +520,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
     def _order_by_exprs(
         self,
+        table: EventsListTable,
         select_input: list[str],
         select: list[ast.Expr],
         aggregations: list[ast.Expr],
@@ -517,7 +528,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     ) -> list[ast.OrderExpr]:
         with self.timings.measure("order"):
             if self.query.orderBy is not None:
-                order_by = self._requested_order_by(self.query.orderBy)
+                order_by = self._requested_order_by(table, self.query.orderBy)
             else:
                 order_by = self._default_order_by(select_input, select, aggregations)
 
@@ -538,13 +549,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 order_by.append(ast.OrderExpr(expr=ast.Field(chain=["uuid"]), order=order_by[0].order))
             return order_by
 
-    def _requested_order_by(self, order_by_input: list[str]) -> list[ast.OrderExpr]:
+    def _requested_order_by(self, table: EventsListTable, order_by_input: list[str]) -> list[ast.OrderExpr]:
         columns: list[str] = []
         for col in order_by_input:
             if col.split("--")[0].strip() == "person_display_name":
-                property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-                props = person_display_name_property_exprs(property_keys, "person.properties")
-                expr = f"(coalesce({', '.join([*props, 'distinct_id'])}), toString(person.id))"
+                expr = f"({self._person_display_name_key(table)})"
                 columns.append(re.sub(r"person_display_name -- Person ", expr, col))
             else:
                 columns.append(col)
