@@ -690,31 +690,32 @@ Assignment uses the task ID and persists across its runs. Turning the flag off s
 Runs booted while disabled require a new run to enroll. Desktop, steering during a running turn, compaction, and autonomous continuations are outside this experiment.
 
 The default `CONTEXT_SELECTION_ALLOWED_TEAM_IDS` is empty. Configure only projects containing synthetic or PostHog-owned data; the current actor must also be staff.
-`CONTEXT_SELECTION_PROVIDER` explicitly selects `typesafe` (default, existing NORMAL egress lane) or `gateway`.
-`CONTEXT_SELECTION_MODEL` defaults to `jev-latest`; pin a model for a stable experiment. There is no provider fallback.
+`CONTEXT_SELECTION_PROVIDER` defaults to `gateway`, using the existing `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY` configuration and its owning team wallet.
+`CONTEXT_SELECTION_MODEL` defaults to the PostHog-hosted `posthog/hogference/jeeves-0.1`. Explicit `typesafe` mode uses the existing NORMAL egress lane and requires a TypeSafe model such as `jev-latest`; it is available only outside PostHog Cloud. There is no provider fallback.
 
 Skill descriptions and Data Catalog metadata use a project projection in the existing Django cache.
 A cache miss schedules a Celery refresh and skips the current turn. Projections refresh after two minutes and expire after ten minutes.
 Each source pool is capped at 2,000 records, with truncation recorded. Versioned projections of project-shared metadata are archived before serving, so skills and semantic retrieval can be replayed after cache expiry. Weighted token matching shortlists sources separately, then current source rows and permissions are checked before scoring and dispatch.
 Customized shared-resource access is conservatively excluded, including object-restricted skills. Full skill bodies remain available through the existing tools.
 Business Knowledge uses its existing safe hybrid search, with a bounded worker pool; a timeout can leave one search running but cannot create an unbounded queue.
-The server selection budget is three seconds and the client preparation deadline is four seconds. Receipt calls each have a one-second deadline; these add to selection latency.
+Selection checks a three-second budget across projection, scoring, and validation. The complete preparation handler, including authorization and evidence writes, has a 3.5-second response deadline; receipt handling has a 1.5-second deadline. The client allows five seconds for preparation and two seconds per receipt, including network overhead. These calls add to turn latency. Slow synchronous dependencies can continue after a response deadline, but a shared pool admits at most four handlers with no queue; exhaustion skips selection. Context is never delivered on a timeout. Source checks run before acquiring the receipt row lock.
 
 The experiment gate skips at probability 0.30 or below. Candidates need 0.70 or above, and the rendered bundle is limited to five records and 8,000 characters.
 Shadow runs select and archive without injection; controls archive the baseline without selection.
-A retry of an already recorded message does not repeat selection and proceeds without context. Each actual dispatch has a separate receipt.
+A retry of an already recorded message does not repeat selection and proceeds without newly injected context. Each actual adapter attempt has a separate receipt, including retries that replace the user prompt with a continuation. Runtime selection history is reset when the run changes.
 A failed receipt write removes context before dispatch. Preparation and receipt failures also emit diagnostics into the existing run logs.
 
-Selection records retain authorized candidate snapshots, source revisions, projection identity, model requests and normalized responses, decisions, stage timings, rendered context, bounded request/history, and relevant run configuration.
-Receipts include exact submitted ACP prompt blocks or native Pi context messages, system prompt, and model (up to 256 KiB), their SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
+Selection records retain authorized candidate snapshots, source revisions, projection identity, deduplicated model request descriptors and normalized responses, decisions, stage timings, rendered context, bounded request/history, and relevant run configuration.
+Input and candidate snapshots, immutable question definitions, model, and request hashes allow reconstruction of each model request without duplicating prompt/history per candidate.
+Receipts include exact submitted ACP prompt blocks or native Pi context messages, system prompt, and model (up to 256 KiB), stored as their exact JSON serialization, a server-verified SHA-256 hash, adapter status, reported usage, and the actual turn trace when available.
 Pi registers human message IDs before sending their native commands, persists queued registrations in the native session, and selects when those messages reach the model. The context extension supplies hidden reference messages without changing the visible user prompt. Native commands, unregistered inputs, and steering do not run selection. Skill/template expansion that changes the registered text prevents a match and skips selection.
 Pi receipts finish on the first native model turn after selection, with `pi_model_turn` usage scope; RPC acknowledgments never count as completion. Subsequent trajectory remains in native session and task logs. Missing trace IDs remain explicit gaps. In-process tool continuations retain already-exposed context; a resumed process does not reconstruct those temporary context messages and selects again only for newly registered human input.
 
-A dispatching receipt alone does not prove adapter acceptance. Terminal receipt failures remain unknown; task/run joins remain usable without a trace ID.
+Terminal receipts require a matching dispatch receipt with the same prompt and context claim. The server verifies that a claimed injection is present as the appended context block. These are runtime-reported observations, not independent proof of provider acceptance. A dispatching receipt alone does not prove adapter acceptance. Terminal receipt failures remain unknown; task/run joins remain usable without a trace ID.
 Provider responses completing after the deadline are not collected. Their candidates are marked timed out. The source search is lexical plus Business Knowledge hybrid retrieval, not the prototype's SQLite FTS implementation.
 
 Records expire after 90 days; projection snapshots expire 91 days after their last refresh; a daily Celery task deletes them. Assignment survives until task deletion. Evidence is private and never exposed as a normal chat artifact.
-Operators can export a task before retention or task deletion:
+Task-run logs have a separate default 30-day retention. Export complete trajectories before the earliest referenced run log expires (and before task deletion); the 90-day selection window does not extend log retention. Operators can export a task:
 
 ```sh
 python manage.py export_context_selections --team-id TEAM_ID --task-id TASK_UUID > context-evidence.json

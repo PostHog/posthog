@@ -103,7 +103,7 @@ describe("cloud context selection", () => {
   it("keeps bounded user and assistant history for follow-ups", async () => {
     const { api, selector, send } = fixture();
     await selector.dispatch("r", "m", prompt, send);
-    selector.recordAssistant("Activation means the first useful action.");
+    selector.recordAssistant("r", "Activation means the first useful action.");
     await selector.dispatch(
       "r",
       "m2",
@@ -113,7 +113,7 @@ describe("cloud context selection", () => {
     expect(api.prepareContextSelection.mock.calls[1][0].history).toContain(
       "first useful action",
     );
-    selector.recordAssistant("x".repeat(20_000));
+    selector.recordAssistant("r", "x".repeat(20_000));
     await selector.dispatch("r", "m3", prompt, send);
     expect(
       api.prepareContextSelection.mock.calls[2][0].history.length,
@@ -149,6 +149,33 @@ describe("cloud context selection", () => {
       history: "Earlier conversation summary",
       history_source: "resume_prompt",
     });
+  });
+
+  it("resets history for another run and ignores late results from the old run", async () => {
+    const { api, selector, send } = fixture();
+    await selector.dispatch("r", "m", prompt, send);
+    selector.recordAssistant("r", "private previous answer");
+    await selector.dispatch("new-run", "m2", prompt, send);
+    expect(api.prepareContextSelection.mock.calls[1][0].history).toBe("");
+    selector.recordAssistant("r", "late previous answer");
+    await selector.dispatch("new-run", "m3", prompt, send);
+    expect(api.prepareContextSelection.mock.calls[2][0].history).not.toContain(
+      "previous answer",
+    );
+  });
+
+  it("uses a new delivery ID when a context receipt times out before baseline dispatch", async () => {
+    const { api, selector, send } = fixture();
+    api.recordContextSelectionReceipt.mockRejectedValueOnce(
+      new Error("timeout after persistence"),
+    );
+    await selector.dispatch("r", "m", prompt, send);
+    const [enriched, baseline, completed] =
+      api.recordContextSelectionReceipt.mock.calls.map(([receipt]) => receipt);
+    expect(enriched.delivery_id).not.toBe(baseline.delivery_id);
+    expect(completed.delivery_id).toBe(baseline.delivery_id);
+    expect(baseline.prompt).toEqual(prompt);
+    expect(completed.context_included).toBe(false);
   });
 
   it("rejects unexpected context on a control response at the API boundary", () => {

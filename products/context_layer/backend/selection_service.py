@@ -14,7 +14,7 @@ from posthog.models.user import User
 from posthog.ph_client import get_feature_flag_or_none
 
 from products.context_layer.backend.models import ContextSelectionAssignment, ContextSelectionAttempt
-from products.context_layer.backend.selection_model import SelectionJudge, model_request
+from products.context_layer.backend.selection_model import GATE, RELEVANCE, SelectionJudge, request_descriptor
 from products.context_layer.backend.selection_search import render, retrieve
 from products.context_layer.backend.selection_sources import (
     load_projection,
@@ -78,10 +78,11 @@ def selection_mode(run: TaskRun, actor: User) -> str:
 
 
 def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[str]) -> PreparedContext:
+    started = time.monotonic()
     mode = selection_mode(run, actor)
     if mode == "disabled":
         return PreparedContext()
-    started = time.monotonic()
+    check_deadline(started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS)
     fingerprint = digest(asdict(selection))
     with transaction.atomic():
         assignment, _ = ContextSelectionAssignment.objects.get_or_create(
@@ -105,7 +106,12 @@ def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[st
         # A retry proceeds without context, and its receipt records that actual exposure.
         return PreparedContext(selection_id=str(attempt.id), mode=mode, reason="duplicate")
     evidence = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "request_format": {
+            "state_fields": ["user_request", "history", "candidate"],
+            "answer_key": "useful",
+            "questions": {"gate": GATE.to_json(), "relevance": RELEVANCE.to_json()},
+        },
         "config_version": CONFIG_VERSION,
         "configuration": {
             "gate_threshold": GATE_THRESHOLD,
@@ -134,7 +140,7 @@ def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[st
         },
         "runtime": "pi" if run.task.runtime == Task.Runtime.PI else (run.state or {}).get("runtime_adapter", "claude"),
         "agent_configuration": {key: (run.state or {}).get(key) for key in ("model", "systemPrompt", "store_skills")},
-        "baseline_reference": {"run_id": str(run.id), "storage": "task_run_logs"},
+        "baseline_reference": {"run_id": str(run.id), "storage": "task_run_logs", "default_retention_days": 30},
     }
     attempt.evidence = evidence
     attempt.save(update_fields=["evidence"])
@@ -160,6 +166,11 @@ def prepare(run: TaskRun, actor: User, selection: SelectionInput, scopes: set[st
     )
 
 
+def check_deadline(deadline: float) -> None:
+    if time.monotonic() >= deadline:
+        raise TimeoutError("selector_deadline")
+
+
 def _select(
     attempt: ContextSelectionAttempt,
     run: TaskRun,
@@ -170,9 +181,11 @@ def _select(
 ) -> None:
     evidence = attempt.evidence
     deadline = started + settings.CONTEXT_SELECTION_TIMEOUT_SECONDS
+    check_deadline(deadline)
     phase_started = time.monotonic()
     projection = load_projection(run.team_id)
     evidence["timings"] = {"projection_seconds": time.monotonic() - phase_started}
+    check_deadline(deadline)
     if projection is None:
         attempt.status = "cache_miss"
         return
@@ -180,7 +193,7 @@ def _select(
         key: projection[key] for key in ("version", "created_at", "capped_sources", "archive_id", "refresh_seconds")
     }
     judge = SelectionJudge(str(attempt.id), str(actor.distinct_id), deadline)
-    evidence["planned_requests"] = [model_request(selection.prompt, selection.history)]
+    evidence["planned_requests"] = [request_descriptor(selection.prompt, selection.history)]
     attempt.save(update_fields=["evidence"])
     gate = judge.judge(selection.prompt, selection.history)
     evidence["calls"].append(gate.evidence)
@@ -200,7 +213,9 @@ def _select(
     shortlisted = retrieve(selection.prompt + "\n" + selection.history, [r for r in records if r.kind in allowed_kinds])
     evidence["timings"]["retrieval_seconds"] = time.monotonic() - phase_started
     phase_started = time.monotonic()
+    check_deadline(deadline)
     candidates = validate_candidates(run.team, actor, shortlisted)
+    check_deadline(deadline)
     evidence["timings"]["validation_seconds"] = time.monotonic() - phase_started
     evidence["retrieval"] = {
         "algorithm": "weighted_tokens_v1",
@@ -222,7 +237,7 @@ def _select(
     else:
         evidence["omitted_sources"]["business_knowledge"] = "scope_or_capacity"
     evidence["timings"]["knowledge_seconds"] = time.monotonic() - phase_started
-    evidence["planned_requests"].extend(model_request(selection.prompt, selection.history, c) for c in candidates)
+    evidence["planned_requests"].extend(request_descriptor(selection.prompt, selection.history, c) for c in candidates)
     attempt.save(update_fields=["evidence"])
     pending = {}
     for candidate in candidates:
@@ -246,8 +261,10 @@ def _select(
     evidence["timed_out_ids"] = [pending[future].id for future in unfinished]
     for future in unfinished:
         future.cancel()
+    check_deadline(deadline)
     # Recheck current rows after external scoring. A changed definition requires a new judgment.
     current = {c.id: c for c in validate_candidates(run.team, actor, [c for c, _ in scored])}
+    check_deadline(deadline)
     scored = [(c, score) for c, score in scored if current.get(c.id) == c]
     rendered = render(scored)
     attempt.context = rendered.context

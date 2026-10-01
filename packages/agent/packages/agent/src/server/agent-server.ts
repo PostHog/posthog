@@ -1737,7 +1737,10 @@ export class AgentServer {
               commandSession.payload.run_id,
             );
             if (assistantMessage)
-              this.contextSelection.recordAssistant(assistantMessage);
+              this.contextSelection.recordAssistant(
+                commandSession.payload.run_id,
+                assistantMessage,
+              );
           } catch {
             this.logger.debug("Failed to extract assistant message from logs");
           }
@@ -2775,6 +2778,7 @@ export class AgentServer {
       _meta?: Record<string, unknown>;
     },
     recordFailedUsage = true,
+    contextMessageId?: string,
   ): Promise<PromptResponse> {
     const originatingSession = this.session;
     if (
@@ -2816,7 +2820,22 @@ export class AgentServer {
                 : request.prompt,
           };
       try {
-        const response = await session.clientConnection.prompt(attempt);
+        const response = contextMessageId
+          ? await this.contextSelection.dispatch(
+              session.payload.run_id,
+              contextMessageId,
+              attempt.prompt,
+              (prompt) => {
+                if (this.session !== originatingSession) {
+                  throw new Error(
+                    "Agent session changed during context selection",
+                  );
+                }
+                return session.clientConnection.prompt({ ...attempt, prompt });
+              },
+              request.prompt,
+            )
+          : await session.clientConnection.prompt(attempt);
         if (this.session !== originatingSession) {
           throw new Error(
             "Agent session changed before the turn result was handled",
@@ -3133,16 +3152,14 @@ export class AgentServer {
       }
       promptDispatched = true;
 
-      const result = await this.contextSelection.dispatch(
-        payload.run_id,
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: initialPrompt,
+          ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
+        },
+        true,
         initialPromptMessageId ?? `initial:${payload.run_id}`,
-        initialPrompt,
-        (selectedPrompt) =>
-          this.promptWithUpstreamRetry({
-            sessionId: acpSessionId,
-            prompt: selectedPrompt,
-            ...(initialPromptMeta ? { _meta: initialPromptMeta } : {}),
-          }),
       );
 
       this.logger.debug("Initial task message completed", {
@@ -3156,6 +3173,7 @@ export class AgentServer {
       }
 
       this.contextSelection.recordAssistant(
+        payload.run_id,
         this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
       );
       this.recordTurnUsage(result.usage);
@@ -3534,16 +3552,14 @@ export class AgentServer {
       this.session.logWriter.resetTurnMessages(payload.run_id);
       promptDispatched = true;
 
-      const result = await this.contextSelection.dispatch(
-        payload.run_id,
+      const result = await this.promptWithUpstreamRetry(
+        {
+          sessionId: acpSessionId,
+          prompt: builtPrompt.prompt,
+          ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
+        },
+        true,
         builtPrompt.messageId,
-        builtPrompt.prompt,
-        (selectedPrompt) =>
-          this.promptWithUpstreamRetry({
-            sessionId: acpSessionId,
-            prompt: selectedPrompt,
-            ...(builtPrompt.meta ? { _meta: builtPrompt.meta } : {}),
-          }),
       );
 
       this.logger.debug(`${logLabel} completed`, {
@@ -3561,6 +3577,7 @@ export class AgentServer {
       }
 
       this.contextSelection.recordAssistant(
+        payload.run_id,
         this.session.logWriter.getFullAgentResponse(payload.run_id) ?? "",
       );
       this.recordTurnUsage(result.usage);

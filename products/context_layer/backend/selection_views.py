@@ -1,11 +1,11 @@
 import json
+import hashlib
 from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -22,14 +22,10 @@ from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_re
 from posthog.permissions import APIScopePermission
 
 from products.context_layer.backend.models import ContextSelectionAttempt
-from products.context_layer.backend.selection_service import prepare, selection_mode
-from products.context_layer.backend.selection_sources import validate_candidates
-from products.context_layer.backend.selection_types import (
-    MAX_HISTORY_CHARS,
-    MAX_PROMPT_CHARS,
-    Candidate,
-    SelectionInput,
-)
+from products.context_layer.backend.selection_execution import bounded_request
+from products.context_layer.backend.selection_receipts import merge_receipt, validate_dispatch, validate_exposure
+from products.context_layer.backend.selection_service import check_deadline, prepare
+from products.context_layer.backend.selection_types import MAX_HISTORY_CHARS, MAX_PROMPT_CHARS, SelectionInput
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import TaskRun
 
@@ -66,14 +62,25 @@ class ReceiptSerializer(serializers.Serializer):
         required=False, min_value=0, help_text="Observed adapter call duration; absent before dispatch."
     )
     usage = serializers.JSONField(required=False, allow_null=True, help_text="Adapter-reported usage, when available.")
-    prompt = serializers.JSONField(
-        help_text="Exact ACP blocks or native Pi context messages submitted to the runtime; limited to 256 KiB."
+    prompt = serializers.CharField(
+        trim_whitespace=False,
+        max_length=262_144,
+        help_text="Exact JSON serialization of ACP blocks or native Pi context; limited to 256 KiB.",
     )
 
-    def validate_prompt(self, value: object) -> object:
-        if len(json.dumps(value).encode()) > 262_144:
+    def validate_prompt(self, value: str) -> str:
+        if len(value.encode()) > 262_144:
             raise serializers.ValidationError("Prompt is too large to archive.")
+        try:
+            json.loads(value)
+        except ValueError as error:
+            raise serializers.ValidationError("Prompt must contain valid JSON.") from error
         return value
+
+    def validate(self, data: dict) -> dict:
+        if hashlib.sha256(data["prompt"].encode()).hexdigest() != data["prompt_hash"]:
+            raise serializers.ValidationError("Prompt hash does not match its JSON serialization.")
+        return data
 
     run_id = serializers.UUIDField(help_text="Cloud run receiving this human message.")
     selection_id = serializers.UUIDField(help_text="Selection record returned by prepare.")
@@ -112,7 +119,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.team_id,
             task_id=bound_task_id,
         )
-        if not is_current_task_run_actor(run, request.user):
+        if not is_current_task_run_actor(run.team_id, run.id, request.user.id):
             raise PermissionDenied("The credential no longer belongs to the current actor.")
         if (
             not allow_terminal and run.status != TaskRun.Status.IN_PROGRESS
@@ -126,10 +133,16 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = PrepareSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        run = self._run(request, data.pop("run_id"))
-        scopes = set((getattr(get_oauth_access_token(request), "scope", "") or "").split())
-        result = prepare(run, cast(User, request.user), SelectionInput(**data), scopes)
-        return Response(asdict(result))
+
+        def execute(deadline: float) -> Response:
+            run = self._run(request, data.pop("run_id"))
+            check_deadline(deadline)
+            scopes = set((getattr(get_oauth_access_token(request), "scope", "") or "").split())
+            result = prepare(run, cast(User, request.user), SelectionInput(**data), scopes)
+            check_deadline(deadline)
+            return Response(asdict(result))
+
+        return bounded_request(self.team_id, 3.5, execute)
 
     @extend_schema(exclude=True, request=ReceiptSerializer, responses={200: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["post"])
@@ -137,64 +150,32 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = ReceiptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        run = self._run(request, data["run_id"], allow_terminal=data["status"] in ("completed", "failed"))
+        return bounded_request(self.team_id, 1.5, lambda deadline: self._receipt(request, data, deadline))
 
+    def _receipt(self, request: Request, data: dict, deadline: float) -> Response:
+        run = self._run(request, data["run_id"], allow_terminal=data["status"] in ("completed", "failed"))
+        attempt = get_object_or_404(
+            ContextSelectionAttempt.objects.all(),
+            id=data["selection_id"],
+            run=run,
+            actor=request.user,
+        )
+        validate_exposure(attempt, data)
+        if data["status"] == "dispatching" and data["context_included"]:
+            scopes = set((getattr(get_oauth_access_token(request), "scope", "") or "").split())
+            validate_dispatch(attempt, run, cast(User, request.user), scopes)
+        check_deadline(deadline)
         with transaction.atomic():
-            attempt = get_object_or_404(
+            locked = get_object_or_404(
                 ContextSelectionAttempt.objects.select_for_update(),
-                id=data["selection_id"],
+                id=attempt.id,
                 run=run,
                 actor=request.user,
             )
-            if data["context_included"] and (attempt.mode != "treatment" or not attempt.context):
-                raise ValidationError("This selection supplied no treatment context.")
-            if data["status"] == "dispatching" and data["context_included"]:
-                if selection_mode(run, cast(User, request.user)) == "disabled":
-                    raise PermissionDenied("Context selection is disabled.")
-                scopes = set((getattr(get_oauth_access_token(request), "scope", "") or "").split())
-                source_scope = {
-                    "skill": "llm_skill:read",
-                    "metric": "data_catalog:read",
-                    "certification": "data_catalog:read",
-                    "relationship": "data_catalog:read",
-                    "business_knowledge": "business_knowledge:read",
-                }
-                selected = set(attempt.evidence.get("selected_ids", []))
-                candidates = [
-                    Candidate(**c)
-                    for c in attempt.evidence.get("retrieval", {}).get("candidates", [])
-                    if c["id"] in selected
-                ]
-                if any(source_scope[c.kind] not in scopes for c in candidates):
-                    raise PermissionDenied("A selected source scope is no longer available.")
-                current = {
-                    c.id: c.as_json() for c in validate_candidates(run.team, cast(User, request.user), candidates)
-                }
-                if len(candidates) != len(selected) or any(current.get(c.id) != c.as_json() for c in candidates):
-                    raise PermissionDenied("A selected source changed or is no longer accessible.")
-            receipts = attempt.receipt
-            key = str(data["delivery_id"])
-            previous = receipts.get(key)
-            payload = {k: str(v) if k.endswith("_id") else v for k, v in data.items()}
-            if previous and previous["status"] in ("completed", "failed"):
-                return Response({"status": "recorded"})
-            if len(receipts) >= 20 and not previous:
-                raise ValidationError("Too many dispatch attempts.")
-            now = timezone.now().isoformat()
-            events = list(previous.get("events", [])) if previous else []
-            if (
-                not previous
-                or previous["status"] != payload["status"]
-                or previous["prompt_hash"] != payload["prompt_hash"]
-            ):
-                events.append(
-                    {
-                        "status": payload["status"],
-                        "recorded_at": now,
-                        "context_included": payload["context_included"],
-                        "prompt_hash": payload["prompt_hash"],
-                    }
-                )
-            receipts[key] = {**payload, "recorded_at": now, "events": events[-20:]}
-            attempt.save(update_fields=["receipt"])
+            check_deadline(deadline)
+            if locked.context != attempt.context or locked.status != attempt.status:
+                raise ValidationError("Selection changed during dispatch validation.")
+            locked.receipt = merge_receipt(locked.receipt, data)
+            locked.save(update_fields=["receipt"])
+            check_deadline(deadline)
         return Response({"status": "recorded"})

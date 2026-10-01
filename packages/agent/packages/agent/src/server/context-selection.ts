@@ -38,6 +38,7 @@ export interface ContextDelivery<Prompt> {
 export class ContextSelection {
   enabled = false;
   private history = "";
+  private historyRunId: string | undefined;
 
   constructor(
     private readonly api: PostHogAPIClient,
@@ -52,20 +53,24 @@ export class ContextSelection {
     messageId: string | undefined,
     prompt: ContentBlock[],
     send: (blocks: ContentBlock[]) => Promise<PromptResponse>,
+    humanPrompt = prompt,
   ): Promise<PromptResponse> {
     if (!this.enabled || !messageId) return send(prompt);
     const delivery = await this.preparePrompt({
       runId,
       messageId,
       prompt,
-      userText: text(prompt.filter((block) => !isHidden(block))),
-      restoredHistory: text(prompt.filter(isHidden)),
+      userText: text(humanPrompt.filter((block) => !isHidden(block))),
+      restoredHistory: text(humanPrompt.filter(isHidden)),
       inject: (blocks, context) => [...blocks, hiddenTextBlock(context)],
     });
     try {
       const result = await send(delivery.prompt);
       await delivery.finish(result);
-      this.recordUser(text(prompt.filter((block) => !isHidden(block))));
+      this.recordUser(
+        runId,
+        text(humanPrompt.filter((block) => !isHidden(block))),
+      );
       return result;
     } catch (error) {
       await delivery.finish(undefined, true);
@@ -94,6 +99,10 @@ export class ContextSelection {
     let prepared:
       | Awaited<ReturnType<PostHogAPIClient["prepareContextSelection"]>>
       | undefined;
+    if (this.historyRunId !== runId) {
+      this.historyRunId = runId;
+      this.history = "";
+    }
     const history = this.history || restoredHistory.slice(-12_000);
     try {
       prepared = await this.api.prepareContextSelection({
@@ -117,7 +126,7 @@ export class ContextSelection {
     let submitted = prepared?.context
       ? inject(prompt, prepared.context)
       : prompt;
-    const deliveryId = randomUUID();
+    let deliveryId = randomUUID();
     let sentAt: number | undefined;
     const receipt = async (
       status: "dispatching" | "completed" | "failed",
@@ -157,6 +166,7 @@ export class ContextSelection {
     };
     if (!(await receipt("dispatching"))) {
       submitted = prompt;
+      deliveryId = randomUUID();
       await receipt("dispatching");
     }
     sentAt = performance.now();
@@ -168,13 +178,13 @@ export class ContextSelection {
     };
   }
 
-  recordUser(text: string): void {
-    if (!this.enabled) return;
+  recordUser(runId: string, text: string): void {
+    if (!this.enabled || this.historyRunId !== runId) return;
     this.history = `${this.history}\nUser: ${text}`.slice(-12_000);
   }
 
-  recordAssistant(text: string): void {
-    if (!this.enabled) return;
+  recordAssistant(runId: string, text: string): void {
+    if (!this.enabled || this.historyRunId !== runId) return;
     this.history = `${this.history}\nAssistant: ${text}`.slice(-12_000);
   }
 }

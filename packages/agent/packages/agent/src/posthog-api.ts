@@ -119,7 +119,7 @@ export class PostHogAPIClient {
       {
         method: "POST",
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(4_000),
+        signal: AbortSignal.timeout(5_000),
       },
     );
     return contextSelectionResponseSchema.parse(response);
@@ -142,8 +142,11 @@ export class PostHogAPIClient {
       `/api/projects/${this.getTeamId()}/context_layer/selection/receipt/`,
       {
         method: "POST",
-        body: JSON.stringify(input),
-        signal: AbortSignal.timeout(1_000),
+        body: JSON.stringify({
+          ...input,
+          prompt: JSON.stringify(input.prompt),
+        }),
+        signal: AbortSignal.timeout(2_000),
       },
     );
   }

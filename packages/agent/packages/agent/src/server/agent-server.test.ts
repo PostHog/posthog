@@ -55,6 +55,7 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
+import { ContextSelection } from "./context-selection";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -2205,6 +2206,7 @@ describe("AgentServer HTTP Mode", () => {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
         session: unknown;
+        contextSelection: ContextSelection;
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -2215,6 +2217,7 @@ describe("AgentServer HTTP Mode", () => {
             prompt: ContentBlock[];
           },
           recordFailedUsage?: boolean,
+          contextMessageId?: string,
         ): Promise<{
           stopReason: string;
           usage?: { inputTokens?: number; outputTokens?: number };
@@ -2223,6 +2226,66 @@ describe("AgentServer HTTP Mode", () => {
         runRetryWrappedTurn<T>(operation: () => Promise<T>): Promise<T>;
       };
     }
+
+    it("archives each actual retry prompt independently", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: terminated"))
+          .mockResolvedValueOnce({ stopReason: "end_turn" });
+        const testServer = createRetryTestServer(prompt);
+        const api = {
+          prepareContextSelection: vi
+            .fn()
+            .mockResolvedValueOnce({
+              selection_id: "selection",
+              context: "definition",
+              mode: "treatment",
+            })
+            .mockResolvedValueOnce({
+              selection_id: "selection",
+              context: "",
+              mode: "treatment",
+              reason: "duplicate",
+            }),
+          recordContextSelectionReceipt: vi.fn().mockResolvedValue(undefined),
+        };
+        testServer.contextSelection = new ContextSelection(
+          api as unknown as PostHogAPIClient,
+        );
+        testServer.contextSelection.enabled = true;
+        const result = testServer.promptWithUpstreamRetry(
+          {
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "Define activation" }],
+          },
+          true,
+          "human-message",
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await result;
+        const receipts = api.recordContextSelectionReceipt.mock.calls.map(
+          ([value]) => value,
+        );
+        expect(receipts.map((r) => r.status)).toEqual([
+          "dispatching",
+          "failed",
+          "dispatching",
+          "completed",
+        ]);
+        expect(receipts[0].delivery_id).not.toBe(receipts[2].delivery_id);
+        expect(receipts[0].context_included).toBe(true);
+        expect(receipts[2].context_included).toBe(false);
+        expect(receipts[0].prompt).toEqual(prompt.mock.calls[0][0].prompt);
+        expect(receipts[2].prompt).toEqual(prompt.mock.calls[1][0].prompt);
+        expect(receipts[2].prompt[0].text).toContain(
+          "interrupted by a transient connection error",
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
       vi.useFakeTimers();
@@ -3287,6 +3350,7 @@ describe("AgentServer HTTP Mode", () => {
       const testServer = exposeCloudClient(server);
       const commandServer = server as unknown as {
         session: unknown;
+        contextSelection: ContextSelection;
         executeCommand(
           method: string,
           params: Record<string, unknown>,

@@ -12,8 +12,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from posthog.models.user import User
 
-    from products.tasks.backend.models import TaskRun
-
 from django.conf import settings
 from django.urls import reverse
 
@@ -191,9 +189,11 @@ def export_context_selections(team_id: int, task_id: uuid.UUID) -> dict:
     return export_selections(team_id, task_id)
 
 
-def context_selection_enabled_for_run(run: TaskRun, actor: User | None) -> bool:
-    if run.team_id not in settings.CONTEXT_SELECTION_ALLOWED_TEAM_IDS:
+def context_selection_enabled_for_run(team_id: int, run_id: uuid.UUID, actor: User | None) -> bool:
+    if actor is None or team_id not in settings.CONTEXT_SELECTION_ALLOWED_TEAM_IDS:
         return False
     from products.context_layer.backend.selection_service import selection_mode  # noqa: PLC0415
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
 
-    return actor is not None and selection_mode(run, actor) != "disabled"
+    run = TaskRun.objects.select_related("task", "team__organization").get(id=run_id, team_id=team_id)
+    return selection_mode(run, actor) != "disabled"

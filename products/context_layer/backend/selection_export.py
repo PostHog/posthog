@@ -74,6 +74,11 @@ def export_selections(team_id: int, task_id: UUID) -> dict:
         return {
             "schema_version": 1,
             "exported_at": timezone.now().isoformat(),
+            "retention": {
+                "selection_days": 90,
+                "default_run_log_days": 30,
+                "complete_export_window": "before_earliest_run_log_expiry_or_task_deletion",
+            },
             "team_id": team_id,
             "task_id": str(task_id),
             "projections": archives,

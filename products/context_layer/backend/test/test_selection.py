@@ -1,4 +1,8 @@
+import json
 import time
+import hashlib
+from concurrent.futures import ThreadPoolExecutor
+from threading import BoundedSemaphore, Event
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -6,8 +10,9 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
+import httpx
 from parameterized import parameterized
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -16,11 +21,26 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.context_layer.backend.models import ContextSelectionAttempt
+from products.context_layer.backend.selection_execution import SelectionUnavailable, bounded_request
 from products.context_layer.backend.selection_export import selection_gaps
-from products.context_layer.backend.selection_model import Judgment, SelectionJudge
+from products.context_layer.backend.selection_model import (
+    GATE,
+    RELEVANCE,
+    Judgment,
+    SelectionJudge,
+    model_request,
+    request_descriptor,
+)
+from products.context_layer.backend.selection_receipts import merge_receipt, validate_exposure
 from products.context_layer.backend.selection_search import render, retrieve
 from products.context_layer.backend.selection_service import _select, prepare, selection_mode
-from products.context_layer.backend.selection_types import MAX_CONTEXT_CHARS, Candidate, SelectionInput, SourceKind
+from products.context_layer.backend.selection_types import (
+    MAX_CONTEXT_CHARS,
+    Candidate,
+    SelectionInput,
+    SourceKind,
+    digest,
+)
 from products.context_layer.backend.selection_views import ContextSelectionViewSet, PrepareSerializer, ReceiptSerializer
 from products.tasks.backend.models import Task, TaskRun
 
@@ -177,7 +197,7 @@ class TestSelectionOrchestration(SimpleTestCase):
         )
         self.assertFalse(serializer.is_valid())
         with self.assertRaisesMessage(Exception, "too large"):
-            ReceiptSerializer().validate_prompt([{"text": "x" * 262_144}])
+            ReceiptSerializer().validate_prompt(json.dumps([{"text": "x" * 262_144}]))
 
     def test_duplicate_delivery_never_runs_selection_again(self) -> None:
         attempt = ContextSelectionAttempt(mode="treatment", context="old context")
@@ -237,7 +257,7 @@ class TestSelectionPermissions(SimpleTestCase):
         run_id = uuid4()
         request = Request(APIRequestFactory().post("/"))
         request.user = User(id=5)
-        run = SimpleNamespace(status="in_progress", environment="cloud")
+        run = SimpleNamespace(id=run_id, team_id=42, status="in_progress", environment="cloud")
         with (
             patch(
                 "products.context_layer.backend.selection_views.get_oauth_access_token",
@@ -264,4 +284,136 @@ class TestSelectionPermissions(SimpleTestCase):
             result = SelectionJudge("selection", "actor", time.monotonic() + 3).judge("activation", "")
             self.assertIsNone(result.probability)
             self.assertEqual(result.evidence["error_type"], "TimeoutError")
-            self.assertIn("request", result.evidence)
+            self.assertEqual(result.evidence["request_hash"], request_descriptor("activation", "")["request_hash"])
+            self.assertNotIn("request", result.evidence)
+
+
+class TestSelectionReceipts(SimpleTestCase):
+    def receipt(self, prompt, status="dispatching", included=True) -> dict:
+        serialized = json.dumps(prompt, ensure_ascii=False, separators=(",", ":"))
+        return {
+            "run_id": uuid4(),
+            "selection_id": uuid4(),
+            "delivery_id": uuid4(),
+            "prompt": serialized,
+            "prompt_hash": hashlib.sha256(serialized.encode()).hexdigest(),
+            "status": status,
+            "context_included": included,
+        }
+
+    @parameterized.expand([("acp",), ("pi",)])
+    def test_receipt_verifies_exact_json_hash_and_current_injection(self, runtime) -> None:
+        context = "definition: café 🦔"
+        prompt = (
+            [{"type": "text", "text": context, "_meta": {"ui": {"hidden": True}}}]
+            if runtime == "acp"
+            else {
+                "format": "pi_context",
+                "messages": [{"role": "custom", "customType": "posthog_context_selection", "content": context}],
+            }
+        )
+        data = self.receipt(prompt)
+        serializer = ReceiptSerializer(data=data)
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        attempt = ContextSelectionAttempt(mode="treatment", status="selected", context=context)
+        validate_exposure(attempt, serializer.validated_data)
+        with self.assertRaises(ValidationError):
+            validate_exposure(attempt, {**data, "context_included": False})
+        with self.assertRaises(ValidationError):
+            validate_exposure(attempt, self.receipt([]))
+        bad = ReceiptSerializer(data={**data, "prompt_hash": "0" * 64})
+        self.assertFalse(bad.is_valid())
+
+    @parameterized.expand([("completed",), ("failed",)])
+    def test_terminal_receipt_requires_unchanged_dispatch(self, status) -> None:
+        data = self.receipt([], included=False)
+        terminal = {**data, "status": status}
+        with self.assertRaises(ValidationError):
+            merge_receipt({}, terminal)
+        receipts = merge_receipt({}, data)
+        with self.assertRaises(ValidationError):
+            merge_receipt(receipts, {**terminal, "prompt": "[1]"})
+        completed = merge_receipt(receipts, terminal)
+        self.assertEqual(completed[str(data["delivery_id"])]["status"], status)
+        self.assertEqual(merge_receipt(completed, terminal), completed)
+
+    def test_model_requests_can_be_rebuilt_without_repeated_input(self) -> None:
+        record = candidate("1")
+        prompt, history = "user request", "prior message"
+        for c in (None, record):
+            descriptor = request_descriptor(prompt, history, c)
+            state: dict = {"user_request": prompt, "history": history}
+            request: dict = {
+                "model": model_request(prompt, history, c)["model"],
+                "state": state,
+                "questions": {"useful": (RELEVANCE if c else GATE).to_json()},
+            }
+            if c:
+                state["candidate"] = c.as_json()
+            self.assertEqual(digest(request), descriptor["request_hash"])
+            self.assertNotIn(prompt, json.dumps(descriptor))
+
+
+class TestSelectionBudget(SimpleTestCase):
+    def test_timed_out_work_keeps_its_capacity_slot_until_finished(self) -> None:
+        release, started = Event(), Event()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            submit = executor.submit
+
+            def start_operation(*args):
+                future = submit(*args)
+                self.assertTrue(started.wait(timeout=5))
+                return future
+
+            def blocked(deadline):
+                started.set()
+                release.wait()
+
+            with (
+                patch("products.context_layer.backend.selection_execution._EXECUTOR", executor),
+                patch("products.context_layer.backend.selection_execution._CAPACITY", BoundedSemaphore(1)),
+                patch.object(executor, "submit", side_effect=start_operation),
+                patch.object(Team.objects, "using") as teams,
+            ):
+                teams.return_value.only.return_value.get.return_value = Team(id=42)
+                try:
+                    with self.assertRaises(SelectionUnavailable):
+                        bounded_request(42, 0, blocked)
+                    with self.assertRaises(SelectionUnavailable):
+                        bounded_request(42, 1, lambda deadline: self.fail("queued behind timed-out work"))
+                finally:
+                    release.set()
+
+    def test_expired_selection_skips_projection_and_validation(self) -> None:
+        attempt = ContextSelectionAttempt(evidence={})
+        with (
+            patch("products.context_layer.backend.selection_service.time.monotonic", return_value=10),
+            override_settings(CONTEXT_SELECTION_TIMEOUT_SECONDS=3),
+            self.assertRaises(TimeoutError),
+        ):
+            _select(attempt, TaskRun(), User(), SelectionInput(message_id="m", prompt="request"), set(), 0)
+
+    @override_settings(
+        CLOUD_DEPLOYMENT="US",
+        CONTEXT_SELECTION_PROVIDER="gateway",
+        CONTEXT_SELECTION_MODEL="posthog/hogference/jeeves-0.1",
+        AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+        AI_GATEWAY_API_KEY="phs_test",
+    )
+    def test_cloud_selection_uses_gateway_and_preserves_request_evidence(self) -> None:
+        with patch(
+            "httpx.Client.post",
+            return_value=httpx.Response(
+                200,
+                json={
+                    "model": "posthog/hogference/jeeves-0.1",
+                    "answers": {"useful": {"noul": 0.9}},
+                    "usage": {"input_tokens": 12},
+                },
+            ),
+        ) as post:
+            result = SelectionJudge("selection", "actor", time.monotonic() + 60).judge("request", "history")
+        self.assertEqual(result.probability, 0.9)
+        self.assertIn("ai-gateway.example.com", post.call_args.args[0])
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "posthog/hogference/jeeves-0.1")
+        self.assertEqual(result.evidence["response"]["input_tokens"], 12)

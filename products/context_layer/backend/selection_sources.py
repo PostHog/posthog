@@ -19,7 +19,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.business_knowledge.backend.facade import (
+from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
     get_chunks_by_ids,
     search_knowledge_for_team,
