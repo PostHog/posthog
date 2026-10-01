@@ -13,7 +13,7 @@ export function ModelsOverviewTable<T extends Record<string, any>>({
     useLayoutEffect(() => {
         const container = containerRef.current
         const content = contentRef.current
-        if (!container || !content || !hasMultiplePages) {
+        if (!container || !content || !hasMultiplePages || props.loading) {
             container?.style.removeProperty('min-height')
             return
         }
@@ -27,7 +27,7 @@ export function ModelsOverviewTable<T extends Record<string, any>>({
         const observer = new ResizeObserver(preserveHeight)
         observer.observe(content)
         return () => observer.disconnect()
-    }, [hasMultiplePages])
+    }, [hasMultiplePages, props.loading])
 
     return (
         <div ref={containerRef} data-attr={dataAttr}>
