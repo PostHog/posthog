@@ -17,7 +17,6 @@ from posthog.event_usage import groups
 from posthog.sync import database_sync_to_async_pool
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import request_recalculation, start_metrics_recalculation_workflow
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     MIN_TOTAL_EXPOSURES,
@@ -107,6 +106,14 @@ async def check_experiment_exposures(experiment_id: int, hour: int) -> bool:
 
 @database_sync_to_async_pool
 def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
+    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, and this
+    # module is loaded from the temporal package's __init__, so a module-level import here closes
+    # a cycle back into a partially initialized module.
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415 — breaks that cycle
+        request_recalculation,
+        start_metrics_recalculation_workflow,
+    )
+
     close_old_connections()
     # Re-check RUNNING, not just deleted: discovery ran before the exposure query, and an
     # experiment stopped in between should not get a scheduled run.
