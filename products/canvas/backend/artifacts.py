@@ -12,7 +12,6 @@ from object storage. The manifest hash is also used as the response ETag.
 """
 
 import re
-import html
 import math
 import time
 import hashlib
@@ -128,17 +127,12 @@ def _require_artifact_host(request: HttpRequest) -> None:
 class _SandboxDocument:
     content: bytes
     content_hash: str
-    declared_csp: tuple[str, ...]
 
 
 def _parse_sandbox_document(content: bytes) -> _SandboxDocument:
-    match = re.search(rb'<meta http-equiv="Content-Security-Policy" content="([^"]*)"', content)
-    if match is None:
-        raise RuntimeError(f"{SANDBOX_DOCUMENT_PATH} declares no Content-Security-Policy meta tag")
     return _SandboxDocument(
         content=content,
         content_hash=hashlib.sha256(content).hexdigest(),
-        declared_csp=tuple(part.strip() for part in html.unescape(match.group(1).decode()).split(";") if part.strip()),
     )
 
 
@@ -152,16 +146,25 @@ def _publish_sandbox_document(document: _SandboxDocument) -> None:
     object_storage.write(f"canvas_sandbox/{document.content_hash}/index.html", document.content)
 
 
-def _canvas_sandbox_document_csp(document: _SandboxDocument) -> str:
+def _canvas_sandbox_document_csp() -> str:
     site = urlsplit(settings.SITE_URL)
     ancestors = dict.fromkeys([f"{site.scheme}://{site.netloc}", *app_frame_ancestor_sources()])
     return "; ".join(
         [
-            *document.declared_csp,
+            # A stored document's meta policy must not widen the web preview's network access.
+            "default-src 'none'",
+            "script-src 'unsafe-inline' 'unsafe-eval' blob: https://cdn.jsdelivr.net/npm/@tailwindcss/ https://esm.sh",
+            "style-src 'unsafe-inline' https://esm.sh",
+            "font-src data: https://esm.sh",
+            "img-src data: blob:",
+            "worker-src blob:",
+            "connect-src https://esm.sh https://cdn.jsdelivr.net/npm/@tailwindcss/",
+            "form-action 'none'",
+            "base-uri 'none'",
+            "object-src 'none'",
             # The document runs in an opaque origin even when it opens top-level or in a frame
             # without the sandbox attribute.
             "sandbox allow-scripts",
-            # A meta tag cannot carry frame-ancestors or sandbox, so only the header applies them.
             f"frame-ancestors {' '.join(ancestors)}",
         ]
     )
@@ -205,7 +208,7 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
     response["Cache-Control"] = "public, max-age=31536000, immutable"
     response["Referrer-Policy"] = "no-referrer"
     response["X-Content-Type-Options"] = "nosniff"
-    response["Content-Security-Policy"] = _canvas_sandbox_document_csp(document)
+    response["Content-Security-Policy"] = _canvas_sandbox_document_csp()
     response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response
 

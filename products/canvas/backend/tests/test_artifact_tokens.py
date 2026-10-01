@@ -274,11 +274,22 @@ class TestCanvasSandboxDocument(SimpleTestCase):
 
         self.assertEqual(response.status_code, expected_status)
 
-    def test_serves_the_document_under_its_own_sandboxing_policy(self) -> None:
-        response = self.client.get(self._path(), HTTP_HOST="usercontent.example")
+    @parameterized.expand([("generated", False), ("widened_meta_policy", True)])
+    def test_serves_the_document_under_its_own_sandboxing_policy(self, _name: str, widen_meta: bool) -> None:
+        content = SANDBOX_DOCUMENT_PATH.read_bytes()
+        if widen_meta:
+            content = content.replace(
+                b"default-src 'none';",
+                b"sandbox allow-scripts allow-same-origin allow-popups; frame-ancestors *; "
+                b"img-src https:; form-action *; base-uri *; default-src 'none';",
+            )
+        with patch(
+            "products.canvas.backend.artifacts._sandbox_document", return_value=_parse_sandbox_document(content)
+        ):
+            response = self.client.get(self._path(), HTTP_HOST="usercontent.example")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, SANDBOX_DOCUMENT_PATH.read_bytes())
+        self.assertEqual(response.content, content)
         self.assertEqual(response["Content-Type"], "text/html; charset=utf-8")
         self.assertEqual(response["Cache-Control"], "public, max-age=31536000, immutable")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
@@ -290,6 +301,15 @@ class TestCanvasSandboxDocument(SimpleTestCase):
         self.assertIn("frame-ancestors https://app.example https://posthog.com https://preview.posthog.com", csp)
         self.assertIn("default-src 'none'", csp)
         self.assertTrue(any(part.startswith("script-src ") and "https://esm.sh" in part for part in csp))
+        for name, directive in {
+            "sandbox": "sandbox allow-scripts",
+            "frame-ancestors": "frame-ancestors https://app.example https://posthog.com https://preview.posthog.com",
+            "img-src": "img-src data: blob:",
+            "form-action": "form-action 'none'",
+            "base-uri": "base-uri 'none'",
+            "object-src": "object-src 'none'",
+        }.items():
+            self.assertEqual([part for part in csp if part.split()[0] == name], [directive])
 
     def test_unknown_content_hash_404s(self) -> None:
         response = self.client.get(f"/canvas-artifacts/sandbox/{'0' * 64}/index.html", HTTP_HOST="usercontent.example")

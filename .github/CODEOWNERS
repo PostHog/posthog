@@ -66,6 +66,8 @@ ee/api/scim/auth.py @PostHog/team-security
 posthog/csp_middleware.py @PostHog/team-security
 posthog/test/test_csp_middleware.py @PostHog/team-security
 .semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
+products/canvas/backend/artifacts.py @PostHog/team-security
+products/canvas/backend/tests/test_artifact_tokens.py @PostHog/team-security
 
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security

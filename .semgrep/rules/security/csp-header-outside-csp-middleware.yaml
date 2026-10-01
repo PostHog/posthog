@@ -28,7 +28,7 @@ rules:
           # directive these four documents rely on has no effect when a browser gets the policy as
           # `Content-Security-Policy-Report-Only`. Adding an exception needs a team-security review.
           - pattern-not: $RESPONSE["Content-Security-Policy"] = artifact_csp(...)
-          # The draft canvas sandbox document: its own meta policy plus sandbox and frame-ancestors.
+          # The draft canvas policy is server-defined and requires team-security review.
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _canvas_sandbox_document_csp(...)
           - pattern-not: $RESPONSE["Content-Security-Policy"] = _public_survey_csp(...)
           - pattern-not: >-
