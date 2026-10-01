@@ -462,6 +462,7 @@ describe('featureFlagTestingLogic', () => {
                 expectedError: 'groups must be a JSON object',
             },
             { description: 'json number fails', groups: '42', expectedError: 'groups must be a JSON object' },
+            { description: 'json null fails', groups: 'null', expectedError: 'groups must be a JSON object' },
             {
                 description: 'malformed timestamp fails',
                 groups: '',
@@ -485,6 +486,28 @@ describe('featureFlagTestingLogic', () => {
             }
 
             expect(logic.values.testError).toBe(expectedError)
+        })
+
+        it('runs the batch evaluation for a person with merged distinct IDs', async () => {
+            logic.actions.setSelectedPerson({
+                name: 'Jane Doe',
+                uuid: 'uuid-abc',
+                distinct_ids: ['user-123', 'user-456'],
+            })
+            logic.actions.setTestFormData({ distinct_id: 'user-123', timestamp: '', groups: '' })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitTestEvaluation()
+            })
+                .toDispatchActions([
+                    logic.actionCreators.testAllDistinctIds({
+                        flagId: 1,
+                        distinctIds: ['user-123', 'user-456'],
+                        formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                    }),
+                    'testAllDistinctIdsSuccess',
+                ])
+                .toNotHaveDispatchedActions(['testFlagEvaluation'])
         })
     })
 

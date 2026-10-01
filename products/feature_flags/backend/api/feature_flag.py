@@ -3264,6 +3264,11 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
         help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
     )
 
+    def validate_groups(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("groups must be a JSON object")
+        return value
+
     def validate(self, attrs):
         distinct_id = attrs.get("distinct_id")
         person_id = attrs.get("person_id")
@@ -5845,6 +5850,7 @@ class FeatureFlagViewSet(
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
                 # A pooled connection that the service closed fails once with a reset, so retry it.
+                # The retry also covers a timeout, which doubles the worst-case wait to about 2x the proxy timeout.
                 max_retries=1,
             )
 
@@ -5943,7 +5949,7 @@ class FeatureFlagViewSet(
             if not response_serializer.is_valid():
                 logger.error(
                     "Flag evaluation service response failed validation in test_evaluation",
-                    extra={"flag_key": feature_flag.key, "errors": response_serializer.errors},
+                    extra={**log_context, "flag_key": feature_flag.key, "errors": response_serializer.errors},
                 )
                 capture_exception(serializers.ValidationError(response_serializer.errors))
                 return Response(
@@ -5952,7 +5958,7 @@ class FeatureFlagViewSet(
                 )
             return Response(response_serializer.data)
 
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
             logger.warning(
                 "Flag evaluation service unreachable for flag %s: %s", feature_flag.key, e, extra=log_context
             )
@@ -5961,21 +5967,26 @@ class FeatureFlagViewSet(
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except requests.exceptions.HTTPError as e:
-            service_response = e.response
-            service_status = service_response.status_code if service_response is not None else None
-            if service_response is not None and service_status == status.HTTP_400_BAD_REQUEST:
-                # The service writes its 400 bodies as client-facing messages about the request input.
-                service_message = service_response.text.strip()[:500]
+            service_status = e.response.status_code if e.response is not None else None
+            if service_status in (
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ):
+                # The service sends these statuses when it is overloaded or a dependency is down.
+                # They clear on retry like a connection error, so they are not captured as exceptions.
                 logger.warning(
-                    "Flag evaluation service rejected test evaluation for flag %s: %s",
+                    "Flag evaluation service busy for flag %s: HTTP %s",
                     feature_flag.key,
-                    service_message,
+                    service_status,
                     extra=log_context,
                 )
                 return Response(
-                    {"error": f"Flag evaluation service rejected the request: {service_message or 'bad request'}"},
-                    status=status.HTTP_400_BAD_REQUEST,
+                    {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
                 )
+            # Django builds the request body and the request serializer validates the user input,
+            # so any other error status, a 400 included, is a fault on our side or in the service.
             logger.exception(
                 "Flag evaluation service returned an error for flag %s", feature_flag.key, extra=log_context
             )
@@ -5983,6 +5994,26 @@ class FeatureFlagViewSet(
             return Response(
                 {"error": f"Flag evaluation service returned HTTP {service_status}. Please retry."},
                 status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.JSONDecodeError as e:
+            logger.exception(
+                "Flag evaluation service returned a body that is not JSON for flag %s",
+                feature_flag.key,
+                extra=log_context,
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Unexpected response format from flag evaluation service"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "Flag evaluation service call failed for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         except Exception as e:
             logger.exception(

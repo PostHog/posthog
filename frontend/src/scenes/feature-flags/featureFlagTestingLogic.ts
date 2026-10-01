@@ -85,8 +85,8 @@ function testFormValidationError(formData: TestFormData): string | null {
 // and batch failure handlers so both surface the same friendly rewrites.
 function evaluationErrorMessage(error: string, errorObject?: unknown): string {
     const apiError = errorObject as ApiError | undefined
-    // test_evaluation sends its own failures as `error`. DRF validation failures use `detail`.
-    const message: string = apiError?.detail || apiError?.data?.error || apiError?.message || error || ''
+    // ApiError.message already holds the body's `error` field, which test_evaluation uses for its own failures.
+    const message = apiError?.detail || apiError?.message || error || ''
     const lowerMessage = message.toLowerCase()
 
     if (lowerMessage.includes('failed to build person properties at specified timestamp')) {
@@ -112,7 +112,7 @@ function validateAndParseGroups(groups: string): Record<string, any> {
 
     try {
         const parsed = JSON.parse(trimmed)
-        if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
             throw new Error('groups must be a JSON object')
         }
         return parsed
