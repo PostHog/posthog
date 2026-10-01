@@ -90,6 +90,7 @@ from products.signals.dags.inbox_ranking.common import (
     snapshot_bounds,
     write_parquet,
 )
+from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -405,18 +406,24 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     # it, so raw `potential` noise and reports that appeared after the cutoff stay out. Labeled ids
     # missing from Postgres (EU reports, hard-deleted rows) still get a model_data row downstream
     # via the labels asset.
-    spine_ids: set[str] = {
-        str(report_id)
-        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+    spine_teams: dict[str, int] = {
+        str(report_id): team_id
+        for report_id, team_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list(
+            "id", "team_id"
+        )
     }
     for chunk in _chunked(sorted(labeled_ids)):
-        spine_ids |= {
-            str(report_id)
-            for report_id in SignalReport.objects.filter(id__in=chunk, created_at__lt=snapshot_end).values_list(
-                "id", flat=True
-            )
+        spine_teams |= {
+            str(report_id): team_id
+            for report_id, team_id in SignalReport.objects.filter(
+                id__in=chunk, created_at__lt=snapshot_end
+            ).values_list("id", "team_id")
         }
-    ordered_spine_ids = sorted(spine_ids)
+    # A report whose organization has not opted in to AI training never reaches the snapshot. Its
+    # label row still lands in model_data, with no state, and training skips such rows.
+    consent_team_ids = training_consent_team_ids()
+    excluded_teams = {team_id for team_id in spine_teams.values() if team_id not in consent_team_ids}
+    ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
     rows: list[dict[str, Any]] = []
@@ -478,6 +485,10 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
         {
             "rows": dagster.MetadataValue.int(len(rows)),
             "labeled_report_ids": dagster.MetadataValue.int(len(labeled_ids)),
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(
+                len(spine_teams) - len(ordered_spine_ids)
+            ),
+            "excluded_no_training_consent_teams": dagster.MetadataValue.int(len(excluded_teams)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -493,21 +504,28 @@ def _snapshot_report_embeddings(
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
+    consent_team_ids = training_consent_team_ids()
 
-    results = cast(
-        list[tuple[Any, ...]],
-        sync_execute(
-            REPORT_EMBEDDINGS_SQL,
-            {
-                "product": EMBEDDING_PRODUCT,
-                "document_type": EMBEDDING_DOCUMENT_TYPE,
-                "rendering": rendering,
-                "snapshot_end": snapshot_end.replace(tzinfo=None),
-            },
-            settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
-            workload=etl_workload(),
+    # With no consenting team there is no row to read, so the query is not sent.
+    results = (
+        cast(
+            list[tuple[Any, ...]],
+            sync_execute(
+                REPORT_EMBEDDINGS_SQL,
+                {
+                    "product": EMBEDDING_PRODUCT,
+                    "document_type": EMBEDDING_DOCUMENT_TYPE,
+                    "rendering": rendering,
+                    "snapshot_end": snapshot_end.replace(tzinfo=None),
+                    "team_ids": sorted(consent_team_ids),
+                },
+                settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
+                workload=etl_workload(),
+            )
+            or [],
         )
-        or [],
+        if consent_team_ids
+        else []
     )
 
     # Consumed column-wise straight into Arrow, and each source row is released as it is converted.
@@ -556,6 +574,7 @@ def _snapshot_report_embeddings(
         {
             "rows": dagster.MetadataValue.int(row_count),
             "tombstones": dagster.MetadataValue.int(tombstones),
+            "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -628,22 +647,28 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     partition_key = context.partition_key
     window_start, window_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
+    consent_team_ids = training_consent_team_ids()
 
-    results = cast(
-        list[tuple[Any, ...]],
-        sync_execute(
-            SIGNAL_EMBEDDINGS_SQL,
-            {
-                "product": SIGNAL_DOCUMENT_PRODUCT,
-                "document_type": SIGNAL_DOCUMENT_TYPE,
-                "rendering": SIGNAL_DOCUMENT_RENDERING,
-                "window_start": window_start.replace(tzinfo=None),
-                "window_end": window_end.replace(tzinfo=None),
-            },
-            settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
-            workload=etl_workload(),
+    results = (
+        cast(
+            list[tuple[Any, ...]],
+            sync_execute(
+                SIGNAL_EMBEDDINGS_SQL,
+                {
+                    "product": SIGNAL_DOCUMENT_PRODUCT,
+                    "document_type": SIGNAL_DOCUMENT_TYPE,
+                    "rendering": SIGNAL_DOCUMENT_RENDERING,
+                    "window_start": window_start.replace(tzinfo=None),
+                    "window_end": window_end.replace(tzinfo=None),
+                    "team_ids": sorted(consent_team_ids),
+                },
+                settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
+                workload=etl_workload(),
+            )
+            or [],
         )
-        or [],
+        if consent_team_ids
+        else []
     )
 
     # Column-wise into Arrow, releasing each source row as it is converted, for the same reason the
@@ -719,6 +744,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
             "scanned": dagster.MetadataValue.int(row_count),
             "carried_over": dagster.MetadataValue.int(table.num_rows - row_count),
             "retracted": dagster.MetadataValue.int(deleted_count),
+            "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "reports": dagster.MetadataValue.int(len({report_id for report_id in columns["report_id"] if report_id})),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }

@@ -7,9 +7,12 @@ import {
     MOCK_TEAM_ID,
 } from 'lib/api.mock'
 
+import { render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
+import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -23,6 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -102,6 +106,12 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
         warning: jest.fn(),
         info: jest.fn(),
     },
+}))
+
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+    refreshTreeItem: jest.fn(),
 }))
 
 const MOCK_FEATURE_FLAG = {
@@ -2878,6 +2888,75 @@ describe('featureFlagLogic', () => {
             } finally {
                 updateSpy.mockRestore()
             }
+        })
+    })
+
+    describe('deleting and restoring', () => {
+        let updateSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            updateSpy = jest.spyOn(api, 'update')
+        })
+
+        afterEach(() => {
+            updateSpy.mockRestore()
+        })
+
+        it('deletes the flag without overwriting its description, and Undo keeps it in the list', async () => {
+            updateSpy.mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: true })
+            // deleteWithUndo imports its toast from @posthog/lemon-ui, which the LemonToast mock above does not reach.
+            const toastSpy = jest.spyOn(sharedLemonToast, 'info').mockReturnValue('toast-id')
+            const successToastSpy = jest.spyOn(sharedLemonToast, 'success').mockReturnValue('toast-id')
+            try {
+                await expectLogic(logic, () => logic.actions.deleteFeatureFlag(MOCK_FEATURE_FLAG))
+                    .toDispatchActions(['deleteFlag'])
+                    .toFinishAllListeners()
+
+                // A `name` in the body overwrites the flag's description.
+                expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
+                const [message, options] = toastSpy.mock.calls[0]
+                expect(render(message as JSX.Element).container.textContent).toBe(
+                    `${MOCK_FEATURE_FLAG.key} has been deleted`
+                )
+
+                await expectLogic(logic, async () => {
+                    await options?.button?.action()
+                }).toNotHaveDispatchedActions(['deleteFlag'])
+            } finally {
+                toastSpy.mockRestore()
+                successToastSpy.mockRestore()
+            }
+        })
+
+        it('puts the restored flag back in the files tree', async () => {
+            updateSpy.mockResolvedValue({ ...MOCK_FEATURE_FLAG, deleted: false })
+
+            await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                .toDispatchActions(['restoreFeatureFlag'])
+                .toMatchValues({ featureFlagRestoreLoading: true })
+                .toDispatchActions(['restoreFeatureFlagSuccess'])
+                .toMatchValues({ featureFlagRestoreLoading: false })
+                .toFinishAllListeners()
+
+            // Refreshing alone keeps a stale entry beside the new one, and deleting alone drops the flag.
+            expect(deleteFromTree).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
+            expect(refreshTreeItem).toHaveBeenCalledWith('feature_flag', String(MOCK_FEATURE_FLAG.id))
+            expect(jest.mocked(deleteFromTree).mock.invocationCallOrder[0]).toBeLessThan(
+                jest.mocked(refreshTreeItem).mock.invocationCallOrder[0]
+            )
+            expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: false })
+            expect(lemonToast.success).toHaveBeenCalledWith(`${MOCK_FEATURE_FLAG.key} has been restored`)
+        })
+
+        it('stops loading and leaves the tree alone when the restore fails', async () => {
+            updateSpy.mockRejectedValue(new Error('nope'))
+
+            await expectLogic(logic, () => logic.actions.restoreFeatureFlag(MOCK_FEATURE_FLAG))
+                .toFinishAllListeners()
+                .toMatchValues({ featureFlagRestoreLoading: false })
+
+            expect(refreshTreeItem).not.toHaveBeenCalled()
+            expect(lemonToast.error).toHaveBeenCalled()
         })
     })
 

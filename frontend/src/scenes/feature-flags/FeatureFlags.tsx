@@ -64,6 +64,8 @@ import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsMod
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import {
+    ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    UNSUPPORTED_CONFIG_DISABLED_REASON,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
     isRulesV2FeatureFlagConfig,
@@ -276,7 +278,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         : featureFlag.archived
                                           ? 'Unarchive this flag before enabling it.'
                                           : configFormat === 'unsupported'
-                                            ? 'This flag is stored in a configuration version this page cannot change.'
+                                            ? UNSUPPORTED_CONFIG_DISABLED_REASON
                                             : undefined
                                 }
                             >
@@ -313,7 +315,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         isUpdating
                                             ? 'Updating…'
                                             : !isV1Config
-                                              ? 'Archiving is not available for this flag yet.'
+                                              ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
                                               : undefined
                                     }
                                 >
@@ -334,7 +336,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         openFeatureFlagDeleteDialog(featureFlag, () => {
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
-                                                object: { name: featureFlag.key, id: featureFlag.id },
+                                                object: { id: featureFlag.id },
+                                                label: featureFlag.key,
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)

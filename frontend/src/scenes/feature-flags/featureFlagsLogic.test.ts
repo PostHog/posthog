@@ -679,7 +679,7 @@ describe('rows in config version 2', () => {
     beforeEach(silenceKeaLoadersErrors)
     afterEach(resumeKeaLoadersErrors)
 
-    beforeEach(() => {
+    beforeEach(async () => {
         useMocks({
             get: {
                 '/api/projects/:projectId/feature_flags/': () => [200, { results: [V1_ROW, V2_ROW], count: 2 }],
@@ -689,6 +689,8 @@ describe('rows in config version 2', () => {
         initKeaTests()
         logic = featureFlagsLogic()
         logic.mount()
+        logic.actions.loadFeatureFlags()
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
     })
 
     afterEach(() => {
@@ -696,16 +698,11 @@ describe('rows in config version 2', () => {
         jest.restoreAllMocks()
     })
 
-    it('loads a list mixing v1 and v2 rows', async () => {
-        logic.actions.loadFeatureFlags()
-        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
-
+    it('loads a list mixing v1 and v2 rows', () => {
         expect(logic.values.displayedFlags.map((flag) => flag.key)).toEqual(['release-v1', 'checkout-rules-v2'])
     })
 
     it('sends the row version only when toggling a v2 row', async () => {
-        logic.actions.loadFeatureFlags()
-        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         const update = jest
             .spyOn(api, 'update')
             .mockImplementation(async (_url, payload) => ({ ...V2_ROW, ...(payload as object) }))
@@ -719,8 +716,6 @@ describe('rows in config version 2', () => {
     })
 
     it('offers archive only for a v1 row when disabling, and disables a v2 row with its version', async () => {
-        logic.actions.loadFeatureFlags()
-        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         const openDialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
         const update = jest
             .spyOn(api, 'update')
@@ -745,8 +740,6 @@ describe('rows in config version 2', () => {
             filters: { ...V2_ROW.filters, default_value: true },
         }
         useMocks({ get: { '/api/projects/:projectId/feature_flags/2/': () => [200, changedElsewhere] } })
-        logic.actions.loadFeatureFlags()
-        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         const update = jest
             .spyOn(api, 'update')
             .mockRejectedValueOnce({ status: 409, data: { detail: 'This feature flag has changed since version 7' } })

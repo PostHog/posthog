@@ -25,7 +25,7 @@ import { createElement } from 'react'
 import { toast } from 'react-toastify'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
+import { isAccessDeniedError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
@@ -132,7 +132,9 @@ import {
     FeatureFlagConfigFormat,
     featureFlagConfigFormat,
     isRulesV2EditableConfig,
+    isStaleRowVersionError,
     isV1FeatureFlagConfig,
+    rowVersionToken,
 } from './featureFlagConfigFormat'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
@@ -866,9 +868,14 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
-// Rows in another config version are written with their row version; a 409 without a change request is a stale one.
-function isStaleRowVersionRejection(configFormat: FeatureFlagConfigFormat, error: any): boolean {
-    return configFormat !== 'v1' && error?.status === 409 && !isApprovalRequiredError(error)
+// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
+function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
+    if (!isStaleRowVersionError(token, error)) {
+        return false
+    }
+    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
+    reload()
+    return true
 }
 
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
@@ -1013,6 +1020,8 @@ export interface featureFlagLogicValues {
     featureFlagMissing: boolean
     featureFlagRefresh: FeatureFlagType | null
     featureFlagRefreshLoading: boolean
+    featureFlagRestore: FeatureFlagType | null
+    featureFlagRestoreLoading: boolean
     featureFlagTouched: boolean
     featureFlagTouches: Record<string, boolean>
     featureFlagValidationErrors: DeepPartialMap<
@@ -1553,8 +1562,20 @@ export interface featureFlagLogicActions {
     resetScheduleFormExpanded: () => {
         value: true
     }
-    restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => {
-        featureFlag: Partial<FeatureFlagType>
+    restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => Partial<FeatureFlagType>
+    restoreFeatureFlagFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    restoreFeatureFlagSuccess: (
+        featureFlagRestore: FeatureFlagType | null,
+        payload?: Partial<FeatureFlagType>
+    ) => {
+        featureFlagRestore: FeatureFlagType | null
+        payload?: Partial<FeatureFlagType>
     }
     resumeRecurringScheduledChange: (scheduledChangeId: number) => {
         scheduledChangeId: number
@@ -2277,7 +2298,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setSelectedTab: (tab: FeatureFlagsTab) => ({ tab }),
         setFeatureFlagMissing: true,
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
-        restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
         // The rules v2 editor keeps its draft in its own logic; this mirrors whether it has unsaved edits.
         setRulesV2DraftDirty: (dirty: boolean) => ({ dirty }),
@@ -3118,12 +3138,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 if (props.id === 'new') {
                     const flagType = router.values.searchParams.type as FlagType | undefined
 
-                    // Only load and apply default evaluation contexts if BOTH conditions are met:
-                    // 1. The feature flag is enabled globally
-                    // 2. The team has enabled default evaluation contexts
-                    const isFeatureEnabled = values.enabledFeatures[FEATURE_FLAGS.DEFAULT_EVALUATION_ENVIRONMENTS]
-                    const isTeamEnabled = values.currentTeam?.default_evaluation_contexts_enabled
-
                     let baseFlagConfig: typeof NEW_FLAG = {
                         ...NEW_FLAG,
                         ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
@@ -3176,7 +3190,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    if (isFeatureEnabled && isTeamEnabled) {
+                    if (values.currentTeam?.default_evaluation_contexts_enabled) {
                         try {
                             actions.loadDefaultEvaluationContexts()
                         } catch (error) {
@@ -3192,7 +3206,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
-                    // If either condition is false, return flag without default tags
                     return baseFlagConfig
                 }
 
@@ -3352,6 +3365,33 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         reportFeatureFlagArchived(via)
                     }
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+            },
+        ],
+        featureFlagRestore: [
+            null as FeatureFlagType | null,
+            {
+                restoreFeatureFlag: async (featureFlag: Partial<FeatureFlagType>) => {
+                    try {
+                        // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
+                        const restoredFlag = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
+                            { deleted: false }
+                        )
+                        // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                        actions.loadFeatureFlag()
+                        // The flag is no longer deleted, so its real verdict may differ from the retained
+                        // DELETED one. Refetch it so the banner reflects the restored flag.
+                        actions.loadFeatureFlagStatus()
+                        // A deleted flag that an experiment uses has a tombstoned key. The response carries the restored key.
+                        lemonToast.success(`${restoredFlag.key} has been restored`)
+                        return restoredFlag
+                    } catch (error: any) {
+                        lemonToast.error(error?.detail || "Couldn't restore this feature flag. Try again.")
+                        return null
+                    }
                 },
             },
         ],
@@ -3907,9 +3947,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             })
         },
         updateFeatureFlagActiveFailure: ({ errorObject }) => {
-            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
-                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
-                actions.refreshFeatureFlag()
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
@@ -4023,7 +4061,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 flagId,
                 active,
                 filters: row?.filters,
-                ...(flagId === values.featureFlag.id ? values.rowVersionToken : {}),
             })
             if (!updatedFlag) {
                 actions.projectFlagActiveUpdateFailed(teamId, flagId)
@@ -4136,9 +4173,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         updateFeatureFlagArchivedFailure: ({ errorObject }) => {
-            if (isStaleRowVersionRejection(values.configFormat, errorObject)) {
-                lemonToast.error(errorObject?.detail || 'This flag changed elsewhere and has been reloaded.')
-                actions.refreshFeatureFlag()
+            if (reloadIfStaleRowVersion(values.rowVersionToken, errorObject, actions.refreshFeatureFlag)) {
                 return
             }
             // Archiving an enabled flag also disables it, which can trip the approval gate (409).
@@ -4167,35 +4202,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { name: featureFlag.key, id: featureFlag.id },
+                object: { id: featureFlag.id },
+                label: featureFlag.key,
                 callback: (undo) => {
-                    featureFlag.id && actions.deleteFlag(featureFlag.id)
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))
                     } else {
+                        featureFlag.id && actions.deleteFlag(featureFlag.id)
                         deleteFromTree('feature_flag', String(featureFlag.id))
                     }
                     // Load latest change so a backwards navigation shows the flag as deleted
                     actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
-                },
-            })
-        },
-        restoreFeatureFlag: async ({ featureFlag }) => {
-            await deleteWithUndo({
-                endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { name: featureFlag.key, id: featureFlag.id },
-                undo: true,
-                callback: (undo) => {
-                    if (undo) {
-                        deleteFromTree('feature_flag', String(featureFlag.id))
-                    } else {
-                        refreshTreeItem('feature_flag', String(featureFlag.id))
-                    }
-                    actions.loadFeatureFlag()
-                    // The flag is no longer deleted, so its real verdict may differ from the retained
-                    // DELETED one. Refetch it so the banner reflects the restored flag.
-                    actions.loadFeatureFlagStatus()
                 },
             })
         },
@@ -4510,12 +4528,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...flag, ...persisted })
                 lemonToast.success('Description saved')
             } catch (error: any) {
-                if (isStaleRowVersionRejection(values.configFormat, error)) {
-                    lemonToast.error(error?.detail || 'This flag changed elsewhere and has been reloaded.')
-                    actions.refreshFeatureFlag()
-                    return
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error('Failed to save description')
                 }
-                lemonToast.error('Failed to save description')
             }
         },
         saveTagsInline: async ({ tags }, breakpoint) => {
@@ -4577,9 +4592,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.updateFlag({ ...flag, tags: previousTags })
                 // The server explains rule failures such as a project that requires tags, so show
                 // its message rather than a generic one the user cannot act on.
-                lemonToast.error(error?.detail || 'Failed to save tags')
-                if (isStaleRowVersionRejection(values.configFormat, error)) {
-                    actions.refreshFeatureFlag()
+                if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
+                    lemonToast.error(error?.detail || 'Failed to save tags')
                 }
             }
         },
@@ -4705,13 +4719,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return rulesV2 && isRulesV2EditableConfig(featureFlag.filters) ? 'rules_v2' : null
             },
         ],
-        // Every write to a row in another config version must carry the row version; v1 keeps its merge semantics.
         rowVersionToken: [
             (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): { version?: number } =>
-                isV1FeatureFlagConfig(featureFlag.filters) || featureFlag.version === null
-                    ? {}
-                    : { version: featureFlag.version },
+            (featureFlag: FeatureFlagType): { version?: number } => rowVersionToken(featureFlag),
         ],
         // Clamped in a selector rather than in urlToAction so it re-derives when the flag
         // loads (a deep-linked tab can arrive before `can_edit` is known)

@@ -12,9 +12,10 @@ import {
     IconTarget,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 
 import { DataModelingNode } from '~/types'
 
@@ -49,6 +50,8 @@ export interface LineageNodeState {
     isRunning?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
+    isSelected?: boolean
+    loading?: 'placeholder' | 'focus'
 }
 
 export interface LineageNodeCallbacks {
@@ -192,6 +195,7 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
 export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
+    const loadingRef = useCancelAnimationsOnUnmount<HTMLDivElement>()
 
     const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
@@ -205,6 +209,58 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         setIsHovered(false)
         callbacks.onMouseLeave?.()
     }, [callbacks])
+
+    if (state.loading) {
+        return (
+            <div
+                ref={loadingRef}
+                className={clsx(
+                    'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
+                    state.loading === 'focus' ? 'border-border' : 'border-border/50'
+                )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    borderColor:
+                        state.loading === 'focus' ? `color-mix(in srgb, ${color} 60%, transparent)` : undefined,
+                }}
+            >
+                {data.handles.map((handle) => (
+                    <Handle
+                        key={handle.id}
+                        id={handle.id}
+                        type={handle.type}
+                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                        className="opacity-0"
+                        isConnectable={false}
+                    />
+                ))}
+                <div className="flex flex-1 flex-col justify-center gap-2 px-3">
+                    {state.loading === 'focus' ? (
+                        <div className="opacity-70">
+                            <NodeTypeTag type={node.type} />
+                        </div>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-16" active={false} />
+                    )}
+                    {node.name ? (
+                        <span
+                            className={clsx(
+                                'truncate text-sm font-medium',
+                                state.loading === 'focus' ? 'text-primary' : 'text-secondary'
+                            )}
+                        >
+                            {node.name}
+                        </span>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-4/5" active={false} />
+                    )}
+                </div>
+                <div className="flex h-6 items-center rounded-b-lg bg-primary/50 px-3">
+                    <LemonSkeleton className="h-2 w-2/3" />
+                </div>
+            </div>
+        )
+    }
 
     const stop = (fn?: () => void) => (e: React.MouseEvent) => {
         e.stopPropagation()
@@ -231,10 +287,20 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
             <div
                 className={clsx(
                     'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                    node.lineage_issue && !state.isRunning && !state.isHighlighted && 'border-warning',
+                    state.isRunning && 'animate-pulse',
+                    state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
+                    state.isSelected && 'border-link ring-4 ring-link/40',
+                    !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                    !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        !state.isCurrent &&
+                        'border-border',
+                    node.lineage_issue &&
+                        !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        'border-warning',
                     state.isCurrent && 'border-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props

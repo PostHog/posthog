@@ -3,6 +3,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { MlImageFetchOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
@@ -12,7 +13,7 @@ import { CollectedUrlsMessage, createProduceCollectedUrlsStep } from './produce-
 describe('produceCollectedUrlsStep', () => {
     const TEAM_ID = '42'
     const CAPTURED_AT = 1_700_000_000_000
-    let queued: { key: string; value: Buffer }[][]
+    let queued: { key: string; value: Buffer; headers?: Record<string, string> }[][]
     let outputs: IngestionOutputs<MlImageFetchOutput>
     let queueMessages: jest.Mock
     let topHog: TopHogRegistry
@@ -126,6 +127,10 @@ describe('produceCollectedUrlsStep', () => {
                         jobs: [expectedJob(`imageurl:h2xxxxxxxxxxxxxxxxxxxx`, 'https://img.other.com/b.png')],
                     },
                 },
+            ])
+            expect(queued[0].map((message) => message.headers?.[CAPTURE_TIMESTAMP_HEADER])).toEqual([
+                String(CAPTURED_AT),
+                String(CAPTURED_AT),
             ])
             expect(topHogRecords.get('ml_image_fetch_produced_urls_by_registrable_domain')).toEqual([
                 { key: { registrable_domain: 'cdn.example.com' }, value: 2 },

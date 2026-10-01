@@ -14,7 +14,7 @@ single-table runs the loader already knows how to finish.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BatchWriteResult,
     S3BatchWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
@@ -88,13 +89,21 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
+        source_cursor_manager: SourceCursorManager[Any] | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
         self._output_lanes = list(source_response.lanes)
 
         super().__init__(
-            source_response, logger, job_id, reset_pipeline, shutdown_monitor, resumable_source_manager, models=models
+            source_response,
+            logger,
+            job_id,
+            reset_pipeline,
+            shutdown_monitor,
+            resumable_source_manager,
+            models=models,
+            source_cursor_manager=source_cursor_manager,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
@@ -127,9 +136,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         Opened lazily on purpose. A job created before there is anything to write is a row nothing
         owns: the loader finishes a job when its final batch lands, this activity's own workflow
         only knows the schema's job, and the stranded sweep finds runs by their queued batches. A
-        crash between creating it and staging into it would leave it Running for good, and one such
-        row blocks the flip and the rollback for the whole source. Opening it here means every
-        companion job has at least one batch, so the sweep is its owner like any other run.
+        crash between creating it and staging into it would leave it Running for good. Opening it
+        here means every companion job has at least one batch, so the sweep is its owner like any
+        other run.
         """
         existing = self._writers_by_lane.get(index)
         if existing is not None:

@@ -24,9 +24,11 @@ from posthog.temporal.data_modeling.activities.enrich_view_semantics import Enri
 from posthog.temporal.data_modeling.workflows.materialize_view import (
     ACCOUNT_PROPERTY_S3_SYNC_PATCH,
     ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
+    QUALITY_BLOCK_SUITE_RUN_ID_PATCH,
     TRINO_SHADOW_EXECUTION_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
+    _StagedAuditVerdict,
 )
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
@@ -176,7 +178,9 @@ class TestQualityGateBranching:
             None,  # quality_block_materialization
         ]
 
-        result, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 2})
+        result, execute_activity = await self._run(
+            activity_results, {"suite_run_id": "suite-1", "checks_failed_blocking": 2}
+        )
 
         assert result.quality_blocking_failures == 2
         assert result.quality_audited is True
@@ -184,6 +188,8 @@ class TestQualityGateBranching:
         assert started[-2:] == ["stage_queryable_files_activity", "quality_block_materialization_activity"]
         assert "publish_queryable_table_activity" not in started
         assert "succeed_materialization_activity" not in started
+        block_inputs = execute_activity.await_args_list[-1].args[1]
+        assert block_inputs.suite_run_id == "suite-1"
         assert execute_activity.await_args_list[0].args[1] == ManagedWarehouseShadowEligibilityInputs(
             team_id=7,
             dag_id="dag-1",
@@ -193,6 +199,24 @@ class TestQualityGateBranching:
             execute_activity.await_args_list[0].args[0].__name__
             == "check_managed_warehouse_shadow_eligibility_activity"
         )
+
+    async def test_legacy_history_passes_no_suite_run_id_to_the_quality_block_activity(self):
+        activity_results = [
+            False,
+            "job-1",
+            _materialize_result("gate"),
+            StageQueryableFilesResult(staged_folder_path="staged_1"),
+            None,
+        ]
+
+        _, execute_activity = await self._run(
+            activity_results,
+            {"suite_run_id": "suite-1", "checks_failed_blocking": 2},
+            patched=lambda change_id: change_id != QUALITY_BLOCK_SUITE_RUN_ID_PATCH,
+        )
+
+        block_inputs = execute_activity.await_args_list[-1].args[1]
+        assert block_inputs.suite_run_id is None
 
     async def test_account_staging_starts_an_isolated_child_workflow(self):
         materialize_result = dataclasses.replace(
@@ -416,7 +440,7 @@ def _cancelled_child_error() -> ChildWorkflowError:
 
 
 class TestStagedAudit:
-    async def _staged_verdict(self, workflow: MaterializeViewWorkflow) -> int | None:
+    async def _staged_verdict(self, workflow: MaterializeViewWorkflow) -> _StagedAuditVerdict | None:
         return await workflow._staged_audit_verdict(_inputs(), "job-1", _materialize_result("gate"), "staged_1")
 
     async def test_reads_the_blocking_count_from_the_suite_result(self):
@@ -424,11 +448,21 @@ class TestStagedAudit:
         with patch.object(temporalio.workflow, "execute_child_workflow", new=child):
             verdict = await self._staged_verdict(MaterializeViewWorkflow())
 
-        assert verdict == 3
+        assert verdict is not None
+        assert verdict.suite_run_id == "s-1"
+        assert verdict.blocking_failures == 3
         assert child.await_args is not None
         payload = child.await_args.args[1]
         assert payload["saved_query_ids"] == ["sq-1"]
         assert payload["staged_queryable_folder"] == "staged_1"
+
+    async def test_a_zero_failure_audit_has_a_verdict(self):
+        child = AsyncMock(return_value={"suite_run_id": "s-1", "checks_failed_blocking": 0})
+        with patch.object(temporalio.workflow, "execute_child_workflow", new=child):
+            verdict = await self._staged_verdict(MaterializeViewWorkflow())
+
+        assert verdict is not None
+        assert verdict.blocking_failures == 0
 
     async def test_a_suite_that_errors_reaches_no_verdict(self):
         with (

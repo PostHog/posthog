@@ -1,9 +1,14 @@
+import { isApprovalRequiredError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { FeatureFlagConfig, FeatureFlagFilters, FeatureFlagRulesV2Config, TeamPublicType, TeamType } from '~/types'
 
 export type FeatureFlagConfigFormat = 'v1' | 'v2' | 'unsupported'
+
+export const UNSUPPORTED_CONFIG_DISABLED_REASON =
+    'This flag is stored in a configuration version this page cannot change.'
+export const ARCHIVE_UNAVAILABLE_DISABLED_REASON = 'Archiving is not available for this flag yet.'
 
 /** Mirrors the server's detector: no `version` or `1` is v1, `2` is v2, anything else is unsupported here. */
 export function featureFlagConfigFormat(filters: FeatureFlagConfig | null | undefined): FeatureFlagConfigFormat {
@@ -25,6 +30,17 @@ export function isRulesV2FeatureFlagConfig(
     filters: FeatureFlagConfig | null | undefined
 ): filters is FeatureFlagRulesV2Config {
     return featureFlagConfigFormat(filters) === 'v2'
+}
+
+/** Every write to a row in another config version must carry the row version; v1 keeps its merge semantics. */
+export function rowVersionToken(
+    flag: { filters?: FeatureFlagConfig | null; version?: number | null } | null | undefined
+): { version?: number } {
+    return !flag || isV1FeatureFlagConfig(flag.filters) || flag.version == null ? {} : { version: flag.version }
+}
+
+export function isStaleRowVersionError(token: { version?: number }, error: any): boolean {
+    return token.version !== undefined && error?.status === 409 && !isApprovalRequiredError(error)
 }
 
 export function featureFlagConfigFormatLabel(filters: FeatureFlagConfig | null | undefined): string {

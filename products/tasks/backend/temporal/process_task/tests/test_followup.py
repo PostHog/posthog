@@ -433,11 +433,12 @@ def _mock_get_pr_context(_input) -> GetPrContextOutput | None:
         sequence: list[str] = _pr_context_overrides["sequence"]
         idx = min(_pr_context_overrides.get("_call_count", 0), len(sequence) - 1)
         _pr_context_overrides["_call_count"] = idx + 1
+        ci_sequence: list[str] = _pr_context_overrides.get("ci_sequence", [ci_status] * len(sequence))
         return GetPrContextOutput(
             pr_url="https://github.com/org/repo/pull/1",
             pr_state="open",
             fingerprint=sequence[idx],
-            ci_status=ci_status,
+            ci_status=ci_sequence[idx],
         )
     # Default "changing": unique fingerprint per call so CI follow-up always fires
     _pr_context_overrides["_call_count"] = _pr_context_overrides.get("_call_count", 0) + 1
@@ -866,6 +867,64 @@ class TestFollowupGuards:
             f"expected 4 get_pr_context calls (fire, skip, fire, fire) — broken persistence "
             f"would yield 3. Got {_pr_context_overrides.get('_call_count')}"
         )
+
+    @pytest.mark.parametrize(
+        "mode, pr_context, followup_after, expected_pr_context_calls, expected_followups, expected_timeout_updates",
+        [
+            ("background", {"behavior": "unchanged"}, None, 3, 1, [("completed", None)]),
+            (
+                "background",
+                {"behavior": "sequence", "sequence": ["fp-A", "fp-A", "fp-B", "fp-B", "fp-B", "fp-B"]},
+                None,
+                5,
+                2,
+                [("completed", None)],
+            ),
+            (
+                "background",
+                {
+                    "behavior": "sequence",
+                    "sequence": ["fp-A", "fp-A", "fp-A", "fp-B", "fp-B", "fp-B"],
+                    "ci_sequence": ["failing", "pending", "pending", "failing", "failing", "failing"],
+                },
+                None,
+                6,
+                2,
+                [("completed", None)],
+            ),
+            ("background", {"behavior": "unchanged"}, timedelta(minutes=50), 5, 2, [("completed", None)]),
+            ("interactive", {"behavior": "unchanged"}, None, 4, 1, []),
+        ],
+    )
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_idle_ci_skips_end_background_pr_watch(
+        self, mode, pr_context, followup_after, expected_pr_context_calls, expected_followups, expected_timeout_updates
+    ):
+        _ci_context_overrides["state"] = {"mode": mode}
+        _pr_context_overrides.update(pr_context)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with _make_worker(env, task_queue):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(hours=4),
+                )
+                if followup_after is not None:
+                    await env.sleep(followup_after.total_seconds())
+                    await handle.signal(ProcessTaskWorkflow.send_followup_message, args=["push a fix", []])
+                if mode == "interactive":
+                    await env.sleep(CI_FOLLOW_UP_DELAY.total_seconds() * 4 + 60)
+                    await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                await handle.result()
+
+        assert _pr_context_overrides.get("_call_count") == expected_pr_context_calls
+        assert len(_ci_followup_calls) == expected_followups
+        assert [(s, e) for s, e, timed_out in _status_updates if timed_out] == expected_timeout_updates
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stops_ci_loop_when_no_pr_and_agent_idle(self):

@@ -18,65 +18,29 @@ const V2_FILTERS: FeatureFlagConfig = { version: 2, return_type: 'boolean', defa
 
 describe('updateFlagActiveInProject', () => {
     it.each([
-        { version: undefined, expectedBody: { active: true } },
-        { version: 4, expectedBody: { active: true, version: 4 } },
-    ])('sends $expectedBody when the row version is $version', async ({ version, expectedBody }) => {
-        let body: unknown
-        useMocks({
-            patch: {
-                '/api/projects/:team_id/feature_flags/:id/': async ({ request }) => {
-                    body = await request.json()
-                    return [200, { id: 42, active: true, version: (version ?? 0) + 1 }]
-                },
-            },
-        })
-
-        const result = await updateFlagActiveInProject({
-            teamId: 2,
-            flagId: 42,
-            active: true,
-            version,
-            filters: { groups: [] },
-        })
-
-        expect(body).toEqual(expectedBody)
-        expect(result?.version).toBe((version ?? 0) + 1)
-    })
-
-    it('fetches the row version first when the row is in another config version', async () => {
-        const calls: string[] = []
-        let body: unknown
-        useMocks({
-            get: {
-                '/api/projects/:team_id/feature_flags/:id/': () => {
-                    calls.push('get')
-                    return [200, { id: 42, active: false, version: 9, filters: V2_FILTERS }]
-                },
-            },
-            patch: {
-                '/api/projects/:team_id/feature_flags/:id/': async ({ request }) => {
-                    calls.push('patch')
-                    body = await request.json()
-                    return [200, { id: 42, active: true, version: 10 }]
-                },
-            },
-        })
-
-        await updateFlagActiveInProject({
-            teamId: 2,
-            flagId: 42,
-            active: true,
+        { case: 'a v1 row', filters: { groups: [] }, stored: undefined, calls: ['patch'], body: { active: true } },
+        {
+            case: 'a row in another config version',
             filters: V2_FILTERS,
-        })
-
-        expect(calls).toEqual(['get', 'patch'])
-        expect(body).toEqual({ active: true, version: 9 })
-    })
-
-    it.each([
-        { stored: { groups: [] }, expectedBody: { active: true } },
-        { stored: V2_FILTERS, expectedBody: { active: true, version: 9 } },
-    ])('fetches a row of unknown format first and sends $expectedBody', async ({ stored, expectedBody }) => {
+            stored: V2_FILTERS,
+            calls: ['get', 'patch'],
+            body: { active: true, version: 9 },
+        },
+        {
+            case: 'a v1 row of unknown format',
+            filters: undefined,
+            stored: { groups: [] },
+            calls: ['get', 'patch'],
+            body: { active: true },
+        },
+        {
+            case: 'a v2 row of unknown format',
+            filters: undefined,
+            stored: V2_FILTERS,
+            calls: ['get', 'patch'],
+            body: { active: true, version: 9 },
+        },
+    ])('sends $body for $case', async ({ filters, stored, calls: expectedCalls, body: expectedBody }) => {
         const calls: string[] = []
         let body: unknown
         useMocks({
@@ -95,10 +59,11 @@ describe('updateFlagActiveInProject', () => {
             },
         })
 
-        await updateFlagActiveInProject({ teamId: 2, flagId: 42, active: true })
+        const result = await updateFlagActiveInProject({ teamId: 2, flagId: 42, active: true, filters })
 
-        expect(calls).toEqual(['get', 'patch'])
+        expect(calls).toEqual(expectedCalls)
         expect(body).toEqual(expectedBody)
+        expect(result?.version).toBe(10)
     })
 
     it('shows the approval toast with the response code and announces the change request on a 409', async () => {

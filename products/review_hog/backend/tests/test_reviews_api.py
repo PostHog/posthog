@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -77,6 +78,7 @@ def _issues_review(count: int) -> IssuesReview:
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
