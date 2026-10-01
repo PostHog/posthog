@@ -272,8 +272,9 @@ So the author of a change to a quarantined story has to look for it: list the ru
 A fix for the flake itself leaves nothing in the run to approve, and nothing records it, so the PR description names the identifiers the fix should release.
 
 Lift the quarantine after the merge.
-Check the story's flakiness state first.
-A `broken` entry means the default branch renders the story differently from its entry on every run, so the lift fails every run, and so does the expiry date.
+Check first that the default branch renders the story as its entry.
+When the latest default-branch run still lists the story as changed, the lift fails nearly every run, and so does the expiry date.
+A `broken` entry is the usual sign, but its state covers 7 days, so it can lag a fix.
 Re-baseline such a story with the procedure above before the quarantine ends.
 A lift records the default branch's head commit, and a run whose commit does not contain that commit still treats the story as quarantined.
 That matters because an entry on the default branch does not reach a branch that forked before it, and healing cannot supply it either: healing reads the merge-base, which for such a branch also predates the entry.
