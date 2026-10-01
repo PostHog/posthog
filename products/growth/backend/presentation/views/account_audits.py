@@ -7,10 +7,13 @@ from uuid import UUID
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import Throttled
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.views import APIView
 
 from posthog.ingress.verify.schemes import HmacSha256, VerificationOutcome
 from posthog.rate_limit import IPThrottle
@@ -23,7 +26,15 @@ SIGNATURE_TOLERANCE = timedelta(minutes=5)
 
 class AccountAuditStartThrottle(IPThrottle):
     scope = "growth_account_audit_start"
+    rate = "600/minute"
+
+
+class AccountAuditCredentialThrottle(SimpleRateThrottle):
+    scope = "growth_account_audit_credential"
     rate = "60/minute"
+
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": str(UUID(request.headers["X-PostHog-Audit-Key"]))}
 
 
 class AccountAuditStartRequestSerializer(serializers.Serializer):
@@ -114,6 +125,10 @@ class AccountAuditStartViewSet(viewsets.ViewSet):
             or not self._valid_signature(signing_secret, webhook_id, timestamp, signature, raw_body)
         ):
             return Response(status=status.HTTP_401_UNAUTHORIZED)
+
+        throttle = AccountAuditCredentialThrottle()
+        if not throttle.allow_request(request, self):
+            raise Throttled(wait=throttle.wait())
 
         serializer = AccountAuditStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

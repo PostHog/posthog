@@ -608,6 +608,9 @@ def get_user_mcp_server_configs(
 
     Returns an empty list on errors (non-fatal).
     """
+    if origin_product == "onboarding_audit":
+        return []
+
     installations = get_installations_for_sandbox(
         team_id,
         user_id=user_id,

@@ -39,25 +39,23 @@ from products.growth.backend.product_push.service import cancel_campaigns, get_e
 class AccountAuditCredentialForm(forms.ModelForm):
     class Meta:
         model = AccountAuditCredential
-        fields = ("owner", "is_active")
+        fields = ("is_active",)
         help_texts = {
             "is_active": "Disable to revoke access. To rotate, configure the workflow with a new credential before disabling this one.",
         }
 
     def clean(self) -> dict[str, Any]:
         cleaned = super().clean() or {}
-        owner = cleaned.get("owner", self.instance.owner)
-        if (not self.instance.pk or cleaned.get("is_active")) and (
-            not owner or not owner.is_active or not owner.is_staff
-        ):
-            raise ValidationError("Choose an active staff user as the credential owner.")
+        owner = self.instance.owner
+        if self.instance.pk and cleaned.get("is_active") and (not owner or not owner.is_active or not owner.is_staff):
+            raise ValidationError("The credential owner must be an active staff user.")
         return cleaned
 
 
 @admin.register(AccountAuditCredential)
 class AccountAuditCredentialAdmin(admin.ModelAdmin):
     form = AccountAuditCredentialForm
-    raw_id_fields = ("owner",)
+    readonly_fields = ("public_key_id", "owner", "created_at")
     list_display = ("public_key_id", "owner", "is_active", "created_at")
     list_filter = ("is_active",)
     list_select_related = ("owner",)
@@ -66,11 +64,8 @@ class AccountAuditCredentialAdmin(admin.ModelAdmin):
 
     def get_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
         if obj is None:
-            return ("owner", "is_active")
+            return ("is_active",)
         return ("public_key_id", "owner", "is_active", "created_at")
-
-    def get_readonly_fields(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> tuple[str, ...]:
-        return ("public_key_id", "owner", "created_at") if obj else ()
 
     def has_delete_permission(self, request: HttpRequest, obj: AccountAuditCredential | None = None) -> bool:
         return False
@@ -79,6 +74,7 @@ class AccountAuditCredentialAdmin(admin.ModelAdmin):
         self, request: HttpRequest, obj: AccountAuditCredential, form: forms.ModelForm, change: bool
     ) -> None:
         if not change:
+            obj.owner_id = request.user.pk
             obj.signing_secret = f"whsec_{base64.b64encode(secrets.token_bytes(32)).decode()}"
         super().save_model(request, obj, form, change)
 

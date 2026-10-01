@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
@@ -24,6 +25,10 @@ from posthog.models.user import User
 
 from products.growth.backend.account_audits import COOLDOWN, AccountAuditService
 from products.growth.backend.models import AccountAuditAdmission, AccountAuditCredential
+from products.growth.backend.presentation.views.account_audits import (
+    AccountAuditCredentialThrottle,
+    AccountAuditStartThrottle,
+)
 
 
 class TestAccountAuditStartAPI(APIBaseTest):
@@ -48,6 +53,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
         timestamp: str | None = None,
         signature: str | None = None,
         signing_body: bytes | None = None,
+        key_id: str | None = None,
     ):
         if isinstance(payload, dict):
             payload = {
@@ -73,7 +79,7 @@ class TestAccountAuditStartAPI(APIBaseTest):
             self.url,
             data=raw_body,
             content_type="application/json",
-            HTTP_X_POSTHOG_AUDIT_KEY=str(self.credential.public_key_id),
+            HTTP_X_POSTHOG_AUDIT_KEY=key_id or str(self.credential.public_key_id),
             HTTP_WEBHOOK_ID=webhook_id,
             HTTP_WEBHOOK_TIMESTAMP=timestamp,
             HTTP_WEBHOOK_SIGNATURE=f"v1,{signature}",
@@ -89,6 +95,25 @@ class TestAccountAuditStartAPI(APIBaseTest):
             patch("products.growth.backend.account_audits.create_audit_task", return_value=uuid4()) as dispatch,
         ):
             yield actor, skill, dispatch
+
+    def test_rate_limits_verified_credentials_separately_from_shared_ip(self) -> None:
+        cache = LocMemCache(str(uuid4()), {})
+        payload = {"organization_id": str(self.organization.id)}
+        with (
+            patch.object(AccountAuditStartThrottle, "cache", cache),
+            patch.object(AccountAuditStartThrottle, "rate", "4/minute"),
+            patch.object(AccountAuditCredentialThrottle, "cache", cache),
+            patch.object(AccountAuditCredentialThrottle, "rate", "1/minute"),
+            self._request_patches(),
+        ):
+            self.assertEqual(self._post(payload, signature="invalid").status_code, 401)
+            self.assertEqual(self._post(payload).status_code, 202)
+            limited = self._post(payload, key_id=str(self.credential.public_key_id).upper())
+            self.assertEqual(limited.status_code, 429)
+            self.assertGreater(int(limited.headers["Retry-After"]), 0)
+            self.credential = AccountAuditCredential.objects.create(owner=self.user, signing_secret=self.secret)
+            self.assertEqual(self._post(payload).status_code, 409)
+            self.assertEqual(self._post(payload, signature="invalid").status_code, 429)
 
     @parameterized.expand([("US", 42, True), ("EU", 77, False)])
     def test_accepts_a_signed_delivery_and_reuses_the_same_run(

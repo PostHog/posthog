@@ -2,8 +2,10 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team, User
 
+from products.access_control.backend.models import AccessControl
 from products.skills.backend.facade.api import get_skill_prompt
 from products.skills.backend.models import LLMSkill, LLMSkillFile
 
@@ -78,3 +80,21 @@ class TestGetSkillPrompt(BaseTest):
         self._create_skill(team=other_team)
 
         assert get_skill_prompt(team_id=other_team.id, skill_name="onboarding-account-audit", user=self.user) is None
+
+    @parameterized.expand([("creator", True), ("member", False)])
+    def test_private_project_denies_skill_access(self, _name: str, is_creator: bool) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        skill = self._create_skill()
+        if is_creator:
+            skill.created_by = member
+            skill.save(update_fields=["created_by"])
+        rule = AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+
+        assert get_skill_prompt(team_id=self.team.id, skill_name=skill.name, user=member) is None
+
+        rule.delete()
+        assert get_skill_prompt(team_id=self.team.id, skill_name=skill.name, user=member) is not None

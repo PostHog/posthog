@@ -27,7 +27,8 @@ def get_skill_prompt(*, team_id: int, skill_name: str, user: "User | None") -> S
     if skill is None or not skill.body or len(skill.body.encode("utf-8")) > _MAX_SKILL_PROMPT_BODY_BYTES:
         return None
 
-    if not UserAccessControl(user, team=team).check_access_level_for_object(skill, "viewer"):
+    access_control = UserAccessControl(user, team=team)
+    if not access_control.has_project_access or not access_control.check_access_level_for_object(skill, "viewer"):
         return None
 
     if skill.files.exists():

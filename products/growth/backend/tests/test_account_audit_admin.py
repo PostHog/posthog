@@ -7,6 +7,8 @@ from django.urls import reverse
 
 from parameterized import parameterized
 
+from posthog.models import User
+
 from products.growth.backend.admin import AccountAuditCredentialForm
 from products.growth.backend.models import AccountAuditCredential
 
@@ -18,16 +20,19 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         self.user.save(update_fields=["is_staff"])
         self.client.force_login(self.user)
         self.add_url = reverse("admin:growth_accountauditcredential_add")
-        self.add_data = {"owner": self.user.pk, "is_active": "on"}
+        self.add_data = {"is_active": "on"}
 
     @parameterized.expand([("us", "https://us.posthog.com"), ("eu", "https://eu.posthog.com")])
     def test_admin_provisions_once_then_allows_overlap_and_revocation_without_exposing_secret(
         self, _region: str, site_url: str
     ) -> None:
         self.enterContext(self.settings(SITE_URL=site_url))
-        response = self.client.post(self.add_url, self.add_data)
+        other_staff = User.objects.create(email="other-staff@example.com", is_staff=True)
+        self.assertNotContains(self.client.get(self.add_url), 'name="owner"')
+        response = self.client.post(self.add_url, {**self.add_data, "owner": other_staff.pk})
         self.assertEqual(response.status_code, 200)
         credential = AccountAuditCredential.objects.get()
+        self.assertEqual(credential.owner_id, self.user.pk)
         secret = credential.signing_secret
         self.assertTrue(secret.startswith("whsec_"))
         self.assertEqual(len(base64.b64decode(secret.removeprefix("whsec_"))), 32)
@@ -62,4 +67,4 @@ class TestAccountAuditCredentialAdmin(BaseTest):
         self.user.save(update_fields=[field])
         form = AccountAuditCredentialForm(instance=credential, data=self.add_data)
         self.assertFalse(form.is_valid())
-        self.assertIn("Choose an active staff user", str(form.errors))
+        self.assertIn("The credential owner must be an active staff user", str(form.errors))
