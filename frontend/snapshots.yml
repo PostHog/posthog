@@ -8962,14 +8962,30 @@ snapshots:
         hash: v1.k794b7964.3e598e6645c85b66f8d99d61d246a27543a442114e59a6ceb7885665eb0b3c00.xC1QPAqJC2_Tv9MWo-5vlWwIuFrBJW0c_NlgHcqgtk4
     scenes-app-data-warehouse-materialization-run-error--failed-run--light:
         hash: v1.k794b7964.3a2c58f628b7d667f952292d9d43dcdf6d2913eb3a01a3099fa4eab32220174d.VSLYjeyt9_Q19m7xyVgHq4EThsaZ_ZWKJve8NFPH7zI
+    scenes-app-data-warehouse-query-index-usage--cost-plan--dark:
+        hash: v1.k794b7964.3e388c5b8078905896c014f1b9936a8a77710415b5e6b04aebf2251a465031e7.StOHZSnMlFiJ1QxjuZwyjamWmYt90VwURVPd5lGqFMo
+    scenes-app-data-warehouse-query-index-usage--cost-plan--light:
+        hash: v1.k794b7964.7200fdcd8745cf2688ba434da0fa0e468ae0f7387a599135d30e50cba08e0fe4.reKlcCdnUMDxWFTVpfrAuUuh0msynxHK72NgnIm5YeQ
     scenes-app-data-warehouse-query-index-usage--every-filter-indexed--dark:
         hash: v1.k794b7964.5593a848fb86d8d93d2d347b17de81b878cff3e9d69ccf976562e60bddeb71fa.-EnSwW5B20DYmE0dRl-8VfENfxJMJrMl-vWmmkJ1sG0
     scenes-app-data-warehouse-query-index-usage--every-filter-indexed--light:
         hash: v1.k794b7964.7e4a5eda2f4069a0900025a0bf5b3cf872f6df3a2c6e26a2ca77eb08abaaf0d9.20l9G4blkJXWxPJDzJEyijy4MCRT4GJwV_zfCyB_a3I
+    scenes-app-data-warehouse-query-index-usage--large-scan-without-filters--dark:
+        hash: v1.k794b7964.9ae4136dbcddee91a158bba9815cda05fe807ff17b9f605e94ad726757ae5552.m719m-i5uD83kvQLRPj33bYqc7MlX9az3zTv_pT20cU
+    scenes-app-data-warehouse-query-index-usage--large-scan-without-filters--light:
+        hash: v1.k794b7964.9c11c64e298ff6973d11619e3d90a8253aa8b27405637fab99e636550497191b.lWSYzTorqkDF9mFSlBQ_NOcP2WUtxOwjXAXmOJDmjm0
+    scenes-app-data-warehouse-query-index-usage--multiple-tables--dark:
+        hash: v1.k794b7964.47c9b18c6425d0053b5d5b750edbeaa8555fbd1a9f06ec103410842c0bfd1c5f.QZz9fXmrazXA1920_uI9ZSIi9bnuMsa2c9e1-jds3cs
+    scenes-app-data-warehouse-query-index-usage--multiple-tables--light:
+        hash: v1.k794b7964.43dfe3089ca699638baeed269746b74a16f71531191a5f83a132909425677c9e.pwU72sj2h0bWMZBmGmeG4cfwbs4lvpGZzYGrRlstaBE
     scenes-app-data-warehouse-query-index-usage--refreshing-after-an-edit--dark:
-        hash: v1.k794b7964.9b9bd0992795d1670ea1aff5182440e3e8a8ca1b03b6cc152c328376a6a3389a.sMHpFBf4hTvSGkub_Zb4B3q5kPPpVkvWvRzWEonct3w
+        hash: v1.k794b7964.d8463b228804c60d64d51e22fcffa9273f3a5b0bef2afe568595b67b7fbf1f12.0-hQ9B45BR4xiMZcnPZcUMk0OuSZsEvkt4OB7J1XR1w
     scenes-app-data-warehouse-query-index-usage--refreshing-after-an-edit--light:
-        hash: v1.k794b7964.f78066e01a69667a48e1e869c1c68dd0b741dcc49b6ef524bef7d4d86ddc95dd.Hm8P3Va8Xi--tajenCleRBUZ6Y813IyfCzm9_huabH4
+        hash: v1.k794b7964.a1f260f15fbcb38c0f75f807b799211ff5144b52a8cc5cda48f2e63de857682d._32Dl0gmaM-S8lwke-XOv8jpC3pJazJF5EXhr8CDCN0
+    scenes-app-data-warehouse-query-index-usage--scan-estimate-with-filters--dark:
+        hash: v1.k794b7964.7c6ed606609a41cded1abaac1bde05736e5def340d78c2d2152dd14a23e97554.XtMTgu6LMVopmyO62PeWVPKpzlQDjo3gvEZ2JpNC4AA
+    scenes-app-data-warehouse-query-index-usage--scan-estimate-with-filters--light:
+        hash: v1.k794b7964.96bc81d70181930f49f30537e77685706cdc6c4d8ab689614fc36e5995811edd.9D5aXF4Z21KOYFyvJdaT7i5wn3pQUVZnd2l5Xt_bSzk
     scenes-app-data-warehouse-query-index-usage--some-filters-scan--dark:
         hash: v1.k794b7964.5455f3ec94016b7fc41aa9aeb676045f8af0c111502a992e9c0cbebbfc1e23a4.ZIL0-eH98MqVTxMkOZzHd2EgWcq2cfdWq-cqoDoHhFQ
     scenes-app-data-warehouse-query-index-usage--some-filters-scan--light:
