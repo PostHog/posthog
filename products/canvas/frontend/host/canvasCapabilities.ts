@@ -1,9 +1,7 @@
 import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
 
 /**
- * Throws unless the build's frozen capability manifest admits this data request.
- * Only a built canvas runs through this gate. A draft is its author's own code in
- * their own session, so the draft sandbox stays full-access by design.
+ * Throws unless the rendered build or source project's manifest admits this request.
  */
 export function assertCanvasCapability(
     capabilities: CanvasCapabilitiesApi | null | undefined,

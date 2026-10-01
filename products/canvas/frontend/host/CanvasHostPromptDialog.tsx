@@ -48,9 +48,12 @@ function promptCopy(prompt: CanvasHostPrompt): PromptCopy {
         case 'action':
             return {
                 title: 'Let this canvas make this change?',
-                description: 'The canvas asked to run an action that deletes or turns something off.',
+                description:
+                    prompt.request.action.verb === 'tasks.create_and_run'
+                        ? 'Review this request. Accepting starts a cloud task that uses paid compute.'
+                        : 'Review this request before the canvas makes a change on your behalf.',
                 confirm: 'Continue',
-                destructive: true,
+                destructive: prompt.request.action.destructive,
             }
         case 'external-link':
             return {
@@ -97,7 +100,17 @@ function PromptDetails({ prompt }: { prompt: CanvasHostPrompt }): JSX.Element {
                 </pre>
             )
         case 'action':
-            return <Text size="sm">{prompt.summary}</Text>
+            return (
+                <div className="flex flex-col gap-2">
+                    <Text size="sm">{prompt.request.action.summary}</Text>
+                    <Text size="sm" className="break-all font-mono">
+                        {prompt.request.action.verb}
+                    </Text>
+                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded border border-border p-3 text-sm">
+                        {JSON.stringify(prompt.request.payload, null, 2)}
+                    </pre>
+                </div>
+            )
         case 'external-link':
             return (
                 <Text className="break-all font-mono" size="sm">
@@ -109,7 +122,7 @@ function PromptDetails({ prompt }: { prompt: CanvasHostPrompt }): JSX.Element {
 
 /**
  * Asks the viewer before a canvas uses a connection, starts an agent run, runs a
- * destructive action, or opens a link. Render it under a `BindLogic` for `canvasHostLogic`.
+ * action, or opens a link. Render it under a `BindLogic` for `canvasHostLogic`.
  */
 export function CanvasHostPromptDialog(): JSX.Element {
     const { activePrompt } = useValues(canvasHostLogic)

@@ -84,7 +84,7 @@ export async function startCanvasGenerationRun(projectId: string, taskId: string
     return toCanvasTask(
         await tasksRunCreate(projectId, taskId, {
             mode: 'background',
-            run_source: 'agent',
+            run_source: 'manual',
             initial_permission_mode: 'bypassPermissions',
         })
     )

@@ -82,6 +82,12 @@ export const Empty: Story = {
 }
 
 export const Generating: Story = {
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="canvas-generating-view-task"]',
+        },
+    },
     decorators: [mocks(viewResponse({ name: 'Weekly active users', generation_task_id: TASK_ID }))],
 }
 

@@ -70,7 +70,7 @@ export interface CanvasHostCallbacks {
 export type ExternalOpenBlockReason = 'unsafe-url' | 'no-interaction' | 'throttled'
 
 export interface CanvasHostMessageRouterOptions {
-    /** Transport back into the canvas: window.postMessage for a draft, a MessagePort for a build. */
+    /** Transport back into the canvas through its document port. */
     post: (message: HostToCanvasMessage) => void
     /** Read fresh per message, so the router can live for the whole mount without going stale. */
     callbacks: () => CanvasHostCallbacks

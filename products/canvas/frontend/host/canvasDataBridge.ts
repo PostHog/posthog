@@ -12,7 +12,11 @@ import {
     canvasesStateRetrieve,
     canvasesStateSet,
 } from '../generated/api'
-import type { CanvasConnectorCallResultApi, CanvasStateEntryApi } from '../generated/api.schemas'
+import type {
+    CanvasActionDefinitionApi,
+    CanvasConnectorCallResultApi,
+    CanvasStateEntryApi,
+} from '../generated/api.schemas'
 import {
     CanvasConnectorCallInput,
     canvasAgentRequestInputSchema,
@@ -47,8 +51,13 @@ export interface CanvasDataBridgeContext {
     distinctId: string | null
 }
 
+export interface CanvasActionConfirmation {
+    action: CanvasActionDefinitionApi
+    payload: Record<string, unknown>
+}
+
 export interface CanvasDataBridgePrompts {
-    confirmAction: (summary: string) => Promise<boolean>
+    confirmAction: (request: CanvasActionConfirmation) => Promise<boolean>
     confirmAgentRequest: (prompt: string) => Promise<boolean>
     requestConnectorPermission: (request: CanvasConnectorPermissionRequest) => Promise<boolean>
     hasUserActivation: () => boolean
@@ -120,7 +129,7 @@ function assertVariablesApplied(
 
 /**
  * Resolves the `ph.*` data requests a canvas sends. The web app's session runs every
- * call, and the iframe only ever sees the result. A built canvas passes each request
+ * call, and the iframe only ever sees the result. Each canvas passes each request
  * through `assertCanvasCapability` before it reaches here.
  */
 export class CanvasDataBridge {
@@ -322,12 +331,13 @@ export class CanvasDataBridge {
         if (!action) {
             throw new Error('Unknown canvas action')
         }
-        if (action.destructive && !(await this.prompts.confirmAction(action.summary))) {
+        const payload = (input.payload as Record<string, unknown> | undefined) ?? {}
+        if (!(await this.prompts.confirmAction({ action, payload }))) {
             throw new Error('Canvas action canceled')
         }
         return canvasesActionsInvoke(projectId, canvasId, {
             verb,
-            payload: (input.payload as Record<string, unknown> | undefined) ?? {},
+            payload,
         })
     }
 

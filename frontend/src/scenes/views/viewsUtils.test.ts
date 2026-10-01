@@ -75,17 +75,10 @@ describe('viewsUtils', () => {
     test.each([
         ['a space page', '/spaces/space-3', 'space-3'],
         ['a canvas page', '/canvases/board', 'space-1'],
-        ['a canvas that is not listed', '/canvases/other', null],
+        ['a different open canvas', '/canvases/other', null],
         ['the start page', '/canvases/new', null],
         ['a page with no space', '/views', null],
     ])('defaults a new canvas from %s to the right space', (_, path, spaceId) => {
-        const items = mergeViews({
-            canvases: [canvas({ id: 'board', channel: 'space-1' })],
-            notebooks: [notebook({ short_id: 'board' })],
-            dashboards: [],
-            spaceNames: {},
-        })
-
-        expect(newCanvasSpaceIdForPath(path, items)).toBe(spaceId)
+        expect(newCanvasSpaceIdForPath(path, canvas({ id: 'board', channel: 'space-1' }))).toBe(spaceId)
     })
 })

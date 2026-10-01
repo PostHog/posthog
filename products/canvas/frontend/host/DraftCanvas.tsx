@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
+import type { CanvasCapabilitiesApi } from '../generated/api.schemas'
+import { assertCanvasCapability } from './canvasCapabilities'
 import { CanvasDocumentBridge } from './canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from './canvasHostMessageRouter'
 import { CANVAS_CHANNEL, CanvasTheme, HostToCanvasMessage, canvasToHostMessageSchema } from './canvasProtocol'
@@ -7,6 +9,7 @@ import { CANVAS_CHANNEL, CanvasTheme, HostToCanvasMessage, canvasToHostMessageSc
 export interface DraftCanvasProps extends CanvasHostCallbacks {
     /** The sandbox bootstrap document on the artifact origin. */
     documentUrl: string
+    capabilities: CanvasCapabilitiesApi | null | undefined
     files: Record<string, string>
     entry: string
     theme: CanvasTheme
@@ -18,10 +21,11 @@ export interface DraftCanvasProps extends CanvasHostCallbacks {
  * Renders unbuilt source in the sandbox document, which transpiles it in the browser.
  * The document loads by URL, not as srcdoc, because a srcdoc frame inherits the web
  * app's CSP. The source arrives over a document-bound port after the first load.
- * This tier is ungated by design: it only runs a canvas's own head source.
+ * Every data request must be declared by the source project.
  */
 export function DraftCanvas({
     documentUrl,
+    capabilities,
     files,
     entry,
     theme,
@@ -32,8 +36,8 @@ export function DraftCanvas({
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const bridgeRef = useRef<CanvasDocumentBridge | null>(null)
     const readyRef = useRef(false)
-    const latest = useRef({ files, entry, theme, callbacks, hasUserActivation, onOpenExternal })
-    latest.current = { files, entry, theme, callbacks, hasUserActivation, onOpenExternal }
+    const latest = useRef({ capabilities, files, entry, theme, callbacks, hasUserActivation, onOpenExternal })
+    latest.current = { capabilities, files, entry, theme, callbacks, hasUserActivation, onOpenExternal }
 
     const post = (message: HostToCanvasMessage): void => {
         bridgeRef.current?.post(message)
@@ -55,6 +59,10 @@ export function DraftCanvas({
             post,
             callbacks: () => ({
                 ...latest.current.callbacks,
+                onDataRequest: (method, payload) => {
+                    assertCanvasCapability(latest.current.capabilities, method, payload)
+                    return latest.current.callbacks.onDataRequest(method, payload)
+                },
                 onReady: () => {
                     if (readyRef.current) {
                         return

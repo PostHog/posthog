@@ -43,11 +43,13 @@ describe('canvasNewLogic', () => {
                         sandbox_document_url: null,
                     },
                 ],
+                '/api/projects/:team_id/tasks/:id/': { id: 'task-1', title: 'Daily signups', latest_run: null },
                 '/api/projects/:team_id/canvases/:id/builds/': { builds: [], published_build_id: null },
                 '/api/projects/:team_id/task_channels/:id/': { id: 'space-growth', name: 'growth', system_role: null },
             },
             post: {
-                '/api/projects/:team_id/tasks/:id/run/': () => {
+                '/api/projects/:team_id/tasks/:id/run/': async ({ request }) => {
+                    expect(await request.json()).toMatchObject({ run_source: 'manual' })
                     runCount++
                     return [201, { id: 'task-1', title: 'Daily signups', latest_run: { status: 'queued' } }]
                 },
@@ -115,6 +117,7 @@ describe('canvasNewLogic', () => {
 
             const sceneLogic = canvasSceneLogic({ id: CANVAS_ID })
             sceneLogic.mount()
+            await expectLogic(sceneLogic).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
             expect(sceneLogic.values.instruction).toEqual(composerText)
             expect(logic.values.startHandoff).toBeNull()
         }

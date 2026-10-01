@@ -127,11 +127,14 @@ export function filterViews(items: ViewItem[], filter: ViewTypeFilter): ViewItem
  * The space a new canvas defaults to from the page the person is on: the open space, or the open
  * canvas's space. Null when the page names no space, so the start page falls back to the personal space.
  */
-export function newCanvasSpaceIdForPath(path: string, views: ViewItem[]): string | null {
+export function newCanvasSpaceIdForPath(
+    path: string,
+    openCanvas: Pick<CanvasApi, 'id' | 'channel'> | null
+): string | null {
     const space = /^\/spaces\/([^/]+)/.exec(path)
     if (space) {
         return space[1]
     }
     const canvas = /^\/canvases\/([^/]+)$/.exec(path)
-    return canvas ? (views.find((view) => view.type === 'canvas' && view.id === canvas[1])?.spaceId ?? null) : null
+    return canvas && openCanvas?.id === canvas[1] ? openCanvas.channel : null
 }

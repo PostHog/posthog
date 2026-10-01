@@ -22,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { TeamPublicType, TeamType, UserType } from '../../../../frontend/src/types'
 import { CANVAS_EVENTS, canvasErrorType } from '../canvasAnalytics'
-import { CanvasConnectorPermissionRequest, CanvasDataBridge } from './canvasDataBridge'
+import { CanvasActionConfirmation, CanvasConnectorPermissionRequest, CanvasDataBridge } from './canvasDataBridge'
 import { CanvasNavIntent, isSafeGitHubPullRequestUrl } from './canvasProtocol'
 
 export interface CanvasHostLogicProps {
@@ -36,7 +36,7 @@ export interface CanvasHostLogicProps {
 export type CanvasHostPrompt =
     | { kind: 'connector'; id: string; request: CanvasConnectorPermissionRequest }
     | { kind: 'agent-request'; id: string; prompt: string }
-    | { kind: 'action'; id: string; summary: string }
+    | { kind: 'action'; id: string; request: CanvasActionConfirmation }
     | { kind: 'external-link'; id: string; url: string }
 
 type CanvasHostPromptInput = CanvasHostPrompt extends infer P
@@ -244,7 +244,7 @@ export const canvasHostLogic = kea<canvasHostLogicType>([
                 distinctId: values.user?.distinct_id ?? null,
             }),
             {
-                confirmAction: (summary) => cache.requestPrompt({ kind: 'action', summary }),
+                confirmAction: (request) => cache.requestPrompt({ kind: 'action', request }),
                 confirmAgentRequest: (prompt) => cache.requestPrompt({ kind: 'agent-request', prompt }),
                 requestConnectorPermission: (request) => cache.requestPrompt({ kind: 'connector', request }),
                 hasUserActivation: canvasHasUserActivation,

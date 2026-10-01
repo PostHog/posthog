@@ -89,6 +89,7 @@ function CanvasHostFrame({
         return (
             <DraftCanvas
                 documentUrl={sandboxDocumentUrl}
+                capabilities={draftSource.capabilities}
                 files={draftSource.files}
                 entry="src/canvas.tsx"
                 {...shared}

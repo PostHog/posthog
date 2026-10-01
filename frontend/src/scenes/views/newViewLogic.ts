@@ -2,10 +2,12 @@ import { MakeLogicType, actions, kea, listeners, path } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { toast } from '@posthog/quill'
+
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { todayViewsLogic } from '~/layout/today/todayViewsLogic'
+import { canvasSceneLogic } from 'products/canvas/frontend/scene/canvasSceneLogic'
 
 import { ViewType, newCanvasSpaceIdForPath } from './viewsUtils'
 
@@ -29,10 +31,14 @@ export const newViewLogic = kea<newViewLogicType>([
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('views new picked', { type })
             if (type === 'canvas') {
-                const spaceId = newCanvasSpaceIdForPath(
-                    removeProjectIdIfPresent(router.values.location.pathname),
-                    todayViewsLogic.findMounted()?.values.recentViews?.items ?? []
-                )
+                const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+                const canvasId = /^\/canvases\/([^/]+)$/.exec(pathname)?.[1]
+                const canvas = canvasId ? canvasSceneLogic.findMounted({ id: canvasId })?.values.canvas : null
+                if (canvasId && canvasId !== 'new' && !canvas) {
+                    toast.error({ title: 'Wait for the canvas to load, then try again.' })
+                    return
+                }
+                const spaceId = newCanvasSpaceIdForPath(pathname, canvas ?? null)
                 router.actions.push(urls.canvasNew(spaceId))
             } else if (type === 'notebook') {
                 router.actions.push(urls.notebook('new'))
