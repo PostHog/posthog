@@ -240,6 +240,47 @@ class GroupTransition:
 
 
 @frozen
+class AnnouncedTransition:
+    """One group's transition as delivery reads it back, projected from a history row.
+
+    The sibling of `GroupTransition`, and deliberately not the same type. A `GroupTransition`
+    crosses Temporal on the delivery payload, so it stays small. This never does: delivery holds
+    an address, reads the row, and builds one of these in the process that sends the message. So
+    it carries what a message states, including the two snapshots the row already keeps.
+
+    Every field here is a column on `platform_alert_events`, which is what makes a message state
+    what its own check decided however long after the check it is rendered.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    # The firing this transition concerns, which on a resolve is the firing that just ended.
+    # None when no firing is involved, which is a failed or a turned-off check.
+    episode_started_at: datetime | None
+    value: float | None
+    labels: dict[str, str]
+    condition: dict[str, Any]
+    source_config: dict[str, Any]
+    error_message: str | None
+
+
+@frozen
+class EvaluationAnnouncement:
+    """What one evaluation left for a destination to say.
+
+    One transition is one message. A level between this and the transitions would be the place a
+    fan-in policy lived, and fan-in was deprioritized on 2026-09-28, so there is nothing for it
+    to hold. It arrives with fan-in rather than waiting here empty.
+    """
+
+    alert_name: str
+    # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
+    # whole evaluation, and every group in one announcement saw the same count.
+    consecutive_failures: int
+    transitions: tuple[AnnouncedTransition, ...]
+
+
+@frozen
 class AlertDeliveryPreview:
     """What delivery would send. The PoC records it instead of contacting a destination.
 
