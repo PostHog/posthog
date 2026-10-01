@@ -1,5 +1,5 @@
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Iterator
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -789,7 +789,7 @@ def get_event_removal_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
-):
+) -> Iterator[dagster.DynamicOutput[EventRemovalShard]]:
     """Fan out one delete_event_removal_shard op per table and shard; a deferred request fans out nothing.
 
     The mapping key makes each delete re-executable on its own from the Dagster UI.

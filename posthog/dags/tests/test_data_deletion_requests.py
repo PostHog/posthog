@@ -23,6 +23,7 @@ from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutat
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
+    EventRemovalShard,
     HogQLEventDeletionExecutor,
     HogQLEventRemovalContext,
     PersonRemovalContext,
@@ -67,6 +68,7 @@ from posthog.models.deletion_targets import (
     placement_for,
 )
 from posthog.models.event.sql import (
+    EVENTS_DATA_TABLE,
     EVENTS_PROPERTIES_JSON_TYPE,
     PERSON_PROPERTIES_JSON_TYPE,
     json_property_presence_expr,
@@ -612,6 +614,67 @@ def test_full_job_event_deletion(cluster: ClickhouseCluster):
     # Status transitioned to COMPLETED
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_event_removal_reexecutes_only_the_failed_shard(cluster: ClickhouseCluster) -> None:
+    now = datetime.now()
+    events = [(TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i)) for i in range(10)]
+    cluster.any_host(partial(_insert_events, events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID,
+        request_type=RequestType.EVENT_REMOVAL,
+        events=["$pageview"],
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    run_config = {"ops": {"load_deletion_request": {"config": {"request_id": str(request.pk)}}}}
+
+    original_call = LightweightDeleteMutationRunner.__call__
+
+    def fail_on_events_table(runner: LightweightDeleteMutationRunner, client: Client):
+        if runner.table == EVENTS_DATA_TABLE():
+            raise Exception("delete failed")
+        return original_call(runner, client)
+
+    with patch.object(LightweightDeleteMutationRunner, "__call__", autospec=True, side_effect=fail_on_events_table):
+        failed = data_deletion_request_event_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        )
+    assert not failed.success
+    failed_shard_step = f"delete_event_removal_shard[{EVENTS_DATA_TABLE()}_shard_1]"
+    shard_outcomes = {
+        event.step_key: event.event_type_value
+        for event in failed.all_events
+        if event.step_key
+        and event.step_key.startswith("delete_event_removal_shard[")
+        and event.event_type_value in ("STEP_SUCCESS", "STEP_FAILURE")
+    }
+    assert shard_outcomes.pop(failed_shard_step) == "STEP_FAILURE"
+    assert all(outcome == "STEP_SUCCESS" for outcome in shard_outcomes.values())
+    request.refresh_from_db()
+    assert request.status == RequestStatus.FAILED
+
+    # Re-execute from failure reuses the cached load and fan-out outputs and reruns only the failed shard.
+    assert request.start_time is not None and request.end_time is not None
+    ctx = DeletionRequestContext(
+        request_id=str(request.pk),
+        team_id=request.team_id,
+        start_time=request.start_time,
+        end_time=request.end_time,
+        events=request.events,
+    )
+    retried = delete_event_removal_shard(
+        build_op_context(), cluster, EventRemovalShard(data_table=EVENTS_DATA_TABLE(), shard_num=1), ctx
+    )
+    completed = complete_event_deletion(build_op_context(), cluster, ctx, [retried])
+    finalize_deletion_request(build_op_context(), completed)
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    assert cluster.any_host(partial(_count_events_by_name, TEAM_ID, "$pageview")).result() == 0
 
 
 # ---------------------------------------------------------------------------
