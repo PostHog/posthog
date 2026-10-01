@@ -211,34 +211,81 @@ describe('todayWorkItems', () => {
         expect(activeCloudRunId(item)).toBe(runId)
     })
 
-    it.each<[string, string, string, Record<string, unknown>, string[]]>([
+    it.each<[string, string, string, Record<string, unknown>, Record<string, unknown>, boolean, string[]]>([
         [
             'the Slack source before the pull request',
             'slack',
             'cloud',
             { pr_url: 'https://github.com/a/b/pull/1' },
+            {},
+            false,
             ['source:slack', 'pullRequest'],
         ],
-        ['the source of another product', 'error_tracking', 'cloud', {}, ['source:error_tracking']],
-        ['nothing for a session someone started', 'user_created', 'cloud', {}, []],
-        ['Local when nothing else shows', 'user_created', 'local', {}, ['local']],
+        ['the source of another product', 'error_tracking', 'cloud', {}, {}, false, ['source:error_tracking']],
+        ['nothing for a session someone started', 'user_created', 'cloud', {}, {}, false, []],
+        ['Local when nothing else shows', 'user_created', 'local', {}, {}, false, ['local']],
         [
             'only the pull request for a local run that has one',
             'user_created',
             'local',
             { pr_url: 'https://github.com/a/b/pull/1' },
+            {},
+            false,
             ['pullRequest'],
         ],
-    ])('shows %s as session badges', (_name, origin, environment, output, expected) => {
+        [
+            'the live face of someone else working on it, before Local',
+            'user_created',
+            'local',
+            {},
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T11:59:00Z' },
+            false,
+            ['author:live', 'local'],
+        ],
+        [
+            'no face on your own session',
+            'user_created',
+            'cloud',
+            {},
+            { created_by: { id: ME, email: 'me@example.com' }, last_activity_at: '2026-03-10T11:59:00Z' },
+            false,
+            [],
+        ],
+        [
+            'no face once the other person has gone quiet',
+            'user_created',
+            'cloud',
+            {},
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T09:00:00Z' },
+            false,
+            [],
+        ],
+        [
+            'the recent face, without the source when the pin would make four',
+            'slack',
+            'cloud',
+            { pr_url: 'https://github.com/a/b/pull/1' },
+            { created_by: { id: 8, email: 'ada@example.com' }, last_activity_at: '2026-03-10T11:00:00Z' },
+            true,
+            ['author:recent', 'pullRequest'],
+        ],
+    ])('shows %s as session badges', (_name, origin, environment, output, overrides, pinned, expected) => {
         const item = sessionItem({
             id: 's',
             title: 'Session',
             origin_product: origin,
             latest_run: { environment, output },
+            ...overrides,
         } as unknown as TaskListItemApi)
 
         expect(
-            sessionBadges(item).map((badge) => (badge.kind === 'source' ? `source:${badge.source}` : badge.kind))
+            sessionBadges(item, ME, { pinned, now: Date.parse('2026-03-10T12:00:00Z') }).map((badge) =>
+                badge.kind === 'source'
+                    ? `source:${badge.source}`
+                    : badge.kind === 'author'
+                      ? `author:${badge.live ? 'live' : 'recent'}`
+                      : badge.kind
+            )
         ).toEqual(expected)
     })
 

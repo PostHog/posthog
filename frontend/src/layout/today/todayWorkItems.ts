@@ -9,6 +9,7 @@ import {
     TaskRunDetailDTOApi,
     TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { presenceTier } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 import { taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
@@ -46,6 +47,7 @@ export interface TodayWorkGroup {
 }
 
 export type TodaySessionBadge =
+    | { kind: 'author'; author: TaskUserBasicInfoApi; live: boolean }
     | { kind: 'source'; source: string }
     | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
     | { kind: 'local' }
@@ -60,6 +62,8 @@ const BADGE_SOURCES = new Set([
     'eval_clusters',
     'task_analysis',
 ])
+
+const MAX_ROW_BADGES = 3
 
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
@@ -163,7 +167,11 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
     }
 }
 
-export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
+export function sessionBadges(
+    item: TodayWorkItem,
+    userId: number | null | undefined,
+    { pinned = false, now = Date.now() }: { pinned?: boolean; now?: number } = {}
+): TodaySessionBadge[] {
     const badges: TodaySessionBadge[] = []
     if (item.originProduct && BADGE_SOURCES.has(item.originProduct)) {
         badges.push({ kind: 'source', source: item.originProduct })
@@ -174,6 +182,14 @@ export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
     }
     if (badges.length === 0 && item.runEnvironment === 'local') {
         badges.push({ kind: 'local' })
+    }
+    const activityAt = item.timestamp ? Date.parse(item.timestamp) : Number.NaN
+    const tier = Number.isNaN(activityAt) ? 'idle' : presenceTier(activityAt, now)
+    if (item.author && item.createdById !== userId && tier !== 'idle') {
+        badges.unshift({ kind: 'author', author: item.author, live: tier === 'live' })
+    }
+    if (badges.length + (pinned ? 1 : 0) > MAX_ROW_BADGES) {
+        return badges.filter((badge) => badge.kind !== 'source')
     }
     return badges
 }
