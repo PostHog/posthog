@@ -306,6 +306,7 @@ export namespace Schemas {
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
+     * * `cross_project_dashboard` - cross_project_dashboard
      * * `customer_analytics` - customer_analytics
      * * `customer_task` - customer_task
      * * `customer_journey` - customer_journey
@@ -426,6 +427,7 @@ export namespace Schemas {
       Cohort: 'cohort',
       Comment: 'comment',
       Conversation: 'conversation',
+      CrossProjectDashboard: 'cross_project_dashboard',
       CustomerAnalytics: 'customer_analytics',
       CustomerTask: 'customer_task',
       CustomerJourney: 'customer_journey',
@@ -546,6 +548,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -770,6 +773,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -1176,6 +1180,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -25610,6 +25615,56 @@ export namespace Schemas {
          * @nullable
          */
       api_version?: string | null;
+    }
+
+    export interface CrossProjectDashboardTile {
+      readonly id: string;
+      /**
+         * Id of the project the tile's insight belongs to.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      project_id: number;
+      /**
+         * Id of the insight the tile renders.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      insight_id: number;
+      /** Grid position and size of the tile, keyed by layout size. */
+      layouts?: unknown;
+      /**
+         * Optional color applied to the tile.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /** Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected. */
+      filters_overrides?: unknown;
+    }
+
+    /**
+     * Carries tile references only.
+     *
+     * The response holds no insight names, queries or results. Each reader fetches each tile from
+     * that tile's own project endpoint, so their access, quota and cache key stay correct there.
+     */
+    export interface CrossProjectDashboard {
+      readonly id: string;
+      /**
+         * Name shown in the dashboard list and page header.
+         * @maxLength 400
+         */
+      name: string;
+      /** Optional longer description. */
+      description?: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      filters?: unknown;
+      readonly tiles: readonly CrossProjectDashboardTile[];
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
     }
 
     export interface CurrentBranchHealth {
@@ -63168,6 +63223,7 @@ export namespace Schemas {
        * * `cohort` - cohort
        * * `comment` - comment
        * * `conversation` - conversation
+       * * `cross_project_dashboard` - cross_project_dashboard
        * * `customer_analytics` - customer_analytics
        * * `customer_task` - customer_task
        * * `customer_journey` - customer_journey
@@ -66947,6 +67003,24 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: CoreEvent[];
+    }
+
+    export interface PaginatedCrossProjectDashboardList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CrossProjectDashboard[];
+    }
+
+    export interface PaginatedCrossProjectDashboardTileList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CrossProjectDashboardTile[];
     }
 
     export interface PaginatedCustomPropertyDefinitionList {
@@ -74943,6 +75017,56 @@ export namespace Schemas {
       filter?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    /**
+     * Carries tile references only.
+     *
+     * The response holds no insight names, queries or results. Each reader fetches each tile from
+     * that tile's own project endpoint, so their access, quota and cache key stay correct there.
+     */
+    export interface PatchedCrossProjectDashboard {
+      readonly id?: string;
+      /**
+         * Name shown in the dashboard list and page header.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Optional longer description. */
+      description?: string;
+      /** Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters that refer to a property by name. Filters carrying a project-specific id are rejected. */
+      filters?: unknown;
+      readonly tiles?: readonly CrossProjectDashboardTile[];
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
+    export interface PatchedCrossProjectDashboardTile {
+      readonly id?: string;
+      /**
+         * Id of the project the tile's insight belongs to.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      project_id?: number;
+      /**
+         * Id of the insight the tile renders.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      insight_id?: number;
+      /** Grid position and size of the tile, keyed by layout size. */
+      layouts?: unknown;
+      /**
+         * Optional color applied to the tile.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /** Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. Filters carrying a project-specific id are rejected. */
+      filters_overrides?: unknown;
     }
 
     /**
@@ -111877,6 +112001,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CrossProjectDashboardsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CrossProjectDashboardsTilesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DomainsListParams = {
     /**
      * Number of results to return per page.
@@ -112565,6 +112711,7 @@ export namespace Schemas {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -112669,6 +112816,7 @@ export namespace Schemas {
 
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
+      CrossProjectDashboard: 'CrossProjectDashboard',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -112759,6 +112907,7 @@ export namespace Schemas {
 
     /**
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -112851,6 +113000,7 @@ export namespace Schemas {
 
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
+      CrossProjectDashboard: 'CrossProjectDashboard',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',

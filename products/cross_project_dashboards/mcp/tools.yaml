@@ -1,0 +1,62 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# Read tools only. A cross-project dashboard carries tile references, never results: an agent
+# that wants numbers switches to the tile's project and queries there.
+category: Cross-project dashboards
+feature: cross_project_dashboards
+url_prefix: /cross-project-dashboards
+ui_apps: {}
+tools:
+    cross-project-dashboards-list:
+        operation: cross_project_dashboards_list
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List cross-project dashboards
+        description: >
+            Dashboards the organization owns, each holding insights from one or more projects. Each dashboard comes
+            with its filters and its tiles, and each tile names the project and insight it points at. No tile
+            carries the insight's name, query or numbers.
+        enrich_url: '{id}'
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable
+    cross-project-dashboards-get:
+        operation: cross_project_dashboards_retrieve
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one cross-project dashboard
+        description: >
+            One dashboard with its tiles. Each tile names the project and the insight it points at, never the
+            insight's name, query or numbers. To read a tile's numbers, switch to that project and query the
+            insight there.
+        enrich_url: '{id}'
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable
+    cross-project-dashboard-tiles-list:
+        operation: cross_project_dashboards_tiles_list
+        enabled: true
+        scopes:
+            - cross_project_dashboard:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List the tiles on a cross-project dashboard
+        description: >
+            The tiles on one dashboard. Each tile carries the project id and insight id it references, its grid
+            position and any filters that apply to it alone.
+        feature_flag: cross-project-dashboards
+        feature_flag_behavior: enable
