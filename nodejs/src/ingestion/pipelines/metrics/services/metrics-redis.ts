@@ -5,6 +5,7 @@ export type MetricsRedisConfig = Pick<
     MetricsIngestionConsumerConfig,
     | 'METRICS_REDIS_HOST'
     | 'METRICS_REDIS_PORT'
+    | 'METRICS_REDIS_PASSWORD'
     | 'METRICS_REDIS_TLS'
     | 'REDIS_URL'
     | 'REDIS_POOL_MIN_SIZE'
@@ -19,6 +20,7 @@ export function createMetricsRateLimiterRedis(config: MetricsRedisConfig): Redis
                   url: config.METRICS_REDIS_HOST,
                   options: {
                       port: config.METRICS_REDIS_PORT,
+                      password: config.METRICS_REDIS_PASSWORD || undefined,
                       tls: config.METRICS_REDIS_TLS ? {} : undefined,
                   },
                   name: 'metrics-redis',
