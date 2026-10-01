@@ -1,5 +1,9 @@
 # Inbox report states
 
+The Runs tab shows queued, live, and finished runs in one list. Runs appear
+newest first by report update time, with creation time as the fallback. The
+list does not group runs by state.
+
 The report banner distinguishes a waiting report from an active investigation:
 
 | State | Banner | Investigation spinner |

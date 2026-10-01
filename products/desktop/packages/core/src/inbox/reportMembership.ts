@@ -5,8 +5,8 @@ import type { SignalReport } from "@posthog/shared/types";
  * Statuses that are out of the inbox entirely (user-suppressed, resolved, or
  * removed). `resolved` is terminal — its implementation PR merged — so it drops
  * out of the live inbox and is surfaced only in the Archive tab for reference.
- * `failed` is NOT in here: failed runs surface in the Runs tab's Recently
- * finished section so the user can see what went wrong. Other tabs filter
+ * `failed` is NOT in here: failed runs surface in the Runs tab
+ * so the user can see what went wrong. Other tabs filter
  * them out via their own predicates.
  */
 const INBOX_EXCLUDED_STATUSES = new Set<SignalReport["status"]>([
@@ -123,9 +123,9 @@ export function isPullRequestReport(report: SignalReport): boolean {
   return report.status === "ready" && !!report.implementation_pr_url;
 }
 
-// ── Runs-tab partitioning ─────────────────────────────────────────────────
+// ── Runs-tab membership ───────────────────────────────────────────────────
 // The Runs tab is task-centric: it shows reports whose run is queued, live, or
-// recently finished. Each section uses a different predicate; `isAgentRunReport`
+// recently finished. Each state uses a different predicate; `isAgentRunReport`
 // stays as the umbrella for "this report's run is in motion or just finished"
 // so other tabs can keep excluding the same set.
 
@@ -172,44 +172,18 @@ function runReportTimestampMs(report: SignalReport): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-export interface RunsTabSections {
-  queued: SignalReport[];
-  live: SignalReport[];
-  finished: SignalReport[];
-}
-
 /**
- * Partition reports into the Runs tab's three rendered sections, each sorted
- * newest-first. The single source of truth shared by `RunsTab` (section
- * rendering) and the open tracker (so `INBOX_REPORT_OPENED.rank` is measured
+ * Runs tab reports sorted newest-first. The single source of truth shared by
+ * `RunsTab` and the open tracker (so `INBOX_REPORT_OPENED.rank` is measured
  * against the row order the user actually saw, not raw query order).
  */
-export function partitionRunsTabReports(
-  reports: SignalReport[],
-): RunsTabSections {
-  const queued: SignalReport[] = [];
-  const live: SignalReport[] = [];
-  const finished: SignalReport[] = [];
-  for (const report of reports) {
-    if (isQueuedRunReport(report)) queued.push(report);
-    else if (isLiveRunReport(report)) live.push(report);
-    else if (isFinishedRunReport(report)) finished.push(report);
-  }
-  const newestFirst = (a: SignalReport, b: SignalReport) =>
-    runReportTimestampMs(b) - runReportTimestampMs(a);
-  queued.sort(newestFirst);
-  live.sort(newestFirst);
-  finished.sort(newestFirst);
-  return { queued, live, finished };
-}
-
-/**
- * Flat Runs-tab order — Queued, then Live, then Recently finished — matching the
- * top-to-bottom order of the rendered sections.
- */
 export function orderedRunsTabReports(reports: SignalReport[]): SignalReport[] {
-  const { queued, live, finished } = partitionRunsTabReports(reports);
-  return [...queued, ...live, ...finished];
+  return reports
+    .filter((report) => isAgentRunReport(report) || isFinishedRunReport(report))
+    .sort(
+      (firstReport, secondReport) =>
+        runReportTimestampMs(secondReport) - runReportTimestampMs(firstReport),
+    );
 }
 
 export function isReportTabReport(report: SignalReport): boolean {
