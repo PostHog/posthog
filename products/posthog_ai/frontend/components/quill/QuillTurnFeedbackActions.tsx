@@ -3,7 +3,6 @@ import { useContext, useId } from 'react'
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { Button, ChatMessageFooter, Input, Text, cn } from '@posthog/quill-primitives'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
 
 import type { TurnFeedbackActionsProps } from '../turnFeedbackTypes'
@@ -11,6 +10,7 @@ import { TurnRevealContext } from '../TurnRevealContext'
 import { useTurnRating } from '../useTurnRating'
 import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
+import { QuillFooterTimestamp } from './QuillFooterTimestamp'
 
 export function QuillTurnFeedbackActions({
     sessionId,
@@ -30,13 +30,7 @@ export function QuillTurnFeedbackActions({
             <ChatMessageFooter
                 className={cn('min-h-5 items-center gap-1 ps-0', footerRevealClass(!!rating || turnHovered))}
             >
-                {timestamp !== undefined && (
-                    <TZLabel
-                        time={new Date(timestamp).toISOString()}
-                        hoverOpenDelayMs={500}
-                        className="text-xs text-foreground"
-                    />
-                )}
+                {timestamp !== undefined && <QuillFooterTimestamp time={timestamp} />}
                 {turnText && (
                     <QuillCopyButton
                         value={stripMarkdown(turnText)}

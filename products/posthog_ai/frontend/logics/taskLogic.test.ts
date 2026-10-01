@@ -146,8 +146,9 @@ describe('taskLogic', () => {
 
             await expectLogic(logic, () => {
                 rejectUpdate(new ApiError('Title is too long', 400))
-            }).toDispatchActions(['updateTaskFailure', 'loadTask', 'loadTaskSuccess'])
+            }).toDispatchActions(['updateTaskFailure', 'loadTaskSuccess'])
             expect(logic.values.task?.title).toEqual(saved.title)
+            expect(api.tasks.get).not.toHaveBeenCalled()
         })
     })
 

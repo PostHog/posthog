@@ -17,7 +17,7 @@ import {
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { TurnHoverStore } from '../utils/turnHoverStore'
-import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
+import { type TurnTrailer, computeTurnTrailers, mapRowsToRevealGroup } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
@@ -175,13 +175,11 @@ export function ThreadView({
         [threadItems]
     )
     // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
-    const turns = useMemo(
-        () =>
-            renderTurnTrailer
-                ? { trailers: computeTurnTrailers(threadItems), rowTurnIds: mapRowsToTurnSeparator(displayItems) }
-                : null,
-        [threadItems, displayItems, renderTurnTrailer]
+    const trailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
+    const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
     const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
@@ -246,7 +244,7 @@ export function ThreadView({
                 const isLast = index === displayItems.length - 1
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
+                        <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
                             <ThreadActivityGroup
                                 group={item}
                                 toolInvocations={toolInvocations}
@@ -269,7 +267,7 @@ export function ThreadView({
                 )
             }
             if (item.type === 'turn_separator' && renderTurnTrailer) {
-                const trailer = turns?.trailers.get(item.id)
+                const trailer = trailers?.get(item.id)
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
                         {trailer ? (
@@ -282,11 +280,7 @@ export function ThreadView({
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    {/* A human message reveals its own footer, through the same store as a turn, so both behave alike. */}
-                    <TurnReveal
-                        store={turnHoverStore}
-                        turnId={item.type === 'human_message' ? item.id : turns?.rowTurnIds.get(item.id)}
-                    >
+                    <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
                         <ThreadRow
                             item={item}
                             isLast={index === displayItems.length - 1}
@@ -308,7 +302,8 @@ export function ThreadView({
             turnCancelled,
             rowClassName,
             renderTurnTrailer,
-            turns,
+            trailers,
+            revealGroups,
             turnHoverStore,
             pendingPermissionRequest,
             currentRunStatus,
