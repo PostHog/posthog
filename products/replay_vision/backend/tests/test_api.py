@@ -387,6 +387,36 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(with_column.status_code, 400, with_column.json())
         self.assertEqual(with_column.json()["attr"], "experiment_targeting")
 
+    def test_experiment_scanner_experiment_is_fixed_after_creation(self) -> None:
+        # Retargeting would mix two experiments' populations under one scanner's history and
+        # readouts, so it is a new scanner, not an edit; `variants` stays editable.
+        watched = create_experiment(self.team, "watched-flag", launched=True, variants=["control", "test"])
+        other = create_experiment(self.team, "other-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(
+            name="fixed-experiment",
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": watched.id},
+        )
+
+        retarget = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "p", "experiment_id": other.id}},
+            format="json",
+        )
+        self.assertEqual(retarget.status_code, 400, retarget.json())
+        self.assertIn("fixed after creation", retarget.json()["detail"])
+
+        narrowed = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_config": {"prompt": "sharper", "variants": ["test"]}},
+            format="json",
+        )
+        self.assertEqual(narrowed.status_code, 200, narrowed.json())
+        scanner.refresh_from_db()
+        self.assertEqual(
+            scanner.scanner_config, {"prompt": "sharper", "variants": ["test"], "experiment_id": watched.id}
+        )
+
     @parameterized.expand(
         [
             ("classifier_without_tags", ScannerType.CLASSIFIER, {"prompt": "p"}),

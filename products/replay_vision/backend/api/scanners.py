@@ -838,23 +838,38 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             attrs.pop("experiment_targeting")
 
     def _restore_redacted_experiment_config(self, attrs: dict[str, Any]) -> None:
-        # to_representation strips the experiment keys from an experiment scanner's config for
-        # callers denied the experiment, and the editor form writes the whole config back on save.
-        # Restore the stored keys when such a caller writes a config with no experiment_id, so the
-        # save reads as untouched scope instead of failing validation. A caller who can view the
-        # experiment gets no restore: their missing experiment_id is a real (rejected) edit.
+        """Normalize an experiment scanner's config on update, where the experiment itself is fixed.
+
+        The experiment decides the population, the prompt, and the meaning of every observation,
+        so it is as identity-defining as the scanner type: retargeting is a new scanner, not an
+        edit (and per-scanner readouts would otherwise mix two populations). That also makes a
+        written-back config with no experiment_id unambiguous, so the stored id is restored
+        whoever the caller is; to_representation strips it for callers denied the experiment,
+        and the editor form writes the whole config back on save. `variants` stays editable and
+        is restored only for a caller who never saw it.
+        """
         if self.instance is None or self.instance.scanner_type != ScannerType.EXPERIMENT:
             return
         config = attrs.get("scanner_config")
-        if not isinstance(config, dict) or config.get("experiment_id") is not None:
+        if not isinstance(config, dict):
             return
         stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
         if stored.get("experiment_id") is None:
             return
-        if self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]}):
-            return
+        if config.get("experiment_id") is not None and config["experiment_id"] != stored["experiment_id"]:
+            raise serializers.ValidationError(
+                {
+                    "scanner_config": (
+                        "The experiment is fixed after creation. Create a new scanner to watch a different experiment."
+                    )
+                }
+            )
         restored = {**config, "experiment_id": stored["experiment_id"]}
-        if "variants" not in restored and "variants" in stored:
+        if (
+            "variants" not in restored
+            and "variants" in stored
+            and not self._can_view_targeted_experiment({"experiment_id": stored["experiment_id"]})
+        ):
             restored["variants"] = stored["variants"]
         attrs["scanner_config"] = restored
 
