@@ -31,7 +31,7 @@ The key signals are:
 - `$has_recording` — whether PostHog has a stored recording for this session
 - `$recording_status` — SDK state: `active`, `buffering`, `disabled`, `sampled`, `paused`
 - `$session_recording_start_reason` — why recording started or didn't
-- `$sdk_debug_recording_script_not_loaded` — recorder script blocked (ad blocker)
+- `$sdk_debug_recording_script_not_loaded` — recorder script blocked (ad blocker, CSP, reverse proxy, or firewall)
 - `$sdk_debug_replay_*_trigger_status` — trigger states (URL, event, linked flag)
 - `$replay_sample_rate` — configured sample rate at capture time
 
@@ -85,7 +85,7 @@ Use the [diagnosis logic reference](./references/diagnosis-logic.md) to interpre
 The verdicts in priority order:
 
 1. **Recording exists** (`$has_recording = true`) — recording is captured, issue is elsewhere
-2. **Ad blocked (script)** (`$sdk_debug_recording_script_not_loaded = true`) — browser extension blocking the recorder script from loading
+2. **Ad blocked (script)** (`$sdk_debug_recording_script_not_loaded = true`) — an ad blocker, CSP, firewall, or a reverse proxy that does not forward `/static/*` blocks the recorder script
 3. **Disabled** (`$recording_status = 'disabled'`) — replay turned off in settings or SDK config
 4. **Trigger pending** (trigger statuses are `trigger_pending`, none matched) — recording gated on trigger that never fired
 5. **Sampled out** (`$session_recording_start_reason = 'sampled_out'`) — excluded by sample rate
@@ -130,14 +130,14 @@ Look for patterns:
 
 Based on the verdict, recommend specific actions:
 
-| Verdict         | Recommendation                                                                                                                        |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Ad blocked      | User's browser extension is blocking rrweb. Suggest trying without ad blocker, or using a proxy/custom domain for the recorder script |
-| Disabled        | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                        |
-| Trigger pending | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                              |
-| Sampled out     | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                            |
-| Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration     |
-| Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                          |
+| Verdict         | Recommendation                                                                                                                                                                                                        |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ad blocked      | An ad blocker, CSP, firewall, or reverse proxy blocks rrweb. If events arrive through a custom proxy, it must forward `/static/*`, `/array/*`, and `/s/`. Otherwise set `asset_host` or use the managed reverse proxy |
+| Disabled        | Check project replay settings — recording may be turned off. Link to Settings > Session replay                                                                                                                        |
+| Trigger pending | The configured trigger (URL pattern, event, or feature flag) never matched. Review trigger configuration                                                                                                              |
+| Sampled out     | Increase the sample rate in project settings, or use a trigger to guarantee capture for important sessions                                                                                                            |
+| Buffering empty | Page closed before first snapshot. Common with very short sessions or single-page navigations. Consider lowering minimum duration                                                                                     |
+| Unknown         | Direct user to troubleshooting docs: https://posthog.com/docs/session-replay/troubleshooting                                                                                                                          |
 
 ## Examples
 

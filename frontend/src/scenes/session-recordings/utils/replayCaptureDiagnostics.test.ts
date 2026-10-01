@@ -263,6 +263,15 @@ describe('diagnoseReplayCapture', () => {
         expect(labels).toContain('Read troubleshooting docs')
     })
 
+    it('ad_blocked names the reverse proxy paths and links the proxy docs', () => {
+        const result = diagnoseReplayCapture({ $sdk_debug_recording_script_not_loaded: true })
+        const reasons = result.reasons.join(' ')
+        for (const path of ['/static/*', '/array/*', '/s/', 'asset_host']) {
+            expect(reasons).toContain(path)
+        }
+        expect(result.suggestedActions.map((a) => a.to)).toContain('https://posthog.com/docs/advanced/proxy')
+    })
+
     it('trigger_pending reason mentions all pending trigger names', () => {
         const result = diagnoseReplayCapture({
             $sdk_debug_replay_url_trigger_status: 'trigger_pending',
