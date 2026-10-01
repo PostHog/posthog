@@ -794,6 +794,7 @@ UNCOMPILABLE_PATTERNS = [
     ("regex", "regex", "["),
     ("not_regex", "not_regex", "(?P<"),
     ("repetition_overflow", "regex", "a{4294967296}"),
+    ("repetition_past_the_int_digit_limit", "regex", "a{" + "9" * 5000 + "}"),
     ("nesting_past_the_recursion_limit", "not_regex", "(" * 5000 + ")" * 5000),
 ]
 

@@ -321,7 +321,7 @@ def _regex_patterns(document: Mapping[str, Any]) -> Iterator[_RegexPattern]:
 def _compiles(pattern: str) -> bool:
     try:
         re.compile(pattern)
-    except (re.error, OverflowError, RecursionError):
+    except (re.error, ValueError, OverflowError, RecursionError):
         return False
     return True
 
