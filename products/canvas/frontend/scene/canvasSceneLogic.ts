@@ -145,7 +145,7 @@ export function canvasBuildStatus(
 export interface canvasSceneLogicValues {
     startHandoff: CanvasStartHandoff | null // canvasNewLogic
     currentProjectId: number | null // projectLogic
-    selectedTab: import('~/types').SidePanelTab | null // sidePanelStateLogic
+    selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     agentTurn: CanvasAgentTurn | null
     bodyState: CanvasBodyState
@@ -313,6 +313,13 @@ export interface canvasSceneLogicActions {
     requestFixFinished: (result: CanvasFixRequestResultApi | null) => {
         result: CanvasFixRequestResultApi | null
     }
+    setAgentTurn: (
+        runId: string,
+        active: boolean | null
+    ) => {
+        active: boolean | null
+        runId: string
+    }
     setInstruction: (
         instruction: string,
         fromSuggestion: boolean
@@ -322,13 +329,6 @@ export interface canvasSceneLogicActions {
     }
     setRuntimeError: (message: string | null) => {
         message: string | null
-    }
-    setAgentTurn: (
-        runId: string,
-        active: boolean | null
-    ) => {
-        active: boolean | null
-        runId: string
     }
     startPolling: () => {
         value: true
