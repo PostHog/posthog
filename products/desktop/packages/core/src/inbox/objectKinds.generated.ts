@@ -159,11 +159,11 @@ export type ObjectKindName = keyof typeof OBJECT_KIND_DATA;
 /** Alternate tag names agents plausibly write, mapped to registry kinds. */
 export const OBJECT_KIND_ALIASES: Record<string, string> = {
   "session-replay": "replay",
-  "session_replay": "replay",
-  "recording": "replay",
+  session_replay: "replay",
+  recording: "replay",
   "feature-flag": "flag",
-  "feature_flag": "flag",
-  "sql": "hogql",
+  feature_flag: "flag",
+  sql: "hogql",
 };
 
 /** Rendering fallback for a tag whose kind nobody registered. */

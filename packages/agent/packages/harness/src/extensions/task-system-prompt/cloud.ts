@@ -25,6 +25,8 @@ export interface CloudTaskPromptOptions {
   shouldAutoPublish: boolean;
   slackArtifactDelivery: SlackArtifactDelivery | null;
   slackChartDelivery: boolean;
+  // The Slack thread draws the agent's task list as a live checklist.
+  slackProgressChecklist: boolean;
   storeSkillsInstalledCount: number;
   taskId: string;
   taskRepositories: string[];
@@ -111,7 +113,8 @@ ${unsupportedDeliverable}`;
     return `${preamble}
 - For Slack deliverables, create a living artifact before claiming delivery. POST to \`${endpoint}\` with \`$POSTHOG_PERSONAL_API_KEY\`; choose adapter \`slack_canvas\`, \`slack_message\`, \`slack_file\`, or \`document_connector\`. Use \`adapter=slack_file\` with \`content_base64\` for binary deliverables such as .xlsx/.pdf/.docx, or \`source_artifact_id\` / \`source_storage_path\` for a file you already uploaded as a \`type=output\` run artifact.
 - To update a prior deliverable, GET the returned artifact id or POST new \`content\`, \`content_base64\`, or source artifact fields to \`${endpoint}<artifact_id>/edit/\`.${chartBullets}
-- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending file artifacts to your final answer automatically, so mention the artifact by name only if useful.
+- Do not paste living-artifact Slack file links or permalinks into your final Slack answer unless the user explicitly asks for the URL. The Slack relay attaches pending files and canvas cards to your final answer automatically after you finish, so mention the artifact by name only if useful.
+- A pending delivery status only means the artifact waits for your final answer. Do not check it again, and do not tell the user that a link or file has not arrived.
 - If you created a local file but no upload or delivery tool is available, say that plainly and summarize the result in Slack instead.`;
   }
 
@@ -187,7 +190,17 @@ To ping a Slack user, reuse a \`<@U…|displayname>\` token that already appears
 You can also open pull requests directly from this Slack thread. When the user's question describes a problem with a plausible code-side fix — a bug visible in errors or logs, missing or broken instrumentation, a broken funnel step traceable to UI code, a stale config that lives in a repo — end your reply with a one-sentence offer to open a PR for the fix and ask if they want you to proceed. Skip the offer for pure data lookups with no actionable code change (e.g. "what was DAU yesterday?"), and skip it when the fix would clearly live outside any repo you can reach.
 `
       : "";
-    const identityInstructions = `${slackIdentityInstructions}${githubIdentityInstructions}`;
+    const slackProgressInstructions =
+      isSlack && this.options.slackProgressChecklist
+        ? `
+# Progress checklist
+The Slack thread shows your task list as a live checklist, and it is the only progress the user sees while you work. Before your first tool call, create the task list with your task tools (TaskCreate and TaskUpdate, or update_plan): 2 to 5 tasks, each one outcome the user cares about. Mark a task in progress when you start it and completed when you finish it. Add a task when the work grows.
+- Write each task in plain words for someone who does not read code, for example "Find the signup event" or "Count weekly signups".
+- Do not put tool names, file paths, SQL, or IDs in a task.
+- Skip the list only when you answer without any tool call.
+`
+        : "";
+    const identityInstructions = `${slackIdentityInstructions}${slackProgressInstructions}${githubIdentityInstructions}`;
     const signedCommitInstructions = `
 ## Committing (signed commits required)
 Commits MUST be signed. \`git commit\` and \`git push\` are blocked in this environment.

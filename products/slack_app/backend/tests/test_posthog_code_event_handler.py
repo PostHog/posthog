@@ -602,6 +602,8 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # No workflow starts.
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
         self._seed_slack_user_cache("U123", "stranger@example.com")
+        self.posthog_code_integration.config = {**self.posthog_code_integration.config, "app_id": "A123"}
+        self.posthog_code_integration.save()
         mock_post_feedback.return_value = True
 
         from products.slack_app.backend.api import (
@@ -622,6 +624,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_post_feedback.assert_called_once()
         feedback_text = mock_post_feedback.call_args.args[4]
         assert "stranger@example.com" in feedback_text
+        # The install holds the identity scopes, so the reply points to linking an existing
+        # account. An invite to the Slack email can't be accepted from a different email.
+        assert "Settings > Personal integrations" in feedback_text
+        assert "<slack://app?team=T12345&id=A123&tab=home|my Home tab>" in feedback_text
         assert mock_post_feedback.call_args.kwargs.get("prefer_thread_message") is True
 
         # The mention is still reported to analytics with ``posthog_user_identified=False``
