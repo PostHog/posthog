@@ -11,9 +11,10 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
-from products.alerts.backend.evaluation.delay import validate_evaluation_delay
+from products.alerts.backend.evaluation.delay import DelayedEvaluationUnavailable, validate_evaluation_delay
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
+from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.presentation.views.alert import AlertSerializer, AlertSimulateSerializer
 from products.product_analytics.backend.facade.models import Insight
@@ -157,6 +158,25 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertIsNone(result.value)
         assert result.skipped_reason is not None
         self.assertIn("missing values", result.skipped_reason)
+
+    @parameterized.expand([("short_history", 3, None), ("missing_value", 10, 4)])
+    def test_delayed_ai_without_a_verdict_raises(self, _name: str, length: int, missing_index: int | None) -> None:
+        self.alert.detector_config = {"type": "llm"}
+        data = list[float | None]([100.0] * length)
+        if missing_index is not None:
+            data[missing_index] = None
+        dates = [(datetime(2026, 1, 15, tzinfo=UTC) + timedelta(hours=i)).isoformat() for i in range(length)]
+
+        with self.assertRaises(LLMDetectorUnavailableError) as raised:
+            self.evaluate(data, dates, detector=True)
+        self.assertIsInstance(raised.exception.__cause__, DelayedEvaluationUnavailable)
+
+    def test_delayed_ai_without_a_series_raises(self) -> None:
+        self.alert.detector_config = {"type": "llm"}
+        with patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight") as calculate:
+            calculate.return_value.result = []
+            with self.assertRaisesRegex(LLMDetectorUnavailableError, "No series is available to score"):
+                check_alert_for_insight(self.alert)
 
     @parameterized.expand(
         [

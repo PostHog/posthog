@@ -26,6 +26,8 @@ from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
+from products.alerts.backend.judge.contract import LLMDetectorUnavailableError
+from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
 
@@ -152,6 +154,8 @@ def check_alert_for_insight(alert: AlertConfiguration, *, evaluation_id: str | N
     try:
         return _check_alert_for_insight(alert, evaluation_id=evaluation_id)
     except DelayedEvaluationUnavailable as err:
+        if is_llm_detector_config(alert.detector_config):
+            raise LLMDetectorUnavailableError(str(err)) from err
         return AlertEvaluationResult(
             value=None,
             breaches=[],
