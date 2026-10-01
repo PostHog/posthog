@@ -3469,10 +3469,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         slack_ctx = payload.get("slack_thread_context") or self._slack_thread_context or {}
         if not slack_ctx:
             return
-        message_id = payload.get("message_id")
-        await self._start_slack_agent_design_relay(
-            slack_ctx, message_id=message_id if isinstance(message_id, str) else None
-        )
+        await self._start_slack_agent_design_relay(slack_ctx, message_id=payload.get("message_id"))
 
     async def _start_slack_agent_design_relay(
         self, slack_ctx: dict[str, Any], setup_title: Optional[str] = None, message_id: Optional[str] = None

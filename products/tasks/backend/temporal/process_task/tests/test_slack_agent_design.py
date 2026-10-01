@@ -14,7 +14,9 @@ from posthog.models.user import User
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.slack_agent_design import (
+    StartSlackAgentDesignStreamInput,
     StopSlackAgentDesignStreamInput,
+    start_slack_agent_design_stream,
     stop_slack_agent_design_stream,
 )
 from products.tasks.backend.temporal.process_task.utils import record_message_actor
@@ -123,25 +125,29 @@ class TestSlackAgentDesignStream(TestCase):
             ("message_sender", "msg-2", "U789"),
         ]
     )
-    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
-    def test_closing_the_stream_tags_the_turns_sender_not_the_thread_creator(
-        self, _name, message_id, expected_target, mock_stop
+    @patch(
+        "products.slack_app.backend.slack_thread.SlackThreadHandler.start_status_stream",
+        autospec=True,
+        return_value="2.0",
+    )
+    def test_opening_the_stream_tags_the_turns_sender_not_the_thread_creator(
+        self, _name, message_id, expected_target, mock_start
     ) -> None:
         record_message_actor(str(self.task_run.id), "msg-2", "U789")
 
-        stop_slack_agent_design_stream(
-            StopSlackAgentDesignStreamInput(
+        stream = start_slack_agent_design_stream(
+            StartSlackAgentDesignStreamInput(
                 slack_thread_context={
                     "integration_id": self.integration.id,
                     "channel": "C1",
                     "thread_ts": "1.0",
                     "mentioning_slack_user_id": "U123",
                 },
-                ts="2.0",
-                final_markdown="Done.",
+                first_markdown_text="Done.",
                 run_id=str(self.task_run.id),
                 message_id=message_id,
             )
         )
 
-        assert mock_stop.call_args.args[0].actor_slack_user_id == expected_target
+        assert mock_start.call_args.args[0].actor_slack_user_id == expected_target
+        assert stream is not None and stream.actor_slack_user_id == expected_target

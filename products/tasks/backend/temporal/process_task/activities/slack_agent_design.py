@@ -34,8 +34,8 @@ class StartSlackAgentDesignStreamInput:
     task_updates: list[TaskUpdateChunk] = field(default_factory=list)
     first_markdown_text: Optional[str] = None
     plan_title: Optional[str] = None
-    # Resolve who sent this turn's message, so the reply tags them.
     run_id: Optional[str] = None
+    # The message this turn answers. The reply tags its sender.
     message_id: Optional[str] = None
 
 
@@ -44,6 +44,8 @@ class SlackAgentDesignStream:
     ts: str
     # Whether the message has a plan block, so closing it can set the plan title.
     has_plan: bool
+    # Who the reply tags, so closing the stream tags the same person.
+    actor_slack_user_id: Optional[str] = None
 
 
 @frozen
@@ -70,8 +72,7 @@ class StopSlackAgentDesignStreamInput:
     plan_title: Optional[str] = None
     # The stream opened with the answer, which already carried the @-mention.
     mention_sent: bool = False
-    # The message this turn answers, whose sender the reply tags.
-    message_id: Optional[str] = None
+    actor_slack_user_id: Optional[str] = None
 
 
 def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]:
@@ -87,7 +88,7 @@ def _rewrite_object_tags(text: Optional[str], project_url: str) -> Optional[str]
 
 
 def _reply_target(run_id: Optional[str], message_id: Optional[str]) -> Optional[str]:
-    """The Slack user this turn's reply tags, resolved as the non-streamed reply does."""
+    """The Slack user this turn's reply tags, resolved as the flag-off reply does."""
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import slack_reply_target
@@ -118,7 +119,11 @@ def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> 
             first_markdown_text=markdown_text,
             plan_title=input.plan_title,
         )
-        return SlackAgentDesignStream(ts=new_ts, has_plan=bool(input.task_updates)) if new_ts else None
+        if not new_ts:
+            return None
+        return SlackAgentDesignStream(
+            ts=new_ts, has_plan=bool(input.task_updates), actor_slack_user_id=handler.actor_slack_user_id
+        )
     except Exception as e:
         logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
         return None
@@ -159,7 +164,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         handler = SlackThreadHandler.for_run(
             context,
             input.run_id,
-            actor_slack_user_id=_reply_target(input.run_id, input.message_id),
+            actor_slack_user_id=input.actor_slack_user_id,
             turn_trace_id=input.trace_id,
         )
         task_run = TaskRun.objects.get(id=input.run_id) if input.run_id else None

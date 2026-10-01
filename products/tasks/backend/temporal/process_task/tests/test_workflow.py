@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, call
 
 from django.conf import settings
 
@@ -2254,8 +2254,11 @@ class TestProcessTaskWorkflowUnit:
         # The plan shows while the sandbox provisions, so the relay starts before the first turn.
         start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
 
-    @pytest.mark.parametrize("early_relay_open, starts_relay", [(True, False), (False, True)])
-    async def test_turn_started_reuses_the_relay_started_during_provisioning(self, early_relay_open, starts_relay):
+    @pytest.mark.parametrize(
+        "early_relay_open, expected_starts",
+        [(True, []), (False, [call({"channel": "C1"}, message_id="msg-2")])],
+    )
+    async def test_turn_started_reuses_the_relay_started_during_provisioning(self, early_relay_open, expected_starts):
         # A second relay for the first turn would post a second reply in the thread.
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
@@ -2266,10 +2269,7 @@ class TestProcessTaskWorkflowUnit:
 
         await workflow.turn_started({"slack_thread_context": {"channel": "C1"}, "message_id": "msg-2"})
 
-        assert start_relay_mock.called is starts_relay
-        if starts_relay:
-            # The relay tags the sender of the message this turn answers.
-            assert start_relay_mock.call_args.kwargs["message_id"] == "msg-2"
+        assert start_relay_mock.call_args_list == expected_starts
         assert workflow._early_slack_relay_open is False
 
     @pytest.mark.parametrize(

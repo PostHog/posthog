@@ -608,8 +608,8 @@ async def _relay_loop(
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
                             if is_agent_design_enabled and workflow_handle is not None:
-                                if not slack_turn_active[0] and (prompt_message_id := _prompt_message_id(event_data)):
-                                    slack_turn_message_id[0] = prompt_message_id
+                                if not slack_turn_active[0] and _is_session_prompt(event_data):
+                                    slack_turn_message_id[0] = _prompt_message_id(event_data)
                                 if not slack_turn_active[0] and _is_session_update(event_data):
                                     slack_turn_active[0] = True
                                     # Await so turn_started is recorded before any delta of this turn,
@@ -761,16 +761,23 @@ async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_
         )
 
 
+def _event_method(event_data: dict) -> str | None:
+    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
+    notification = event_data.get("notification")
+    if isinstance(notification, dict):
+        return notification.get("method")
+    return None
+
+
+def _is_session_prompt(event_data: dict) -> bool:
+    """Whether the event is a user ``session/prompt`` — the start of a new conversational turn."""
+    return _event_method(event_data) == "session/prompt"
+
+
 def _prompt_message_id(event_data: dict) -> str | None:
     """The id of the user message a ``session/prompt`` delivers. Delivery records the sender under it."""
-    notification = event_data.get("notification")
-    if event_data.get("type") != "notification" or not isinstance(notification, dict):
-        return None
-    if notification.get("method") != "session/prompt":
-        return None
-    meta = (notification.get("params") or {}).get("_meta")
-    message_id = meta.get("messageId") if isinstance(meta, dict) else None
-    return message_id if isinstance(message_id, str) and message_id else None
+    params = event_data["notification"].get("params") or {}
+    return (params.get("_meta") or {}).get("messageId") or None
 
 
 def _is_session_update(event_data: dict) -> bool:

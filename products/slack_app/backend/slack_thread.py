@@ -9,7 +9,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, opens_with_line_anchored_markdown, slack_markdown_block
+from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.services.slack_messages import (
@@ -18,8 +18,8 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     fork_menu_actions_block,
     fork_menu_element,
+    leading_mention_prefix,
     load_run_footer,
-    mentions_slack_user,
     normalize_labeled_mentions_to_bare,
     personal_integrations_url,
     post_slack_thread_reply,
@@ -507,12 +507,7 @@ class SlackThreadHandler:
             logger.warning("slack_app_status_stream_stop_failed", error=str(e))
 
     def _with_leading_mention(self, markdown: str) -> str:
-        recipient = self.actor_slack_user_id
-        if not recipient or mentions_slack_user(markdown, recipient):
-            return markdown
-        # A heading, list, quote, table or fence must start its line, or Slack shows the markup as text.
-        separator = "\n\n" if opens_with_line_anchored_markdown(markdown) else " "
-        return f"<@{recipient}>{separator}{markdown}"
+        return leading_mention_prefix(markdown, self.actor_slack_user_id) + markdown
 
     def attach_files(self, ts: str, file_ids: list[str]) -> bool:
         """Attach uploaded files to a message whose stream has closed, keeping its blocks and text.

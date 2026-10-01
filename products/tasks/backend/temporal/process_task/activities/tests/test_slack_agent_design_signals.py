@@ -164,7 +164,6 @@ class TestSlackAgentDesignSignalEmitter:
 
         signals = emitter.process(_text_chunk("turn two"))
 
-        # The reply tags whoever sent the message this turn answers, so the turn names that message.
         assert signals == [
             ("turn_started", {"slack_thread_context": SLACK_CTX, "message_id": "msg-2"}),
             ("agent_text_delta", "turn two"),

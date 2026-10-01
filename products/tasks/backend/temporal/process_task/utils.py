@@ -1663,11 +1663,7 @@ def get_message_actor(run_id: str, message_id: str) -> str | None:
 
 
 def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
-    """The Slack user a reply tags, most precise first.
-
-    The recorded sender of the message the reply answers, then the run's acting user and the
-    thread's latest actor and opener, for turns with no recorded sender.
-    """
+    """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
     state = task_run.state or {}
     return (
         (get_message_actor(str(task_run.id), message_id) if message_id else None)
