@@ -427,11 +427,18 @@ class NotebookCellVisualizationSerializer(serializers.Serializer):
     )
     x_axis = serializers.CharField(
         allow_null=True,
-        help_text="Column on the X axis. Null means the chart picks it: the first date column.",
+        help_text=(
+            "Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y "
+            "series do not use when there is no date column."
+        ),
     )
     y_axis = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Columns plotted as Y series. Empty means the chart picks them: every numeric column.",
+        allow_null=True,
+        help_text=(
+            "Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list "
+            "means the author removed every series, so the chart plots nothing."
+        ),
     )
     series_breakdown = serializers.CharField(
         allow_null=True,
