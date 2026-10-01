@@ -654,6 +654,13 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
     return {"rollout_state": rollout_state, "active_variant": active_variant}
 
 
+def _first_error_message(detail: Any) -> str:
+    """The first message in a DRF error detail, which nests messages in dicts and lists."""
+    while isinstance(detail, (dict, list)) and detail:
+        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
+    return str(detail)
+
+
 def calculate_filter_size_bytes(filters: dict | None) -> int:
     """Calculate the approximate byte size of a flag's filters JSON.
 
@@ -1838,8 +1845,9 @@ class FeatureFlagSerializer(
     def _drop_echoed_v2_fields(self, attrs: dict) -> set[str]:
         """Remove every submitted value equal to the stored one and return their names.
 
-        An echo is neither judged nor written: PUT must repeat `key`, and a bulk delete does not
-        bump `version`, so a written `deleted: false` could undo one.
+        An echo is neither judged nor written: PUT must repeat `key`, and a soft delete from outside
+        this serializer (the file-system trash) does not bump `version`, so a written
+        `deleted: false` could undo one.
         """
         assert isinstance(self.instance, FeatureFlag)
         echoed = {
@@ -5172,6 +5180,7 @@ class FeatureFlagViewSet(
         # Also track which need key renames (have deleted experiments)
         flags_to_delete_normal: list[FeatureFlag] = []
         flags_to_delete_with_rename: list[FeatureFlag] = []
+        v2_flags: list[tuple[FeatureFlag, dict]] = []
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
@@ -5237,6 +5246,10 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
+
+            if detect_config_format(flag.filters).kind == "v2":
+                v2_flags.append((flag, {"id": flag_id, "key": old_key, **rollout_info}))
+                continue
 
             # Rename the key if the flag is linked to any experiment, to free it up.
             # Use the prefetched experiment_set cache (see queryset above) rather than
@@ -5306,6 +5319,24 @@ class FeatureFlagViewSet(
                     update_team_remote_config.delay(team_id)
 
                 transaction.on_commit(invalidate_caches)
+
+        if v2_flags:
+            from products.feature_flags.backend.facade.api import update_flag
+
+            for flag, entry in v2_flags:
+                try:
+                    update_flag(
+                        flag,
+                        {"deleted": True, "version": flag.version or 0},
+                        team=flag.team,
+                        user=request.user,
+                        request=FlagLifecycleWriteRequest(request),
+                        serializer_context=self.get_serializer_context(),
+                    )
+                except exceptions.APIException as exc:
+                    errors.append({"id": flag.id, "key": flag.key, "reason": _first_error_message(exc.detail)})
+                else:
+                    deleted.append(entry)
 
         return Response(
             {

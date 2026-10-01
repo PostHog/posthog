@@ -10,6 +10,7 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
+from posthog.exceptions import Conflict
 from posthog.models import Team
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
@@ -51,14 +52,87 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         assert entry.activity == "updated"
         assert self.changed_fields(entry) == {"active", "version"}
 
-    def test_an_echoed_deleted_false_does_not_undo_a_concurrent_bulk_delete(self) -> None:
+    def test_an_echoed_deleted_false_does_not_undo_a_soft_delete_that_kept_the_version(self) -> None:
         flag = self.flag(active=True)
         stale = FeatureFlag.objects.get(pk=flag.pk)
-        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)  # a bulk delete does not bump version
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)  # as the file-system trash does
         updated = flag_facade.update_flag(
             stale, {"version": 3, "deleted": False, "active": False}, team=self.team, user=self.user
         )
         assert (updated.deleted, updated.active, updated.version) == (True, False, 4)
+
+    def test_bulk_delete_disables_and_bumps_the_version_like_a_single_delete(self) -> None:
+        flag = self.flag(active=True)
+        v1_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            version=5,
+        )
+        self._activity_qs(v1_flag).delete()
+        stale = FeatureFlag.objects.get(pk=flag.pk)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id, v1_flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {item["id"] for item in response.json()["deleted"]} == {flag.id, v1_flag.id}
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (True, False, 4)
+        (entry,) = self.activity(flag)
+        assert entry.activity == "deleted"
+        assert {c["field"]: (c["before"], c["after"]) for c in (entry.detail or {})["changes"]} == {
+            "deleted": (False, True),
+            "active": (True, False),
+            "version": (3, 4),
+        }
+        v1_flag.refresh_from_db()
+        assert (v1_flag.deleted, v1_flag.active, v1_flag.version) == (True, True, 5)
+        (v1_entry,) = self.activity(v1_flag)
+        assert (v1_entry.activity, (v1_entry.detail or {})["changes"]) == ("deleted", [])
+        with self.assertRaises(Conflict):
+            flag_facade.update_flag(stale, {"version": 3, "active": False}, team=self.team, user=self.user)
+
+    def test_bulk_delete_reports_a_row_the_single_delete_refuses(self) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            approver_config={},
+            enabled=True,
+        )
+        flag = self.flag(active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted"] == []
+        assert response.json()["errors"] == [
+            {
+                "id": flag.id,
+                "key": flag.key,
+                "reason": "This flag cannot be written while an approval policy is enabled.",
+            }
+        ]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (False, True, 3)
+        assert self.activity(flag) == []
+        assert not ChangeRequest.objects.filter(organization=self.organization).exists()
+
+    def test_bulk_delete_still_soft_deletes_a_row_in_an_unsupported_format(self) -> None:
+        flag = self.flag({"version": 99}, active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [item["id"] for item in response.json()["deleted"]] == [flag.id]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (True, True, 3)
 
     def test_soft_deleting_disables_an_enabled_row_in_the_same_write(self) -> None:
         flag = self.flag(active=True)
