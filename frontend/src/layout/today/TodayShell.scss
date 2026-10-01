@@ -17,6 +17,59 @@
     height: 100%;
 }
 
+.TodayShell__scrim {
+    position: fixed;
+    inset: 0 0 0 var(--today-rail-width);
+    z-index: var(--z-layout-navbar-under);
+    visibility: hidden;
+    background: rgb(21 21 21 / 18%);
+    opacity: 0;
+    transition:
+        opacity 240ms var(--today-ease),
+        visibility 240ms;
+
+    [theme='dark'] & {
+        background: rgb(0 0 0 / 55%);
+    }
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+.TodayShell__drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: var(--today-rail-width);
+    z-index: var(--z-layout-navbar);
+    max-width: calc(100vw - var(--today-rail-width) - 3rem);
+    visibility: hidden;
+    background: var(--today-paper);
+    border-right: 1px solid var(--today-line);
+    box-shadow: 24px 0 48px -24px rgb(0 0 0 / 28%);
+    opacity: 0;
+    transition:
+        transform 280ms var(--today-ease),
+        opacity 200ms var(--today-ease),
+        visibility 280ms;
+    transform: translateX(-12px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayShell__scrim,
+    .TodayShell__drawer {
+        transition: none;
+    }
+}
+
 .TodayShell__pane {
     flex: 1 1 auto;
     min-height: 0;

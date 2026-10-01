@@ -10,8 +10,9 @@ path; both sides import from here so the reported caps never drift from what dis
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from dataclasses import dataclass
+import hashlib
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -231,6 +232,18 @@ DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK = 5
 
 
 @dataclass(frozen=True)
+class BackgroundBand:
+    """One entry of `background.bands`. `interval_minutes` is `None` when unset, so the block value applies."""
+
+    percent: int
+    interval_minutes: int | None
+
+
+# The activity bands that the nightly job writes to `SignalScoutBackgroundBand`, most active first.
+BACKGROUND_BANDS = (1, 2, 3, 4)
+
+
+@dataclass(frozen=True)
 class BackgroundEnrollment:
     """Parsed `background` block from the `signals-scout` flag payload.
 
@@ -244,10 +257,49 @@ class BackgroundEnrollment:
     team_ids: frozenset[int]
     interval_minutes: int | None
     max_new_teams_per_tick: int
+    # Only the bands with a valid entry. A missing band samples no project.
+    bands: Mapping[int, BackgroundBand] = field(default_factory=dict)
+
+    def band_interval_minutes(self, band: int | None) -> int | None:
+        entry = self.bands.get(band) if band is not None else None
+        if entry is not None and entry.interval_minutes is not None:
+            return entry.interval_minutes
+        return self.interval_minutes
 
 
 def _positive_int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def _parse_background_bands(raw: object) -> dict[int, BackgroundBand]:
+    """Parse `background.bands`. A malformed entry drops out, so that band samples 0 percent.
+
+    A malformed entry never invalidates the block, because the block also carries `team_ids`.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    bands: dict[int, BackgroundBand] = {}
+    for band in BACKGROUND_BANDS:
+        entry = raw.get(str(band))
+        if not isinstance(entry, dict):
+            continue
+        percent = entry.get("percent")
+        if not isinstance(percent, int) or isinstance(percent, bool) or not 0 <= percent <= 100:
+            continue
+        bands[band] = BackgroundBand(
+            percent=percent, interval_minutes=_positive_int_or_none(entry.get("interval_minutes"))
+        )
+    return bands
+
+
+def background_sample_bucket(team_id: int) -> int:
+    """The stable 0-99 bucket of a project. Python's `hash()` is salted per process, so it cannot be used.
+
+    A project is sampled when its bucket is below its band percent, so a higher percent keeps every
+    project that a lower percent sampled.
+    """
+    digest = hashlib.sha256(f"signals-scout-background:{team_id}".encode()).digest()
+    return int.from_bytes(digest[:8], "big") % 100
 
 
 def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
@@ -256,8 +308,8 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
     `None` for a missing payload, a missing block, a block that is not an object, a `skill_name`
     that is not a non-empty string, or a `team_ids` that is not a list of integer ids. A malformed
     `team_ids` must not read as an empty list, because an empty list pauses every background
-    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes` or
-    `max_new_teams_per_tick` falls back to its default and does not invalidate the block.
+    config. `enabled` is on only for a literal `true`. An absent or malformed `interval_minutes`,
+    `max_new_teams_per_tick`, or `bands` entry falls back to its default and does not invalidate the block.
     """
     if payload is None:
         return None
@@ -282,6 +334,7 @@ def _parse_background(payload: dict | None) -> BackgroundEnrollment | None:
         team_ids=frozenset(raw_team_ids),
         interval_minutes=_positive_int_or_none(raw.get("interval_minutes")),
         max_new_teams_per_tick=max_new if max_new is not None else DEFAULT_BACKGROUND_MAX_NEW_TEAMS_PER_TICK,
+        bands=_parse_background_bands(raw.get("bands")),
     )
 
 

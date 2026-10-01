@@ -7,7 +7,7 @@ surface that offers or validates a selection derives from here:
 
 - the backend, through ``products.tasks.backend.temporal.process_task.utils``;
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
-- the desktop app and its agent, through ``@posthog/shared/model-catalog``.
+- the desktop app and its agent, through ``@posthog/agent-contracts/model-catalog``.
 
 Both TypeScript projections are emitted by ``products/tasks/scripts/model_catalog_projection.py`` and are
 checked for drift by `hogli build:projections --check` in CI. After editing this file, run
@@ -233,6 +233,7 @@ MODELS: tuple[CatalogModel, ...] = (
     ),
     CatalogModel("claude-fable-5", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
     CatalogModel("claude-fable-5-1", CLAUDE, _EXTENDED, cost=_FABLE_COST, supports_1m_context=True),
+    CatalogModel("claude-sonnet-5-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel("claude-sonnet-5", CLAUDE, _EXTENDED, cost=_SONNET_COST, supports_1m_context=True),
     CatalogModel(
         "claude-sonnet-4-6",
