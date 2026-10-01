@@ -181,6 +181,9 @@ jobs:
             # Which engine runs this event's backend tests. Depot CI never decides on its
             # own: it waits for the hand-off job below and runs only when that succeeded.
             engine: ${{ steps.route.outputs.engine || 'github' }}
+            # The attempt this job last ran in. "Re-run failed jobs" does not run this job again and
+            # keeps the earlier value, so the relay can tell that re-run from "Re-run all jobs".
+            run_attempt: ${{ github.run_attempt }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -4237,8 +4240,9 @@ jobs:
                       .github/scripts/ci_backend_depot_failures.py
                   sparse-checkout-cone-mode: false
                   persist-credentials: false
-            # The relay reads a failed run's steps and log lines with the Depot CLI. Without
-            # the CLI, the relay prints a warning and still reports the verdict.
+            # The relay reads a failed run's steps and log lines with the Depot CLI, and on a re-run
+            # of this job it starts the Depot jobs again. Without the CLI, the relay prints a
+            # warning and still reports the verdict.
             - uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
               if: needs.changes.outputs.engine == 'depot'
               continue-on-error: true
@@ -4254,6 +4258,7 @@ jobs:
                   SHA: ${{ github.event.pull_request.head.sha }}
                   EVENT_AT: ${{ github.event.pull_request.updated_at }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
+                  RERUN_EVERY_JOB: ${{ needs.changes.outputs.run_attempt == github.run_attempt }}
               run: python3 .github/scripts/ci_backend_relay.py gate
             - name: Summarize dependency results
               if: needs.changes.outputs.engine != 'depot'

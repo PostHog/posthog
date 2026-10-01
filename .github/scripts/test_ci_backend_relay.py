@@ -306,12 +306,124 @@ def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | 
         assert first_line in lines[0]
 
 
-def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
-    _, lines = relay.relay_gate(
-        relay.Progress(relay.Phase.FINISHED, "failure", "https://depot.dev/orgs/o1/workflows/w1?job=j"), EVENT, "123"
-    )
-    assert "  depot ci retry <run ID> --org o1 --workflow w1 --failed" in lines
-    assert "  gh run rerun 123 --repo PostHog/posthog --failed   # relays the new Depot result" in lines
+def shown(workflow: str, gate: str, executions: int) -> dict[str, Any]:
+    return {
+        "workflow": {"status": workflow},
+        "run": {"run_id": "r1"},
+        "executions": [{}] * executions,
+        "jobs": [
+            {"job_key": "ci-backend.yml:changes", "status": "finished"},
+            {"job_key": relay.GATE_JOB_KEY, "status": gate},
+        ],
+    }
+
+
+class FakeDepot:
+    def __init__(self, shows: Sequence[Any]) -> None:
+        self._shows = list(shows)
+        self._live = False
+        self.sent: list[tuple[str, ...]] = []
+
+    def __call__(self, *args: str) -> Any:
+        if args[0] != "workflow":
+            # Depot refuses a retry of a workflow that still runs.
+            assert not self._live
+            self.sent.append(args)
+            return {}
+        answer = self._shows.pop(0) if len(self._shows) > 1 else self._shows[0]
+        if isinstance(answer, Exception):
+            raise answer
+        self._live = answer["workflow"]["status"] in relay.DEPOT_LIVE_STATES
+        return answer
+
+
+RETRY_FAILED = ("retry", "r1", "--workflow", "w1", "--org", "o1", "--failed")
+RERUN = ("rerun", "r1", "--workflow", "w1", "--org", "o1")
+
+
+@pytest.mark.parametrize(
+    "shows,every_job,expected,sent",
+    [
+        pytest.param(
+            [shown("failed", "failed", 1), shown("running", "queued", 2), shown("running", "finished", 2)],
+            False,
+            (relay.Phase.FINISHED, "success"),
+            [RETRY_FAILED],
+            id="the failed jobs run again and the new gate decides",
+        ),
+        pytest.param(
+            [
+                shown("running", "failed", 1),
+                shown("failed", "failed", 1),
+                shown("failed", "failed", 1),
+                shown("running", "queued", 2),
+                shown("failed", "failed", 2),
+            ],
+            False,
+            (relay.Phase.FINISHED, "failure"),
+            [RETRY_FAILED],
+            id="one retry, sent after the workflow finished, and the earlier verdict is not relayed",
+        ),
+        pytest.param(
+            [shown("running", "queued", 2), shown("running", "finished", 2)],
+            False,
+            (relay.Phase.FINISHED, "success"),
+            [],
+            id="a gate that another retry turned green needs no retry",
+        ),
+        pytest.param(
+            [shown("finished", "finished", 1), shown("running", "queued", 2), shown("finished", "cancelled", 2)],
+            True,
+            (relay.Phase.FINISHED, "cancelled"),
+            [RERUN],
+            id="every job runs again although the gate passed",
+        ),
+        pytest.param(
+            [shown("failed", "failed", 1), shown("running", "queued", 2)],
+            False,
+            (relay.Phase.RUNNING, ""),
+            [RETRY_FAILED],
+            id="a retry that never finishes hits the deadline",
+        ),
+        pytest.param([OSError("no depot CLI")], False, None, [], id="an unreachable Depot gives no verdict"),
+    ],
+)
+def test_run_again_relays_only_the_verdict_of_the_new_execution(
+    shows: list[Any], every_job: bool, expected: tuple[Any, str] | None, sent: list[tuple[str, ...]]
+) -> None:
+    depot = FakeDepot(shows)
+    clock = FakeClock()
+    result = relay.run_again("o1", "w1", every_job=every_job, depot=depot, clock=clock, sleep=clock.sleep)
+    assert (result and (result.phase, result.state)) == expected
+    assert depot.sent == sent
+
+
+@pytest.mark.parametrize(
+    "rerun,every_job,polls,rerun_answer,expected,asked",
+    [
+        pytest.param(False, True, [run(10, "failure")], "success", "failure", [], id="a first attempt starts nothing"),
+        pytest.param(True, False, [run(10, "failure")], "success", "success", [False], id="failed jobs re-run"),
+        pytest.param(True, False, [run(10, "cancelled")], "success", "success", [False], id="cancelled run re-run"),
+        pytest.param(True, False, [run(10, "success")], "failure", "success", [], id="a passed gate is relayed"),
+        pytest.param(True, True, [run(10, "success")], "failure", "failure", [True], id="all jobs re-run"),
+        pytest.param(True, False, [run(10, "failure")], None, "failure", [False], id="Depot unreachable"),
+        pytest.param(True, True, [[], run(10, "success")], "failure", "success", [], id="a running gate is awaited"),
+    ],
+)
+def test_only_a_rerun_with_a_settled_verdict_starts_depot_again(
+    rerun: bool, every_job: bool, polls: list[Any], rerun_answer: str | None, expected: str, asked: list[bool]
+) -> None:
+    calls: list[bool] = []
+
+    def run_again(org: str, workflow: str, *, every_job: bool) -> Any:
+        assert (org, workflow) == (relay.DEPOT_ORG, "live")
+        calls.append(every_job)
+        return rerun_answer and relay.Progress(relay.Phase.FINISHED, rerun_answer)
+
+    reader = FakeReader([{EVENT_WAIT: [run(1, "success")], relay.GATE_CHECK: [gate] if gate else []} for gate in polls])
+    result = relay.gate_verdict(reader, EVENT, rerun=rerun, every_job=every_job, run_again=run_again)
+    assert result.state == expected
+    assert calls == asked
 
 
 def api_check() -> dict[str, Any]:
