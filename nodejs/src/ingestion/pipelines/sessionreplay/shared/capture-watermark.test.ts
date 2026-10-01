@@ -6,7 +6,6 @@ import {
     CaptureWatermark,
     CapturedRecord,
     capturedRecords,
-    holdingUntilBatchSettles,
     releasingOffsetStore,
 } from './capture-watermark'
 
@@ -67,30 +66,6 @@ describe('CaptureWatermark', () => {
             { topic: TOPIC, partition: 0, data: 'inline_images', capturedAtMs: 10_000 },
             { topic: TOPIC, partition: 0, data: 'url_images', capturedAtMs: 11_000 },
         ])
-    })
-
-    it('releases a batch only once its background task resolves, and never after it fails', async () => {
-        const watermark = new CaptureWatermark('background', 0)
-        let finishFirst!: () => void
-        let failSecond!: (error: Error) => void
-        const tasks = [
-            new Promise<void>((resolve) => (finishFirst = resolve)),
-            new Promise<void>((_, reject) => (failSecond = reject)),
-        ]
-        const eachBatch = holdingUntilBatchSettles(
-            () => Promise.resolve({ backgroundTask: tasks.shift()! }),
-            watermark,
-            (messages) => capturedRecords(messages, () => 'image_urls')
-        )
-
-        await eachBatch([message(0, 1_000), message(1, 2_000)])
-        await eachBatch([message(2, 3_000)])
-        expect(watermark.snapshot(Date.now() + 1)[0].capturedAtMs).toBe(1_000)
-
-        finishFirst()
-        failSecond(new Error('fetch pass failed'))
-        await new Promise((resolve) => setImmediate(resolve))
-        expect(watermark.snapshot(Date.now() + 1)[0].capturedAtMs).toBe(3_000)
     })
 
     it('does not release offsets that Kafka refused to store', () => {

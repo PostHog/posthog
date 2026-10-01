@@ -432,28 +432,20 @@ describe('SessionBatchRecorder', () => {
 
         it('should accumulate events for the same session', async () => {
             const messages = [
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.FullSnapshot,
-                            timestamp: 1000,
-                            data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
-                        },
-                    ],
-                    { timestamp: 1_700_000_002_000 }
-                ),
-                createMessage(
-                    'session1',
-                    [
-                        {
-                            type: EventType.IncrementalSnapshot,
-                            timestamp: 2000,
-                            data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
-                        },
-                    ],
-                    { timestamp: 1_700_000_001_000 }
-                ),
+                createMessage('session1', [
+                    {
+                        type: EventType.FullSnapshot,
+                        timestamp: 1000,
+                        data: { source: 1, adds: [{ parentId: 1, nextId: 2, node: { tag: 'div' } }] },
+                    },
+                ]),
+                createMessage('session1', [
+                    {
+                        type: EventType.IncrementalSnapshot,
+                        timestamp: 2000,
+                        data: { source: 2, texts: [{ id: 1, value: 'Updated text' }] },
+                    },
+                ]),
             ]
 
             for (const message of messages) {
@@ -470,8 +462,23 @@ describe('SessionBatchRecorder', () => {
                 ['window1', messages[0].message.eventsByWindowId.window1[0]],
                 ['window1', messages[1].message.eventsByWindowId.window1[0]],
             ])
+        })
+
+        it('passes the earliest capture time of each block to the metadata store', async () => {
+            await record(
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 1000, data: {} }], {
+                    timestamp: 1_700_000_002_000,
+                })
+            )
+            await record(
+                createMessage('session1', [{ type: EventType.Meta, timestamp: 2000, data: {} }], {
+                    timestamp: 1_700_000_001_000,
+                })
+            )
+            await recorder.flush()
+
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith([
-                expect.objectContaining({ earliestCapturedAtMs: 1_700_000_001_000 }),
+                expect.objectContaining({ sessionId: 'session1', earliestCapturedAtMs: 1_700_000_001_000 }),
             ])
         })
 

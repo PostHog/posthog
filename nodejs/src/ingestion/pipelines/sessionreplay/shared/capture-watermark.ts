@@ -1,8 +1,7 @@
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
-import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { EachBatch } from '~/common/kafka/consumer/consumer-v2'
+import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 
 /**
  * Every record on an ML replay topic carries the Kafka timestamp of the replay record that its data
@@ -250,24 +249,6 @@ export function releasingOffsetStore(store: OffsetStore, watermark: CaptureWater
             store.offsetsStore(offsets)
             watermark.release(offsets)
         },
-    }
-}
-
-/** For a consumer-v2 lane that lets the consumer store offsets once the batch's background task resolves. */
-export function holdingUntilBatchSettles(
-    eachBatch: EachBatch,
-    watermark: CaptureWatermark,
-    recordsOf: (messages: Message[]) => CapturedRecord[]
-): EachBatch {
-    return async (messages) => {
-        watermark.hold(recordsOf(messages))
-        const result = await eachBatch(messages)
-        // A failed batch keeps its hold, because the consumer stops storing offsets and the process exits.
-        void Promise.resolve(result?.backgroundTask).then(
-            () => watermark.release(findOffsetsToCommit(messages)),
-            () => undefined
-        )
-        return result
     }
 }
 
