@@ -80,6 +80,10 @@ class TestPromptJev(SimpleTestCase):
             ("jev('a', 'q', noul := ['yes', 'no'])", "exactly"),
             ("jev('a', 'q', choice := ['a','b'], noul := ['true','false'])", "either"),
             ("jev('a', 'q', score := ['a','b'])", "supports"),
+            ("jev('a', 'q', model := 'jevk5')", "supports"),
+            ("decide('a', 'q', model := 'gpt')", "model must be one of"),
+            ("decide('a', 'q', model := name)", "model must be one of"),
+            ("decide('a', '')", "decide instructions must be a non-empty"),
         ]
     )
     def test_invalid_arguments(self, query: str, message: str) -> None:
@@ -288,6 +292,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
                 [(0.9,)],
             ),
             ("SELECT jev(NULL, 'Refund?') AS p", [(None,)]),
+            ("SELECT decide('refund', 'Refund?', model := 'jevk5') AS p", [(0.9,)]),
             ("SELECT jev('hello', 'Refund?') AS p LIMIT 0", []),
             (
                 "SELECT " + ", ".join(f"jev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
@@ -302,8 +307,25 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
     def test_sql_decisions(self, query: str, expected: list) -> None:
         with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
             response = execute_hogql_query(query, self.team, user=self.user)
-        self.assertEqual(response.results, expected)
+        # UNION ALL without ORDER BY returns rows in any order.
+        self.assertEqual(sorted(response.results), sorted(expected))
         self.assertLessEqual(post.call_count, 1)
+
+    def test_one_query_mixes_models_with_a_call_per_model(self) -> None:
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response) as post:
+            response = execute_hogql_query(
+                "SELECT jev('refund', 'Refund?') AS a, decide('refund', 'Refund?', model := 'jevk5') AS b LIMIT 1",
+                self.team,
+                user=self.user,
+            )
+        assert response.results == [(0.9, 0.9)]
+        calls = [
+            (call.kwargs["json"]["model"], call.kwargs["headers"]["X-PostHog-Product"]) for call in post.call_args_list
+        ]
+        assert sorted(calls) == [
+            ("posthog/hogference/jeeves-0.1", "hogql_decide"),
+            ("posthog/hogference/jevk5-fp8-0.2", "hogql_decide"),
+        ]
 
     @parameterized.expand(
         [

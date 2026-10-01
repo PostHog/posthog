@@ -400,6 +400,9 @@ class TestHogFlowTemplateAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["name"] == "Updated Template Name"
 
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}/logs")
+        assert response.status_code == 200, response.json()
+
         response = self.client.delete(f"/api/projects/{self.team.id}/hog_flow_templates/{template_id}")
         assert response.status_code == 204
 
@@ -467,12 +470,15 @@ class TestHogFlowTemplateAPI(APIBaseTest):
     def test_public_list_flow_templates(self):
         """Test that the public endpoint returns global templates from files"""
         clear_template_cache()
+        file_order = [template["id"] for template in load_global_templates()]
 
         # Log out to test unauthenticated access
         self.client.logout()
         response = self.client.get("/api/public_hog_flow_templates/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        # The public list sorts its own copy, so the cached order the authenticated list serves stays put.
+        assert [template["id"] for template in load_global_templates()] == file_order
 
         # Should return file-based templates
         results = response.json()["results"]

@@ -3,7 +3,7 @@ import { SpacePresence } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
-import { TodayWorkItem } from './todayWorkItems'
+import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
 
 /** Repositories past this are counted rather than named, so the card stays a glance. */
 const SPACE_PREVIEW_REPOSITORY_LIMIT = 3
@@ -23,11 +23,14 @@ export interface TodaySessionPreview {
     author: TaskUserBasicInfoApi | null
     timestamp: string | null
     message: string | null
+    menu: TodaySessionMenuTarget
 }
 
 /** What a space row's hover card says. */
 export interface TodaySpacePreview {
     kind: 'space'
+    /** What the card's actions act on. */
+    space: ChannelDTOApi
     name: string
     spaceKind: TodaySpaceKind
     /** The creator first, then whoever worked in the space most recently. */
@@ -55,11 +58,15 @@ export function sessionPreview(
         pinned,
         pullRequestStates,
         spaceNames,
+        menuId,
+        userId,
     }: {
         unread: boolean
         pinned: boolean
         pullRequestStates: Record<string, PrStateEnumApi>
         spaceNames: Record<string, string>
+        menuId: string
+        userId: number | null | undefined
     }
 ): TodaySessionPreview {
     // The row shows only the first pull request, so the card names the same one.
@@ -76,6 +83,7 @@ export function sessionPreview(
         author: item.author,
         timestamp: item.timestamp,
         message: item.finalMessage,
+        menu: sessionMenuTarget(item, { menuId, pinned, userId }),
     }
 }
 
@@ -104,6 +112,7 @@ export function spacePreview(
 ): TodaySpacePreview {
     return {
         kind: 'space',
+        space,
         name,
         spaceKind: spaceKind(space),
         people: spacePeople(space.created_by, presence),
