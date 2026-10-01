@@ -11,7 +11,6 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -19,10 +18,6 @@ from posthog.schema_enums import SessionTableVersion
 from posthog.test.persons import create_person
 from posthog.uuidt import uuid7
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-    LazyComputationTable,
-    ensure_precomputed,
-)
 from products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute import (
     SESSIONS_INSERT_TEMPLATE,
     base_placeholders,
@@ -78,66 +73,113 @@ class TestMarketingSessionsPrecompute(ClickhouseTestMixin, APIBaseTest):
                 {"team_id": self.team.pk, "job_ids": cached.job_ids},
             ) == [(session_id.int,)]
 
-    @parameterized.expand(
-        [
-            (version, legacy_value)
-            for version in (SessionTableVersion.V2, SessionTableVersion.V3)
-            for legacy_value in (None, True, False)
-        ]
-    )
-    def test_cookieless_rollout_reuses_jobs_after_cache_key_transition(
-        self, version: SessionTableVersion, legacy_value: bool | None
+    @parameterized.expand([(True, False), (False, True), (None, True)])
+    def test_cookieless_modifier_change_does_not_reuse_jobs(
+        self, built_with: bool | None, read_with: bool | None
     ) -> None:
-        self.team.modifiers = {"sessionTableVersion": version}
         start = datetime(2026, 9, 1, tzinfo=UTC)
         end = start + timedelta(days=1)
         with patch(
             "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier"
         ) as resolve:
-            resolve.return_value = legacy_value
-            legacy_modifiers = create_default_modifiers_for_team(self.team)
-            legacy = ensure_precomputed(
+            resolve.return_value = built_with
+            built = ensure_marketing_sessions_precomputed(self.team, start, end)
+            assert built.ready, built.errors
+            assert ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False).ready
+
+            resolve.return_value = read_with
+            assert not ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False).ready
+
+    @parameterized.expand(
+        [
+            ("engaged", SessionTableVersion.V2, 50),
+            ("engaged", SessionTableVersion.V3, 50),
+            ("engaged_capped", SessionTableVersion.V2, 1),
+            ("bounced_bot", SessionTableVersion.V2, 50),
+            ("bounced_bot", SessionTableVersion.V3, 50),
+        ]
+    )
+    def test_session_columns_come_from_the_session_and_its_first_pageview(
+        self, scenario: str, version: SessionTableVersion, max_paths: int
+    ) -> None:
+        self.team.modifiers = {"sessionTableVersion": version}
+        start = datetime(2026, 9, 1, tzinfo=UTC)
+        end = start + timedelta(days=1)
+        first_pageview = start + timedelta(hours=1)
+        session_id = str(uuid7(int(first_pageview.timestamp() * 1000)))
+        create_person(team=self.team, distinct_ids=["visitor"])
+        browser_user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 Safari/605.1.15"
+        pageviews = (
+            [
+                (0, "a.example.com", "/pricing", "Desktop", "US", browser_user_agent),
+                (2, "b.example.com", "/docs", "Mobile", "BR", browser_user_agent),
+                (5, "a.example.com", "/pricing", "Mobile", "BR", browser_user_agent),
+            ]
+            if scenario.startswith("engaged")
+            else [(0, "a.example.com", "/pricing", "Desktop", "US", "Googlebot/2.1 (+http://www.google.com/bot.html)")]
+        )
+        for offset_minutes, host, pathname, device, country, user_agent in pageviews:
+            _create_event(
                 team=self.team,
-                insert_query=SESSIONS_INSERT_TEMPLATE,
-                time_range_start=start,
-                time_range_end=end,
-                ttl_seconds=90 * 24 * 60 * 60,
-                table=LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED,
-                modifiers=legacy_modifiers,
-                cache_key_context={"modifiers": legacy_modifiers.model_dump_json(exclude_none=True)},
-                placeholders=base_placeholders(),
+                distinct_id="visitor",
+                event="$pageview",
+                timestamp=first_pageview + timedelta(minutes=offset_minutes),
+                properties={
+                    "$session_id": session_id,
+                    "$host": host,
+                    "$pathname": pathname,
+                    "$current_url": f"https://{host}{pathname}",
+                    "$device_type": device,
+                    "$geoip_country_code": country,
+                    "$raw_user_agent": user_agent,
+                },
             )
-            assert legacy.ready, legacy.errors
-            assert legacy.job_ids
-            written = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
-            if legacy_value is None:
-                assert set(written.job_ids) == set(legacy.job_ids)
-            else:
-                assert not written.ready
-                assert not written.job_ids
-                written = ensure_marketing_sessions_precomputed(self.team, start, end)
-                assert set(written.job_ids).isdisjoint(legacy.job_ids)
-            assert written.ready, written.errors
-            assert written.job_ids
-            original_sql = None
-            for enabled in (None, True, False):
-                resolve.return_value = enabled
-                response = execute_hogql_query(
-                    SESSIONS_INSERT_TEMPLATE,
-                    self.team,
-                    placeholders={
-                        **base_placeholders(),
-                        "time_window_min": ast.Constant(value=start),
-                        "time_window_max": ast.Constant(value=end),
-                    },
-                )
-                assert response.clickhouse
-                if original_sql is None:
-                    original_sql = response.clickhouse
-                assert response.clickhouse == original_sql
-                cached = ensure_marketing_sessions_precomputed(self.team, start, end, run_inserts=False)
-                assert cached.ready, cached.errors
-                assert set(cached.job_ids) == set(written.job_ids)
+        flush_persons_and_events()
+
+        with patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_sessions_precompute.MAX_SESSION_PATHS",
+            max_paths,
+        ):
+            response = execute_hogql_query(
+                SESSIONS_INSERT_TEMPLATE,
+                self.team,
+                modifiers=HogQLQueryModifiers(sessionTableVersion=version),
+                placeholders={
+                    **base_placeholders(),
+                    "time_window_min": ast.Constant(value=start),
+                    "time_window_max": ast.Constant(value=end),
+                },
+            )
+
+        assert response.columns is not None
+        row = dict(zip(response.columns, response.results[0]))
+        engaged = scenario.startswith("engaged")
+        expected_paths = (
+            [("a.example.com", "/pricing", 2), ("b.example.com", "/docs", 1)]
+            if engaged
+            else [("a.example.com", "/pricing", 1)]
+        )[:max_paths]
+        assert {
+            "entry_hostname": row["entry_hostname"],
+            "end_pathname": row["end_pathname"],
+            "device_type": row["device_type"],
+            "country_code": row["country_code"],
+            "is_bounce": bool(row["is_bounce"]),
+            "session_duration": row["session_duration"],
+            "is_bot": bool(row["is_bot"]),
+            "pageview_count": row["pageview_count"],
+            "paths": [tuple(entry) for entry in row["paths"]],
+        } == {
+            "entry_hostname": "a.example.com",
+            "end_pathname": "/pricing",
+            "device_type": "Desktop",
+            "country_code": "US",
+            "is_bounce": not engaged,
+            "session_duration": 300 if engaged else 0,
+            "is_bot": not engaged,
+            "pageview_count": 3 if engaged else 1,
+            "paths": expected_paths,
+        }
 
     @parameterized.expand([("UTC",), ("America/Santiago",), ("Asia/Kolkata",), ("Asia/Kathmandu",)])
     def test_session_start_windows_use_utc_boundaries(self, timezone: str) -> None:
