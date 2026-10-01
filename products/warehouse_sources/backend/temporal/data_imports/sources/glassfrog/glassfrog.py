@@ -53,6 +53,7 @@ def glassfrog_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> 
                 "name": endpoint,
                 "endpoint": {
                     "path": endpoint_config.path,
+                    "params": endpoint_config.params,
                     # Rows are wrapped under a resource key ({"circles": [...]}); a body without it
                     # is an unexpected/error shape. Fail loud instead of syncing zero rows.
                     "data_selector": endpoint_config.data_selector,

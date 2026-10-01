@@ -3663,10 +3663,10 @@ Today (8): `assignments`, `checklist_items`, `circles`, `custom_fields`, `metric
 
 Diffed against: <https://app.glassfrog.com/api/v3/docs/spec.yaml>
 
-- [ ] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
-- [ ] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
-- [ ] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
-- [ ] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
+- [x] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
+- [x] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
+- [x] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
+- [x] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
 - [ ] `/tactical_meetings` — tactical meeting cadence and attendance, the operational counterpart to governance meetings (medium)
 - [ ] `/agenda_items` — agenda items per meeting — the line items making meeting throughput measurable (medium)
 - [ ] `/domains` — lookup resolving the domains held by the roles and circles already synced (medium)

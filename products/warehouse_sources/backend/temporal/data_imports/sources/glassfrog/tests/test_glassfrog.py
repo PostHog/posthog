@@ -94,10 +94,15 @@ class TestGetRows:
         with pytest.raises(ValueError, match="matched nothing"):
             _rows(glassfrog_source("gf_key", "circles", team_id=1, job_id="j"))
 
-    @parameterized.expand([(name, config.path, config.data_selector) for name, config in GLASSFROG_ENDPOINTS.items()])
+    @parameterized.expand(
+        [
+            (name, config.path, config.data_selector, "?exclude_completed=false" if name == "actions" else "")
+            for name, config in GLASSFROG_ENDPOINTS.items()
+        ]
+    )
     @mock.patch(SESSION_PATCH)
     def test_each_endpoint_requests_its_path_and_unwraps_its_key(
-        self, endpoint: str, path: str, data_selector: str, MockSession
+        self, endpoint: str, path: str, data_selector: str, query: str, MockSession
     ) -> None:
         session = MockSession.return_value
         prepared = _wire(session, [_response(200, {data_selector: [{"id": 42}]})])
@@ -105,7 +110,7 @@ class TestGetRows:
         rows = _rows(glassfrog_source("gf_key", endpoint, team_id=1, job_id="j"))
 
         assert rows == [{"id": 42}]
-        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}"
+        assert prepared[0].url == f"{GLASSFROG_BASE_URL}{path}{query}"
 
     @mock.patch(SESSION_PATCH)
     def test_api_key_sent_via_header_auth(self, MockSession) -> None:
@@ -224,8 +229,8 @@ class TestGlassfrogSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
-        if endpoint == "projects":
-            # Partition on the stable creation timestamp — the only GlassFrog resource with one.
+        if endpoint in ("actions", "projects", "tensions"):
+            # Partition on the stable creation timestamp — only these GlassFrog resources have one.
             assert response.partition_keys == ["created_at"]
             assert response.partition_mode == "datetime"
         else:
