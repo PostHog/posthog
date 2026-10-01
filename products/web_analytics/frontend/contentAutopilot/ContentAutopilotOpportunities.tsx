@@ -59,7 +59,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         selectedOpportunityIds,
         draftDisabledReason,
         runMutationLoading,
-        dismissedOpportunityLoading,
+        dismissingOpportunityId,
         opportunitySearch,
     } = useValues(contentAutopilotLogic)
     const {
@@ -137,6 +137,13 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     {opportunitySearch.trim() ? (
                         <p className="m-0 text-muted">No questions match your search.</p>
+                    ) : dismissedOpportunityCount > 0 ? (
+                        <>
+                            <h3 className="m-0">All questions are dismissed</h3>
+                            <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
+                                Turn on "Show dismissed" to see them again, or refresh to check for new citation gaps.
+                            </p>
+                        </>
                     ) : (
                         <>
                             <h3 className="m-0">No citation gaps found</h3>
@@ -253,7 +260,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                             size="small"
                                             type="tertiary"
                                             onClick={() => dismissOpportunity(opportunity.id)}
-                                            loading={dismissedOpportunityLoading}
+                                            loading={dismissingOpportunityId === opportunity.id}
                                             disabledReason={
                                                 opportunity.status === 'queued'
                                                     ? 'Wait for the draft to finish'

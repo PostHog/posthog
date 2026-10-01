@@ -136,7 +136,7 @@ export const ContentAutopilot = (): JSX.Element => {
                                 <LemonBanner type="error">
                                     The latest run failed.{' '}
                                     {lastRun.errors.map(({ message }) => message).join(' ') ||
-                                        'Start another run to retry.'}
+                                        'Select opportunities and draft them again.'}
                                 </LemonBanner>
                             ) : null}
 

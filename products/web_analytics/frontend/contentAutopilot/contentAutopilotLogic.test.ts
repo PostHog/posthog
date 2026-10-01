@@ -24,7 +24,11 @@ import {
     webAnalyticsContentAutopilotRunsList,
     webAnalyticsContentAutopilotRunsStart,
 } from '../generated/api'
-import type { ContentAutopilotProposalListApi, ContentAutopilotRunApi } from '../generated/api.schemas'
+import type {
+    ContentAutopilotOpportunityApi,
+    ContentAutopilotProposalListApi,
+    ContentAutopilotRunApi,
+} from '../generated/api.schemas'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import {
     EXAMPLE_OPPORTUNITIES,
@@ -314,6 +318,48 @@ describe('contentAutopilotLogic', () => {
 
         expect(mountedLogic.values.profile?.id).toBe(EXAMPLE_SECOND_PROFILE.id)
         expect(mountedLogic.values.runs).toEqual([secondRun])
+    })
+
+    it('ignores refresh and drafting results for a site the user switched away from', async () => {
+        mockProfilesList.mockResolvedValue(paginated([EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE]))
+        const mountedLogic = await mountWorkspace()
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const secondSiteOpportunity: ContentAutopilotOpportunityApi = {
+            ...first,
+            id: '00000000-0000-4000-8000-000000000399',
+            profile_id: EXAMPLE_SECOND_PROFILE.id,
+        }
+        const staleRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        const staleDraft = deferred<ContentAutopilotRunApi>()
+        const secondSiteLoad = deferred<ReturnType<typeof paginated<ContentAutopilotOpportunityApi>>>()
+        mockOpportunitiesRefresh.mockReturnValueOnce(staleRefresh.promise)
+        mockOpportunitiesDraft.mockReturnValueOnce(staleDraft.promise)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockImplementation((_, params) =>
+            params?.profile_id === EXAMPLE_SECOND_PROFILE.id
+                ? secondSiteLoad.promise
+                : Promise.resolve(paginated([{ ...first, title: 'Refreshed for the first site' }]))
+        )
+
+        mountedLogic.actions.refreshOpportunities()
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.draftOpportunities()
+        mountedLogic.actions.selectProfile(EXAMPLE_SECOND_PROFILE.id)
+        mountedLogic.actions.toggleOpportunitySelection(secondSiteOpportunity.id)
+
+        staleRefresh.resolve(EXAMPLE_OPPORTUNITIES)
+        staleDraft.resolve({ ...EXAMPLE_RUN, run_status: 'pending', profile_id: EXAMPLE_PROFILE.id })
+        await expectLogic(mountedLogic).toDispatchActionsInAnyOrder([
+            'refreshOpportunitiesSuccess',
+            'draftOpportunitiesSuccess',
+        ])
+        expect(mountedLogic.values.opportunities).toBeNull()
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
+
+        secondSiteLoad.resolve(paginated([secondSiteOpportunity]))
+        await expectLogic(mountedLogic).toFinishAllListeners()
+        expect(mountedLogic.values.opportunities).toEqual([secondSiteOpportunity])
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([secondSiteOpportunity.id])
+        expect(mountedLogic.values.workspaceTab).toBe('opportunities')
     })
 
     it('groups the proposals returned for the selected site', async () => {
