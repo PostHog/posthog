@@ -130,10 +130,10 @@ jobs:
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
-                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'

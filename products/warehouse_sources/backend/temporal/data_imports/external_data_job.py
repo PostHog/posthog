@@ -994,6 +994,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
                     incremental_or_append=incremental_or_append,
                     keyset_full_load_enabled=keyset_full_load_enabled,
+                    schema_name=schema_name,
                 )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
