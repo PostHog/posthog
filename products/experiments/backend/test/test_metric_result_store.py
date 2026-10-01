@@ -9,12 +9,15 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.metric_calculation.results import (
     MetricResultStore,
     _recalc_fingerprint,
     previous_completed_metric_result,
+    record_daily_metric_failure,
+    record_daily_metric_result,
 )
 from products.experiments.backend.metric_calculation.spec import CalculationSpec, plan_metric
 from products.experiments.backend.models.experiment import (
@@ -287,7 +290,7 @@ class TestMetricResultStore(BaseTest):
         assert spec is not None
         store = MetricResultStore(experiment_id=experiment.id)
         store.record_daily_point(
-            "m1", spec.calculation_key(), window=_WINDOW, query_from=_START, result=_stored_result(3)
+            "m1", spec.calculation_key(), spec=spec, window=_WINDOW, query_from=_START, result=_stored_result(3)
         )
         run_window = _WINDOW + timedelta(hours=1)
         run = ExperimentMetricsRecalculation.objects.create(
@@ -360,9 +363,33 @@ class TestMetricResultStore(BaseTest):
                     str(run.id), spec, window=_WINDOW, query_from=_START, error_message="boom", query_id="q"
                 )
             case "daily_point":
-                store.record_daily_point("m1", key, window=_WINDOW, query_from=_START, result=_stored_result(9))
+                store.record_daily_point(
+                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, result=_stored_result(9)
+                )
             case "daily_failure":
-                store.record_daily_failure("m1", key, window=_WINDOW, query_from=_START, error_message="boom")
+                store.record_daily_failure(
+                    "m1", key, spec=spec, window=_WINDOW, query_from=_START, error_message="boom"
+                )
+            case "daily_metric_result":
+                record_daily_metric_result(
+                    experiment.id,
+                    team_id=self.team.id,
+                    metric_uuid="m1",
+                    calculation_key=key,
+                    window=_WINDOW,
+                    query_from=_START,
+                    result=_stored_result(9),
+                )
+            case "daily_metric_failure":
+                record_daily_metric_failure(
+                    experiment.id,
+                    team_id=self.team.id,
+                    metric_uuid="m1",
+                    calculation_key=key,
+                    window=_WINDOW,
+                    query_from=_START,
+                    error_message="boom",
+                )
             case "sync_copy":
                 point = ExperimentMetricResult(result=_stored_result(9))
                 store.copy_into_sync_run(_WINDOW, [(spec, point)], query_from=_START, completed_at=_WINDOW)
@@ -375,6 +402,8 @@ class TestMetricResultStore(BaseTest):
             ("run_failure", True, ExperimentMetricResult.Status.FAILED),
             ("daily_point", False, ExperimentMetricResult.Status.COMPLETED),
             ("daily_failure", False, ExperimentMetricResult.Status.FAILED),
+            ("daily_metric_result", False, ExperimentMetricResult.Status.COMPLETED),
+            ("daily_metric_failure", False, ExperimentMetricResult.Status.FAILED),
             ("sync_copy", True, ExperimentMetricResult.Status.COMPLETED),
         ]
     )
@@ -396,6 +425,27 @@ class TestMetricResultStore(BaseTest):
             assert (row.result, row.error_message) == (_stored_result(9), None)
         else:
             assert (row.result, row.error_message, row.completed_at) == (None, "boom", None)
+
+    @parameterized.expand([("another_team",), ("stale_key",)])
+    def test_a_daily_write_resolves_no_display_key_outside_its_team_or_under_a_stale_key(self, cause: str) -> None:
+        experiment = self._experiment()
+        spec = plan_metric(experiment, "m1")
+        assert spec is not None
+        team_id = Team.objects.create(organization=self.organization).id if cause == "another_team" else self.team.id
+        key = "key-of-the-configuration-before-an-edit" if cause == "stale_key" else spec.calculation_key()
+
+        record_daily_metric_result(
+            experiment.id,
+            team_id=team_id,
+            metric_uuid="m1",
+            calculation_key=key,
+            window=_WINDOW,
+            query_from=_START,
+            result=_stored_result(9),
+        )
+
+        row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid="m1", query_to=_WINDOW)
+        assert (row.fingerprint, row.display_key) == (key, None)
 
     @parameterized.expand(
         [
