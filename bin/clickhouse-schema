@@ -78,8 +78,23 @@ install_provider() {
 mkdir -p "$CACHE_DIR"
 # Parallel callers (pytest-xdist workers) share the cache and the root module's lock file.
 LOCK_DIR="$CACHE_DIR/lock.d"
-until mkdir "$LOCK_DIR" 2>/dev/null; do sleep 0.2; done
-trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT
+waited=0
+until mkdir "$LOCK_DIR" 2>/dev/null; do
+    holder="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    # A holder killed by SIGKILL or the OOM killer never runs its EXIT trap.
+    if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+        rm -rf "$LOCK_DIR"
+        continue
+    fi
+    if [ "$waited" -ge 3000 ]; then
+        echo "clickhouse-schema: waited 10 minutes for $LOCK_DIR (pid ${holder:-unknown}); delete it if no other run is active" >&2
+        exit 1
+    fi
+    sleep 0.2
+    waited=$((waited + 1))
+done
+echo $$ >"$LOCK_DIR/pid"
+trap 'rm -rf "$LOCK_DIR"' EXIT
 install_tofu
 install_provider
 
@@ -142,7 +157,7 @@ fi
     cat "$STATE_DIR/init.log" >&2
     exit 1
 }
-rmdir "$LOCK_DIR"
+rm -rf "$LOCK_DIR"
 trap - EXIT
 
 case "${1:-apply}" in

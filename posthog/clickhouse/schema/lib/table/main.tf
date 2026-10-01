@@ -166,7 +166,7 @@ locals {
 locals {
   engine           = try(local.o.engine, var.engine)
   settings         = try(local.o.settings, var.settings)
-  namespace_topics = startswith(local.engine, "Kafka(") && (var.deployment.kafka_topic_prefix != "" || var.deployment.kafka_topic_suffix != "")
+  namespace_topics = (local.engine == "Kafka" || startswith(local.engine, "Kafka(")) && (var.deployment.kafka_topic_prefix != "" || var.deployment.kafka_topic_suffix != "")
   topic_lists      = regexall("kafka_topic_list\\s*=\\s*'([^']*)'", "${local.engine} ${coalesce(local.settings, " ")}")
   topics = length(local.topic_lists) == 0 ? [] : [
     for topic in split(",", local.topic_lists[0][0]) : "${var.deployment.kafka_topic_prefix}${trimspace(topic)}${var.deployment.kafka_topic_suffix}"

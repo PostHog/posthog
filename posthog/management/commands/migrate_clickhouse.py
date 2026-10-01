@@ -27,6 +27,13 @@ class Command(BaseCommand):
             return
 
         database = ClickHouseDatabase()
+        if not database.is_single_node():
+            # A cloud pod whose CLOUD_DEPLOYMENT is missing resolves to HOBBY, so the run mode alone cannot protect
+            # a production cluster. Every install this command manages runs ClickHouse on one node.
+            self.stderr.write(
+                "Skipping: ClickHouse has remote cluster hosts, and this command manages single-node installs only"
+            )
+            return
         if options["check"] or options["plan"]:
             has_changes, plan = database.plan_schema(kafka=True)
             self.stdout.write(plan)

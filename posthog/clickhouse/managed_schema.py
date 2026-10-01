@@ -44,6 +44,13 @@ class ClickHouseDatabase:
         # SYNC frees the replication paths, so that the schema can be applied again straight away.
         self._admin_execute(f"DROP DATABASE IF EXISTS `{self.name}` SYNC")
 
+    def is_single_node(self) -> bool:
+        """Whether every cluster the server knows points only at the server itself."""
+        rows = self._admin_execute(
+            "SELECT count() FROM system.clusters WHERE NOT is_local AND NOT startsWith(host_address, '127.')"
+        )
+        return rows[0][0] == 0
+
     def apply_schema(self, *, kafka: bool) -> None:
         """Creates every object the schema declares that the database does not have yet."""
         result = self._run_schema_tool("apply", kafka=kafka)
@@ -152,7 +159,7 @@ class ClickHouseDatabase:
             if not sync_execute(f"SELECT count() FROM {table_name}")[0][0]:
                 sync_execute(query_fn())
 
-    def _admin_execute(self, query: str) -> None:
+    def _admin_execute(self, query: str) -> list[tuple]:
         # The pooled client connects to the database itself, which may not exist yet.
         client = Client(
             host=settings.CLICKHOUSE_HOST,
@@ -164,6 +171,6 @@ class ClickHouseDatabase:
             database="default",
         )
         try:
-            client.execute(query)
+            return client.execute(query)
         finally:
             client.disconnect()

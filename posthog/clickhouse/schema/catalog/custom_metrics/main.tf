@@ -271,7 +271,7 @@ module "custom_metrics_counter_events" {
   enabled      = contains(local.deployment.components, "test")
   database     = var.database
   name         = "custom_metrics_counter_events"
-  engine       = "ReplicatedMergeTree('/clickhouse/tables/noshard/${var.database}.metrics_counter_events', '{replica}-{shard}')"
+  engine       = "ReplicatedMergeTree('${coalesce(lookup(local.deployment, "keeper_path", null), "/clickhouse/tables/noshard/${var.database}.metrics_counter_events")}', '{replica}-{shard}')"
   order_by     = "(name, timestamp)"
   partition_by = "toYYYYMM(timestamp)"
   columns = [

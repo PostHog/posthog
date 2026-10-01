@@ -97,9 +97,10 @@ module "test_log_entries_family" {
     settings     = "index_granularity = 512"
   }
   # Existing fixtures truncate this entry point directly between Kafka batches.
-  deployment = {
-    components = contains(local.deployment.components, "test") ? ["storage"] : []
-  }
+  deployment = merge(
+    { components = contains(local.deployment.components, "test") ? ["storage"] : [] },
+    lookup(local.deployment, "keeper_path", null) == null ? {} : { keeper_path = local.deployment.keeper_path },
+  )
 }
 
 # Kafka tables and the materialized views that consume them.

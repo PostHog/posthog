@@ -84,6 +84,7 @@ module "person_overrides_dict" {
 module "kafka_person_overrides" {
   source = "../../lib/table"
 
+  deployment = local.deployment
   enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_person_overrides")
   database = var.database
   name     = "kafka_person_overrides"
