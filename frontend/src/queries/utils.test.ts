@@ -528,9 +528,20 @@ describe('isNodeWithSource', () => {
             { kind: NodeKind.DataVisualizationNode, source: { kind: NodeKind.HogQLQuery, query: 'select 1' } },
             true,
         ],
+        [
+            'a data table node',
+            { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: [] } },
+            true,
+        ],
         ['a wrapper node without a source', { kind: NodeKind.DataVisualizationNode, chartSettings: {} }, false],
         ['a wrapper node with an empty source', { kind: NodeKind.InsightVizNode, source: {} }, false],
+        [
+            'a wrapper node whose source has no kind',
+            { kind: NodeKind.InsightVizNode, source: { dateRange: { date_from: '-7d' } } },
+            false,
+        ],
         ['a source node', { kind: NodeKind.TrendsQuery, series: [] }, false],
+        ['no node', null, false],
     ])('only promises a source it can see, for %s', (_label, query, expected) => {
         expect(isNodeWithSource(query)).toBe(expected)
     })

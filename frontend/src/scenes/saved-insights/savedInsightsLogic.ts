@@ -17,7 +17,7 @@ import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
+import { crushDraftQueryForLocalStorage } from 'scenes/insights/utils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -39,7 +39,7 @@ import type { Node } from '../../queries/schema/schema-general'
 import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
 import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
-import { DraftInsightQuery, draftInsightListItem, isValidDraftInsightQuery } from './draftInsight'
+import { DraftInsightQuery, draftInsightListItem, readStoredDraftInsightQuery } from './draftInsight'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -739,19 +739,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             lemonToast.error('Failed to restore insights')
         },
         loadDraftQuery: () => {
-            if (!values.currentTeamId) {
-                actions.setDraftQuery(null)
-                return
-            }
-            const storageKey = `draft-query-${values.currentTeamId}`
-            const stored = localStorage.getItem(storageKey)
-            const parsed = stored ? parseDraftQueryFromLocalStorage(stored) : null
-            const draft = isValidDraftInsightQuery(parsed) ? parsed : null
-            if (stored && !draft) {
-                // A malformed draft would resurface (or crash the row) on every visit, so drop it for good
-                localStorage.removeItem(storageKey)
-            }
-            actions.setDraftQuery(draft)
+            actions.setDraftQuery(readStoredDraftInsightQuery(values.currentTeamId))
         },
         discardDraftQuery: () => {
             const draft = values.draftQuery

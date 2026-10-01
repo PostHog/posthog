@@ -1199,6 +1199,14 @@ describe('insightDataLogic', () => {
             expect(localStorage.getItem(draftKey)).toBeNull()
         })
 
+        it('does not persist a wrapper query that lost its source', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({ kind: NodeKind.DataVisualizationNode, chartSettings: {} } as any)
+            }).toFinishAllListeners()
+
+            expect(localStorage.getItem(draftKey)).toBeNull()
+        })
+
         it.each([
             ['a cosmetic-only query', cosmeticOnlyEdit],
             ['a too-large query', tooLargeEdit],
