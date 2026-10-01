@@ -19,7 +19,6 @@ import {
     getWorkflowTreeContinuationPath,
     getWorkflowTreeOccurrenceKey,
     getWorkflowTreeStepId,
-    sequenceEndsInExit,
     WORKFLOW_TREE_BRANCH_LIMIT,
     type WorkflowTreeNodeViewState,
 } from './workflowTreePresentation'
@@ -262,7 +261,7 @@ export function HogFlowTreeEditor(): JSX.Element {
                             insertionLabel={`Add step to ${focused.branch.label}`}
                         />
                     )}
-                    {focused?.node.joinAction && !sequenceEndsInExit(focused.branch.sequence) && (
+                    {focused?.node.joinAction && (
                         <LemonButton
                             type="secondary"
                             size="small"

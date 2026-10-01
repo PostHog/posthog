@@ -10,7 +10,7 @@ import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
 import type { HogFlowEdge } from '../types'
-import { canInsertEarlyExit, computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
+import { computeEarlyExitEdges, computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeDropzone({
     active,
@@ -50,7 +50,7 @@ export function HogFlowTreeDropzone({
     const [highlighted, setHighlighted] = useState(false)
     const [pickerOpen, setPickerOpen] = useState(false)
     const isAdjacentToDraggedAction = draggedActionId === edge.to || (!isBranchJoin && draggedActionId === edge.from)
-    const blocksEarlyExit = nodeToBeAdded?.type === 'exit' && (isBranchJoin || !canInsertEarlyExit(workflow, [edge]))
+    const blocksEarlyExit = nodeToBeAdded?.type === 'exit' && (isBranchJoin || !computeEarlyExitEdges(workflow, [edge]))
     const isDisabled = isAdjacentToDraggedAction || blocksEarlyExit
     const handleDragOver = (event: DragEvent<HTMLElement>): void => {
         setHighlighted(true)

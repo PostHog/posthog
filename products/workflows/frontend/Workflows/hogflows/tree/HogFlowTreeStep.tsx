@@ -12,7 +12,7 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { StepView } from '../steps/components/StepView'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import type { HogFlowAction, HogFlowActionNode } from '../types'
-import { isBranchingAction, isEarlyExitAction } from './workflowTree'
+import { isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeStep({
     action,
@@ -38,11 +38,9 @@ export function HogFlowTreeStep({
 
     const isSelected = selectedNode?.id === action.id
     const canHaveActions = !['trigger', 'exit'].includes(action.type)
-    const isEarlyExit = isEarlyExitAction(action, workflow.actions)
     const outgoingActionIds = workflow.edges.filter((edge) => edge.from === action.id).map((edge) => edge.to)
-    const canDelete =
-        isEarlyExit || (canHaveActions && (outgoingActionIds.length === 1 || new Set(outgoingActionIds).size === 1))
-    const canDuplicate = canHaveActions && canDelete && !isBranchingAction(action)
+    const canDelete = canHaveActions && (outgoingActionIds.length === 1 || new Set(outgoingActionIds).size === 1)
+    const canDuplicate = canDelete && !isBranchingAction(action)
     const node =
         nodesById[action.id] ??
         ({
@@ -50,7 +48,7 @@ export function HogFlowTreeStep({
             type: 'action',
             data: action,
             position: { x: 0, y: 0 },
-            deletable: canHaveActions || isEarlyExit,
+            deletable: canHaveActions,
             selectable: true,
             draggable: false,
             connectable: false,
@@ -118,7 +116,7 @@ export function HogFlowTreeStep({
                     <ItemTitle className="pointer-events-none min-w-0 flex-1 max-w-full break-words whitespace-normal leading-tight">
                         {action.name}
                     </ItemTitle>
-                    {(canHaveActions || isEarlyExit) && (
+                    {canHaveActions && (
                         <ItemActions
                             className={cn(
                                 'pointer-events-auto',

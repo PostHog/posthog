@@ -152,8 +152,8 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'exit',
         name: 'Early exit',
-        description: 'Users on this path leave the workflow here.',
-        config: { reason: 'Early exit' },
+        description: 'Send users on this path straight to the exit.',
+        config: {},
     },
 ]
 

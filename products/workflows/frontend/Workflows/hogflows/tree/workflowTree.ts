@@ -42,29 +42,9 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
 
-// New steps are inserted before the final exit, so it stays the last exit in the list and every
-// exit before it is an early exit that a branch added.
-export function getFinalExitActionId(actions: Pick<HogFlowAction, 'id' | 'type'>[]): string | null {
-    return actions.findLast((action) => action.type === 'exit')?.id ?? null
-}
-
-export function isEarlyExitAction(
-    action: Pick<HogFlowAction, 'id' | 'type'>,
-    actions: Pick<HogFlowAction, 'id' | 'type'>[]
-): boolean {
-    return action.type === 'exit' && action.id !== getFinalExitActionId(actions)
-}
-
-export function isDeletableAction(
-    action: Pick<HogFlowAction, 'id' | 'type'>,
-    actions: Pick<HogFlowAction, 'id' | 'type'>[]
-): boolean {
-    return action.type !== 'trigger' && (action.type !== 'exit' || isEarlyExitAction(action, actions))
-}
-
 const getEdgeKey = (edge: HogFlowEdge): string => `${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`
 
-function getReachableActionIds(workflow: Pick<HogFlow, 'actions' | 'edges'>, edges: HogFlowEdge[]): Set<string> {
+function getReachableActionIds(workflow: Pick<HogFlow, 'actions'>, edges: HogFlowEdge[]): Set<string> {
     const trigger = workflow.actions.find((action) => action.type === 'trigger') ?? workflow.actions[0]
     const reachable = new Set<string>(trigger ? [trigger.id] : [])
     const queue = [...reachable]
@@ -82,21 +62,34 @@ function getReachableActionIds(workflow: Pick<HogFlow, 'actions' | 'edges'>, edg
 }
 
 /**
- * An early exit ends the edges it is inserted into, so it fits only where every step after those
- * edges can still be reached along another path.
+ * Points the given edges straight at the workflow exit. Returns null when the edges already end
+ * there, or when a step after them would no longer be reachable along another path.
  */
-export function canInsertEarlyExit(
+export function computeEarlyExitEdges(
     workflow: Pick<HogFlow, 'actions' | 'edges'>,
     edgesToReplace: HogFlowEdge[]
-): boolean {
+): HogFlowEdge[] | null {
+    const exitActionId = workflow.actions.findLast((action) => action.type === 'exit')?.id
     const replacedKeys = new Set(edgesToReplace.map(getEdgeKey))
-    const reachableBefore = getReachableActionIds(workflow, workflow.edges)
-    const reachableAfter = getReachableActionIds(
-        workflow,
-        workflow.edges.filter((edge) => !replacedKeys.has(getEdgeKey(edge)))
-    )
+    const matchingEdgeCount = workflow.edges.filter((edge) => replacedKeys.has(getEdgeKey(edge))).length
 
-    return [...reachableBefore].every((actionId) => reachableAfter.has(actionId))
+    if (
+        !exitActionId ||
+        matchingEdgeCount === 0 ||
+        matchingEdgeCount !== edgesToReplace.length ||
+        edgesToReplace.some((edge) => edge.to === exitActionId)
+    ) {
+        return null
+    }
+
+    const newEdges = workflow.edges.map((edge) =>
+        replacedKeys.has(getEdgeKey(edge)) ? { ...edge, to: exitActionId } : edge
+    )
+    const reachableAfter = getReachableActionIds(workflow, newEdges)
+
+    return [...getReachableActionIds(workflow, workflow.edges)].every((actionId) => reachableAfter.has(actionId))
+        ? newEdges
+        : null
 }
 
 export function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
@@ -292,21 +285,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
         })
     }
 
-    // An early exit has no outgoing edge. Treat it as if it flows into the final exit when finding
-    // where branches join, so a branch that exits early still joins the rest of the workflow there.
-    const joinSearchEdgesByActionId = new Map(outgoingEdgesByActionId)
-    const finalExitActionId = getFinalExitActionId(workflow.actions)
-    if (finalExitActionId) {
-        for (const action of workflow.actions) {
-            if (isEarlyExitAction(action, workflow.actions) && !outgoingEdgesByActionId.has(action.id)) {
-                joinSearchEdgesByActionId.set(action.id, [
-                    { from: action.id, to: finalExitActionId, type: 'continue' } as HogFlowEdge,
-                ])
-            }
-        }
-    }
-
-    const postDominatorsByActionId = buildPostDominators([...actionsById.keys()], joinSearchEdgesByActionId)
+    const postDominatorsByActionId = buildPostDominators([...actionsById.keys()], outgoingEdgesByActionId)
 
     const buildSequence = (
         startActionId: string | undefined,
@@ -345,7 +324,7 @@ export function buildWorkflowTree(workflow: Pick<HogFlow, 'actions' | 'edges'>):
             const joinActionId = findBranchJoinActionId(
                 actionId,
                 outgoingEdges,
-                joinSearchEdgesByActionId,
+                outgoingEdgesByActionId,
                 postDominatorsByActionId,
                 actionOrder
             )
