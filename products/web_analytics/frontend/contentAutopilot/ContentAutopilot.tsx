@@ -46,6 +46,7 @@ export const ContentAutopilot = (): JSX.Element => {
         useActions(contentAutopilotLogic)
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
+    const lastRunErrors = lastRun?.run_status === 'failed' ? lastRun.errors.map(({ message }) => message).join(' ') : ''
     const confirmCancelRun = (): void => {
         if (!activeRun) {
             return
@@ -134,7 +135,7 @@ export const ContentAutopilot = (): JSX.Element => {
                                         Stop drafting
                                     </LemonButton>
                                 </LemonCard>
-                            ) : lastRun?.run_status === 'failed' && failedDraftCount > 0 ? (
+                            ) : failedDraftCount > 0 ? (
                                 <LemonBanner
                                     type="error"
                                     action={
@@ -145,12 +146,12 @@ export const ContentAutopilot = (): JSX.Element => {
                                 >
                                     {pluralize(failedDraftCount, 'draft')} from the latest run didn't pass. Open a draft
                                     to see what to fix, or regenerate it.
+                                    {lastRunErrors ? ` ${lastRunErrors}` : null}
                                 </LemonBanner>
                             ) : lastRun?.run_status === 'failed' ? (
                                 <LemonBanner type="error">
                                     The latest run failed.{' '}
-                                    {lastRun.errors.map(({ message }) => message).join(' ') ||
-                                        'Select opportunities and draft them again.'}
+                                    {lastRunErrors || 'Select opportunities and draft them again.'}
                                 </LemonBanner>
                             ) : null}
 
