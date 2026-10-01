@@ -38,21 +38,40 @@ def _onboarding_side_effects():
     clear_team_membership_cache()
 
 
+@pytest.mark.parametrize(
+    "enabled_flags, expected_variant",
+    [
+        ({"data-warehouse-scene-trino"}, "trino"),
+        ({"data-warehouse-scene-trino", "data-warehouse-scene"}, "trino"),
+        ({"data-warehouse-scene"}, "duckdb"),
+        (set(), None),
+    ],
+)
 @patch("products.managed_warehouse.backend.presentation.views.posthoganalytics.feature_enabled")
-def test_is_enabled_uses_data_warehouse_scene_flag(mock_feature_enabled: MagicMock) -> None:
+def test_data_ops_variant_prefers_the_trino_flag(
+    mock_feature_enabled: MagicMock, enabled_flags: set[str], expected_variant: str | None
+) -> None:
     organization_id = uuid4()
-    mock_feature_enabled.return_value = True
+    mock_feature_enabled.side_effect = lambda flag, *_args, **_kwargs: flag in enabled_flags
 
-    assert managed_warehouse.is_enabled(organization_id) is True
-
-    mock_feature_enabled.assert_called_once_with(
-        "data-warehouse-scene",
+    assert managed_warehouse.data_ops_variant(organization_id) == expected_variant
+    assert managed_warehouse.is_enabled(organization_id) is (expected_variant is not None)
+    mock_feature_enabled.assert_any_call(
+        "data-warehouse-scene-trino",
         str(organization_id),
         groups={"organization": str(organization_id)},
         group_properties={"organization": {"id": str(organization_id)}},
         only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
+
+
+@patch(
+    "products.managed_warehouse.backend.presentation.views.posthoganalytics.feature_enabled",
+    side_effect=RuntimeError("flags unavailable"),
+)
+def test_data_ops_variant_fails_closed_when_flag_evaluation_errors(_mock_feature_enabled: MagicMock) -> None:
+    assert managed_warehouse.data_ops_variant(uuid4()) is None
 
 
 @patch("products.managed_warehouse.backend.facade.connection.update_managed_warehouse_root_password")
