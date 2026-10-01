@@ -6,6 +6,12 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import CIEngine, CIFailureLogLine, CIJobFailureLog, RepoRef
 
 
+def ci_engine_field() -> ChoiceField:
+    return ChoiceField(
+        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
+    )
+
+
 class RepoRefSerializer(DataclassSerializer):
     class Meta:
         dataclass = RepoRef
@@ -30,9 +36,7 @@ class CIFailureLogLineSerializer(DataclassSerializer):
 
 
 class CIJobFailureLogSerializer(DataclassSerializer):
-    ci_engine = ChoiceField(
-        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
-    )
+    ci_engine = ci_engine_field()
     lines = CIFailureLogLineSerializer(
         many=True, help_text="The thinned failure-log lines in original order, with omission markers."
     )
@@ -40,7 +44,7 @@ class CIJobFailureLogSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIJobFailureLog
         extra_kwargs = {
-            "job_id": {"help_text": "Compatible integer job id of the failed job."},
+            "job_id": {"help_text": "Integer job id of the failed job; unique only together with ci_engine."},
             "run_id": {"help_text": "Workflow run id the job belongs to."},
             "conclusion": {
                 "help_text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",

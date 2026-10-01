@@ -134,19 +134,13 @@ def _merged_pr_index(pull_requests_table: str) -> str:
     """
 
 
-def build_query(
-    table_name: str, *, pull_requests_table: str | None = None, started_floor: bool = False, normalized: bool = False
-) -> str:
+def build_query(table_name: str, *, pull_requests_table: str | None = None, started_floor: bool = False) -> str:
+    """``table_name`` is a runs source of ``depot_ci.with_depot_runs``, which carries the engine columns."""
     # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
     # aliases parseDateTimeBestEffort(run_started_at) AS run_started_at, and ClickHouse alias resolution
     # would make a WHERE there compare the parsed DateTime against the string. Keep it on the raw column.
     table_source = (
         f"(SELECT * FROM {table_name} WHERE run_started_at >= {{run_started_floor}})" if started_floor else table_name
-    )
-    provenance = (
-        "ci_engine, native_run_id, native_workflow_run_id"
-        if normalized
-        else "'github_actions' AS ci_engine, toString(id) AS native_run_id, toString(id) AS native_workflow_run_id"
     )
     if pull_requests_table:
         merge_join = f"LEFT JOIN ({_merged_pr_index(pull_requests_table)}) AS pr ON run.head_sha = pr.merge_commit_sha"
@@ -182,7 +176,7 @@ def build_query(
             SELECT
                 id,
                 name AS workflow_name,
-                {provenance},
+                ci_engine, native_run_id, native_workflow_run_id,
                 head_sha,
                 head_branch,
                 status,

@@ -769,7 +769,10 @@ def workflow_resource_attributes() -> dict[str, str | int]:
 
 
 def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str, *, ci_engine: str = "github_actions") -> int:
-    """One trace ID per (run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
+    """One trace ID per (engine, run_id, run_attempt, job). Reruns of the same attempt collide intentionally.
+
+    GitHub Actions takes no namespace, so its trace IDs stay what they were before other engines existed.
+    """
     namespace = "" if ci_engine == "github_actions" else f"{ci_engine}:"
     digest = hashlib.sha256(f"{namespace}{run_id}:{run_attempt}:{job_key}".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit (16 bytes).

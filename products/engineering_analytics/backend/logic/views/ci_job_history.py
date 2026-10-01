@@ -127,7 +127,6 @@ def build_query(
     runs_table: str,
     pull_requests_table: str | None = None,
     head_commit_runs_table: str | None = None,
-    normalized: bool = False,
 ) -> str:
     """The per-job-attempt history SELECT for one GitHub source: curated jobs LEFT JOIN curated runs,
     plus the run's commit attribution.
@@ -140,8 +139,8 @@ def build_query(
     ``head_commit_runs_table`` names the plain GitHub runs table when ``runs_table`` also holds Depot
     CI runs, which carry no commit object, so the attribution scan skips them.
     """
-    jobs = workflow_jobs.build_query(jobs_table, normalized=normalized)
-    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table, normalized=normalized)
+    jobs = workflow_jobs.build_query(jobs_table)
+    runs = workflow_runs.build_query(runs_table, pull_requests_table=pull_requests_table)
     head_commits = _head_commit_query(head_commit_runs_table or runs_table)
 
     return f"""
@@ -198,7 +197,6 @@ def build_team_view(team: "Team") -> str | None:
             runs_table=source.runs_source,
             pull_requests_table=source.pull_requests,
             head_commit_runs_table=source.github_workflow_runs,
-            normalized=True,
         )
         for source in sources
     ]

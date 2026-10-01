@@ -43,6 +43,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     CONCLUSIVE_RUN_CONDITION,
     DECISIVE_FAILURE_CONCLUSIONS_SQL,
     LATEST_COMPLETED_RUN_FAILED,
+    LATEST_RUN_ORDER,
     RUN_DURATION_PERCENTILE_CONDITION,
     SUCCESSFUL_RUN_CONDITION,
     UNPAGED_SCAN_LIMIT,
@@ -77,12 +78,12 @@ _SELECT = f"""
         max(if(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         {LATEST_COMPLETED_RUN_FAILED} AS latest_failed,
-        argMaxIf(conclusion, (run_started_at, ci_engine, id), status = 'completed') AS latest_conclusion,
-        argMaxIf(id, (run_started_at, ci_engine, id), status = 'completed') AS latest_run_id,
-        argMaxIf(run_attempt, (run_started_at, ci_engine, id), status = 'completed') AS latest_run_attempt,
+        argMaxIf(conclusion, {LATEST_RUN_ORDER}, status = 'completed') AS latest_conclusion,
+        argMaxIf(id, {LATEST_RUN_ORDER}, status = 'completed') AS latest_run_id,
+        argMaxIf(run_attempt, {LATEST_RUN_ORDER}, status = 'completed') AS latest_run_attempt,
         countIf(run_attempt > 1) AS rerun_cycles,
         countIf(is_merge_queue) AS merge_queue_run_count,
-        argMaxIf(ci_engine, (run_started_at, ci_engine, id), status = 'completed') AS latest_ci_engine
+        argMaxIf(ci_engine, {LATEST_RUN_ORDER}, status = 'completed') AS latest_ci_engine
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__ __WORKFLOW__
     GROUP BY repo_owner, repo_name, workflow_name

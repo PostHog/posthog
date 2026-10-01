@@ -1,13 +1,11 @@
 """Payloads for PR-scoped reads: backlog cards, lists, lifecycle, logs, and cost."""
 
-from rest_framework.fields import ChoiceField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     BranchPRMatch,
     CICardSummary,
-    CIEngine,
     CIFailureLogs,
     CIStatusRollup,
     PRCostSummary,
@@ -24,6 +22,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers._shared import (
     CIJobFailureLogSerializer,
     RepoRefSerializer,
+    ci_engine_field,
 )
 
 
@@ -57,9 +56,7 @@ class PullRequestSerializer(DataclassSerializer):
 
 
 class PRLifecycleEventSerializer(DataclassSerializer):
-    ci_engine = ChoiceField(
-        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
-    )
+    ci_engine = ci_engine_field()
 
     class Meta:
         dataclass = PRLifecycleEvent
@@ -132,14 +129,12 @@ class WorkflowCostSerializer(DataclassSerializer):
 
 
 class RunCostSerializer(DataclassSerializer):
-    ci_engine = ChoiceField(
-        choices=CIEngine.choices, required=False, allow_null=True, help_text="CI execution engine; null when unknown."
-    )
+    ci_engine = ci_engine_field()
 
     class Meta:
         dataclass = RunCost
         extra_kwargs = {
-            "run_id": {"help_text": "Compatible integer run id this cost is for."},
+            "run_id": {"help_text": "Integer run id this cost is for; unique only together with ci_engine."},
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "billable_minutes": {"help_text": "Billable (self-hosted) minutes for this run attempt."},
             "estimated_cost_usd": {

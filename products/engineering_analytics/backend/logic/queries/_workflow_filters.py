@@ -79,11 +79,16 @@ def run_duration_percentile_expr(quantile: float) -> str:
     )
 
 
+# The engine and the id break a same-second tie the same way in every aggregate that reads the
+# latest run, so the aggregates of one workflow all describe one run.
+LATEST_RUN_ORDER = "(run_started_at, ci_engine, id)"
+
 # The one "failing right now" signal, per workflow: did the latest completed run fail?
-# Ordered by (run_started_at, ci_engine, id) so a same-second tie resolves deterministically to the
-# engine-qualified run. argMaxIf defaults to 0 (false) over zero matching rows, so consumers must
-# pair it with a completed-run count to tell "latest run passed" apart from "no completed run yet".
-LATEST_COMPLETED_RUN_FAILED = f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), (run_started_at, ci_engine, id), status = 'completed')"
+# argMaxIf defaults to 0 (false) over zero matching rows, so consumers must pair it with a
+# completed-run count to tell "latest run passed" apart from "no completed run yet".
+LATEST_COMPLETED_RUN_FAILED = (
+    f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), {LATEST_RUN_ORDER}, status = 'completed')"
+)
 
 
 def run_started_floor_constant(window_start: datetime) -> ast.Constant:

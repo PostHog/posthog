@@ -44,6 +44,10 @@ function parseFinishedDetail(detail: string | null | undefined): { workflow: str
     return { workflow: detail.slice(0, splitAt), conclusion: detail.slice(splitAt + 2) }
 }
 
+function unfinishedKey(event: PRLifecycleEventApi, workflow: string): string {
+    return `${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`
+}
+
 /**
  * Pairs ci_started / ci_finished events into per-workflow runs with durations, FIFO by workflow name.
  * A finish without a matching start (events outside the window) still yields a row.
@@ -66,14 +70,13 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 runAttempt: null,
             }
             runs.push(run)
-            const queue = unfinishedByWorkflow.get(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`) ?? []
+            const key = unfinishedKey(event, workflow)
+            const queue = unfinishedByWorkflow.get(key) ?? []
             queue.push(run)
-            unfinishedByWorkflow.set(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`, queue)
+            unfinishedByWorkflow.set(key, queue)
         } else if (event.kind === 'ci_finished') {
             const { workflow, conclusion } = parseFinishedDetail(event.detail)
-            const started = unfinishedByWorkflow
-                .get(`${event.ci_engine ?? ''}:${event.run_id ?? ''}:${workflow}`)
-                ?.shift()
+            const started = unfinishedByWorkflow.get(unfinishedKey(event, workflow))?.shift()
             if (started) {
                 started.conclusion = conclusion ?? 'completed'
                 started.finishedAt = event.at
