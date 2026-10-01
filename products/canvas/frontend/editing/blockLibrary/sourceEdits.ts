@@ -10,6 +10,7 @@ import {
 } from './blockDefinitions'
 import { withLibraryFile } from './blockLibrarySync'
 import { BLOCK_COMPONENT_SOURCES } from './componentSources'
+import { jsxOpeningTags, scanOpeningTag } from './jsxOpeningTags'
 
 export type SourceFiles = Record<string, string>
 
@@ -324,97 +325,6 @@ export function duplicateRange(files: SourceFiles, range: SourceRange, blockId: 
     }
 }
 
-interface JsxAttribute {
-    name: string | null
-    start: number
-    end: number
-}
-
-interface OpeningTag {
-    attributes: JsxAttribute[]
-    insertAt: number
-}
-
-function skipQuoted(source: string, from: number, quote: string): number {
-    let index = from + 1
-    while (index < source.length && source[index] !== quote) {
-        if (source[index] === '\\') {
-            index += 1
-        }
-        index += 1
-    }
-    return index + 1
-}
-
-function skipBraces(source: string, from: number): number {
-    let depth = 0
-    let index = from
-    while (index < source.length) {
-        const char = source[index]
-        if (char === '"' || char === "'" || char === '`') {
-            index = skipQuoted(source, index, char)
-            continue
-        }
-        if (char === '{') {
-            depth += 1
-        }
-        if (char === '}') {
-            depth -= 1
-            if (depth === 0) {
-                return index + 1
-            }
-        }
-        index += 1
-    }
-    return index
-}
-
-function scanOpeningTag(source: string, start: number): OpeningTag | null {
-    const head = /^<[A-Za-z][\w.]*/.exec(source.slice(start))
-    if (!head) {
-        return null
-    }
-    const attributes: JsxAttribute[] = []
-    let index = start + head[0].length
-    while (index < source.length) {
-        while (/\s/.test(source[index] ?? '')) {
-            index += 1
-        }
-        const char = source[index]
-        if (char === '>') {
-            return { attributes, insertAt: index }
-        }
-        if (char === '/' && source[index + 1] === '>') {
-            return { attributes, insertAt: index }
-        }
-        if (char === '{') {
-            const end = skipBraces(source, index)
-            attributes.push({ name: null, start: index, end })
-            index = end
-            continue
-        }
-        const name = /^[A-Za-z_$][\w:.-]*/.exec(source.slice(index))
-        if (!name) {
-            return null
-        }
-        const attributeStart = index
-        index += name[0].length
-        if (source[index] === '=') {
-            index += 1
-            const value = source[index]
-            if (value === '"' || value === "'") {
-                index = skipQuoted(source, index, value)
-            } else if (value === '{') {
-                index = skipBraces(source, index)
-            } else {
-                return null
-            }
-        }
-        attributes.push({ name: name[0], start: attributeStart, end: index })
-    }
-    return null
-}
-
 export function setJsxAttributes(files: SourceFiles, range: SourceRange, values: BlockPropsRecord): SourceFiles {
     const source = files[range.file]
     if (source === undefined) {
@@ -499,12 +409,13 @@ export function blockRanges(files: SourceFiles, file: string, group: BlockGroup)
     if (source === undefined || components.length === 0) {
         return []
     }
-    const element = new RegExp(`<(?:${components.join('|')})\\b[^>]*/>`, 'g')
-    return Array.from(source.matchAll(element), (match) => ({
-        file,
-        start: match.index,
-        end: match.index + match[0].length,
-    }))
+    return components
+        .flatMap((component) =>
+            jsxOpeningTags(source, component)
+                .filter(({ end }) => source.slice(end - 2, end) === '/>')
+                .map(({ start, end }) => ({ file, start, end }))
+        )
+        .sort((left, right) => left.start - right.start)
 }
 
 export function isJsxRange(files: SourceFiles, range: SourceRange): boolean {

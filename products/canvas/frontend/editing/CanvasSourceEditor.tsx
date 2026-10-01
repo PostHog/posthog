@@ -1,13 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
+import { CanvasDocumentBridge } from '../host/canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from '../host/canvasHostMessageRouter'
-import { CANVAS_CHANNEL, CanvasTheme, canvasToHostMessageSchema } from '../host/canvasProtocol'
+import {
+    CanvasTheme,
+    CanvasEditMessage,
+    canvasEditMessageSchema,
+    canvasToHostMessageSchema,
+} from '../host/canvasProtocol'
 import { CANVAS_ENTRY_PATH } from './blockLibrary/blockProject'
 import { parseParamSchema } from './blockLibrary/params'
 import type { SourceRange } from './blockLibrary/sourceEdits'
 import { CanvasEditKey, canvasEditLogic } from './canvasEditLogic'
-import { postToCanvasEditor } from './canvasEditorFrame'
+import { connectCanvasEditor, postToCanvasEditor } from './canvasEditorFrame'
 import type { CanvasEditSelection } from './canvasSourceSnapshots'
 import { SourceDropHit, activeSourceDrag, beginSourceDrag } from './sourceDrag'
 import { SourceDragOverlay } from './SourceDragOverlay'
@@ -91,7 +97,7 @@ export function CanvasSourceEditor({
         }
     }
 
-    const handleEdit = (data: Record<string, unknown>): void => {
+    const handleEdit = (data: CanvasEditMessage): void => {
         const rect = iframeRef.current?.getBoundingClientRect()
         const offsetX = rect?.left ?? 0
         const offsetY = rect?.top ?? 0
@@ -150,10 +156,13 @@ export function CanvasSourceEditor({
     useLayoutEffect(() => {
         readyRef.current = false
         const route = createCanvasHostMessageRouter({
-            post: (message) => iframeRef.current?.contentWindow?.postMessage(message, '*'),
+            post: (message) => bridge.post(message),
             callbacks: () => ({
                 ...latest.current.callbacks,
                 onReady: () => {
+                    if (readyRef.current) {
+                        return
+                    }
                     readyRef.current = true
                     latestHandlers.current.sendInit()
                     latest.current.callbacks.onReady?.()
@@ -165,27 +174,28 @@ export function CanvasSourceEditor({
             hasUserActivation: () => latest.current.hasUserActivation(),
             openExternal: (url) => latest.current.onOpenExternal(url),
         })
-        const onMessage = (event: MessageEvent): void => {
-            // An opaque origin cannot be checked, so the frame is identified by its window.
-            if (event.source !== iframeRef.current?.contentWindow) {
-                return
-            }
-            const data = event.data as Record<string, unknown> | null
-            if (!data || data.channel !== CANVAS_CHANNEL) {
-                return
-            }
-            // The edit protocol is outside the viewer allowlist: only the editor frame speaks it.
-            if (typeof data.type === 'string' && data.type.startsWith('canvas-edit-')) {
-                latestHandlers.current.handleEdit(data)
-                return
-            }
-            const parsed = canvasToHostMessageSchema.safeParse(data)
-            if (parsed.success) {
-                void route(parsed.data)
-            }
+        const bridge = new CanvasDocumentBridge(
+            iframeRef.current!,
+            (data) => {
+                const edit = canvasEditMessageSchema.safeParse(data)
+                if (edit.success) {
+                    latestHandlers.current.handleEdit(edit.data)
+                    return
+                }
+                const parsed = canvasToHostMessageSchema.safeParse(data)
+                if (parsed.success) {
+                    void route(parsed.data)
+                }
+            },
+            () => {}
+        )
+        const disconnect = connectCanvasEditor(iframeRef.current!, bridge.post)
+        return () => {
+            readyRef.current = false
+            activeSourceDrag()?.end(false)
+            disconnect()
+            bridge.close()
         }
-        window.addEventListener('message', onMessage)
-        return () => window.removeEventListener('message', onMessage)
     }, [documentUrl])
 
     const rev = entry?.rev
@@ -204,7 +214,7 @@ export function CanvasSourceEditor({
     // Shortcuts pressed while the host has focus. The frame forwards its own through canvas-edit-key.
     useEffect(() => {
         const onKey = (event: KeyboardEvent): void => {
-            if (isTypingTarget(event.target)) {
+            if (!event.isTrusted || isTypingTarget(event.target)) {
                 return
             }
             const shortcut = event.metaKey || event.ctrlKey
@@ -229,13 +239,9 @@ export function CanvasSourceEditor({
                 // allow-scripts without allow-same-origin keeps the sandbox in an opaque origin.
                 // Do not add allow-popups or allow-same-origin.
                 sandbox="allow-scripts"
-                src={documentUrl}
+                key={documentUrl}
+                src={`${documentUrl}#bridge=port`}
                 referrerPolicy="no-referrer"
-                // By load the document's bootstrap has run, so init reaches it even if "ready" was missed.
-                onLoad={() => {
-                    readyRef.current = true
-                    sendInit()
-                }}
                 // Without a matching color-scheme the browser paints the frame white before init lands.
                 style={{ colorScheme: theme }}
                 className="h-full w-full border-0 bg-background"

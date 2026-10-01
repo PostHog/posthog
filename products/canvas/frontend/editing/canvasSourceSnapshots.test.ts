@@ -7,6 +7,7 @@ import {
     redoSourceEntry,
     resolveSourceConflict,
     setSourceConflict,
+    setSourceSaving,
     undoSourceEntry,
 } from './canvasSourceSnapshots'
 
@@ -19,7 +20,7 @@ const PROJECT: CanvasSourceProjectApi = {
 
 function conflicted(): CanvasSourceEntry {
     const loaded = loadSourceEntry(null, PROJECT, 'v1')
-    return setSourceConflict(applySourceFiles(loaded, { 'src/canvas.tsx': 'local edit' }), 'v2')
+    return setSourceConflict(setSourceSaving(applySourceFiles(loaded, { 'src/canvas.tsx': 'local edit' }), true), 'v2')
 }
 
 describe('canvasSourceSnapshots', () => {
@@ -29,6 +30,7 @@ describe('canvasSourceSnapshots', () => {
     ])('keepLocal=$keepLocal publishes over v2 only when chosen', ({ keepLocal, base, files, dirty }) => {
         const entry = resolveSourceConflict(conflicted(), keepLocal)
         expect(entry.conflict).toBeNull()
+        expect(conflicted().saving).toBe(false)
         expect(entry.baseVersionId).toBe(base)
         expect(entry.files).toEqual(files)
         expect(isSourceDirty(entry)).toBe(dirty)

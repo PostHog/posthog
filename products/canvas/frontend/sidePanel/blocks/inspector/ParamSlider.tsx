@@ -47,8 +47,11 @@ export function ParamSlider({
                 }}
                 onValueCommitted={(next: number | readonly number[]) => {
                     const raw = firstValue(next)
-                    if (typeof raw === 'number' && raw !== value) {
-                        onCommit(Number(raw.toFixed(decimals)))
+                    if (typeof raw === 'number') {
+                        const rounded = Number(raw.toFixed(decimals))
+                        if (rounded !== value) {
+                            onCommit(rounded)
+                        }
                     }
                 }}
             />

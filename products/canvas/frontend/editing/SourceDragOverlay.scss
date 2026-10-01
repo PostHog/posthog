@@ -1,4 +1,3 @@
-// Ported from PostHog Desktop's blocks.css: the drag ghost's lift, drop, and return motion.
 .CanvasSourceDrag__shield {
     position: fixed;
     inset: 0;
@@ -19,10 +18,10 @@
 
     &[data-phase='drop'] {
         opacity: 0;
-        scale: 0.98;
         transition:
             opacity 140ms var(--canvas-source-drag-ease-out),
             scale 140ms var(--canvas-source-drag-ease-out);
+        scale: 0.98;
     }
 
     &[data-phase='return'] {
@@ -34,10 +33,10 @@
 }
 
 .CanvasSourceDrag__card {
-    animation: canvas-source-drag-lift 180ms var(--canvas-source-drag-ease-out) both;
+    animation: CanvasSourceDrag__Lift 180ms var(--canvas-source-drag-ease-out) both;
 }
 
-@keyframes canvas-source-drag-lift {
+@keyframes CanvasSourceDrag__Lift {
     from {
         opacity: 0;
         scale: 0.97;
@@ -49,7 +48,7 @@
     }
 }
 
-@keyframes canvas-source-drag-fade {
+@keyframes CanvasSourceDrag__Fade {
     from {
         opacity: 0;
     }
@@ -61,7 +60,7 @@
 
 @media (prefers-reduced-motion: reduce) {
     .CanvasSourceDrag__card {
-        animation-name: canvas-source-drag-fade;
+        animation-name: CanvasSourceDrag__Fade;
     }
 
     .CanvasSourceDrag__ghost[data-phase='return'] {

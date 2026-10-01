@@ -25,6 +25,11 @@ export function CanvasBlocksLibraryItem({
                     type="button"
                     aria-label={`Add ${entry.label}`}
                     data-attr={`canvas-blocks-library-${entry.type}`}
+                    onClick={(event) => {
+                        if (event.detail === 0) {
+                            onActivate(entry)
+                        }
+                    }}
                     onPointerDown={(event) => onPointerDown(event, entry)}
                     onKeyDown={(event: KeyboardEvent) => {
                         if (event.key === 'Enter' || event.key === ' ') {

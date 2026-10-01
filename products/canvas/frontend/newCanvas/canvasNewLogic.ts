@@ -310,120 +310,120 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
             ],
         ],
     }),
-    listeners(({ actions, values }) => ({
-        send: async () => {
-            const projectId = values.currentProjectId ? String(values.currentProjectId) : null
-            const space = values.selectedSpace
-            const instruction = values.instruction.trim()
-            const fromSuggestion = values.fromSuggestion
-            if (values.sending || values.startingBlank || values.sendDisabledReason || !projectId || !space) {
-                return
-            }
-            actions.sendStarted()
-            const stillOnStartPage = (): boolean =>
-                removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()
+    listeners(({ actions, values }) => {
+        const createCanvas = async (
+            projectId: string,
+            spaceId: string,
+            starterId?: string
+        ): Promise<CanvasApi | null> => {
             try {
-                let canvas: CanvasApi
-                try {
-                    canvas = await canvasesCreate(projectId, {
-                        channel_id: space.id,
-                        name: UNTITLED_CANVAS_NAME,
-                        template_id: FREEFORM_TEMPLATE_ID,
-                    })
-                } catch (error) {
-                    toast.error({
-                        title: "Couldn't create the canvas",
-                        description: error instanceof Error ? error.message : 'Try again in a moment.',
-                    })
-                    return
-                }
+                const canvas = await canvasesCreate(projectId, {
+                    channel_id: spaceId,
+                    name: UNTITLED_CANVAS_NAME,
+                    template_id: FREEFORM_TEMPLATE_ID,
+                })
                 posthog.capture(CANVAS_EVENTS.dashboardAction, {
                     action_type: 'create',
                     surface: 'web_new_canvas_page',
-                    channel_id: space.id,
+                    channel_id: spaceId,
                     dashboard_id: canvas.id,
                     template_id: FREEFORM_TEMPLATE_ID,
+                    ...(starterId ? { starter_id: starterId } : {}),
                 })
-                try {
-                    await startCanvasGeneration({
-                        projectId,
-                        canvas,
-                        spaceName: space.name,
-                        instruction,
-                        fromSuggestion,
-                        surface: 'web_new_canvas_page',
-                    })
-                    actions.sent()
-                } catch (error) {
-                    // The canvas exists, so the person lands on it with the prompt kept, ready to send again.
-                    actions.handOffStart({ canvasId: canvas.id, instruction, fromSuggestion })
-                    toast.error({
-                        title: "Couldn't start building the canvas",
-                        description: error instanceof Error ? error.message : 'Try again in a moment.',
-                    })
-                }
-                if (stillOnStartPage()) {
-                    router.actions.replace(urls.canvasDetail(canvas.id))
-                }
-            } finally {
-                actions.sendFinished()
+                return canvas
+            } catch (error) {
+                toast.error({
+                    title: "Couldn't create the canvas",
+                    description: error instanceof Error ? error.message : 'Try again in a moment.',
+                })
+                return null
             }
-        },
-        startBlank: async () => {
-            const projectId = values.currentProjectId ? String(values.currentProjectId) : null
-            const space = values.selectedSpace
-            if (values.sending || values.startingBlank || values.startBlankDisabledReason || !projectId || !space) {
-                return
-            }
-            actions.startBlankStarted()
-            try {
-                let canvas: CanvasApi
-                try {
-                    canvas = await canvasesCreate(projectId, {
-                        channel_id: space.id,
-                        name: UNTITLED_CANVAS_NAME,
-                        template_id: FREEFORM_TEMPLATE_ID,
-                    })
-                } catch (error) {
-                    toast.error({ title: "Couldn't create the canvas", description: error instanceof Error ? error.message : 'Try again in a moment.' })
+        }
+        return {
+            send: async () => {
+                const projectId = values.currentProjectId ? String(values.currentProjectId) : null
+                const space = values.selectedSpace
+                const instruction = values.instruction.trim()
+                const fromSuggestion = values.fromSuggestion
+                if (values.sending || values.startingBlank || values.sendDisabledReason || !projectId || !space) {
                     return
                 }
-                posthog.capture(CANVAS_EVENTS.dashboardAction, {
-                    action_type: 'create',
-                    surface: 'web_new_canvas_page',
-                    channel_id: space.id,
-                    dashboard_id: canvas.id,
-                    template_id: FREEFORM_TEMPLATE_ID,
-                    starter_id: BLANK_STARTER_ID,
-                })
+                actions.sendStarted()
+                const stillOnStartPage = (): boolean =>
+                    removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()
                 try {
-                    // The new canvas's source carries the platform's pinned dependencies, so only the files change.
-                    const source = await canvasesSourceRetrieve(projectId, canvas.id)
-                    const files = blankCanvasFiles()
-                    await canvasesPublishCreate(projectId, canvas.id, {
-                        project: {
-                            ...source.project,
-                            files,
-                            capabilities: canvasCapabilities(source.project.capabilities, files) as
-                                | CanvasCapabilitiesApi
-                                | undefined,
-                        },
-                        prompt: 'Started a blank canvas',
-                        expected_current_version_id: source.current_version_id,
-                    })
-                    actions.handOffEdit(canvas.id)
-                } catch {
-                    // The canvas exists, so the person lands on it and can describe it to the agent instead.
-                    toast.error({ title: "The canvas was created, but its blank layout didn't save. Describe the canvas to have the agent build it." })
+                    const canvas = await createCanvas(projectId, space.id)
+                    if (!canvas) {
+                        return
+                    }
+                    try {
+                        await startCanvasGeneration({
+                            projectId,
+                            canvas,
+                            spaceName: space.name,
+                            instruction,
+                            fromSuggestion,
+                            surface: 'web_new_canvas_page',
+                        })
+                        actions.sent()
+                    } catch (error) {
+                        // The canvas exists, so the person lands on it with the prompt kept, ready to send again.
+                        actions.handOffStart({ canvasId: canvas.id, instruction, fromSuggestion })
+                        toast.error({
+                            title: "Couldn't start building the canvas",
+                            description: error instanceof Error ? error.message : 'Try again in a moment.',
+                        })
+                    }
+                    if (stillOnStartPage()) {
+                        router.actions.replace(urls.canvasDetail(canvas.id))
+                    }
+                } finally {
+                    actions.sendFinished()
                 }
-                if (removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()) {
-                    router.actions.replace(urls.canvasDetail(canvas.id))
+            },
+            startBlank: async () => {
+                const projectId = values.currentProjectId ? String(values.currentProjectId) : null
+                const space = values.selectedSpace
+                if (values.sending || values.startingBlank || values.startBlankDisabledReason || !projectId || !space) {
+                    return
                 }
-            } finally {
-                actions.startBlankFinished()
-            }
-        },
-    })),
+                actions.startBlankStarted()
+                try {
+                    const canvas = await createCanvas(projectId, space.id, BLANK_STARTER_ID)
+                    if (!canvas) {
+                        return
+                    }
+                    try {
+                        // The new canvas's source carries the platform's pinned dependencies, so only the files change.
+                        const source = await canvasesSourceRetrieve(projectId, canvas.id)
+                        const files = blankCanvasFiles()
+                        await canvasesPublishCreate(projectId, canvas.id, {
+                            project: {
+                                ...source.project,
+                                files,
+                                capabilities: canvasCapabilities(source.project.capabilities, files) as
+                                    | CanvasCapabilitiesApi
+                                    | undefined,
+                            },
+                            prompt: 'Started a blank canvas',
+                            expected_current_version_id: source.current_version_id,
+                        })
+                        actions.handOffEdit(canvas.id)
+                    } catch {
+                        // The canvas exists, so the person lands on it and can describe it to the agent instead.
+                        toast.error({
+                            title: "The canvas was created, but its blank layout didn't save. Describe the canvas to have the agent build it.",
+                        })
+                    }
+                    if (removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()) {
+                        router.actions.replace(urls.canvasDetail(canvas.id))
+                    }
+                } finally {
+                    actions.startBlankFinished()
+                }
+            },
+        }
+    }),
     urlToAction(({ actions, values }) => ({
         [urls.canvasNew()]: (_, searchParams) => {
             if (values.sending || values.startingBlank) {

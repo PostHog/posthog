@@ -1,6 +1,7 @@
 import { BLOCK_ICONS_PATH, BLOCK_RUNTIME_PATH, componentPath } from './blockDefinitions'
 import { withLibraryFile } from './blockLibrarySync'
 import { BLOCK_COMPONENT_SOURCES } from './componentSources'
+import { jsxOpeningTags, jsxStringAttribute } from './jsxOpeningTags'
 
 export const CANVAS_ENTRY_PATH = 'src/canvas.tsx'
 
@@ -48,10 +49,13 @@ interface Capabilities {
     connectors?: unknown[]
 }
 
-const INSIGHT_BLOCK_ID = /<Insight\b[^>]*?\bshortId="([^"]+)"/g
-
 function insightBlockIds(files: Record<string, string>): string[] {
-    return Object.values(files).flatMap((source) => Array.from(source.matchAll(INSIGHT_BLOCK_ID), (match) => match[1]))
+    return Object.values(files).flatMap((source) =>
+        jsxOpeningTags(source, 'Insight').flatMap(({ tag }) => {
+            const id = jsxStringAttribute(source, tag, 'shortId')
+            return id ? [id] : []
+        })
+    )
 }
 
 export function usesBlocks(files: Record<string, string>): boolean {

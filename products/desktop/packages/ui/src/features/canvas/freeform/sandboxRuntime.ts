@@ -228,6 +228,7 @@ export function buildSandboxDocument(
     const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
     let bridgePort = null;
     let sendToHost = null;
+    let disconnectBridge = null;
     const post = (msg) => {
       const message = { channel: CHANNEL, ...msg };
       if (sendToHost) sendToHost(message);
@@ -745,13 +746,14 @@ export function buildSandboxDocument(
       if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
         bridgePort = e.ports[0];
         sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
         bridgePort.onmessage = (event) => receive(event.data);
         post({ type: "ready" });
       } else if (!portOnly && !bridgePort) {
         receive(e.data);
       }
     });
-    window.addEventListener("pagehide", () => bridgePort?.close());
+    window.addEventListener("pagehide", () => disconnectBridge?.());
 
     post({ type: "ready" });
   `;

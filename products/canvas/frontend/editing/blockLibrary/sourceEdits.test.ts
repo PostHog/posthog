@@ -1,4 +1,5 @@
-import { DropPlace, moveRange, placeableTarget, setJsxAttributes } from './sourceEdits'
+import { blockDefinition, freshBlockProps } from './blockDefinitions'
+import { blockRanges, DropPlace, moveRange, placeableTarget, setJsxAttributes } from './sourceEdits'
 
 const FILE = 'src/canvas.tsx'
 
@@ -114,4 +115,15 @@ describe('sourceEdits', () => {
             placeableTarget({ files: { [FILE]: TWO_ROOTS }, rootSource: ROOT }, { file: FILE, ...range, place })
         ).toBe(expected)
     })
+})
+
+test('finds data blocks and used presets after comparison attributes', () => {
+    const definition = blockDefinition('Funnel')!
+    const title = String(definition.presets![0].title)
+    const source = `<Funnel sql={"SELECT 1 WHERE 2 >= 1"} title="${title}" />`
+    const files = { [FILE]: source }
+    expect(blockRanges(files, FILE, 'Data')).toEqual([{ file: FILE, start: 0, end: source.length }])
+    if (definition.presets!.length > 1) {
+        expect(freshBlockProps(definition, files)).toEqual(definition.presets![1])
+    }
 })

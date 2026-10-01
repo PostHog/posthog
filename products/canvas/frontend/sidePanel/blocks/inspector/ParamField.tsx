@@ -127,8 +127,13 @@ export function ParamField({
                             <input
                                 type="color"
                                 aria-label={spec.label}
-                                value={HEX_COLOR.test(color) ? color : '#000000'}
-                                onChange={(event) => onChange(event.target.value)}
+                                key={color}
+                                defaultValue={HEX_COLOR.test(color) ? color : '#000000'}
+                                onBlur={(event) => {
+                                    if (event.target.value !== color) {
+                                        onChange(event.target.value)
+                                    }
+                                }}
                                 className="absolute inset-0 size-full cursor-pointer opacity-0"
                             />
                         </label>

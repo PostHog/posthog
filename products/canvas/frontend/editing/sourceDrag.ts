@@ -71,6 +71,7 @@ export function beginSourceDrag(options: {
     onDrop: (source: SourceDragSource, hit: SourceDropHit) => void
     onClick?: () => void
 }): void {
+    active?.end(false)
     const { source } = options
     const blockType = source.kind === 'new' ? source.blockType : source.selection.blockType
     const label = libraryLabel(blockType, source.kind === 'move' ? source.selection.tag : undefined)
@@ -132,6 +133,8 @@ export function beginSourceDrag(options: {
         end(commit) {
             window.removeEventListener('pointermove', onMove, true)
             window.removeEventListener('pointerup', onUp, true)
+            window.removeEventListener('pointercancel', onCancel, true)
+            window.removeEventListener('blur', onCancel)
             window.removeEventListener('keydown', onKey, true)
             postToCanvasEditor({ type: 'canvas-edit-drag-end', final: true })
             active = null
@@ -156,6 +159,7 @@ export function beginSourceDrag(options: {
 
     const onMove = (event: PointerEvent): void => controller.move(event.clientX, event.clientY)
     const onUp = (): void => controller.end(true)
+    const onCancel = (): void => controller.end(false)
     const onKey = (event: KeyboardEvent): void => {
         if (event.key !== 'Escape') {
             return
@@ -167,6 +171,8 @@ export function beginSourceDrag(options: {
 
     window.addEventListener('pointermove', onMove, true)
     window.addEventListener('pointerup', onUp, true)
+    window.addEventListener('pointercancel', onCancel, true)
+    window.addEventListener('blur', onCancel)
     window.addEventListener('keydown', onKey, true)
     active = controller
     if (started) {

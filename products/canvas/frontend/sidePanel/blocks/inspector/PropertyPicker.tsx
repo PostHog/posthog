@@ -16,14 +16,15 @@ export function PropertyPicker({
     allowNone?: boolean
     noneLabel?: string
 }): JSX.Element {
-    const { topProperties, topPropertiesLoading } = useValues(canvasBlockPickersLogic)
+    const { topProperties, topPropertiesLoading, topPropertiesError } = useValues(canvasBlockPickersLogic)
     const { ensureTopProperties } = useActions(canvasBlockPickersLogic)
     return (
         <SearchPicker
             value={value}
             onChange={onChange}
             options={topProperties ?? []}
-            loading={topPropertiesLoading || topProperties === null}
+            loading={topPropertiesLoading}
+            error={topPropertiesError ? 'Options did not load. Close and reopen this list to try again.' : null}
             onOpen={ensureTopProperties}
             placeholder="Pick a property"
             searchPlaceholder="Search properties…"

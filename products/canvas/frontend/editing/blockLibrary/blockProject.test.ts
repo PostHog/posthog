@@ -6,7 +6,7 @@ describe('canvasCapabilities', () => {
         const files = {
             [BLOCK_RUNTIME_PATH]: '',
             'src/canvas.tsx':
-                '<Insight blockId="a" shortId="Abc123" />\n<Insight\n  blockId="b"\n  title="Signups"\n  shortId="Xyz789"\n/>\n<Insight blockId="c" />',
+                '<Insight blockId="a" shortId="Abc123" />\n<Insight\n  blockId="b"\n  title={"Signups > 1"}\n  shortId="Xyz789"\n/>\n<Insight blockId="c" />',
         }
         const capabilities = canvasCapabilities({ posthog: { insights: ['Old111', 'Abc123'] } }, files)
         expect(capabilities?.posthog?.insights).toEqual(['Old111', 'Abc123', 'Xyz789'])

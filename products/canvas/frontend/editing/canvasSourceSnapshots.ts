@@ -2,7 +2,7 @@ import type { CanvasSourceProjectApi } from '../generated/api.schemas'
 import type { ParamSchema } from './blockLibrary/params'
 import type { GridGrowth, SourceFiles, SourceRange } from './blockLibrary/sourceEdits'
 
-// The local edit state of one canvas, ported from PostHog Desktop's canvasSourceStore. Each
+// The local edit state of one canvas. Each
 // function returns a new entry, so the kea reducer that holds it stays a thin dispatch.
 
 const HISTORY_LIMIT = 80

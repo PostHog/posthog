@@ -5,8 +5,18 @@ export function canvasEditorFrame(): HTMLIFrameElement | null {
     return document.querySelector<HTMLIFrameElement>('iframe[data-canvas-source-editor]')
 }
 
-/** Posts one message of the edit protocol to the canvas being edited. */
+const bridges = new WeakMap<HTMLIFrameElement, (message: unknown) => void>()
+
+export function connectCanvasEditor(frame: HTMLIFrameElement, post: (message: unknown) => void): () => void {
+    bridges.set(frame, post)
+    return () => {
+        bridges.delete(frame)
+    }
+}
+
 export function postToCanvasEditor(message: Record<string, unknown>): void {
-    // The sandbox has an opaque origin, so no narrower target origin matches it.
-    canvasEditorFrame()?.contentWindow?.postMessage({ channel: CANVAS_CHANNEL, ...message }, '*')
+    const frame = canvasEditorFrame()
+    if (frame) {
+        bridges.get(frame)?.({ channel: CANVAS_CHANNEL, ...message })
+    }
 }

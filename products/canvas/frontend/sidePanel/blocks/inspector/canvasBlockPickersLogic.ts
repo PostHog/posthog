@@ -26,8 +26,10 @@ export interface canvasBlockPickersLogicValues {
     savedInsights: CanvasSavedInsight[]
     savedInsightsLoading: boolean
     topEvents: string[] | null
+    topEventsError: string | null
     topEventsLoading: boolean
     topProperties: string[] | null
+    topPropertiesError: string | null
     topPropertiesLoading: boolean
 }
 
@@ -154,6 +156,14 @@ export const canvasBlockPickersLogic = kea<canvasBlockPickersLogicType>([
         ],
     })),
     reducers({
+        topEventsError: [
+            null as string | null,
+            { loadTopEvents: () => null, loadTopEventsFailure: (_, { error }) => error },
+        ],
+        topPropertiesError: [
+            null as string | null,
+            { loadTopProperties: () => null, loadTopPropertiesFailure: (_, { error }) => error },
+        ],
         insightSearch: [
             '',
             {

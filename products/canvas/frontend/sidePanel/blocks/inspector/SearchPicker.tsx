@@ -26,6 +26,7 @@ export interface SearchPickerProps {
     onChange: (value: string | null) => void
     options: string[]
     loading: boolean
+    error?: string | null
     placeholder: string
     searchPlaceholder: string
     ariaLabel: string
@@ -42,6 +43,7 @@ export function SearchPicker({
     onChange,
     options,
     loading,
+    error,
     placeholder,
     searchPlaceholder,
     ariaLabel,
@@ -121,6 +123,11 @@ export function SearchPicker({
                 />
                 <ComboboxContent anchor={anchorRef} side="bottom" align="start" sideOffset={4} className="w-64">
                     <ComboboxInput placeholder={searchPlaceholder} showTrigger={false} />
+                    {error && (
+                        <Text size="xs" variant="destructive" role="alert">
+                            {error}
+                        </Text>
+                    )}
                     <ComboboxEmpty>{loading ? 'Loading…' : 'No matches. Type a name to use it anyway.'}</ComboboxEmpty>
                     <ComboboxList className="max-h-72">
                         {(item: string) => {

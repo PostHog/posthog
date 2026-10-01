@@ -45,7 +45,7 @@ export function SqlField({
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-1">
                     <KbdGroup>
-                        <Kbd>⌘</Kbd>
+                        <Kbd>{navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'}</Kbd>
                         <Kbd>↵</Kbd>
                     </KbdGroup>
                     <span>to run</span>

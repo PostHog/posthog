@@ -1,3 +1,5 @@
+import { jsxOpeningTags, jsxStringAttribute } from './jsxOpeningTags'
+
 export type BlockGroup = 'Data' | 'Controls' | 'Content'
 
 export type BlockPropValue = string | number | boolean | string[] | undefined
@@ -257,16 +259,11 @@ export function componentPath(component: string): string {
     return `${BLOCKS_DIR}/${component}.tsx`
 }
 
-function escapeRegExp(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 export function freshBlockProps(definition: BlockDefinition, files: Record<string, string>): BlockPropsRecord {
     const presets = definition.presets ?? [{}]
     const source = Object.values(files).join('\n')
+    const tags = definition.component ? jsxOpeningTags(source, definition.component) : []
     const used = (preset: BlockPropsRecord): boolean =>
-        new RegExp(`<${definition.component}\\b[^>]*\\btitle="${escapeRegExp(String(preset.title ?? ''))}"`).test(
-            source
-        )
+        tags.some(({ tag }) => jsxStringAttribute(source, tag, 'title') === String(preset.title ?? ''))
     return presets.find((preset) => !used(preset)) ?? presets[0]
 }
