@@ -31,6 +31,7 @@ import { teamLogic } from '../teamLogic'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardEmbeddedShareButton } from './DashboardHeaderActions'
+import { DashboardModalLoading } from './DashboardModalLoading'
 import { DashboardQueryScanBanner } from './DashboardQueryScanBanner'
 import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
@@ -123,6 +124,7 @@ function DashboardScene({
     const { currentTeamId } = useValues(teamLogic)
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
+    const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
@@ -171,7 +173,14 @@ function DashboardScene({
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
             {canEditDashboard && addInsightToDashboardModalVisible && (
-                <Suspense fallback={null}>
+                <Suspense
+                    fallback={
+                        <DashboardModalLoading
+                            isOpen={addInsightToDashboardModalVisible}
+                            onClose={hideAddInsightToDashboardModal}
+                        />
+                    }
+                >
                     <AddInsightToDashboardModal />
                 </Suspense>
             )}
