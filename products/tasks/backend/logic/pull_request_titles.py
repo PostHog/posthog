@@ -98,8 +98,8 @@ def pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dic
     missing_by_integration: dict[tuple[str, int | str], list[PullRequestRef]] = {}
     tasks_by_integration: dict[tuple[str, int | str], Task] = {}
     queued: set[str] = set()
-    for task_id, refs in refs_by_task.items():
-        task = tasks[task_id]
+    for task_key, refs in refs_by_task.items():
+        task = tasks[task_key]
         integration_key = _integration_key(task, user_id)
         for ref in refs:
             url = _pull_request_url(ref)
