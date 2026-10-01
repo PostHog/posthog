@@ -56,6 +56,7 @@ still provides optimistic concurrency control.
 
 Stored filters with an absent version or numeric 1 use the existing v1 path.
 Updates reject other stored formats with `unsupported_config_version`, including writes that omit filters or send `{}`.
+Writes also reject dependencies on flags whose stored format is not v1 with `unsupported_dependency_config_version`.
 This check does not migrate existing configurations.
 
 Ordinary POST, PUT, and PATCH writes route through the feature flag facade.
@@ -145,13 +146,14 @@ Key things to know:
 
 ### Supporting modules
 
-| File                                               | Purpose                                                                    |
-| -------------------------------------------------- | -------------------------------------------------------------------------- |
-| `posthog/models/feature_flag/flag_matching.py`     | **Legacy** Python evaluation engine (only used for static cohort creation) |
-| `posthog/models/feature_flag/flags_cache.py`       | HyperCache for the Rust flags service with signal-based invalidation       |
-| `posthog/models/feature_flag/local_evaluation.py`  | Prepares flag data for SDK local evaluation with HyperCache                |
-| `posthog/models/feature_flag/user_blast_radius.py` | Estimates user/group match counts for conditions                           |
-| `posthog/api/services/flags_service.py`            | HTTP proxy to the Rust flags service                                       |
+| File                                                       | Purpose                                                                           |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `posthog/models/feature_flag/flag_matching.py`             | **Legacy** Python evaluation engine (only used for static cohort creation)        |
+| `products/feature_flags/backend/flags_cache.py`            | HyperCache for the Rust flags service with signal-based invalidation              |
+| `products/feature_flags/backend/local_evaluation.py`       | Prepares flag data for SDK local evaluation with HyperCache                       |
+| `products/feature_flags/backend/user_blast_radius.py`      | Estimates user/group match counts for conditions                                  |
+| `products/feature_flags/backend/blast_radius_flag_deps.py` | Sizes flag-dependency filters for that estimate as per-person match probabilities |
+| `posthog/api/services/flags_service.py`                    | HTTP proxy to the Rust flags service                                              |
 
 ## Remote config endpoints
 

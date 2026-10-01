@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -291,6 +293,28 @@ class TestTicketViewAPI(APIBaseTest):
         results = self.client.get(self.base_url).json()["results"]
         assert [r["name"] for r in results] == ["Older", "Newer"]
         assert results[0]["is_favorited"] is True
+
+    # --- Pagination ---
+
+    def test_pagination_is_stable_when_sort_values_tie(self):
+        # Equal favorite state and created_at leave the order undefined without a unique
+        # key, so a paginating client can miss a view or read it twice.
+        created = [self._create_via_api(name=f"View {index}") for index in range(4)]
+        for view in created[:2]:
+            self.client.patch(f"{self.base_url}{view['short_id']}/", {"is_favorited": True}, format="json")
+        TicketView.objects.filter(team=self.team).update(created_at="2026-01-01T00:00:00Z")
+
+        favorited = sorted((UUID(view["id"]) for view in created[:2]), reverse=True)
+        rest = sorted((UUID(view["id"]) for view in created[2:]), reverse=True)
+        expected = [str(view_id) for view_id in favorited + rest]
+
+        paged = []
+        for offset in range(len(created)):
+            response = self.client.get(f"{self.base_url}?limit=1&offset={offset}")
+            assert response.status_code == status.HTTP_200_OK
+            paged.append(response.json()["results"][0]["id"])
+
+        assert paged == expected
 
     # --- Auth ---
 

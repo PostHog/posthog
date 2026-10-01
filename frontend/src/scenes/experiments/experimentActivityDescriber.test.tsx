@@ -121,7 +121,44 @@ describe('experimentActivityDescriber', () => {
             expect(text).not.toContain('shared metric')
         })
 
-        it('does not describe a reorder when the same UUIDs are passed as before/after', () => {
+        it.each([
+            {
+                name: 'the same order',
+                before: ['uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
+            {
+                name: 'a metric removed without moving the rest',
+                before: ['uuid-a', 'uuid-b', 'uuid-c'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
+            {
+                name: 'a metric added without moving the rest',
+                before: ['uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b', 'uuid-c'],
+                described: false,
+            },
+            {
+                name: 'a reorder whose before value still lists a removed metric',
+                before: ['uuid-a', 'uuid-b', 'uuid-c'],
+                after: ['uuid-b', 'uuid-a'],
+                described: true,
+            },
+            {
+                name: 'a metric the array never listed dragged ahead of a listed one',
+                before: ['uuid-a'],
+                after: ['uuid-b', 'uuid-a'],
+                described: true,
+            },
+            {
+                name: 'repeated entries dropped without moving anything',
+                before: ['uuid-a', 'uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
+        ])('$name: reorder described=$described', ({ before, after, described }) => {
             const result = experimentActivityDescriber(
                 baseLogItem({
                     activity: 'updated',
@@ -132,8 +169,8 @@ describe('experimentActivityDescriber', () => {
                                 type: ActivityScope.EXPERIMENT,
                                 action: 'changed',
                                 field: 'primary_metrics_ordered_uuids',
-                                before: ['uuid-a', 'uuid-b'],
-                                after: ['uuid-a', 'uuid-b'],
+                                before,
+                                after,
                             },
                         ],
                         merge: null,
@@ -141,7 +178,7 @@ describe('experimentActivityDescriber', () => {
                     },
                 })
             )
-            expect(textOf(result)).not.toContain('reordered')
+            expect(textOf(result).includes('reordered')).toBe(described)
         })
     })
 
@@ -374,6 +411,11 @@ describe('experimentActivityDescriber', () => {
             const text = textOf(result)
             expect(text).toContain('stopped experiment')
             expect(text).toContain('completed it as')
+            const summaryText = render(<>{result.summary?.action}</>).container.textContent || ''
+            expect(summaryText).toContain('stopped experiment')
+            expect(summaryText).toContain('completed it as')
+            expect(summaryText).not.toMatch(/ (for|to|from|on)$/)
+            expect(render(<>{result.summary?.target}</>).container.querySelector('a')).not.toBeNull()
             expect(text).not.toContain('status')
             expect(text).not.toContain('conclusion comment')
             const extended = render(<>{result.extendedDescription}</>).container.textContent

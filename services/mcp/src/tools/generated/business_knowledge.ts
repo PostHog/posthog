@@ -66,6 +66,63 @@ const businessKnowledgeDocumentsSearch = (): ToolBase<
     },
 })
 
+const BusinessKnowledgeRepositoriesFileRetrieveSchema = () => {
+    const BusinessKnowledgeRepositoriesFileRetrieveQueryParams =
+        orvalSchemas.BusinessKnowledgeRepositoriesFileRetrieveQueryParams()
+    return BusinessKnowledgeRepositoriesFileRetrieveQueryParams
+}
+
+const businessKnowledgeRepositoriesFileRetrieve = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeRepositoriesFileRetrieveSchema>,
+    Schemas.RepositoryFile
+> => ({
+    name: 'business-knowledge-repositories-file-retrieve',
+    schema: BusinessKnowledgeRepositoriesFileRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof BusinessKnowledgeRepositoriesFileRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RepositoryFile>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/repositories/file/`,
+            query: {
+                path: params.path,
+                repo: params.repo,
+            },
+        })
+        return result
+    },
+})
+
+const BusinessKnowledgeRepositoriesSearchSchema = () => {
+    const BusinessKnowledgeRepositoriesSearchQueryParams = orvalSchemas.BusinessKnowledgeRepositoriesSearchQueryParams()
+    return BusinessKnowledgeRepositoriesSearchQueryParams
+}
+
+const businessKnowledgeRepositoriesSearch = (): ToolBase<
+    ReturnType<typeof BusinessKnowledgeRepositoriesSearchSchema>,
+    Schemas.RepositorySearchResponse
+> => ({
+    name: 'business-knowledge-repositories-search',
+    schema: BusinessKnowledgeRepositoriesSearchSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof BusinessKnowledgeRepositoriesSearchSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RepositorySearchResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/repositories/search/`,
+            query: {
+                query: params.query,
+                repo: params.repo,
+            },
+        })
+        return result
+    },
+})
+
 const BusinessKnowledgeSourcesListSchema = () => {
     const BusinessKnowledgeSourcesListQueryParams = orvalSchemas.BusinessKnowledgeSourcesListQueryParams()
     return BusinessKnowledgeSourcesListQueryParams
@@ -83,6 +140,7 @@ const businessKnowledgeSourcesList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/`,
             query: {
+                added_by: params.added_by,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -110,7 +168,18 @@ const businessKnowledgeSourcesList = (): ToolBase<
                 ])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/business-knowledge')
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/business-knowledge/${item.id}`)
+                    )
+                ),
+            },
+            '/business-knowledge'
+        )
     },
 })
 
@@ -159,7 +228,7 @@ const BusinessKnowledgeSourcesRetrieveSchema = () => {
 
 const businessKnowledgeSourcesRetrieve = (): ToolBase<
     ReturnType<typeof BusinessKnowledgeSourcesRetrieveSchema>,
-    Schemas.KnowledgeSource
+    WithPostHogUrl<Schemas.KnowledgeSource>
 > => ({
     name: 'business-knowledge-sources-retrieve',
     schema: BusinessKnowledgeSourcesRetrieveSchema(),
@@ -169,7 +238,7 @@ const businessKnowledgeSourcesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/business_knowledge/sources/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        return await withPostHogUrl(context, result, `/business-knowledge/${result.id}`)
     },
 })
 
@@ -228,6 +297,8 @@ const businessKnowledgeSourcesUrlCreate = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'business-knowledge-document-window-retrieve': businessKnowledgeDocumentWindowRetrieve,
     'business-knowledge-documents-search': businessKnowledgeDocumentsSearch,
+    'business-knowledge-repositories-file-retrieve': businessKnowledgeRepositoriesFileRetrieve,
+    'business-knowledge-repositories-search': businessKnowledgeRepositoriesSearch,
     'business-knowledge-sources-list': businessKnowledgeSourcesList,
     'business-knowledge-sources-partial-update': businessKnowledgeSourcesPartialUpdate,
     'business-knowledge-sources-retrieve': businessKnowledgeSourcesRetrieve,

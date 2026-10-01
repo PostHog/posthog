@@ -1,5 +1,6 @@
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
@@ -18,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _key_moment_session_ms,
     _maybe_create_video_cache,
     _MissionOutcome,
     _remaining_verify_budget_seconds,
@@ -38,7 +40,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
 )
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.types import ScannerSnapshot, VerificationRecord
-from products.replay_vision.backend.temporal.video_clock import VideoClock
+from products.replay_vision.backend.temporal.video_clock import ActiveSpan, VideoClock
 
 _LABELS = {"provider": "gemini", "model": "gemini-3-flash-preview", "scanner_type": "monitor"}
 # The driver treats the video part opaquely (just appended to the conversation), so a sentinel is fine.
@@ -55,18 +57,29 @@ class _Side(BaseModel):
 
 
 class _FakeContent:
-    def __init__(self, function_call: Any = None) -> None:
-        part = type("Part", (), {"function_call": function_call})()
-        self.parts = [part]
+    def __init__(self, function_calls: list[Any]) -> None:
+        self.parts = [type("Part", (), {"function_call": fc})() for fc in function_calls] or [
+            type("Part", (), {"function_call": None})()
+        ]
 
 
 class _Resp:
-    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason."""
+    """Minimal genai response: `.text`, `.candidates[0].content.parts`, and an optional finish reason.
+
+    `function_calls` takes a list because a turn can ask for several lookups at once, which is the
+    behaviour the per-round histogram exists to measure.
+    """
 
     def __init__(
-        self, text: str = "", function_call: Any = None, finish_reason: Any = None, empty_content: bool = False
+        self,
+        text: str = "",
+        function_call: Any = None,
+        function_calls: list[Any] | None = None,
+        finish_reason: Any = None,
+        empty_content: bool = False,
     ) -> None:
-        content = None if empty_content else _FakeContent(function_call)
+        calls = function_calls if function_calls is not None else ([function_call] if function_call else [])
+        content = None if empty_content else _FakeContent(calls)
         self.candidates = [type("Cand", (), {"content": content, "finish_reason": finish_reason})()]
         self.text = text
 
@@ -98,6 +111,7 @@ async def _run(
     dispatch: Any = lambda c: {},
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
+    on_round: Callable[[int], None] | None = None,
 ):
     return await _run_steps(
         client=client,
@@ -111,6 +125,7 @@ async def _run(
         team_id=1,
         metric_labels=_LABELS,
         trace_id="trace-1",
+        on_round=on_round,
     )
 
 
@@ -201,6 +216,52 @@ async def test_step_runs_a_tool_call_then_answers() -> None:
     out = await _run(client, steps, dispatch=dispatch)
     assert out["core"].verdict == "yes"
     assert [fc.args for fc in dispatched] == [{"rec_t": 5}]
+
+
+@pytest.mark.asyncio
+async def test_each_tool_turn_reports_how_many_lookups_it_asked_for() -> None:
+    # The round hook is the only measure of batching that survives privacy mode. A signature that accepts
+    # it without forwarding it leaves the metric permanently empty and raises nothing.
+    rounds: list[int] = []
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [
+        _Resp(
+            function_calls=[
+                _fc("get_events_around", {"vid_t": 5}),
+                _fc("get_network_around", {"vid_t": 5}),
+                _fc("get_events_around", {"vid_t": 40}),
+            ]
+        ),
+        _Resp(function_call=_fc("get_events_around", {"vid_t": 90})),
+        _Resp(text='{"verdict":"yes"}'),
+    ]
+    client = _FakeClient(responses)
+    out = await _run(client, steps, dispatch=lambda fc: {"events": []}, on_round=rounds.append)
+    assert out["core"].verdict == "yes"
+    # A turn asking for three lookups must report 3, not 1: telling those apart is the whole point.
+    assert rounds == [3, 1]
+
+
+@pytest.mark.asyncio
+async def test_the_turn_that_spends_the_last_budget_is_still_counted() -> None:
+    # The forced final turn answers that turn's pending lookups, so the round happened. Counting only
+    # the turns inside the loop under-reports exactly the budget-exhausted runs, where batching matters.
+    rounds: list[int] = []
+    budget = 3
+    steps = [MissionStep(name="core", instruction="c", response_model=_Core)]
+    responses = [_Resp(function_call=_fc("get_events_around", {"vid_t": 5})) for _ in range(budget + 1)]
+    responses.append(_Resp(text='{"verdict":"yes"}'))
+    client = _FakeClient(responses)
+    out = await _run(
+        client,
+        steps,
+        dispatch=lambda fc: {"events": []},
+        model="models/gemini-3.8-flash",
+        on_round=rounds.append,
+    )
+    assert out["core"].verdict == "yes"
+    # budget turns inside the loop, plus the turn whose calls the forced answer dispatches.
+    assert len(rounds) == budget + 1
 
 
 @pytest.mark.asyncio
@@ -338,13 +399,16 @@ async def test_signal_timestamps_use_recording_duration(
     )
     signal = SignalFinding(
         problem_type="bug",
+        headline="Blank dialog blocks the editor",
         start_time=0,
         end_time=0,
         url="https://example.com/editor",
         description="A blank dialog covers the editor and prevents input.",
         confidence=0.9,
     )
-    core = MonitorLlmResponse(verdict="yes", reasoning="The dialog blocked input.", confidence=0.9)
+    core = MonitorLlmResponse(
+        verdict="yes", reasoning="The dialog blocked input.", confidence=0.9, thumbnail_t=7, key_moment_t=5
+    )
     client = _FakeClient(
         [_Resp(text=core.model_dump_json())]
         + [
@@ -375,7 +439,74 @@ async def test_signal_timestamps_use_recording_duration(
         )
     assert cast(MonitorOutput, outcome.finalized).verdict == "yes"
     assert outcome.signals == ([] if expected_end is None else [signal.model_copy(update={"end_time": expected_end})])
+    # The pick rides the core answer, so no turn of its own is spent on it.
+    assert outcome.thumbnail_video_s == 7
+    assert outcome.key_moment_video_s == 5
     assert len(client.models.calls) == 1 + len(end_times)
+
+
+# The render cut 10s-40s of the session, so video second 15 shows session second 45.
+_CUT_CLOCK = VideoClock(
+    spans=(
+        ActiveSpan(session_from_s=0, session_to_s=10, video_from_s=0, video_to_s=10),
+        ActiveSpan(session_from_s=40, session_to_s=60, video_from_s=10, video_to_s=30),
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "video_s, duration_ms, clock, expected",
+    [
+        pytest.param(None, 20_000, _IDENTITY_CLOCK, None, id="skipped pick stays unset"),
+        pytest.param(12, 20_000, _IDENTITY_CLOCK, 12_000, id="uncut render keeps the same second"),
+        pytest.param(20, 20_000, _IDENTITY_CLOCK, 20_000, id="the final second is still a moment"),
+        pytest.param(21, 20_000, _IDENTITY_CLOCK, None, id="a time past the recording is dropped"),
+        pytest.param(15, 60_000, _CUT_CLOCK, 45_000, id="a cut render maps onto the session clock"),
+        pytest.param(31, 60_000, _CUT_CLOCK, None, id="a time past the video is dropped, not clamped"),
+    ],
+)
+def test_key_moment_moves_onto_the_session_clock(
+    video_s: int | None, duration_ms: int, clock: VideoClock, expected: int | None
+) -> None:
+    assert _key_moment_session_ms(video_s, duration_ms, clock) == expected
+
+
+@pytest.mark.asyncio
+async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing() -> None:
+    # A provider blip on the last, optional turn used to fail the whole paid-for scan.
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="media", instruction="pick", response_model=_Side, required=False),
+    ]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise RuntimeError("provider is down")
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([_Resp(text='{"verdict":"yes"}')])
+    client.models = _ExplodingModels([_Resp(text='{"verdict":"yes"}')])
+
+    out = await _run(client, steps)
+
+    assert "summary" in out
+    assert "media" not in out
+
+
+@pytest.mark.asyncio
+async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
+    steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
+
+    class _ExplodingModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            raise RuntimeError("provider is down")
+
+    client = _FakeClient([])
+    client.models = _ExplodingModels([])
+
+    with pytest.raises(RuntimeError):
+        await _run(client, steps)
 
 
 @pytest.mark.asyncio
@@ -589,15 +720,11 @@ class TestVerifyPositives:
             calls.append({"steps": [step.name for step in steps], "cache_name": cache_name})
             # Collect rather than assert: the verify draw runs inside an `except Exception` that turns any
             # error into `draw_failed`, so an assertion raised here would pass the test instead of failing it.
-            unchecked_steps.extend(
-                step.name
-                for step in steps
-                if step.name != "signals" and not (step.required and step.validate is not None)
-            )
+            unchecked_steps.extend(step.name for step in steps if step.required and step.validate is None)
             answer = next(pending)
             if isinstance(answer, Exception):
                 raise answer
-            return {step.name: self._answer(answer) for step in steps if step.name != "signals"}
+            return {step.name: self._answer(answer) for step in steps if step.required}
 
         async def fake_delete(*_: Any) -> None:
             calls.append("delete_cache")

@@ -410,7 +410,6 @@ class TestMiddlewareVerification(BaseTest):
     @parameterized.expand(
         [
             ("radar_bypass", "/admin/api/radar-bypass/"),
-            ("code_based_verification_bypass", "/admin/api/code-based-verification-bypass/"),
         ]
     )
     @override_settings(
@@ -431,7 +430,6 @@ class TestMiddlewareVerification(BaseTest):
     @parameterized.expand(
         [
             ("radar_bypass", "/admin/api/radar-bypass/"),
-            ("code_based_verification_bypass", "/admin/api/code-based-verification-bypass/"),
         ]
     )
     @override_settings(

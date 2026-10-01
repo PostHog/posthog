@@ -20,6 +20,11 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
+# The ingest cleaner stores a feature flag variant named "false" under this sentinel in the `$feature_flags` map, because
+# the map holds strings and a flag that was evaluated and switched off is already stored as 'false'. Reads map the
+# sentinel back to "false", and the flag API refuses it as a variant key.
+FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
+
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
 # Max limit for all SELECT queries, and the default for CSV exports
@@ -44,6 +49,12 @@ MAX_SELECT_POSTHOG_AI_LIMIT = 500  # 500 rows
 DEFAULT_POSTHOG_AI_RETURNED_ROWS = 100
 MAX_SELECT_DATA_CATALOG_LIMIT = 10000
 DEFAULT_DATA_CATALOG_RETURNED_ROWS = 1000
+# Cap on series x cohort breakdown values x compare, because each expanded series becomes its own
+# ClickHouse query on its own thread holding its own Postgres connection.
+MAX_EXPANDED_INSIGHT_QUERIES = 200
+# How many of those per-series queries run at the same time inside one request.
+INSIGHT_QUERY_FANOUT_CONCURRENCY = 10
+
 # Max amount of memory usage when doing group by before swapping to disk. Only used in certain queries
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 22 * 1024 * 1024 * 1024
 
@@ -83,6 +94,7 @@ type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 class LimitContext(StrEnum):
     QUERY = "query"
     QUERY_ASYNC = "query_async"
+    SQL_ALERT = "sql_alert"
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
@@ -97,6 +109,7 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
     if limit_context in (
         LimitContext.QUERY,
         LimitContext.QUERY_ASYNC,
+        LimitContext.SQL_ALERT,
     ):
         return MAX_SELECT_RETURNED_ROWS  # 50k
     elif limit_context == LimitContext.EXPORT:
@@ -123,7 +136,7 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
     """Limit used if no limit is provided"""
     if limit_context == LimitContext.EXPORT:
         return CSV_EXPORT_LIMIT
-    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC):
+    elif limit_context in (LimitContext.QUERY, LimitContext.QUERY_ASYNC, LimitContext.SQL_ALERT):
         return DEFAULT_RETURNED_ROWS  # 100
     elif limit_context == LimitContext.POSTHOG_AI:
         return DEFAULT_POSTHOG_AI_RETURNED_ROWS  # 100
@@ -163,6 +176,10 @@ class HogQLQuerySettings(BaseModel):
     optimize_skip_unused_shards: Optional[bool] = None
     read_overflow_mode: Optional[str] = None
     max_bytes_to_read: Optional[int] = None
+    # The native events table stores a dotted JSON key under an escaped path name (EVENTS_JSON_INSERT_SETTINGS);
+    # ClickHouse formats it back as `a.b` only when the reading query sets this too. The ClickHouse printer sets it
+    # on every query that reads that table, and a raw SQL reader of the JSON columns must carry it itself.
+    json_type_escape_dots_in_keys: Optional[bool] = None
 
 
 # Settings applied on top of all HogQL queries.

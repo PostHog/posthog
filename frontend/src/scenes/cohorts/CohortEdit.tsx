@@ -14,7 +14,16 @@ import {
     IconUpload,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonDialog,
+    LemonDivider,
+    LemonFileInput,
+    LemonSnack,
+    LemonTabs,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -54,6 +63,7 @@ import { Query } from '~/queries/Query/Query'
 import { ActivityScope, CohortType, InsightShortId, SidePanelTab } from '~/types'
 
 import type { CohortUsedInResponseApi } from 'products/cohorts/frontend/generated/api.schemas'
+import { CohortRealtimeStatus } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -544,6 +554,11 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 {!cohort.is_static && (
                                                     <div className="flex items-center gap-x-2 my-0">
                                                         <strong>Last calculated:</strong>
+                                                        {featureFlags[FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING] && (
+                                                            <Tooltip title="When PostHog last worked out who belongs to this cohort. That count is what insights, breakdowns and the people list below use, and it is recalculated once a day and whenever you edit the cohort.">
+                                                                <IconInfo className="text-secondary text-base" />
+                                                            </Tooltip>
+                                                        )}
                                                         {isCalculatingOrPending ? (
                                                             <div className="flex items-center gap-x-2">
                                                                 <Spinner size="small" />
@@ -601,6 +616,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     </LemonBanner>
                                                 ) : null}
                                             </div>
+                                        )}
+
+                                        {!isNewCohort && !cohort.is_static && (
+                                            <CohortRealtimeStatus realtime={cohort.realtime} />
                                         )}
 
                                         {!isNewCohort && usedIn && (
@@ -750,6 +769,34 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 onRemovePerson={removePersonFromCreateStaticCohort}
                                                 dataNodeKey="createStaticCohort"
                                             />
+                                            {Object.keys(personsToCreateStaticCohort).length > 0 && (
+                                                <div
+                                                    className="flex flex-col gap-y-1"
+                                                    data-attr="cohort-selected-persons"
+                                                >
+                                                    <h4 className="text-xs font-semibold uppercase opacity-60 mb-0">
+                                                        Selected people (
+                                                        <span translate="no">
+                                                            {Object.keys(personsToCreateStaticCohort).length}
+                                                        </span>
+                                                        )
+                                                    </h4>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {Object.entries(personsToCreateStaticCohort).map(
+                                                            ([personId, displayName]) => (
+                                                                <LemonSnack
+                                                                    key={personId}
+                                                                    onClose={() =>
+                                                                        removePersonFromCreateStaticCohort(personId)
+                                                                    }
+                                                                >
+                                                                    {displayName || personId}
+                                                                </LemonSnack>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
                                         </>
                                     )}
                                     {!isNewCohort && (

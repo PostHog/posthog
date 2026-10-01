@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
@@ -21,11 +22,36 @@ class TestDoItSource:
     def setup_method(self):
         self.source = DoItSource()
 
-    @pytest.mark.parametrize("pattern", ["Report no longer exists", "Request to get report failed with status: 404"])
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "Report no longer exists",
+            "Request to get report failed with status: 404",
+            "invalid or revoked access key",
+            "invalid token: missing expiration",
+        ],
+    )
     def test_non_retryable_errors_includes_pattern(self, pattern):
         errors = self.source.get_non_retryable_errors()
 
         assert pattern in errors
+
+    @pytest.mark.parametrize("pattern", ["invalid or revoked access key", "invalid token: missing expiration"])
+    def test_non_retryable_errors_tells_the_customer_to_reconnect_on_a_bad_key(self, pattern: str):
+        errors = self.source.get_non_retryable_errors()
+
+        assert "reconnect" in (errors[pattern] or "")
+
+    def test_retryable_errors_cover_the_concurrent_query_quota(self):
+        error_msg = (
+            'Request to get report failed with status: 429. With body: {"error":"concurrent report query '
+            'requests quota for \\"some-account-id\\" exhausted; please wait for previous requests to complete."}'
+        )
+
+        # Self-recovering once the other in-flight report queries finish, so it must stay retryable
+        # (and out of the non-retryable set) rather than disabling the schema.
+        assert error_message_matches(error_msg, self.source.get_retryable_errors())
+        assert not error_message_matches(error_msg, self.source.get_non_retryable_errors().keys())
 
     def test_get_schemas_stamps_the_report_id_so_renames_stay_resolvable(self):
         with patch(

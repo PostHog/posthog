@@ -139,6 +139,7 @@ interface UseTaskCreationReturn {
 
 async function trackTaskCreated(
   input: TaskCreationInput,
+  taskId: string,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
   codexModelAccess?: ModelAccess,
@@ -164,6 +165,7 @@ async function trackTaskCreated(
     }
 
     track(ANALYTICS_EVENTS.TASK_CREATED, {
+      task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
       repository_provider: input.repository ? "github" : "none",
@@ -484,6 +486,8 @@ export function useTaskCreation({
             claudeModelAccess,
             claudeCloudModelAccess:
               workspaceMode === "cloud" ? claudeModelAccess : undefined,
+            codexCloudModelAccess:
+              workspaceMode === "cloud" ? codexModelAccess : undefined,
             runtime,
             model,
             reasoningLevel,
@@ -620,6 +624,7 @@ export function useTaskCreation({
             }
             void trackTaskCreated(
               input,
+              result.data.task.id,
               selectedDirectory,
               hostClient,
               input.codexModelAccess,

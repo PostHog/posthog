@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from temporalio.testing import ActivityEnvironment
 
 from posthog.llm.semantic_enrichment import MAX_OUTPUT_TOKENS, TruncatedCompletionError
@@ -748,6 +750,36 @@ class TestEnrichTableSemanticsSync:
         assert result["status"] == "partial"
         assert result["error"] == "llm_failed"
         assert _annotations(team, table) == {}
+
+    def test_unconfigured_gateway_is_not_reported_as_a_failure(self, _mock_capture_enrichment_event):
+        # A deployment with no LLM gateway fails identically for every team and no retry changes that,
+        # so it belongs in the completion event, not in error tracking.
+        team = _team()
+        schema, table = _make_schema(
+            team,
+            columns=[
+                {"name": "amount", "data_type": "Int64", "is_nullable": False},
+                {"name": "status", "data_type": "String", "is_nullable": True},
+            ],
+        )
+        canonical = {"Charge": {"columns": {"amount": "charge amount in cents"}}}
+        with (
+            patch.object(enrich, "get_canonical_descriptions_for_source", return_value=canonical),
+            patch.object(enrich, "_get_business_context", return_value=""),
+            patch.object(enrich, "capture_exception") as mock_capture,
+            override_settings(LLM_GATEWAY_URL="", LLM_GATEWAY_API_KEY="", AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+        ):
+            result = enrich_table_semantics_sync(team.pk, schema.id)
+
+        mock_capture.assert_not_called()
+        assert result["status"] == "partial"
+        assert result["error"] == "llm_gateway_not_configured"
+        # The canonical description needs no gateway, so it still lands; the other column stays
+        # unannotated and a later sync asks for it again.
+        assert set(_annotations(team, table)) == {"amount"}
+        events = {call.args[1]: call.args[2] for call in _mock_capture_enrichment_event.call_args_list}
+        assert enrich.EVENT_ERROR not in events
+        assert events[enrich.EVENT_COMPLETED]["reason"] == "llm_gateway_not_configured"
 
     def test_emits_started_completed_and_llm_call_events(self, _mock_capture_enrichment_event):
         team = _team()

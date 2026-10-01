@@ -367,6 +367,11 @@ class TestLinkedinAdsClient:
                 id="connection_error",
             ),
             pytest.param(
+                lambda: requests.exceptions.ChunkedEncodingError("Connection broken: ConnectionResetError"),
+                3,
+                id="chunked_encoding_error",
+            ),
+            pytest.param(
                 lambda: requests.exceptions.Timeout("read timed out"),
                 3,
                 id="timeout",

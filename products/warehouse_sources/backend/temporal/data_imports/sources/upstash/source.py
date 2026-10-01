@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.se
     UPSTASH_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.upstash.upstash import (
+    INVALID_CREDENTIALS_ERROR,
     upstash_source,
     validate_credentials as validate_upstash_credentials,
 )
@@ -89,7 +90,7 @@ Create a management API key in the [Upstash console](https://console.upstash.com
             # 401/403 surface as a requests HTTPError when `_fetch` calls raise_for_status(). Retrying
             # never satisfies a credential problem, so stop the sync. Match the stable status text and
             # base host, not the per-request path.
-            "401 Client Error: Unauthorized for url: https://api.upstash.com": "Your Upstash email or management API key is invalid or has been revoked. Create a new key in the Upstash console, then reconnect.",
+            "401 Client Error: Unauthorized for url: https://api.upstash.com": INVALID_CREDENTIALS_ERROR,
             "403 Client Error: Forbidden for url: https://api.upstash.com": "Your Upstash management API key is not authorized for this resource. Check the key, then reconnect.",
         }
 

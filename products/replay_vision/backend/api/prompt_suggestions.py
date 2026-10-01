@@ -43,6 +43,7 @@ from products.replay_vision.backend.prompt_evaluation import (
     evaluation_in_flight,
     evaluation_supported,
 )
+from products.replay_vision.backend.prompt_questions import question_fields_for_save
 from products.replay_vision.backend.prompt_suggestions import (
     PromptSuggestionError,
     generate_prompt_suggestion,
@@ -423,6 +424,19 @@ class ReplayScannerPromptSuggestionViewSet(
             suggestion.applied_at = timezone.now()
             suggestion.applied_by = cast(User, request.user)
             suggestion.save(update_fields=["status", "applied_at", "applied_by"])
+        # A model call, so it waits until the row locks above are released. Conditional on the version this apply
+        # saved, so an edit that lands meanwhile keeps its own question.
+        question = question_fields_for_save(
+            team_id=self.team_id,
+            scanner_type=scanner.scanner_type,
+            scanner_config=config,
+            current_source=scanner.prompt_question_source,
+        )
+        if question:
+            ReplayScanner.objects.filter(pk=scanner.pk, scanner_version=scanner.scanner_version).update(
+                prompt_question=question["prompt_question"],
+                prompt_question_source=question["prompt_question_source"],
+            )
         user = cast(User, request.user)
         properties = {
             **_suggestion_properties(suggestion),

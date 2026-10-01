@@ -42,11 +42,12 @@ Read tools (safe to call freely):
 | Tool                                               | Purpose                                                                                                                                                                                                                                  |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `posthog:visual-review-runs-list`                  | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                                                                                                                                                 |
-| `posthog:visual-review-runs-retrieve`              | Full detail for a single run (status, summary counts, supersession).                                                                                                                                                                     |
+| `posthog:visual-review-runs-retrieve`              | Full detail for a single run (status, summary counts, supersession). Carries the `repo_id` the repo tools need.                                                                                                                          |
 | `posthog:visual-review-runs-snapshots-list`        | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. Quarantined snapshots are excluded by default (see `quarantined_count`); pass `include_quarantined=true` to see them. |
-| `posthog:visual-review-runs-snapshot-history-list` | A single story's last N runs across master/PRs — the flake check.                                                                                                                                                                        |
+| `posthog:visual-review-repos-flakiness-retrieve`   | Repo snapshots whose rendering is untrusted, with a `flakiness_state` and flake rates for each. The flake check starts here.                                                                                                             |
+| `posthog:visual-review-runs-snapshot-history-list` | One story's baseline timeline on the default branch: one row per baseline change. Takes `{ id: <run_id>, identifier: <identifier> }`.                                                                                                    |
 | `posthog:visual-review-runs-counts-retrieve`       | Aggregate counts for queue triage (how many runs in `needs_review`, etc.).                                                                                                                                                               |
-| `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation".                                                                                                                                                         |
+| `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation". Takes the same two parameters as the history tool.                                                                                                      |
 | `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                                                                                                                                            |
 | `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                                                                                                                                            |
 
@@ -164,15 +165,36 @@ trust your verdict without opening the VR UI themselves.
 
 ### Flake check: "Has this story been changing?"
 
-Once you have a suspect snapshot identifier:
+Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, ask two separate questions.
 
-`posthog:visual-review-runs-snapshot-history-list { id: <snapshot_id> }` → returns prior outcomes for the same story.
+**Is the story unstable?** Only the flakiness overview answers this. Read the repo id with
+`posthog:visual-review-runs-retrieve { id: <run_id> }`. Then call
+`posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, and find the entry whose `identifier` and
+`run_type` match your snapshot. That entry carries the flake signal:
+
+- `flakiness_state`: `broken`, `unstable`, `at_risk`, `noisy`, or `clean`.
+- `hard_rate`: the share of recent default-branch runs that failed the gate.
+- `soft_rate`: the share that a toleration absorbed.
+- `window_runs`: the number of runs behind those two rates.
+
+A story with no entry is quiet. Nothing is tolerated for it, and it did not fail recently.
+
+**Did the baseline move?** Call
+`posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }`. It returns one row for
+each baseline transition on the default branch, not a run-by-run outcome list. It drops a feature branch, and it
+collapses consecutive runs that share a baseline. You therefore cannot count outcomes with it.
+
+Both parameters are required. Copy them from the snapshot row: its `run_id` goes in `id`, and its `identifier` goes in
+`identifier`. The snapshot's own `id` is not a run id, and a call that sends it fails.
+`visual-review-runs-tolerated-hashes-list` takes the same two parameters.
 
 Verdicts:
 
-- Mostly `unchanged` and this run's diff is the outlier → likely a real regression caused by this PR.
-- Frequent `changed` across unrelated branches/master → flaky story; recommend tolerating the hash via the UI.
-- Recent `removed` or large-jump dimension change → baseline likely stale; recommend re-baselining on master.
+- `flakiness_state` is `clean`, or the story has no entry → likely a real regression caused by this PR.
+- `flakiness_state` is `unstable` or `broken`, and `window_runs` is large enough to trust the rate → flaky story;
+  recommend tolerating the hash or a quarantine via the UI.
+- Recent `removed`, a large-jump dimension change, or a baseline that last moved long ago → baseline likely stale;
+  recommend re-baselining on master.
 
 ### Triaging the queue
 

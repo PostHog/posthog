@@ -10,7 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.coh
     cohere_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import COHERE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cohere.settings import (
+    COHERE_ENDPOINTS,
+    RETIRED_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -104,31 +107,21 @@ class TestPageTokenPagination:
         params = _wire(
             session,
             [
-                _response("finetuned_models", [{"id": "a"}], extra={"next_page_token": "t2"}),
-                _response("finetuned_models", [{"id": "b"}]),
+                _response("models", [{"name": "command"}], extra={"next_page_token": "t2"}),
+                _response("models", [{"name": "embed"}]),
             ],
         )
 
-        rows = _rows(cohere_source("key", "finetuned_models", team_id=1, job_id="j"))
+        rows = _rows(cohere_source("key", "models", team_id=1, job_id="j"))
 
-        assert [r["id"] for r in rows] == ["a", "b"]
+        assert [r["name"] for r in rows] == ["command", "embed"]
         # First request carries the page size but no token; the second carries the token from the
-        # first response. Absence of a token in the second response ends pagination.
-        assert params[0]["page_size"] == 100
+        # first response. Absence of a token in the second response ends pagination. /models caps
+        # page_size at 1000.
+        assert params[0]["page_size"] == 1000
         assert "page_token" not in params[0]
         assert params[1]["page_token"] == "t2"
         assert session.send.call_count == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_models_uses_large_page_size(self, MockSession) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_response("models", [{"name": "command"}])])
-
-        rows = _rows(cohere_source("key", "models", team_id=1, job_id="j"))
-
-        assert [r["name"] for r in rows] == ["command"]
-        # /models caps page_size at 1000.
-        assert params[0]["page_size"] == 1000
 
 
 class TestSinglePage:
@@ -226,3 +219,18 @@ class TestValidateCredentials:
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
         validate_credentials("secret-key")
         assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
+
+class TestRetiredEndpoints:
+    @pytest.mark.parametrize("endpoint", sorted(RETIRED_ENDPOINTS))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_retired_endpoint_explains_itself_without_calling_cohere(self, MockSession, endpoint: str) -> None:
+        # Cohere removed both routes, so a request could only ever 404 and burn the retry budget of
+        # a schema that was created while the endpoint still existed.
+        session = MockSession.return_value
+        _wire(session, [])
+
+        with pytest.raises(ValueError, match="Turn off syncing for this table"):
+            _rows(cohere_source("key", endpoint, team_id=1, job_id="j"))
+
+        assert session.send.call_count == 0

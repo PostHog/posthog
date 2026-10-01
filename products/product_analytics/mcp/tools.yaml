@@ -69,6 +69,9 @@ tools:
     elements-values-list:
         operation: elements_values_list
         enabled: false
+    events-retention-retrieve:
+        operation: events_retention_retrieve
+        enabled: false
     insight-create:
         operation: insights_create
         enabled: true
@@ -90,15 +93,34 @@ tools:
             you want to see the computed results.
 
 
-            Put the insight definition in `query.source`:
+            Put the insight definition in `query.source`, under the wrapper node that matches it. Use
+
+            `InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:
 
 
             ```json
 
-            { "name": "Example", "query": { "kind": "InsightVizNode", "source": { "kind": "HogQLQuery", "query": "SELECT
-            1" } } }
+            { "name": "Example", "query": { "kind": "DataVisualizationNode", "source": { "kind": "HogQLQuery", "query":
+            "SELECT 1" } } }
 
             ```
+
+
+            A bare query is accepted too. `{ "kind": "TrendsQuery", ... }` and `{ "kind": "HogQLQuery", ... }` are each
+
+            wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.
+        agent_note:
+            After creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned
+            short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved
+            sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual
+            number, never a placeholder such as X, for example "want me to alert you when daily signups drop below
+            400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1.
+            Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it,
+            offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw
+            pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
+            newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
+            already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
+            nothing about alerts. Wait for the user to accept before creating an alert.
         exclude_params:
             - query
         include_params:
@@ -295,9 +317,6 @@ tools:
                 - detail.changes.*.after
                 - detail.trigger
                 - detail.type
-    insights-analyze-retrieve:
-        operation: insights_analyze_retrieve
-        enabled: false
     insights-bulk-delete-create:
         operation: insights_bulk_delete_create
         enabled: false
@@ -359,12 +378,6 @@ tools:
                 - alerts
     insights-my-last-viewed-retrieve:
         operation: insights_my_last_viewed_retrieve
-        enabled: false
-    insights-suggestions-create:
-        operation: insights_suggestions_create
-        enabled: false
-    insights-suggestions-retrieve:
-        operation: insights_suggestions_retrieve
         enabled: false
     insights-trending-retrieve:
         operation: insights_trending_retrieve

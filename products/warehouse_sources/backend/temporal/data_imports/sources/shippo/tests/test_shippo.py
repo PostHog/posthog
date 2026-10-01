@@ -46,12 +46,18 @@ def _query_params(url: str) -> dict[str, str]:
     return {key: values[0] for key, values in parse_qs(urlparse(url).query).items()}
 
 
+def _http_error(status: int) -> requests.HTTPError:
+    response = MagicMock()
+    response.status_code = status
+    return requests.HTTPError(f"{status} Client Error", response=response)
+
+
 class TestGetRows:
     @staticmethod
     def _collect(
         manager: _FakeResumableManager,
         monkeypatch: Any,
-        pages: dict[str, dict],
+        pages: dict[str, Any],
         endpoint: str = "shipments",
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
@@ -62,6 +68,8 @@ class TestGetRows:
             requested.append(url)
             for prefix, response in pages.items():
                 if url.startswith(prefix):
+                    if isinstance(response, Exception):
+                        raise response
                     return response
             raise AssertionError(f"Unexpected URL fetched: {url}")
 
@@ -181,6 +189,42 @@ class TestGetRows:
         )
         assert rows == [{"object_id": "s"}]
         assert "object_created_gt" not in requested[0]
+
+    def test_pagination_cap_404_ends_the_table_without_failing(self, monkeypatch: Any) -> None:
+        # Shippo advertises a `next` link past its deepest addressable page and 404s that page.
+        # Following it must finish the table, not fail the whole sync.
+        manager = _FakeResumableManager()
+        capped_page = f"{SHIPPO_BASE_URL}/addresses/?page=1001&results={PAGE_SIZE}"
+        pages: dict[str, Any] = {
+            capped_page: _http_error(404),
+            f"{SHIPPO_BASE_URL}/addresses/?results={PAGE_SIZE}": {
+                "next": capped_page,
+                "results": [{"object_id": "a"}],
+            },
+        }
+        rows, requested = self._collect(manager, monkeypatch, pages, endpoint="addresses")
+
+        assert rows == [{"object_id": "a"}]
+        assert requested[-1] == capped_page
+
+    def test_resuming_onto_a_capped_page_ends_cleanly(self, monkeypatch: Any) -> None:
+        # The capped URL is persisted as resume state before it is ever fetched, so a resumed
+        # run starts on it and must still terminate instead of retrying the 404 forever.
+        capped_page = f"{SHIPPO_BASE_URL}/addresses/?page=1001&results={PAGE_SIZE}"
+        manager = _FakeResumableManager(ShippoResumeConfig(next_url=capped_page, window_start=None))
+        rows, requested = self._collect(manager, monkeypatch, {capped_page: _http_error(404)}, endpoint="addresses")
+
+        assert rows == []
+        assert requested == [capped_page]
+
+    @parameterized.expand([("unpaged_first_page", ""), ("explicit_first_page", "page=1&")])
+    def test_404_outside_the_pagination_cap_still_fails(self, _name: str, page_param: str) -> None:
+        # A 404 that is not a deep-page refusal means the endpoint itself is gone; swallowing it
+        # would silently sync an empty table.
+        url = f"{SHIPPO_BASE_URL}/addresses/?{page_param}results={PAGE_SIZE}"
+        manager = _FakeResumableManager(ShippoResumeConfig(next_url=url) if page_param else None)
+        with pytest.MonkeyPatch.context() as monkeypatch, pytest.raises(requests.HTTPError):
+            self._collect(manager, monkeypatch, {url: _http_error(404)}, endpoint="addresses")
 
     def test_first_page_url_uses_endpoint_path(self, monkeypatch: Any) -> None:
         # The customs endpoints live under a nested path; a bare name-derived URL would 404.

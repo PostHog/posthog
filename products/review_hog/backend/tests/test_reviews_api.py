@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -19,6 +20,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ThreadVerdictArtefact,
     ValidationVerdict,
 )
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -76,6 +78,7 @@ def _issues_review(count: int) -> IssuesReview:
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
@@ -298,12 +301,14 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=report_id,
             head_sha="old-sha",
             results={(1, 1): _issues_review(9)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         persist_perspective_results(
             team_id=self.team.id,
             report_id=report_id,
             head_sha="new-sha",
             results={(1, 1): _issues_review(2), (2, 1): _issues_review(1), (1000, 1): _issues_review(1)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         # A stale-head selection must not surface; the reviewed head's one aggregates to run/skipped.
         persist_perspective_selection(
@@ -439,6 +444,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=running_id,
             head_sha="sha1",
             results={(1, 1): _issues_review(1), (2, 1): _issues_review(0)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         # No persisted plan (a fallback run): the dense estimate — 2 chunks × (3 canonical
         # perspectives + the blind-spot sweep) = 8 expected reads.
@@ -474,6 +480,7 @@ class TestRecentReviewsAPI(APIBaseTest):
             report_id=running_id,
             head_sha="sha1",
             results={(1000, 0): _issues_review(0)},
+            review_arm=DEFAULT_REVIEW_ARM,
         )
         assert self.client.get(self.url).json()["results"][0]["progress"] == {
             "review_stage": "deduplicating",

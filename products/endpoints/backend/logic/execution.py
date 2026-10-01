@@ -24,7 +24,6 @@ from asgiref.sync import async_to_sync
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -44,6 +43,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import _process_query_request
 from posthog.api.services.query import process_query_model
+from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
@@ -643,11 +643,11 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
-        except ClickHouseAtCapacity:
+        except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
             logger.warning("Endpoint query hit shared ClickHouse capacity", endpoint_name=endpoint.name)
-            raise EndpointAtCapacity()
+            raise EndpointAtCapacity(wait=e.wait) from e
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
@@ -944,6 +944,8 @@ class EndpointExecutionService(PydanticModelMixin):
         offset: int | None = None,
     ) -> Response:
         """Execute query directly against ClickHouse."""
+        if is_api_key_access_method(get_query_tag_value("access_method")):
+            tag_queries(api_queries_budgeted=True)
         strategy: EndpointQueryStrategy | None = None
         try:
             strategy = strategy_for(endpoint, version, self.team)

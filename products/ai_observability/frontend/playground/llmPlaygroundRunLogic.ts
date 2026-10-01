@@ -15,7 +15,9 @@ import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { LLMProviderKey } from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundModelLogic } from './llmPlaygroundModelLogic'
 import { llmPlaygroundPromptsLogic, type Message, type PromptConfig } from './llmPlaygroundPromptsLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { resolveProviderKeyForPrompt } from './playgroundModelMatching'
+import { substituteVariables } from './playgroundTemplating'
 
 interface ToolCallChunk {
     id?: string
@@ -172,6 +174,7 @@ export interface llmPlaygroundRunLogicValues {
     activeProviderKeyId: string | null // llmPlaygroundModelLogic
     effectiveModelOptions: ModelOption[] // llmPlaygroundModelLogic
     promptConfigs: PromptConfig[] // llmPlaygroundPromptsLogic
+    variableValues: Record<string, string> // llmPlaygroundVariablesLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     comparisonItems: ComparisonItem[]
     rateLimitedUntil: number | null
@@ -230,6 +233,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             ['effectiveModelOptions', 'activeProviderKeyId'],
             llmProviderKeysLogic,
             ['providerKeys'],
+            llmPlaygroundVariablesLogic,
+            ['variableValues'],
         ],
         actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
@@ -340,6 +345,14 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
             currentAbortController = abortController
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
+                    // Resolve {{variables}} only in what is sent; the editors keep the raw template.
+                    const resolvedSystemPrompt = substituteVariables(prompt.systemPrompt, values.variableValues)
+                    const resolvedMessages = messagesToSend.map(
+                        (m: Message): Message => ({
+                            ...m,
+                            content: substituteVariables(m.content, values.variableValues),
+                        })
+                    )
                     const liveItemId = uuid()
                     let responseUsage: UsageSummary = {}
                     let ttftMs: number | null = null
@@ -360,8 +373,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             promptId: prompt.id,
                             promptLabel: `Prompt ${index + 1}`,
                             model: prompt.model,
-                            systemPrompt: prompt.systemPrompt,
-                            requestMessages: messagesToSend,
+                            systemPrompt: resolvedSystemPrompt,
+                            requestMessages: resolvedMessages,
                             response: responseText,
                             reasoning: responseReasoning,
                             toolCalls,
@@ -408,8 +421,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                         selectedModelProvider = selectedModel.provider.toLowerCase()
 
                         const requestData: Record<string, unknown> = {
-                            system: prompt.systemPrompt,
-                            messages: messagesToSend
+                            system: resolvedSystemPrompt,
+                            messages: resolvedMessages
                                 .filter((m: Message) => m.role === 'user' || m.role === 'assistant')
                                 .map((m: Message) => ({ role: m.role, content: m.content })),
                             model: selectedModel.id,
@@ -425,6 +438,7 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                             ...(prompt.reasoningLevel ? { reasoning_level: prompt.reasoningLevel } : {}),
                         }
 
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.stream('/api/llm_proxy/completion', {
                             method: 'POST',
                             data: requestData,

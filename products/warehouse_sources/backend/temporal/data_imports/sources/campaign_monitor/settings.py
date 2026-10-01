@@ -34,6 +34,13 @@ class CampaignMonitorEndpointConfig:
     # Subscriber-state endpoints accept a `date` query param that filters records to those
     # added/changed at-or-after that date. We pass a very early date to fetch full history.
     uses_date_filter: bool = False
+    # Key holding the row array in a non-paginated response body. Set where one endpoint returns
+    # several collections and each becomes its own table (the campaign lists-and-segments body).
+    data_selector: Optional[str] = None
+    # Non-paginated endpoint returning a bare JSON array rather than a single object. Anything
+    # else on a 200 is a shape change, so the sync fails loud instead of syncing a stray object
+    # as a row.
+    returns_array: bool = False
     # Stable datetime field used for datetime partitioning. Must not change over time
     # (so never `*Updated`/`*Modified` style fields).
     partition_key: Optional[str] = None
@@ -138,6 +145,24 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         partition_key="Date",
         order_field="date",
     ),
+    # List-scoped lookups — one request per subscriber list, no pagination.
+    "list_custom_fields": CampaignMonitorEndpointConfig(
+        name="list_custom_fields",
+        # Resolves the `[key]` custom fields carried on every subscriber row. Keys are unique
+        # within a list, not across the client's lists.
+        path="lists/{list_id}/customfields.json",
+        primary_keys=["ListID", "Key"],
+        fan_out_over_lists=True,
+        returns_array=True,
+    ),
+    "list_stats": CampaignMonitorEndpointConfig(
+        name="list_stats",
+        # A point-in-time snapshot of the list's subscriber, unsubscribe, deletion and bounce
+        # counters — the API exposes no history, so each sync replaces the previous snapshot.
+        path="lists/{list_id}/stats.json",
+        primary_keys=["ListID"],
+        fan_out_over_lists=True,
+    ),
     # Campaign report endpoints — one request (or paginated walk) per sent campaign. The
     # summary endpoint returns a single JSON object per campaign; the detail endpoints use the
     # standard paged envelope. Their optional `date` filter is omitted so an unfiltered request
@@ -207,6 +232,31 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         # This endpoint's `orderfield` enum is `email|list`, not the `date` the report endpoints
         # take — its rows have no date.
         order_field="email",
+    ),
+    "campaign_lists": CampaignMonitorEndpointConfig(
+        name="campaign_lists",
+        # `listsandsegments.json` returns one body holding two independent collections, so it
+        # feeds two join tables rather than one row of nested arrays.
+        path="campaigns/{campaign_id}/listsandsegments.json",
+        primary_keys=["CampaignID", "ListID"],
+        fan_out_over_campaigns=True,
+        data_selector="Lists",
+    ),
+    "campaign_segments": CampaignMonitorEndpointConfig(
+        name="campaign_segments",
+        path="campaigns/{campaign_id}/listsandsegments.json",
+        primary_keys=["CampaignID", "SegmentID"],
+        fan_out_over_campaigns=True,
+        data_selector="Segments",
+    ),
+    "campaign_email_client_usage": CampaignMonitorEndpointConfig(
+        name="campaign_email_client_usage",
+        # One row per email client family and version that opened the campaign. A client appears
+        # once per version, so both are part of the key.
+        path="campaigns/{campaign_id}/emailclientusage.json",
+        primary_keys=["CampaignID", "Client", "Version"],
+        fan_out_over_campaigns=True,
+        returns_array=True,
     ),
     # Journeys (automations). The journeys list carries no email ids, so every per-email report
     # below hangs off the journey summary, which is the only endpoint that exposes them.

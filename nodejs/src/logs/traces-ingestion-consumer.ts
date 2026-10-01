@@ -1,6 +1,15 @@
+import type { LogsSettings } from '~/types'
+
 import { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './config'
 import { LogsIngestionConsumer, LogsIngestionConsumerDeps } from './logs-ingestion-consumer'
 import type { MetricRuleSource } from './metrics-rules/compile-metric-rules'
+import type { RetentionRuleSource } from './retention/compile-retention-rules'
+import { DEFAULT_TRACES_RETENTION_DAYS, TracingConfigCache } from './retention/tracing-config-cache'
+
+export interface TracesIngestionConsumerDeps extends LogsIngestionConsumerDeps {
+    /** Per-team default span retention. Without it, traces fall back to the built-in default. */
+    tracingConfigCache?: TracingConfigCache
+}
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
@@ -9,8 +18,14 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override appSource = 'traces'
     // Traces records are spans, so this consumer tallies the `spans` metric rules.
     protected override metricRuleSource: MetricRuleSource = 'spans'
+    // Span retention rules live in their own table, which this source selects.
+    protected override retentionRuleSource: RetentionRuleSource = 'spans'
+    private tracingConfigCache?: TracingConfigCache
 
-    constructor(config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig, deps: LogsIngestionConsumerDeps) {
+    constructor(
+        config: LogsIngestionConsumerConfig & TracesIngestionConsumerConfig,
+        deps: TracesIngestionConsumerDeps
+    ) {
         // Topics are wired into `deps.outputs` by the server, so the only consumer-level
         // overrides left are the consume topic / group / Redis / rate-limiter settings.
         super(
@@ -35,9 +50,23 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 LOGS_METRICS_RULES_ENABLED_TEAMS: config.TRACES_METRICS_RULES_ENABLED_TEAMS,
                 LOGS_METRICS_RULES_KILLSWITCH: config.TRACES_METRICS_RULES_KILLSWITCH,
                 LOGS_METRICS_RULES_EXPORT_URL: config.TRACES_METRICS_RULES_EXPORT_URL,
+                // Span retention gates on traces-specific env config so it rolls out
+                // independently of log retention.
+                LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
+                LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
             },
             // Own Redis key namespace so traces token buckets don't share per-team state with logs.
             'traces-rate-limiter'
         )
+        this.tracingConfigCache = deps.tracingConfigCache
+    }
+
+    // Spans keep their own default period on the tracing team extension, so a change to the logs
+    // retention setting must not move it.
+    protected override async defaultRetentionDays(teamId: number, _logsSettings: LogsSettings): Promise<number> {
+        if (!this.tracingConfigCache) {
+            return DEFAULT_TRACES_RETENTION_DAYS
+        }
+        return await this.tracingConfigCache.getRetentionDays(teamId)
     }
 }

@@ -12,6 +12,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.presentation.views.view_link import NO_MATCHING_ROWS_MSG
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -370,6 +371,14 @@ def _mock_execute_hogql_with_stats_side_effect(*args, **kwargs):
     return query_response
 
 
+def _mock_execute_hogql_no_matching_rows_side_effect(*args, **kwargs):
+    """Like the plain side effect, but the sampled join finds no matching rows."""
+    query_response = _mock_execute_hogql_side_effect(*args, **kwargs)
+    if "countIf" not in (query_response.hogql or ""):
+        query_response.results = []
+    return query_response
+
+
 def _mock_execute_hogql_stats_error_side_effect(*args, **kwargs):
     query_response = _mock_execute_hogql_side_effect(*args, **kwargs)
     if "countIf" in (query_response.hogql or ""):
@@ -456,6 +465,23 @@ class TestViewLinkValidation(APIBaseTest):
                     data["hogql"],
                     f"SELECT DISTINCT source_key, joining_key FROM (SELECT {payload['source_table_key']} AS source_key, validation.{payload['joining_table_key']} AS joining_key FROM {payload['source_table_name']} LIMIT 1000) LIMIT 5",
                 )
+
+    @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_no_matching_rows_side_effect)
+    def test_validate_warns_when_no_sampled_rows_match(self, _):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
+            {
+                "source_table_name": "events",
+                "source_table_key": "uuid",
+                "joining_table_name": "persons",
+                "joining_table_key": "id",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertTrue(data["is_valid"])
+        self.assertEqual(data["msg"], NO_MATCHING_ROWS_MSG)
 
     @patch(f"{PATH}.execute_hogql_query", side_effect=_mock_execute_hogql_with_stats_side_effect)
     def test_validate_returns_columns_and_match_stats(self, _):

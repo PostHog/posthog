@@ -71,6 +71,12 @@ const AWS_S3_GZIP_BATCH_EXPORT = fixture('test-aws-s3-gzip-id', 'AWS S3 gzip Exp
     config: { ...AWS_S3_CONFIG, compression: 'gzip' },
 })
 
+const AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT = fixture('test-aws-s3-legacy-ext-id', 'AWS S3 legacy extension Export', {
+    type: 'AwsS3',
+    integration: 31,
+    config: { ...AWS_S3_CONFIG, legacy_parquet_extension: true },
+})
+
 const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatible Export', {
     type: 'S3Compatible',
     integration: 32,
@@ -84,6 +90,7 @@ const S3_COMPATIBLE_BATCH_EXPORT = fixture('test-s3-compatible-id', 'S3-compatib
         use_virtual_style_addressing: false,
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
     },
 })
 
@@ -305,6 +312,7 @@ const AZUREBLOB_BATCH_EXPORT = fixture('fixture-azureblob', 'Azure Blob Export',
         compression: 'zstd',
         file_format: 'Parquet',
         max_file_size_mb: null,
+        legacy_parquet_extension: false,
         exclude_events: [],
         include_events: [],
     },
@@ -377,6 +385,7 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
     AWS_S3_GZIP_BATCH_EXPORT,
+    AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
     BIGQUERY_BATCH_EXPORT,
     BIGQUERY_STALE_BATCH_EXPORT,
@@ -1316,6 +1325,23 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
+        })
+    })
+
+    describe('Parquet extension opt-in', () => {
+        it('sends the switched-off value so new files drop the codec suffix', async () => {
+            await initLogic({ service: null, id: AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValues({
+                ...logic.values.configuration,
+                legacy_parquet_extension: false,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfiguration', 'updateBatchExportConfigSuccess'])
+
+            expect(lastPatchBody!.destination.config.legacy_parquet_extension).toBe(false)
         })
     })
 

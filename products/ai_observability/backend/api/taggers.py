@@ -1,6 +1,7 @@
 import json
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+from django.core.validators import EMPTY_VALUES
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
@@ -38,9 +39,12 @@ from products.access_control.backend.presentation.access_control import AccessCo
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration
-from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.provider_keys import LLMProviderKey, llm_completion_provider_choices
 from ..models.taggers import Tagger, TaggerType, validate_tagger_config
 from .metrics import llma_track_latency
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -120,7 +124,9 @@ class TaggerConfigField(serializers.JSONField):
 
 
 class TaggerModelConfigurationWriteSerializer(serializers.Serializer):
-    provider = serializers.ChoiceField(choices=LLMProvider.choices, help_text="LLM provider to use for this tagger.")
+    provider = serializers.ChoiceField(
+        choices=llm_completion_provider_choices(), help_text="LLM provider to use for this tagger."
+    )
     model = serializers.CharField(max_length=100, help_text="Provider model identifier to use for this tagger.")
     provider_key_id = serializers.UUIDField(
         required=False,
@@ -309,10 +315,21 @@ class TaggerSerializer(TaggerBaseWriteSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "created_by"]
 
 
+class StableOrderingFilter(django_filters.OrderingFilter):
+    """Append the primary key so tied rows keep a total order across paginated requests."""
+
+    def filter(self, qs: QuerySet, value: Any) -> QuerySet:
+        ordering = [self.get_ordering_value(param) for param in value or [] if param not in EMPTY_VALUES]
+        if not ordering:
+            return qs
+
+        return qs.order_by(*ordering, "id")
+
+
 class TaggerFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
-    order_by = django_filters.OrderingFilter(
+    order_by = StableOrderingFilter(
         fields=(
             ("created_at", "created_at"),
             ("updated_at", "updated_at"),
@@ -409,7 +426,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         queryset = (
             queryset.filter(team_id=self.team_id)
             .select_related("created_by", "model_configuration", "model_configuration__provider_key")
-            .order_by("-created_at")
+            .order_by("-created_at", "id")
         )
         if not self.action.endswith("update"):
             queryset = queryset.filter(deleted=False)
@@ -592,7 +609,7 @@ class TaggerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDes
         )
 
         tag_queries(product=Product.LLM_ANALYTICS, feature=QueryFeature.QUERY)
-        response = execute_hogql_query(query=query, team=team, limit_context=None)
+        response = execute_hogql_query(query=query, team=team, user=cast("User", request.user), limit_context=None)
 
         if not response.results:
             return Response({"results": [], "message": "No recent AI events found in the last 7 days"})

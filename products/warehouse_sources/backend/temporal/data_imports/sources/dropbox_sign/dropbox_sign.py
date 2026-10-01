@@ -62,13 +62,19 @@ def _fetch_page(
     headers: dict[str, str],
     params: dict[str, Any],
     logger: FilteringBoundLogger,
-) -> dict:
+    empty_on_404: bool = False,
+) -> dict | None:
     response = session.get(url, headers=headers, params=params, timeout=60)
 
     # Dropbox Sign returns 429 when a rate-limit window is exceeded (10-100 req/min depending on
     # tier/mode). Back off and retry; 5xx is treated the same.
     if response.status_code == 429 or response.status_code >= 500:
         raise DropboxSignRetryableError(f"Dropbox Sign API error (retryable): status={response.status_code}, url={url}")
+
+    # The /team endpoints 404 for an account that belongs to no team. An empty table is the right
+    # answer there, so it must not be logged as an error or fail the sync.
+    if empty_on_404 and response.status_code == 404:
+        return None
 
     if not response.ok:
         logger.error(f"Dropbox Sign API error: status={response.status_code}, body={response.text}, url={url}")
@@ -95,6 +101,19 @@ def _redact(item: Any, paths: list[str]) -> Any:
     return item
 
 
+def _resolve_team_id(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> str | None:
+    """Resolve the connected account's team id, which team-scoped paths take as a path parameter.
+    Returns None when the account belongs to no team."""
+    data = _fetch_page(session, f"{DROPBOX_SIGN_BASE_URL}/team/info", headers, {}, logger, empty_on_404=True)
+    if data is None:
+        return None
+    return (data.get("team") or {}).get("team_id")
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -106,11 +125,18 @@ def get_rows(
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive.
     session = make_tracked_session()
-    url = f"{DROPBOX_SIGN_BASE_URL}{config.path}"
+
+    path = config.path
+    if config.requires_team_id:
+        team_id = _resolve_team_id(session, headers, logger)
+        if team_id is None:
+            return
+        path = path.format(team_id=team_id)
+    url = f"{DROPBOX_SIGN_BASE_URL}{path}"
 
     if config.is_single_object:
-        data = _fetch_page(session, url, headers, {}, logger)
-        obj = data.get(config.data_key)
+        data = _fetch_page(session, url, headers, {}, logger, empty_on_404=config.empty_on_404)
+        obj = data.get(config.data_key) if data else None
         if obj:
             batcher.batch(_redact(obj, config.redact_paths))
         while batcher.should_yield(include_incomplete_chunk=True):
@@ -121,7 +147,11 @@ def get_rows(
     page = resume.page if resume is not None else 1
 
     while True:
-        data = _fetch_page(session, url, headers, {"page": page, "page_size": PAGE_SIZE}, logger)
+        data = _fetch_page(
+            session, url, headers, {"page": page, "page_size": PAGE_SIZE}, logger, empty_on_404=config.empty_on_404
+        )
+        if data is None:
+            break
         items = data.get(config.data_key) or []
         num_pages = (data.get("list_info") or {}).get("num_pages") or 1
 

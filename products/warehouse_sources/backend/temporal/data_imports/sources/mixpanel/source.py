@@ -71,7 +71,7 @@ Authenticate with a [Mixpanel Service Account](https://developer.mixpanel.com/re
 """,
             iconPath="/static/services/mixpanel.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mixpanel",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

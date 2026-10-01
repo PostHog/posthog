@@ -9,7 +9,8 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.utils import timezone
@@ -72,6 +73,15 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # permanently-failing table doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Reasons `select_repartition_target` gives that describe the table instead of a defect: its data
+# carries no key to partition on, or its scheme is already as fine as that scheme goes. The
+# controller decided correctly in each case and nobody can act on the result, so these are counted
+# on DELTA_REPARTITION_SKIP_TOTAL and reported on `warehouse_repartition_skipped` but never sent to
+# error tracking. Every other reason means the schema row disagrees with itself (numerical mode with
+# no `partition_size`) or the selector saw a state the caller should have filtered out first
+# (`no_partitions`, `within_budget`), which is a bug in us, so it still alerts.
+EXPECTED_SKIP_REASONS = frozenset({"unpartitionable_no_keys", "datetime_at_finest_tier", "numerical_cannot_shrink"})
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
@@ -109,8 +119,119 @@ def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
 
 
+def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
+    """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
+
+    We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
+    post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
+    below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
+    that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
+    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
+    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
+    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
+    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
+
+    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
+    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
+    """
+    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return False
+    if schema.coarsen_requested is not None:
+        return True
+    return enabled
+
+
+def is_pending_repartition_released_by_flag(
+    schema: ExternalDataSchema, pending: Mapping[str, object], *, enabled: bool | None = None
+) -> bool:
+    """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
+
+    Mirrors `_maybe_repartition_table`'s 'release' branch in `repartition_table.py` exactly: each
+    auto-staged trigger family answers to the flag that staged it (the flag is the only lever support
+    has to release such a table), and any other reason fails open because operator-staged work (admin,
+    a staged swap) must never dead-end on a rollout flag. Shared so `repartition_activity_has_work`
+    agrees with the activity's own answer instead of scheduling a round trip the activity would just
+    skip.
+
+    `enabled` lets a caller that already evaluated `WAREHOUSE_AUTO_REPARTITION_FLAG` this run thread
+    the result through instead of paying for a second evaluation.
+    """
+    reason = pending.get("trigger_reason")
+    if reason in ("proactive_threshold", "oom_history"):
+        return not (enabled if enabled is not None else is_auto_repartition_enabled(schema))
+    if reason == "coarsening":
+        return not is_auto_coarsen_enabled(schema)
+    return False
+
+
+def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
+    """Whether the pre-extraction repartition activity would do more than log and return.
+
+    The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
+    itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
+    the rollout flag (or a coarsening nomination) wants measured on disk. A pending corruption revive
+    makes the activity stand down before any of that, so it is a no-op here too. The flag is only
+    evaluated when nothing is queued, which is the one case the activity's answer depends on it.
+
+    A queued rewrite whose own trigger flag has since been disabled is also a no-op: the activity's
+    fast path stands it down without doing any work (see `is_pending_repartition_released_by_flag`), so
+    scheduling the activity for it would just pay a full round trip to log and return.
+    """
+    if schema.delta_revive_required is not None:
+        return False
+    pending = schema.repartition_pending
+    swap = schema.repartition_swap
+    if swap is not None:
+        return True
+    if pending is not None:
+        enabled = is_auto_repartition_enabled(schema)
+        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
+            return needs_pre_extraction_detection(schema, enabled)
+        return True
+    return needs_pre_extraction_detection(schema, is_auto_repartition_enabled(schema))
+
+
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
+
+
+def repartition_import_hold_reason(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger
+) -> Literal["swap_staged", "rewrite_converging"] | None:
+    """Why an in-flight repartition holds this schema's import, or None when it does not.
+
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    ingestion is the more expensive way to be wrong.
+
+    Side-effect free, because the scheduled full refresh defers on the same answer. The two must not
+    drift: a refresh run skips the repartition activity, so a refresh that proceeds while the import
+    is held never wipes the table.
+    """
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of the import on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        return "swap_staged"
+
+    if not schema.repartition_holds_import:
+        return None
+    try:
+        if not is_repartition_hold_enabled(schema):
+            return None
+    except Exception:
+        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
+        return None
+    return "rewrite_converging"
 
 
 def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job_id: str | None) -> dict[str, Any]:
@@ -377,7 +498,7 @@ async def maybe_flag_for_repartition(
         # below). Refuse when that result would fall under the floor: partition size cannot be what is
         # killing a table whose partitions are already that small, and without this guard oom_history
         # drives the scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then
-        # emits a skipped event plus an exception on every cooldown expiry forever.
+        # re-measures and re-emits the skip on every cooldown expiry forever.
         split_budget = budget if over_budget else max(1, max_bytes // 2)
         floor = min_splittable_partition_bytes()
         if not over_budget and split_budget < floor:
@@ -492,10 +613,11 @@ async def maybe_flag_for_repartition(
                 partition_format=schema.partition_format,
                 partition_count=len(partition_bytes),
             )
-            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
+            if reason not in EXPECTED_SKIP_REASONS:
+                capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             # Engage the cooldown even though no rewrite happened: the trigger (over budget or repeated
             # OOMs) is still true next sync and the table's scheme can't go finer, so without this we
-            # re-measure, re-emit the skip event, and re-alert on every 5-minute sync forever. The
+            # re-measure and re-emit the skip event on every 5-minute sync forever. The
             # cooldown re-evaluates at most daily; a real change to the table clears it via a later
             # successful repartition.
             await asyncio.to_thread(schema.stamp_last_repartition_at)

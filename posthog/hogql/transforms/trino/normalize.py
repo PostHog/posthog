@@ -128,9 +128,10 @@ class TrinoUnpivotLowerer(CloningVisitor):
 
 
 class TrinoPhysicalFieldLowerer(CloningVisitor):
-    def __init__(self, context: HogQLContext) -> None:
+    def __init__(self, context: HogQLContext, *, physical_names: bool) -> None:
         super().__init__(clear_types=False)
         self.context = context
+        self.physical_names = physical_names
         self.scopes: list[ast.SelectQueryType] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
@@ -193,7 +194,8 @@ class TrinoPhysicalFieldLowerer(CloningVisitor):
             database_field = field_type.resolve_database_field(self.context)
             if isinstance(database_field, DatabaseField) and database_field.name != field_type.name:
                 lowered = super().visit_field(node)
-                lowered.chain[-1] = database_field.name
+                if self.physical_names:
+                    lowered.chain[-1] = database_field.name
                 if len(lowered.chain) == 1 and source_type is not None:
                     # The second resolver pass cannot recover the source of a renamed bare field.
                     source_alias = self._source_alias(source_type)
@@ -581,16 +583,16 @@ class TrinoNormalizer(TraversingVisitor):
         )
 
 
-def normalize_trino_ast(node: ast.AST, context: HogQLContext) -> ast.AST:
+def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names: bool = True) -> ast.AST:
     budget = TrinoCompilationBudget()
     budget.visit(node)
     lowered = TrinoScalarCTELowerer(budget).visit(node)
     lowered = TrinoUnpivotLowerer(context).visit(lowered)
     lowered = TrinoArrayJoinFunctionLowerer(context).visit(lowered)
-    lowered = TrinoPhysicalFieldLowerer(context).visit(lowered)
+    lowered = TrinoPhysicalFieldLowerer(context, physical_names=physical_names).visit(lowered)
     lowered = TrinoSemanticCallLowerer().visit(lowered)
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
-    lowered = lower_trino_any_joins(lowered)
+    lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
     lowered = lower_trino_query_wrappers(lowered)
     lowered = TrinoSelectAliasLowerer(budget).visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)

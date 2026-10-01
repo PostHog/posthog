@@ -13,9 +13,12 @@ import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannels
 import { toggleActivityPanel } from "@posthog/ui/features/canvas/toggleActivityPanel";
 import { getDefaultReviewMode } from "@posthog/ui/features/code-review/getDefaultReviewMode";
 import { useReviewNavigationStore } from "@posthog/ui/features/code-review/reviewNavigationStore";
-import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
+import {
+  GLOBAL_HOTKEY_OPTIONS,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
+import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { toggleRightPanel } from "@posthog/ui/features/navigation/rightPanelSide";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -28,6 +31,7 @@ import { shipIt } from "@posthog/ui/primitives/confetti";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToCommandCenter,
   navigateToFolderSettings,
   navigateToInbox,
 } from "@posthog/ui/router/navigationBridge";
@@ -49,7 +53,7 @@ interface GlobalEventHandlersProps {
   visualTaskOrder: TaskData[];
 }
 
-export function GlobalEventHandlers({
+function useGlobalEventHandlers({
   allTasks,
   onToggleCommandMenu,
   onToggleShortcutsSheet,
@@ -61,6 +65,7 @@ export function GlobalEventHandlers({
     PI_SESSION_CONTROLLER,
   );
   const commandMenuOpen = useCommandMenuStore((s) => s.isOpen);
+  const openFeedback = useFeedbackStore((s) => s.open);
   const openSettingsDialog = openSettings;
   const view = useAppView();
   const goBack = goBackInHistory;
@@ -92,7 +97,6 @@ export function GlobalEventHandlers({
   );
   const channelsEnabled =
     useSidebarStore((s) => s.channelsEnabled) && bluebirdEnabled;
-  const inboxAvailable = useInboxAvailable();
   const channelsLayout = useChannelsLayout();
   const spacesTabs = useSpacesTabs();
   const browserTabStripMounted = channelsLayout ? spacesTabs : true;
@@ -175,20 +179,19 @@ export function GlobalEventHandlers({
     log.info("Main access token invalidated for testing");
   }, []);
 
-  const globalOptions = {
-    enableOnFormTags: true,
-    enableOnContentEditable: true,
-    preventDefault: true,
-  } as const;
-
   useHotkeys(SHORTCUTS.COMMAND_MENU, onToggleCommandMenu, {
-    ...globalOptions,
+    ...GLOBAL_HOTKEY_OPTIONS,
     enabled: !commandMenuOpen,
   });
-  useHotkeys(SHORTCUTS.NEW_TASK, handleFocusTaskMode, globalOptions);
-  useHotkeys(SHORTCUTS.SETTINGS, handleOpenSettings, globalOptions);
-  useHotkeys(SHORTCUTS.GO_BACK, goBack, globalOptions);
-  useHotkeys(SHORTCUTS.GO_FORWARD, goForward, globalOptions);
+  useHotkeys(SHORTCUTS.NEW_TASK, handleFocusTaskMode, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(SHORTCUTS.SETTINGS, handleOpenSettings, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(
+    SHORTCUTS.SEND_FEEDBACK,
+    () => openFeedback(),
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(SHORTCUTS.GO_BACK, goBack, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(SHORTCUTS.GO_FORWARD, goForward, GLOBAL_HOTKEY_OPTIONS);
   // mod+left/right means jump to line start/end inside inputs and editors, so
   // the arrow variants skip enableOnFormTags/enableOnContentEditable.
   useHotkeys(SHORTCUTS.GO_BACK_ALT, goBack, { preventDefault: true });
@@ -205,10 +208,18 @@ export function GlobalEventHandlers({
   useHotkeys(
     SHORTCUTS.RELOAD_WINDOW,
     () => window.location.reload(),
-    globalOptions,
+    GLOBAL_HOTKEY_OPTIONS,
   );
-  useHotkeys(SHORTCUTS.TOGGLE_LEFT_SIDEBAR, toggleLeftSidebar, globalOptions);
-  useHotkeys(SHORTCUTS.TOGGLE_REVIEW_PANEL, handleToggleReview, globalOptions);
+  useHotkeys(
+    SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
+    toggleLeftSidebar,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(
+    SHORTCUTS.TOGGLE_REVIEW_PANEL,
+    handleToggleReview,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
   // Under the spaces chrome a session's activity is the right panel, and the
   // dock this shortcut used to collapse is not rendered, so it goes to the
   // panel instead. Off that chrome, only the dock exists.
@@ -221,18 +232,24 @@ export function GlobalEventHandlers({
   }, [channelsLayout, currentTaskId]);
 
   useHotkeys(SHORTCUTS.TOGGLE_ACTIVITY_PANEL, handleToggleActivityPanel, {
-    ...globalOptions,
+    ...GLOBAL_HOTKEY_OPTIONS,
     enabled: channelsLayout,
   });
-  useHotkeys(SHORTCUTS.SHORTCUTS_SHEET, onToggleShortcutsSheet, globalOptions);
-  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, {
-    ...globalOptions,
-    enabled: inboxAvailable,
-  });
-  useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, globalOptions, [
+  useHotkeys(
+    SHORTCUTS.SHORTCUTS_SHEET,
+    onToggleShortcutsSheet,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(SHORTCUTS.INBOX, navigateToInbox, GLOBAL_HOTKEY_OPTIONS);
+  useHotkeys(
+    SHORTCUTS.COMMAND_CENTER,
+    navigateToCommandCenter,
+    GLOBAL_HOTKEY_OPTIONS,
+  );
+  useHotkeys(SHORTCUTS.PREV_TASK, handlePrevTask, GLOBAL_HOTKEY_OPTIONS, [
     handlePrevTask,
   ]);
-  useHotkeys(SHORTCUTS.NEXT_TASK, handleNextTask, globalOptions, [
+  useHotkeys(SHORTCUTS.NEXT_TASK, handleNextTask, GLOBAL_HOTKEY_OPTIONS, [
     handleNextTask,
   ]);
 
@@ -240,7 +257,7 @@ export function GlobalEventHandlers({
     SHORTCUTS.TOGGLE_FOCUS,
     handleToggleFocus,
     {
-      ...globalOptions,
+      ...GLOBAL_HOTKEY_OPTIONS,
       enabled: !!currentTaskId && isWorktreeTask,
     },
     [handleToggleFocus],
@@ -259,7 +276,7 @@ export function GlobalEventHandlers({
       handleSwitchTask(index);
     },
     {
-      ...globalOptions,
+      ...GLOBAL_HOTKEY_OPTIONS,
       enabled: !channelsEnabled && !browserTabStripMounted,
     },
     [handleSwitchTask],
@@ -381,5 +398,10 @@ export function GlobalEventHandlers({
     }),
   );
 
+  return null;
+}
+
+export function GlobalEventHandlers(props: GlobalEventHandlersProps) {
+  useGlobalEventHandlers(props);
   return null;
 }

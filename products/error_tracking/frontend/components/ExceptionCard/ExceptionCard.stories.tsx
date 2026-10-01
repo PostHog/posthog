@@ -658,18 +658,20 @@ export function ExceptionCardHeaderWidthsWithAction(): JSX.Element {
     const event = asErrorEventType(TEST_EVENTS['javascript_resolved'])
 
     return (
-        <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
-            {(width) => (
-                <OpenTab tab="timeline" issueId={`header-action-${width}`}>
-                    <ExceptionCard
-                        issueId={`header-action-${width}`}
-                        issueName="Test Issue"
-                        loading={false}
-                        event={event}
-                    />
-                </OpenTab>
-            )}
-        </HeaderWidthMatrix>
+        <div className="[&_[data-attr=session-timeline-scroll-container]]:overflow-clip">
+            <HeaderWidthMatrix widths={HEADER_WIDTHS.filter(({ width }) => width <= 576)}>
+                {(width) => (
+                    <OpenTab tab="timeline" issueId={`header-action-${width}`}>
+                        <ExceptionCard
+                            issueId={`header-action-${width}`}
+                            issueName="Test Issue"
+                            loading={false}
+                            event={event}
+                        />
+                    </OpenTab>
+                )}
+            </HeaderWidthMatrix>
+        </div>
     )
 }
 ExceptionCardHeaderWidthsWithAction.parameters = headerActionParameters()
@@ -701,6 +703,8 @@ function headerActionParameters(): Record<string, unknown> {
 //////////////////// Logs tab
 
 const LOGS_STORY_SESSION_ID = 'session-with-logs'
+const LOGS_STORY_TRACE_ID = 'story-trace'
+const LOGS_STORY_SPAN_ID = 'story-span-4'
 
 function buildStoryLogs(event: ErrorEventType): LogMessage[] {
     const center = new Date(event.timestamp).getTime()
@@ -718,7 +722,7 @@ function buildStoryLogs(event: ErrorEventType): LogMessage[] {
 
     return lines.map(({ offsetMs, level, body }, index) => ({
         uuid: `story-log-${index}`,
-        trace_id: 'story-trace',
+        trace_id: LOGS_STORY_TRACE_ID,
         span_id: `story-span-${index}`,
         resource_attributes: { 'service.name': 'posthog-web' },
         attributes: { sessionId: LOGS_STORY_SESSION_ID },
@@ -764,12 +768,17 @@ function logsTabParameters(event: ErrorEventType): Record<string, unknown> {
 
 function logsStory(
     issueId: string,
-    sessionId: string | null
+    { sessionId, spanId, traceId }: { sessionId: string | null; spanId?: string; traceId?: string }
 ): {
     (): JSX.Element
     parameters: Record<string, unknown>
 } {
     const event = buildSessionTimelineEvent(undefined, { sessionId })
+    event.properties = {
+        ...event.properties,
+        ...(traceId ? { $trace_id: traceId } : {}),
+        ...(spanId ? { $span_id: spanId } : {}),
+    }
 
     const story = (): JSX.Element => (
         <div className="w-[1000px] h-[700px]">
@@ -782,6 +791,19 @@ function logsStory(
     return story
 }
 
-export const ExceptionCardLogs = logsStory('issue-id', LOGS_STORY_SESSION_ID)
+export const ExceptionCardLogs = logsStory('issue-id', {
+    sessionId: LOGS_STORY_SESSION_ID,
+    traceId: LOGS_STORY_TRACE_ID,
+    spanId: LOGS_STORY_SPAN_ID,
+})
 
-export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', null)
+export const ExceptionCardLogsWithTraceOnly = logsStory('issue-trace-only', {
+    sessionId: null,
+    traceId: LOGS_STORY_TRACE_ID,
+})
+
+export const ExceptionCardLogsWithSessionOnly = logsStory('issue-session-only', {
+    sessionId: LOGS_STORY_SESSION_ID,
+})
+
+export const ExceptionCardLogsWithoutSession = logsStory('issue-no-session', { sessionId: null })

@@ -828,12 +828,20 @@ def test_validate_credentials_rejects_non_sheets_url_with_actionable_message():
     assert "Google Sheets URL" in (error_message or "")
 
 
-def test_validate_credentials_permission_denied_names_service_account(settings):
+@pytest.mark.parametrize(
+    "open_error",
+    [
+        PermissionError(),
+        # An unshared sheet 404s just like a deleted one, so this branch must offer sharing too.
+        gspread.exceptions.SpreadsheetNotFound(mock.MagicMock()),
+    ],
+)
+def test_validate_credentials_unshared_sheet_names_service_account(settings, open_error):
     settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL = "svc@posthog.iam.gserviceaccount.com"
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client"
     ) as mock_client:
-        mock_client.return_value.open_by_url.side_effect = PermissionError()
+        mock_client.return_value.open_by_url.side_effect = open_error
         config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
         is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
 

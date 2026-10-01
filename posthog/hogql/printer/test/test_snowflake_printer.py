@@ -12,7 +12,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 
-SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
+SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str] | tuple[str, str, str, dict[str, str]]] = [
     # Casts (Snowflake type synonyms; no UUID type → VARCHAR)
     ("toString", "toString(1)", "CAST(1 AS VARCHAR)"),
     ("toFloat", "toFloat('1.5')", "CAST(%(hogql_val_0)s AS DOUBLE)"),
@@ -58,30 +58,43 @@ SNOWFLAKE_EMIT_CASES: list[tuple[str, str, str]] = [
     ("toIntervalDay", "toIntervalDay(7)", "INTERVAL '7 day'"),
     ("addDays", "addDays(now(), 7)", "DATEADD('day', 7, CURRENT_TIMESTAMP())"),
     ("subtractMonths", "subtractMonths(now(), 3)", "DATEADD('month', -(3), CURRENT_TIMESTAMP())"),
-    # dateDiff / formatDateTime — unit / format inlined as a literal
     ("dateDiff", "dateDiff('day', now(), now())", "DATEDIFF('day', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP())"),
     (
         "formatDateTime",
         "formatDateTime(now(), '%Y-%m-%d %H:%M:%S')",
-        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD HH24:MI:SS')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": "YYYY-MM-DD HH24:MI:SS"},
     ),
     # A literal double-quote is escaped as "" inside the quoted run, not dropped.
     (
         "formatDateTime_escapes_literal_quote",
         "formatDateTime(now(), '%Y\"q\"')",
-        'TO_CHAR(CURRENT_TIMESTAMP(), \'YYYY"""q"""\')',
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": 'YYYY"""q"""'},
     ),
     (
         "formatDateTime_escapes_lone_quote",
         "formatDateTime(now(), '%H\"%M')",
-        'TO_CHAR(CURRENT_TIMESTAMP(), \'HH24""""MI\')',
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": 'HH24""""MI'},
     ),
-    # A literal single-quote (escaped `''` in HogQL) must be re-escaped as `''` so it can't close
-    # the surrounding SQL string literal — guards the formatDateTime injection vector.
     (
         "formatDateTime_escapes_single_quote",
         "formatDateTime(now(), '%Y''T''%H')",
-        "TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY\"''T''\"HH24')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": "YYYY\"'T'\"HH24"},
+    ),
+    (
+        "formatDateTime_backslash_and_quote",
+        r"formatDateTime(now(), '\\''')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": "\\'"},
+    ),
+    (
+        "formatDateTime_literal_text_backslash_and_quote",
+        r"formatDateTime(now(), '%Y label\\''%H')",
+        "TO_CHAR(CURRENT_TIMESTAMP(), %(hogql_val_0)s)",
+        {"hogql_val_0": 'YYYY" label\\\'"HH24'},
     ),
     # Conditional / null
     ("if", "if(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
@@ -179,8 +192,13 @@ class TestSnowflakePrinter(BaseTest):
         )
 
     @parameterized.expand(SNOWFLAKE_EMIT_CASES)
-    def test_snowflake_emit(self, _name: str, hogql_expr: str, expected: str):
-        self.assertEqual(self._expr(hogql_expr), expected)
+    def test_snowflake_emit(
+        self, _name: str, hogql_expr: str, expected: str, expected_values: Optional[dict[str, str]] = None
+    ) -> None:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.assertEqual(self._expr(hogql_expr, context), expected)
+        if expected_values is not None:
+            self.assertEqual(context.values, expected_values)
 
     @parameterized.expand(
         [

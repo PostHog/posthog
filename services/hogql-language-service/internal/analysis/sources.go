@@ -2,7 +2,6 @@ package analysis
 
 import (
 	"iter"
-	"strings"
 
 	"github.com/PostHog/posthog/services/hogql-language-service/internal/catalog"
 )
@@ -10,11 +9,17 @@ import (
 type Source struct {
 	name     string
 	relation Relation
+	start    int
+	end      int
 }
 
 func (s Source) Qualifier() string {
 	return s.name
 }
+
+func (s Source) Start() int { return s.start }
+
+func (s Source) End() int { return s.end }
 
 func (b Bindings) sources() iter.Seq[Source] {
 	return func(yield func(Source) bool) {
@@ -25,7 +30,7 @@ func (b Bindings) sources() iter.Seq[Source] {
 				if !scope.budget.lookup(len(source.name) + 1) {
 					return
 				}
-				name := strings.ToLower(source.name)
+				name := source.name
 				if seen[name] {
 					continue
 				}

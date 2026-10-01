@@ -9,8 +9,9 @@
  * too), so anything that doesn't resemble a real name is ignored and no name-level allowlist is
  * needed.
  *
- * Used by scripts/lint-tool-names.ts. The skills lint (products/posthog_ai/scripts/
- * build_skills.py) implements the same rules for skill markdown, plus one deliberately
+ * Used by scripts/lint-tool-names.ts. The skills lint
+ * (products/posthog_ai/scripts/build_skills/tool_references.py) implements the same rules
+ * for skill markdown, plus one deliberately
  * skills-only rule: call-syntax references like `read_data("experiments", id)` occur
  * only in skill prose, and detecting them here would false-positive on SDK/HogQL code
  * examples in tool descriptions.

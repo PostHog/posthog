@@ -52,9 +52,9 @@ from products.product_analytics.backend.facade.models import Insight
 
 # Full video exports per team per calendar month, tiered by plan.
 FULL_VIDEO_EXPORTS_LIMIT_BY_TIER: dict[Literal["free", "paid", "enterprise"], int] = {
-    "free": 10,
-    "paid": 15,
-    "enterprise": 25,
+    "free": 25,
+    "paid": 50,
+    "enterprise": 100,
 }
 
 
@@ -547,6 +547,11 @@ class ExportedAssetViewSet(
             raise NotFound()
 
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
+            raise NotFound()
+
+        if export_context.get("observation_id"):
+            # Media a product owns and authorizes on its own endpoint. This endpoint checks the recording,
+            # which is a weaker gate than the one the owner applies, and asset ids are guessable integers.
             raise NotFound()
 
         session_recording_id = export_context.get("session_recording_id")

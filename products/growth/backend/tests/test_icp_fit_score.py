@@ -8,7 +8,6 @@ from products.growth.backend.enrichment.fit_score import (
     STATUS_INSUFFICIENT_DATA,
     STATUS_NOT_FOUND,
     STATUS_SCORED,
-    is_quality_investor,
     score_company,
 )
 from products.growth.backend.enrichment.icp_lists import CuratedLists, norm
@@ -20,6 +19,8 @@ LISTS = CuratedLists(
     software_positive=frozenset({"developer tools"}),
     quality_investors=frozenset({norm("Y Combinator"), norm("Sequoia Capital"), norm("GV")}),
 )
+
+AI_PILLED_ENRICHMENTS = {"ai_pilled": {"ai_pilled": True}}
 
 
 def _payload(**overrides):
@@ -59,23 +60,27 @@ def _traction(
 
 
 def test_version_is_stamped():
-    assert SCORE_VERSION == "v0.6"
+    assert SCORE_VERSION == "v0.7"
     result = score_company(_payload(), lists=LISTS)
-    assert result.version == "v0.6"
+    assert result.version == "v0.7"
     assert result.lists_version == "test-lists"
 
 
 # ---------- statuses ----------
 
 
-def test_student_role_disqualifies_before_the_payload_is_consulted():
-    result = score_company(None, lists=LISTS, role="Student")
+@parameterized.expand([(None,), (AI_PILLED_ENRICHMENTS,)])
+def test_student_role_disqualifies_before_the_payload_is_consulted(enrichments: dict[str, Any] | None) -> None:
+    result = score_company(None, lists=LISTS, role="Student", enrichments=enrichments)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "role=student")
+    assert result.flags == {}
 
 
-def test_school_company_type_disqualifies():
-    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS)
+@parameterized.expand([(None,), (AI_PILLED_ENRICHMENTS,)])
+def test_school_company_type_disqualifies(enrichments: dict[str, Any] | None) -> None:
+    result = score_company(_payload(company_type="SCHOOL"), lists=LISTS, enrichments=enrichments)
     assert (result.status, result.score, result.dq_reason) == (STATUS_DISQUALIFIED, 0, "company_type=SCHOOL")
+    assert result.flags == {}
 
 
 def test_school_market_tags_do_not_disqualify_a_startup():
@@ -84,15 +89,21 @@ def test_school_market_tags_do_not_disqualify_a_startup():
     assert result.status == STATUS_SCORED
 
 
-def test_missing_payload_is_not_found():
-    assert score_company(None, lists=LISTS).status == STATUS_NOT_FOUND
+@parameterized.expand([(None,), (AI_PILLED_ENRICHMENTS,)])
+def test_missing_payload_is_not_found(enrichments: dict[str, Any] | None) -> None:
+    result = score_company(None, lists=LISTS, enrichments=enrichments)
+    assert result.status == STATUS_NOT_FOUND
+    assert result.score is None
+    assert result.flags == {}
 
 
-def test_empty_shell_profile_is_insufficient_data_not_a_low_score():
+@parameterized.expand([(None,), (AI_PILLED_ENRICHMENTS,)])
+def test_empty_shell_profile_is_insufficient_data_not_a_low_score(enrichments: dict[str, Any] | None) -> None:
     payload = _payload(tags_v2=[])
-    result = score_company(payload, lists=LISTS)
+    result = score_company(payload, lists=LISTS, enrichments=enrichments)
     assert result.status == STATUS_INSUFFICIENT_DATA
     assert result.score is None
+    assert result.flags == {}
 
 
 @parameterized.expand(
@@ -123,7 +134,7 @@ def test_undisclosed_raise_with_a_quality_investor_scores_capital_18():
     result = score_company(payload, lists=LISTS)
     assert result.status == STATUS_SCORED
     assert (result.components or {}).get("capital") == 18
-    assert result.quality_investor is True
+    assert (result.flags or {}).get("quality_investor") is True
 
 
 # ---------- traction (35 = level 15 + growth 20) ----------
@@ -193,8 +204,31 @@ def test_funding_tiers(_name, funding_total, null_status, expected):
 def test_quality_investor_matching(_name, investors, expect_quality):
     payload = _payload(funding={"funding_total": 12_000_000, "investors": investors})
     result = score_company(payload, lists=LISTS)
-    assert result.quality_investor is expect_quality
+    assert (result.flags or {}).get("quality_investor") is expect_quality
     assert (result.components or {}).get("capital") == (30 if expect_quality else 20)
+
+
+@parameterized.expand([("no_match", False), ("last_match", True)])
+def test_large_investor_lists_finish_within_a_deterministic_execution_budget(_name, matching):
+    from dataclasses import replace
+    from datetime import timedelta
+    from itertools import count
+
+    from unittest.mock import patch
+
+    lists = replace(LISTS, quality_investors=frozenset(f"synthetic investor {i:04}" for i in range(200)))
+    investors = [{"name": f"unknown investor {i}"} for i in range(50)]
+    if matching:
+        investors[-1] = {"name": "Synthetic Investor 0199 North"}
+    clock = count(0, 0.001)
+    with (
+        patch("products.growth.backend.enrichment.fit_score.SCORING_TIMEOUT", timedelta(seconds=5)),
+        patch("common.hogvm.python.execute.time.time", side_effect=lambda: next(clock)),
+    ):
+        result = score_company(_payload(funding={"investors": investors}), lists=lists)
+    assert result.status == STATUS_SCORED
+    assert (result.flags or {}).get("quality_investor") is matching
+    assert (result.components or {}).get("capital") == (10 if matching else 0)
 
 
 def test_yc_batch_tag_type_confers_quality_capital_for_any_batch():
@@ -204,7 +238,7 @@ def test_yc_batch_tag_type_confers_quality_capital_for_any_batch():
         tags_v2=[{"display_value": "S26", "type": "YC_BATCH"}],
     )
     result = score_company(payload, lists=LISTS)
-    assert result.quality_investor is True
+    assert (result.flags or {}).get("quality_investor") is True
     assert (result.components or {}).get("capital") == 8 + 10
 
 
@@ -217,7 +251,7 @@ def test_quality_bonus_alone_scores_without_any_recorded_funding():
     payload = _payload(tags_v2=[{"display_value": "AI Grant Batch 1", "type": "ACCELERATOR"}])
     result = score_company(payload, lists=LISTS)
     assert (result.components or {}).get("capital") == 10
-    assert result.quality_investor is True
+    assert (result.flags or {}).get("quality_investor") is True
 
 
 # ---------- AI-pilled (15) ----------
@@ -241,6 +275,23 @@ def test_ai_pilled_signals(_name, tags, description, domain, expected):
     assert (result.components or {}).get("ai_pilled") == expected
 
 
+@parameterized.expand(
+    [
+        ("positive", {"ai_pilled": {"ai_pilled": True}}, 15),
+        ("negative", {"ai_pilled": {"ai_pilled": False}}, 0),
+        ("unknown", {"ai_pilled": {"ai_pilled": "unknown"}}, 0),
+        ("missing", {}, 0),
+        ("missing_field", {"ai_pilled": {}}, 0),
+        ("unknown", {"ai_pilled": {"ai_pilled": "unknown"}}, 0),
+    ]
+)
+def test_default_formula_requires_an_explicit_positive_ai_label(_name, enrichments, expected):
+    result = score_company(_payload(), lists=LISTS, enrichments=enrichments)
+    assert result.score == expected
+    assert (result.components or {}).get("ai_pilled") == expected
+    assert result.input_values["enrichments"] == enrichments
+
+
 def test_wizard_evidence_alone_earns_the_ai_pilled_points():
     payload = _payload(description="We sell shoes")
     without_wizard = score_company(payload, lists=LISTS, domain="acme.com")
@@ -248,30 +299,41 @@ def test_wizard_evidence_alone_earns_the_ai_pilled_points():
 
     assert without_wizard.score is not None and with_wizard.score == without_wizard.score + 15
     assert (with_wizard.components or {}).get("ai_pilled") == 15
-    assert with_wizard.wizard_ai_sdk is True
-    assert with_wizard.ai_pilled_source == "wizard"
+    assert (with_wizard.flags or {}).get("wizard_ai_sdk") is True
+    assert (with_wizard.flags or {}).get("ai_pilled_source") == "wizard"
 
 
 @parameterized.expand(
     [
-        ("harmonic_only", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], False, "harmonic", 15),
-        ("wizard_only", None, True, "wizard", 15),
-        ("both", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], True, "both", 15),
-        ("neither", None, False, None, 0),
+        ("harmonic_only", True, False, False, "harmonic", 15),
+        ("wizard_only", False, True, False, "wizard", 15),
+        ("both", True, True, False, "both", 15),
+        ("neither", False, False, False, None, 0),
+        ("llm_only", False, False, True, "llm", 15),
+        ("harmonic_and_llm", True, False, True, "harmonic+llm", 15),
+        ("wizard_and_llm", False, True, True, "wizard+llm", 15),
+        ("all_three", True, True, True, "harmonic+wizard+llm", 15),
     ]
 )
 def test_ai_pilled_source_records_which_evidence_was_present(
-    _name, tags, wizard_ai_sdk, expected_source, expected_score
-):
+    _name: str,
+    harmonic_ai: bool,
+    wizard_ai_sdk: bool,
+    llm_ai: bool,
+    expected_source: str | None,
+    expected_score: int,
+) -> None:
     payload = _payload(description="We sell shoes")
-    if tags:
-        payload["tags_v2"] = tags
-    result = score_company(payload, lists=LISTS, domain="acme.com", wizard_ai_sdk=wizard_ai_sdk)
+    if harmonic_ai:
+        payload["tags_v2"] = [{"display_value": "Artificial Intelligence", "type": "MARKET"}]
+    label = AI_PILLED_ENRICHMENTS if llm_ai else None
+    result = score_company(payload, lists=LISTS, domain="example.com", wizard_ai_sdk=wizard_ai_sdk, enrichments=label)
 
-    assert result.ai_pilled_source == expected_source
-    assert result.wizard_ai_sdk is wizard_ai_sdk
-    # "both" sources still cap at 15, never stack to 30.
+    assert (result.flags or {}).get("ai_pilled_source") == expected_source
+    assert (result.flags or {}).get("wizard_ai_sdk") is wizard_ai_sdk
+    assert result.input_values["enrichments"] == (label or {})
     assert (result.components or {}).get("ai_pilled") == expected_score
+    assert result.score == expected_score
 
 
 # ---------- headcount growth (10) ----------
@@ -325,20 +387,20 @@ def test_agency_and_nonprofit_are_flags_not_penalties():
     )
     result = score_company(payload, lists=LISTS)
     assert result.status == STATUS_SCORED
-    assert result.agency_flag is True
-    assert result.nonprofit_flag is True
+    assert (result.flags or {}).get("agency_flag") is True
+    assert (result.flags or {}).get("nonprofit_flag") is True
 
 
 def test_low_confidence_flags_thin_coverage():
     result = score_company(_payload(), lists=LISTS)  # tags only: 1 of 4 core signals
-    assert result.data_coverage == 1
-    assert result.low_confidence is True
+    assert (result.flags or {}).get("data_coverage") == 1
+    assert (result.flags or {}).get("low_confidence") is True
 
     rich = _payload(headcount=50, funding={"funding_total": 5_000_000, "investors": []})
     rich["traction_metrics"] = _traction(web_traffic=20_000)
     result = score_company(rich, lists=LISTS)
-    assert result.data_coverage == 4
-    assert result.low_confidence is False
+    assert (result.flags or {}).get("data_coverage") == 4
+    assert (result.flags or {}).get("low_confidence") is False
 
 
 def test_archetype_scores_high_across_all_components():
@@ -377,8 +439,71 @@ def test_archetype_scores_high_across_all_components():
     ]
 )
 def test_norm_based_matching(_name, observed, expected):
-    assert is_quality_investor(observed, LISTS.quality_investors) is expected
+    result = score_company(_payload(funding={"investors": [{"name": observed}]}), lists=LISTS)
+    assert (result.flags or {}).get("quality_investor") is expected
 
 
 def test_norm_folds_and_to_ampersand():
     assert norm("Management and Strategy Consulting") == "management & strategy consulting"
+
+
+@parameterized.expand(
+    [
+        ("label_used", True, 12, "llm"),
+        ("label_missing", False, 0, None),
+    ]
+)
+def test_formula_owns_points_and_label_selection(_name, has_label, expected_score, expected_source):
+    from dataclasses import replace
+
+    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
+
+    rules = parse_scoring_rules(
+        {
+            "source": """
+            let positive := enrichments.ai_pilled.ai_pilled == true;
+            let points := if(positive, 12, 0);
+            return {'status': 'scored', 'score': points, 'components': {'ai_pilled': points},
+                    'flags': {'ai_pilled_source': if(positive, 'llm', null)}};
+        """
+        }
+    )
+    result = score_company(
+        _payload(description="AI platform"),
+        lists=replace(LISTS, rules=rules),
+        wizard_ai_sdk=True,
+        enrichments=AI_PILLED_ENRICHMENTS if has_label else None,
+    )
+    assert result.score == expected_score
+    assert result.components == {"ai_pilled": expected_score}
+    assert (result.flags or {}).get("ai_pilled_source") == expected_source
+    assert result.input_values["enrichments"] == (AI_PILLED_ENRICHMENTS if has_label else {})
+
+
+def test_formula_can_change_eligibility_and_score_using_saved_company_facts():
+    from dataclasses import replace
+
+    from products.growth.backend.enrichment.scoring_rules import parse_scoring_rules
+
+    rules = parse_scoring_rules(
+        {
+            "source": """
+            if (company.company_type == 'SCHOOL') {
+                return {'status': 'scored', 'score': 24, 'components': {'school': 24}};
+            }
+            let points := if(company.traction_metrics.web_traffic['365d_ago'].percent_change >= 50, 11, 0);
+            return {'status': 'scored', 'score': points, 'components': {'traction': points}};
+        """
+        }
+    )
+    changed = replace(LISTS, version="changed-policy", rules=rules)
+    school = score_company(_payload(company_type="SCHOOL"), lists=changed, role="Student")
+    assert school.status == STATUS_SCORED
+    assert school.score == 24
+    assert school.components == {"school": 24}
+    metrics = _traction(web_traffic=200)
+    metrics["web_traffic"]["365d_ago"] = {"percent_change": 50}
+    result = score_company(_payload(traction_metrics=metrics), lists=changed)
+    assert result.score == 11
+    assert result.components == {"traction": 11}
+    assert result.lists_version == "changed-policy"

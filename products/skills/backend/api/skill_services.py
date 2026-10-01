@@ -433,6 +433,24 @@ def _carry_forward(payload_value: Any, current_value: Any) -> Any:
     return payload_value if payload_value is not None else current_value
 
 
+# Provenance keys a PostHog harness stamps on the rows it seeds, and reads back as proof that a row
+# is still the content it shipped. `metadata` is a free-form dict any project editor can send, so a
+# caller-supplied value for one of these is a forged attestation: dropping `canonical_hash` from a
+# seeded Signals scout, or writing a hash of the caller's own content, makes an edited scout read as
+# PostHog-shipped and mints a permanent billing exemption for its reports.
+HARNESS_OWNED_METADATA_KEYS = frozenset({"seeded_by", "canonical_hash", "source"})
+
+
+def _resolve_published_metadata(payload_value: dict[str, Any] | None, current_value: dict | None) -> dict[str, Any]:
+    """Caller metadata for a new version, with the harness-owned provenance pinned to the current row."""
+    current = dict(current_value or {})
+    if payload_value is None:
+        return current
+    resolved = {k: v for k, v in payload_value.items() if k not in HARNESS_OWNED_METADATA_KEYS}
+    resolved.update({k: v for k, v in current.items() if k in HARNESS_OWNED_METADATA_KEYS})
+    return resolved
+
+
 def apply_skill_file_edits(file_content: str, edits: list[dict[str, str]], *, file_path: str) -> str:
     """Apply sequential find/replace edits to a single bundled skill file.
 
@@ -524,7 +542,7 @@ def publish_skill_version(
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
             allowed_tools=_carry_forward(allowed_tools, current_latest.allowed_tools),
-            metadata=_carry_forward(metadata, current_latest.metadata),
+            metadata=_resolve_published_metadata(metadata, current_latest.metadata),
             # Categorization is a property of the skill, not the version — carry it forward so editing
             # a scout (or any categorized skill) doesn't drop it out of its tab.
             category=current_latest.category,

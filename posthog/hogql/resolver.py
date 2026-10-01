@@ -23,6 +23,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.log_entries import (
+    BatchExportLogEntriesTable,
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -33,6 +38,7 @@ from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
+from posthog.hogql.functions.prompt_jev import PromptJevCall
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
@@ -61,6 +67,7 @@ from posthog.hogql.transforms.trino.persons import (
 )
 from posthog.hogql.transforms.trino.pivot import TrinoPivotLowerer
 from posthog.hogql.type_system import (
+    constant_type_from_runtime_type,
     infer_array_access_constant_type,
     infer_array_constant_type,
     infer_array_slice_constant_type,
@@ -69,6 +76,7 @@ from posthog.hogql.type_system import (
     infer_try_cast_constant_type,
     infer_tuple_access_constant_type,
     least_common_supertype,
+    parse_clickhouse_type,
 )
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
@@ -113,12 +121,24 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+# Tables whose IN-subqueries should be built once on the initiator (GLOBAL IN) rather than
+# re-executed per shard of a distributed outer scan: sharded tables, and tables on another
+# cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
+# of the outer query issue its own remote read against aux).
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (ReplayConsoleLogsLogEntriesTable, BatchExportLogEntriesTable)
+
+
 class _ShardedTableFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.found = False
 
     def visit_table_type(self, node: ast.TableType) -> None:
-        if isinstance(node.table, EventsTable):
+        if isinstance(node.table, _GLOBAL_IN_TABLES):
+            self.found = True
+
+    def visit_lazy_table_type(self, node: ast.LazyTableType) -> None:
+        if isinstance(node.table, _GLOBAL_IN_LAZY_TABLES):
             self.found = True
 
 
@@ -1561,8 +1581,11 @@ class Resolver(CloningVisitor):
             if node.constraint and node.constraint.constraint_type == "USING":
                 # visit USING constraint before adding the table to avoid ambiguous names
                 node.constraint = self.visit_join_constraint(node.constraint)
-            if node.alias is None and self._join_chain_has_using(node):
-                node.alias = self._synthesize_using_join_alias(scope)
+            if node.alias is None:
+                if self._join_chain_has_using(node):
+                    node.alias = self._synthesize_using_join_alias(scope)
+                elif node.join_type is not None:
+                    node.alias = self._synthesize_join_alias(scope, node)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
 
@@ -1779,6 +1802,20 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases.add(alias)
         return alias
 
+    def _synthesize_join_alias(self, scope: ast.SelectQueryType, node: ast.JoinExpr) -> str:
+        """Alias a joined sub-select because ClickHouse requires a name for it."""
+        reserved_aliases = set(scope.tables)
+        next_join = node.next_join
+        while next_join is not None:
+            if next_join.alias is not None:
+                reserved_aliases.add(next_join.alias)
+            next_join = next_join.next_join
+
+        index = 1
+        while f"__join_{index}" in reserved_aliases:
+            index += 1
+        return f"__join_{index}"
+
     def _using_constraint_column_names(self, constraint: ast.JoinConstraint) -> list[str]:
         exprs = constraint.expr.exprs if isinstance(constraint.expr, ast.Tuple) else [constraint.expr]
         column_names: list[str] = []
@@ -1966,6 +2003,17 @@ class Resolver(CloningVisitor):
 
     def visit_call(self, node: ast.Call):
         """Visit function calls."""
+
+        if node.name.lower() == "jev":
+            spec = PromptJevCall.parse(node)
+            node = clone_expr(node, clear_types=True)
+            node.args[0] = self.visit(spec.input)
+            node.type = ast.CallType(
+                name="jev",
+                arg_types=[],
+                return_type=constant_type_from_runtime_type(parse_clickhouse_type(spec.clickhouse_type)),
+            )
+            return node
 
         if self.dialect == "trino" and node.name.lower() == "date":
             node = clone_expr(node, clear_types=False)
@@ -2489,6 +2537,13 @@ class Resolver(CloningVisitor):
             if len(chain_to_parse) == 0:
                 break
             next_chain = chain_to_parse.pop(0)
+            if isinstance(loop_type, (ast.FieldType, ast.FieldAliasType)) and self.dialect in {"hogql", "clickhouse"}:
+                tuple_type = loop_type.resolve_constant_type(self.context)
+                if isinstance(tuple_type, ast.TupleType) and str(next_chain) in tuple_type.field_names:
+                    expression: ast.Expr = ast.Field(chain=list(resolved_chain))
+                    for member in [next_chain, *chain_to_parse]:
+                        expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
+                    return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
                 previous_types.pop()
                 previous_types.pop()

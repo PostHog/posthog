@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -61,6 +62,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     SourceSchema,
     WebhookSource,
+    add_table_failure_message,
     build_default_schemas,
     draft_manifest_sync,
     fetch_docs_text,
@@ -341,7 +343,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             )
         else:
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
-        return schema_with_error.latest_error if schema_with_error else None
+        if schema_with_error is None:
+            return None
+        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+
+    def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
+        cached = getattr(instance, "_error_redaction_values", None)
+        if cached is None:
+            cached = helpers.get_error_redaction_values(instance)
+            instance._error_redaction_values = cached  # type: ignore[attr-defined]
+        return cached
 
     @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_schemas(self, instance: ExternalDataSource):
@@ -353,9 +364,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
+        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
         if self.context.get("schemas_list_only"):
-            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
-        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
         request = self.context.get("request")
@@ -1369,6 +1381,32 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
+            # Capture stamps each change with this column, so a source column of the same name would
+            # fail the source's first sync. Refuse before any replication state exists.
+            tables_with_reserved_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and isinstance(schema.get("name"), str)
+                    and CDC_SEQ_COLUMN
+                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
+                }
+            )
+            if tables_with_reserved_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
+                            "that name. Rename the column on your database, or choose another sync method for "
+                            f"these tables: {', '.join(tables_with_reserved_column)}."
+                        )
+                    },
+                )
+
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
         if cdc_enabled:
@@ -1447,7 +1485,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 return Response(
                     data={
                         "message": f"Table '{schema_name}' has no primary key to sync incrementally on. "
-                        "Set primary_key_columns for it, or choose full_refresh."
+                        "Choose a primary key for it, or switch it to full table replication."
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
@@ -1618,11 +1656,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # guarantees non-None schema/table when it resolves above. `cast` narrows for mypy
             # without a runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
-                cdc_adapter.add_table(
-                    new_source_model,
-                    cast(str, metadata_source_schema),
-                    cast(str, metadata_source_table_name),
-                )
+                try:
+                    cdc_adapter.add_table(
+                        new_source_model,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
+                    )
+                except Exception as e:
+                    message = add_table_failure_message(
+                        cdc_adapter,
+                        e,
+                        new_source_model,
+                        cast(str, metadata_source_schema),
+                        cast(str, metadata_source_table_name),
+                    )
+                    # A hard delete leaves no source row for the orphan-slot sweeper to find, so
+                    # drop the slot and publication created above before deleting the source.
+                    cdc_adapter.cleanup_resources(new_source_model)
+                    new_source_model.delete()
+                    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": message})
 
             if direct_engine_adapter is not None and is_direct_query and should_sync:
                 # Apply the picker's column subset on the very first DataWarehouseTable build,

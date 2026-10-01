@@ -2,8 +2,9 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -18,11 +19,13 @@ from products.conversations.backend.cache import is_nudge_suppressed
 from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import (
+    MAX_UNFURLS_PER_MESSAGE,
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     TICKET_VIEW_ACTION,
     SlackConfirmationNeedsRetry,
     create_ticket_from_confirmation,
+    handle_link_shared,
     handle_member_joined_channel,
     handle_member_left_channel,
     handle_support_mention,
@@ -31,8 +34,9 @@ from products.conversations.backend.slack import (
     my_tickets_link,
     ticket_created_blocks,
     ticket_deep_link,
+    ticket_number_from_url,
 )
-from products.conversations.backend.tasks.slack import process_supporthog_interactivity
+from products.conversations.backend.tasks.slack import process_supporthog_event, process_supporthog_interactivity
 from products.customer_analytics.backend.facade import api as customer_analytics
 from products.customer_analytics.backend.facade.testing import create_account
 
@@ -1478,3 +1482,250 @@ class TestTicketConfirmationBlocks(BaseTest):
 
         # The requester scene addresses a ticket by UUID, unlike the Support scene's number.
         assert my_tickets_link(ticket).endswith(f"/my-tickets?ticket={ticket.id}")
+
+
+UNFURL_TEAM = "T_WORKSPACE"
+# What conversations.info returns for an ordinary internal channel.
+INTERNAL_CHANNEL = {"id": "C_INTERNAL", "name": "team-support", "is_channel": True}
+
+
+class TestTicketLinkUnfurl(BaseTest):
+    """An unfurl renders for the whole channel and cannot be made partial, so it is posted
+    only where both the channel and the person pasting the link are internal."""
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        self.ticket = _create_slack_ticket(self.team)
+        self.url = ticket_deep_link(self.ticket, self.team)
+        capture_patcher = patch(f"{MODULE}.capture_support_event")
+        self.mock_capture = capture_patcher.start()
+        self.addCleanup(capture_patcher.stop)
+
+    def _event(self, *, urls: list[str] | None = None, user: str = "U_TEAMMATE", **extra) -> dict:
+        return {
+            "type": "link_shared",
+            "channel": "C_INTERNAL",
+            "user": user,
+            "message_ts": MESSAGE_TS,
+            "links": [{"domain": "posthog.com", "url": url} for url in (urls or [self.url])],
+            **extra,
+        }
+
+    def _run(
+        self,
+        event: dict,
+        *,
+        channel_info: dict = INTERNAL_CHANNEL,
+        sharer: dict | None = None,
+        channel_error: Exception | None = None,
+        unfurl_error: Exception | None = None,
+    ) -> MagicMock:
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": channel_info}
+        if channel_error is not None:
+            client.conversations_info.side_effect = channel_error
+        if unfurl_error is not None:
+            client.chat_unfurl.side_effect = unfurl_error
+        resolved = sharer if sharer is not None else {"email": self.user.email, "team_id": UNFURL_TEAM}
+        with (
+            patch(f"{MODULE}.get_slack_client", return_value=client),
+            patch(f"{MODULE}.resolve_slack_user", return_value=resolved),
+        ):
+            handle_link_shared(event, self.team, UNFURL_TEAM)
+        return client
+
+    def test_internal_channel_gets_a_status_card(self):
+        client = self._run(self._event())
+
+        client.chat_unfurl.assert_called_once()
+        kwargs = client.chat_unfurl.call_args.kwargs
+        assert kwargs["channel"] == "C_INTERNAL"
+        assert kwargs["ts"] == MESSAGE_TS
+        rendered = json.dumps(kwargs["unfurls"][self.url])
+        assert "Status" in rendered and "Last updated" in rendered
+        assert f"Ticket #{self.ticket.ticket_number}" in rendered
+        _team, event_name, props = self.mock_capture.call_args.args
+        assert event_name == "support slack ticket unfurled"
+        assert props["ticket_count"] == 1
+
+    def test_card_carries_no_customer_words(self):
+        self.ticket.last_message_text = "my api key leaked, here it is"
+        self.ticket.email_subject = "urgent from acme"
+        self.ticket.save()
+
+        client = self._run(self._event())
+
+        rendered = json.dumps(client.chat_unfurl.call_args.kwargs["unfurls"][self.url])
+        assert "leaked" not in rendered
+        assert "acme" not in rendered
+
+    @parameterized.expand(
+        [
+            # Slack Connect, and an invitation to it that has not been accepted yet.
+            ("shared_with_another_org", {"is_channel": True, "is_ext_shared": True}),
+            ("invited_to_be_shared", {"is_channel": True, "is_pending_ext_shared": True}),
+            # Another workspace in the same Enterprise Grid org is still not this workspace.
+            ("shared_across_a_grid_org", {"is_channel": True, "is_org_shared": True}),
+            ("shared_flag_set", {"is_channel": True, "is_shared": True}),
+            # No flag marks these as external, so only rejecting them by type works.
+            ("direct_message", {"is_im": True}),
+            ("group_direct_message", {"is_mpim": True}),
+            # An ok-but-empty or unfamiliar payload must not read as internal.
+            ("unrecognized_payload", {}),
+        ]
+    )
+    def test_only_an_ordinary_channel_of_this_workspace_gets_a_card(self, _name, channel_info):
+        client = self._run(self._event(), channel_info=channel_info)
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_a_private_channel_of_this_workspace_gets_a_card(self):
+        client = self._run(self._event(), channel_info={"id": "C_PRIVATE", "is_group": True})
+
+        client.chat_unfurl.assert_called_once()
+
+    def test_unreadable_channel_fails_closed(self):
+        # Cannot prove the channel is internal, and an unfurl cannot be taken back.
+        client = self._run(self._event(), channel_error=RuntimeError("not_in_channel"))
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_a_slack_failure_is_not_reported_as_a_success(self):
+        self._run(self._event(), unfurl_error=RuntimeError("slack down"))
+
+        self.mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("outsider", {"email": "customer@example.com", "team_id": UNFURL_TEAM}),
+            # A guest's profile email is set by their own workspace, so it can claim ours.
+            ("external_workspace", {"email": USE_TEAMMATE_EMAIL, "team_id": "T_OTHER"}),
+        ]
+    )
+    def test_non_member_sharer_gets_nothing(self, _name, sharer):
+        if sharer["email"] == USE_TEAMMATE_EMAIL:
+            sharer = {**sharer, "email": self.user.email}
+
+        client = self._run(self._event(), sharer=sharer)
+
+        client.chat_unfurl.assert_not_called()
+
+    def test_a_ticket_the_sharer_cannot_read_is_not_unfurled(self):
+        # Organization membership is not access to the ticket, and nothing downstream of this
+        # card applies that rule, so the lookup has to go through access control.
+        with patch(f"{MODULE}.UserAccessControl") as mock_access:
+            mock_access.return_value.filter_queryset_by_access_level.return_value = Ticket.objects.none()
+            client = self._run(self._event())
+
+        assert mock_access.call_args.args[0].id == self.user.id
+        assert mock_access.return_value.filter_queryset_by_access_level.call_args.kwargs["resource"] == "ticket"
+        client.chat_unfurl.assert_not_called()
+
+    def test_unknown_ticket_number_is_not_unfurled(self):
+        client = self._run(self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/424242"]))
+
+        client.chat_unfurl.assert_not_called()
+
+    def _assert_no_slack_call(self, event: dict) -> None:
+        with patch(f"{MODULE}.get_slack_client") as mock_get_client:
+            handle_link_shared(event, self.team, UNFURL_TEAM)
+
+        mock_get_client.assert_not_called()
+
+    def test_a_link_that_is_not_a_ticket_costs_no_slack_calls(self):
+        # The app's whole host is registered for unfurling, so every pasted PostHog link lands
+        # here. Looking the channel up first would spend an uncached, rate-limited
+        # conversations_info call on every insight and dashboard link in the workspace.
+        self._assert_no_slack_call(self._event(urls=[f"{settings.SITE_URL}/project/{self.team.id}/insights/abc123"]))
+
+    def test_a_disabled_team_is_a_noop(self):
+        self.team.conversations_settings = {"slack_enabled": False}
+        self.team.save()
+
+        self._assert_no_slack_call(self._event())
+
+    def test_an_event_without_a_channel_is_ignored(self):
+        self._assert_no_slack_call(self._event() | {"channel": ""})
+
+    def test_at_most_five_cards_for_one_message(self):
+        tickets = [self.ticket, *(_create_slack_ticket(self.team) for _ in range(MAX_UNFURLS_PER_MESSAGE))]
+
+        client = self._run(self._event(urls=[ticket_deep_link(t, self.team) for t in tickets]))
+
+        assert len(client.chat_unfurl.call_args.kwargs["unfurls"]) == MAX_UNFURLS_PER_MESSAGE
+
+    def test_the_same_link_twice_gets_one_card(self):
+        client = self._run(self._event(urls=[self.url, self.url]))
+
+        assert list(client.chat_unfurl.call_args.kwargs["unfurls"]) == [self.url]
+
+    def test_a_link_shared_event_reaches_the_handler(self):
+        # The dispatch itself: a wrong event-type string would disable the whole feature with
+        # every other test in this class still passing.
+        config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)
+        config.slack_team_id = UNFURL_TEAM
+        config.slack_bot_token = "xoxb-test"
+        config.save(update_fields=["slack_team_id", "slack_bot_token"])
+
+        with patch(f"{TASKS_MODULE}.handle_link_shared") as mock_handler:
+            process_supporthog_event(self._event(), UNFURL_TEAM)
+
+        mock_handler.assert_called_once()
+
+    def test_each_link_gets_the_card_for_its_own_ticket(self):
+        other = _create_slack_ticket(self.team)
+        other_url = ticket_deep_link(other, self.team)
+
+        client = self._run(self._event(urls=[self.url, other_url]))
+
+        unfurls = client.chat_unfurl.call_args.kwargs["unfurls"]
+        assert set(unfurls) == {self.url, other_url}
+        assert f"Ticket #{self.ticket.ticket_number}" in json.dumps(unfurls[self.url])
+        assert f"Ticket #{other.ticket_number}" in json.dumps(unfurls[other_url])
+
+    def test_unfurl_id_is_preferred_when_slack_sends_one(self):
+        client = self._run(self._event(unfurl_id="abc123", source="conversations_history"))
+
+        kwargs = client.chat_unfurl.call_args.kwargs
+        assert kwargs["unfurl_id"] == "abc123"
+        assert kwargs["source"] == "conversations_history"
+        assert "channel" not in kwargs
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/project/{team}/support/tickets/{number}"),
+            ("other_project", "{site}/project/999999/support/tickets/{number}"),
+            ("not_a_ticket", "{site}/project/{team}/support/tickets"),
+            ("trailing_segment", "{site}/project/{team}/support/tickets/{number}/edit"),
+        ]
+    )
+    def test_only_this_installs_own_ticket_urls_resolve(self, _name, template):
+        # A number that matched a foreign link would resolve against this team to a real but
+        # unrelated ticket, so host and project are both part of the match.
+        url = template.format(site=settings.SITE_URL, team=self.team.id, number=self.ticket.ticket_number)
+
+        assert ticket_number_from_url(url, self.team) is None
+
+    def test_our_own_ticket_url_resolves(self):
+        assert ticket_number_from_url(self.url, self.team) == self.ticket.ticket_number
+
+    def test_a_malformed_url_is_not_a_ticket(self):
+        # urlparse raises on an unterminated IPv6 host rather than returning something usable.
+        assert ticket_number_from_url("http://[", self.team) is None
+
+    def test_an_absurdly_long_number_is_not_a_ticket(self):
+        # int() raises above 4300 digits, and this runs ahead of the gates, so a crafted link
+        # has to resolve to nothing rather than raise and leave a retried event behind.
+        url = f"{settings.SITE_URL}/project/{self.team.id}/support/tickets/{'9' * 5000}"
+
+        assert ticket_number_from_url(url, self.team) is None
+
+    def test_host_match_ignores_case(self):
+        # Hosts are case-insensitive, so a typed-out host is still our own link.
+        scheme, _, rest = self.url.partition("://")
+        host, _, path = rest.partition("/")
+
+        assert ticket_number_from_url(f"{scheme}://{host.upper()}/{path}", self.team) == self.ticket.ticket_number

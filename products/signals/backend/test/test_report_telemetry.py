@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.temporal.summary import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -367,10 +367,23 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
                 summary="summary",
                 processed_signal_count=processed_signal_count,
                 source_products=["zendesk"],
+                checks=[
+                    {
+                        "title": "The exception stays gone",
+                        "kind": "agent",
+                        "config": {"instructions": "Confirm the checkout exception has no events since the fix."},
+                    }
+                ],
             )
         )
 
     assert has_new_signals is expected_loop
+    # Only the pass that settles writes its checks. A looping pass is about to be replaced, and its
+    # checks would be armed later against prose they were not written for.
+    check_count = await database_sync_to_async(
+        SignalReportCheck.objects.for_team(ateam.id).filter(report_id=report_id).count
+    )()
+    assert check_count == (0 if expected_loop else 1)
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
     assert refreshed.status == expected_status

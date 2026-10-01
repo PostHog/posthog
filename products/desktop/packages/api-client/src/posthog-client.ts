@@ -61,6 +61,8 @@ import type {
   SignalUserAutonomyConfig,
   SlackChannelsQueryParams,
   SlackChannelsResponse,
+  SpaceSetupInput,
+  SpaceSetupStarted,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
   Task,
@@ -77,6 +79,10 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+import {
+  spaceSetupInputSchema,
+  spaceSetupStartedSchema,
+} from "@posthog/shared/schemas";
 import {
   activitySection,
   compactCount,
@@ -358,6 +364,7 @@ export interface TaskSearchResult {
  * says which level supplied them, and is `"none"` when neither is set.
  */
 export interface TaskRunDefaults {
+  runtime: string;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
@@ -365,6 +372,7 @@ export interface TaskRunDefaults {
 }
 
 export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
+  runtime: "acp",
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -377,12 +385,14 @@ export const NO_TASK_RUN_DEFAULTS: TaskRunDefaults = {
  * the project default to each surface's built-in model.
  */
 export interface TaskRunPreferences {
+  runtime: string | null;
   runtime_adapter: string | null;
   model: string | null;
   reasoning_effort: string | null;
 }
 
 export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
+  runtime: null,
   runtime_adapter: null,
   model: null,
   reasoning_effort: null,
@@ -405,7 +415,8 @@ export interface TaskSessionStorageAccess {
  * free-form column on the backend `Comment` model, so adding a resource is a
  * new member here plus a caller — no migration and no endpoint.
  */
-export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
+export type CommentScope = (typeof COMMENT_SCOPES)[number];
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -465,6 +476,26 @@ export type {
 export type Evaluation = Schemas.Evaluation;
 
 export type GithubInstallationStatus = "connected" | "unavailable";
+
+export type CodexIntegrationStatus =
+  | "not_connected"
+  | "connected"
+  | "reauth_required";
+
+/** `GET /api/users/@me/integrations/codex/`: the ChatGPT account PostHog holds for the user's cloud Codex runs. */
+export interface UserCodexIntegration {
+  status: CodexIntegrationStatus;
+  plan_type: string | null;
+  email: string | null;
+  connected_at: string | null;
+}
+
+/** The `tokens` object of the `auth.json` that `codex login` writes. */
+export interface CodexAuthTokens {
+  access_token: string;
+  refresh_token: string;
+  id_token?: string | null;
+}
 
 export interface UserGitHubIntegration {
   id: string;
@@ -716,7 +747,6 @@ export interface ScoutEmission {
   finding_id: string;
   description: string;
   weight: number;
-  confidence: number;
   severity: string | null;
   /** Slug tags the scout attached to this finding (lowercase kebab-case, e.g. `cost-spike`). */
   tags?: string[];
@@ -1097,6 +1127,7 @@ export interface CloudRunOptions {
   /** Only false is sent: opts the run out of rtk command-output compression. */
   rtkEnabled?: boolean;
   claudeModelAccess?: ModelAccess;
+  codexModelAccess?: ModelAccess;
   runSource?: CloudRunSource;
   signalReportId?: string;
   initialPermissionMode?: ExecutionMode;
@@ -1109,6 +1140,7 @@ export interface CloudRunOptions {
 }
 
 export type CloudRunCommandMethod =
+  | "pi/rpc"
   | "user_message"
   | "permission_response"
   | "set_config_option"
@@ -1249,6 +1281,9 @@ function buildCloudRunRequestBody(
   }
   if (!options?.piRuntime && options?.claudeModelAccess) {
     body.claude_model_access = options.claudeModelAccess;
+  }
+  if (!options?.piRuntime && options?.codexModelAccess) {
+    body.codex_model_access = options.codexModelAccess;
   }
   if (options?.runSource) {
     body.run_source = options.runSource;
@@ -2105,6 +2140,65 @@ export class PostHogAPIClient {
     }
   }
 
+  async getCodexUserIntegration(): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  /**
+   * `POST /api/users/@me/integrations/codex/`. PostHog refreshes the chain once and keeps
+   * the rotated tokens, so the local `auth.json` is stale after this call.
+   */
+  async connectCodexUserIntegration(
+    tokens: CodexAuthTokens,
+  ): Promise<UserCodexIntegration> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ tokens }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to connect the ChatGPT account: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as UserCodexIntegration;
+  }
+
+  async disconnectCodexUserIntegration(): Promise<void> {
+    const urlPath = `/api/users/@me/integrations/codex/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to disconnect the ChatGPT account: ${response.statusText}`,
+      );
+    }
+  }
+
   /** `GET /api/users/@me/integrations/github/install_requests/`: installs waiting on a GitHub org owner. */
   async getGithubInstallRequests(): Promise<GithubInstallRequestsResponse> {
     const urlPath = `/api/users/@me/integrations/github/install_requests/`;
@@ -2368,6 +2462,7 @@ export class PostHogAPIClient {
       // The API stores a cleared preference as `{}`, so read each field rather than
       // assuming the triple is present.
       preferences: {
+        runtime: payload.ai_run_preferences?.runtime ?? null,
         runtime_adapter: payload.ai_run_preferences?.runtime_adapter ?? null,
         model: payload.ai_run_preferences?.model ?? null,
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
@@ -2910,10 +3005,9 @@ export class PostHogAPIClient {
       "/api/projects/{project_id}/external_data_sources/{id}/bulk_update_schemas/",
       {
         path: { project_id: projectId.toString(), id: sourceId },
-        query: {},
         body: {
           schemas,
-        } as unknown as Schemas.PatchedExternalDataSourceBulkUpdateSchemas,
+        } as unknown as Schemas.ExternalDataSourceBulkUpdateSchemas,
         withResponse: true,
         throwOnStatusError: false,
       },
@@ -3123,6 +3217,14 @@ export class PostHogAPIClient {
     return normalizeTaskResponse(data, { teamId });
   }
 
+  async getTaskReview(taskId: string, page = 1): Promise<Schemas.TaskReview> {
+    const teamId = await this.getTeamId();
+    return this.api.get("/api/projects/{project_id}/tasks/{id}/review/", {
+      path: { project_id: teamId.toString(), id: taskId },
+      query: { page },
+    });
+  }
+
   async getTaskUsage(taskId: string): Promise<TaskUsage> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/${taskId}/usage/`;
@@ -3211,6 +3313,7 @@ export class PostHogAPIClient {
         channel?: string | null;
         pending_user_message?: string;
         pending_user_artifact_ids?: string[];
+        initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
       },
@@ -3220,6 +3323,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/`, {
+        header: {},
         path: { project_id: teamId.toString() },
         body: {
           ...taskOptions,
@@ -3229,6 +3333,25 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async createSignalReportTask(options: {
+    reportId: string;
+    relationship: "implementation" | "discussion";
+    description: string;
+    title?: string;
+    question?: string;
+  }): Promise<Task> {
+    return this.createTask({
+      description: options.description,
+      title: options.title,
+      origin_product: "signal_report",
+      signal_report: options.reportId,
+      signal_report_task_relationship: options.relationship,
+      ...(options.relationship === "discussion"
+        ? { signal_report_discussion_question: options.question?.trim() ?? "" }
+        : {}),
+    });
   }
 
   async updateTask(
@@ -3755,7 +3878,7 @@ export class PostHogAPIClient {
   async putContextWikiPage(input: {
     path: string;
     content: string;
-    baseHead: string;
+    baseHead?: string;
   }): Promise<{ head_sha: string }> {
     const urlPath = `/api/organizations/@current/context_layer/pages/`;
     try {
@@ -3767,7 +3890,7 @@ export class PostHogAPIClient {
           body: JSON.stringify({
             path: input.path,
             content: input.content,
-            base_head: input.baseHead,
+            ...(input.baseHead ? { base_head: input.baseHead } : {}),
           }),
         },
       });
@@ -3829,6 +3952,34 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch channel feed: ${response.statusText}`);
     }
     return (await response.json()) as ChannelFeedMessage[];
+  }
+
+  // Start the task that sets a space up for a goal or a feature. The server builds
+  // the prompt and files the task into the channel.
+  async setupTaskChannel(
+    channelId: string,
+    input: SpaceSetupInput,
+  ): Promise<SpaceSetupStarted> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/setup/`;
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        overrides: {
+          body: JSON.stringify(spaceSetupInputSchema.parse(input)),
+        },
+      });
+      return spaceSetupStartedSchema.parse(await response.json());
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(
+          error,
+          "Could not start space setup. Try again.",
+        ),
+      );
+    }
   }
 
   // Post a system announcement into a channel's feed. The row is authored by the
@@ -4170,6 +4321,7 @@ export class PostHogAPIClient {
 
     const data = await this.withCloudUsageLimitCheck(() =>
       this.api.post(`/api/projects/{project_id}/tasks/{id}/run/`, {
+        header: {},
         path: { project_id: teamId.toString(), id: taskId },
         body,
       }),
@@ -4186,6 +4338,7 @@ export class PostHogAPIClient {
     runtime_adapter?: string | null;
     model?: string | null;
     reasoning_effort?: string | null;
+    initial_permission_mode?: ExecutionMode | null;
     context_window?: "200k" | "1m" | null;
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
@@ -4208,6 +4361,7 @@ export class PostHogAPIClient {
             runtime_adapter: options.runtime_adapter ?? null,
             model: options.model ?? null,
             reasoning_effort: options.reasoning_effort ?? null,
+            initial_permission_mode: options.initial_permission_mode ?? null,
             ...(options.context_window
               ? { context_window: options.context_window }
               : {}),
@@ -5299,6 +5453,59 @@ export class PostHogAPIClient {
     }
   }
 
+  async getReportReadStates(
+    reportIds: string[],
+    read?: boolean,
+  ): Promise<Record<string, boolean>> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.post(
+      "/api/projects/{project_id}/signals/reports/read_state/",
+      {
+        path: { project_id: teamId.toString() },
+        body: {
+          report_ids: reportIds,
+          ...(read === undefined ? {} : { read }),
+        },
+      },
+    );
+    return data.states;
+  }
+
+  private readRequests = new Map<
+    string,
+    { resolve: (read: boolean) => void; reject: (error: unknown) => void }[]
+  >();
+
+  getReportReadState(reportId: string): Promise<boolean> {
+    const pending = this.readRequests;
+    const first = pending.size === 0;
+    const result = new Promise<boolean>((resolve, reject) => {
+      pending.set(reportId, [
+        ...(pending.get(reportId) ?? []),
+        { resolve, reject },
+      ]);
+    });
+    if (first)
+      queueMicrotask(() => {
+        const entries = [...pending.entries()];
+        pending.clear();
+        for (let offset = 0; offset < entries.length; offset += 100) {
+          const batch = entries.slice(offset, offset + 100);
+          void this.getReportReadStates(batch.map(([id]) => id))
+            .then((states) => {
+              for (const [id, listeners] of batch)
+                for (const listener of listeners)
+                  listener.resolve(states[id] === true);
+            })
+            .catch((error) => {
+              for (const [, listeners] of batch)
+                for (const listener of listeners) listener.reject(error);
+            });
+        }
+      });
+    return result;
+  }
+
   async getSignalReports(
     params?: SignalReportsQueryParams,
   ): Promise<SignalReportsResponse> {
@@ -5319,6 +5526,9 @@ export class PostHogAPIClient {
     if (params?.ordering) {
       url.searchParams.set("ordering", params.ordering);
     }
+    if (params?.search) url.searchParams.set("search", params.search);
+    if (params?.unread !== undefined)
+      url.searchParams.set("unread", String(params.unread));
     if (params?.source_product) {
       url.searchParams.set("source_product", params.source_product);
     }
@@ -7533,7 +7743,7 @@ export class PostHogAPIClient {
         const [issue, totals, daily] = await Promise.all([
           this.api.get(
             "/api/projects/{project_id}/error_tracking/issues/{id}/",
-            { path: { project_id: projectId, id } },
+            { path: { project_id: projectId, id }, query: {} },
           ),
           this.runQuery({
             kind: "HogQLQuery",
@@ -7544,6 +7754,8 @@ export class PostHogAPIClient {
             query: `SELECT toDate(timestamp) AS day, count() FROM events WHERE ${scope} GROUP BY day ORDER BY day`,
           }).catch(() => ({})),
         ]);
+        if (!("id" in issue))
+          throw new Error("This issue moved. Open it in PostHog.");
         const preview = shapeErrorIssuePreview(issue);
         const totalRow = gridRows(totals)[0];
         const facts = [...(preview.facts ?? [])];

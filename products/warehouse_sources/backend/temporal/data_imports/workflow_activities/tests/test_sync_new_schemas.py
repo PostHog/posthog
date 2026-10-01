@@ -42,6 +42,56 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None, me
     }
 
 
+def _patch_db(source_type, *, source_exists=True):
+    """Patch the DB reads only, so the activity resolves `source_type` through the real enum."""
+    objects = mock.MagicMock()
+    objects.filter.return_value.exclude.return_value.exists.return_value = source_exists
+    objects.get.return_value = mock.MagicMock(
+        source_type=source_type, job_inputs={"k": "v"}, deleted=False, api_version=None
+    )
+    return objects
+
+
+def test_deleted_source_drops_the_schedule_and_completes():
+    # A source deleted since the schedule was created is a race with a schedule that already
+    # fired, not a defect. The activity must drop the schedule and complete, because failing
+    # here opens an error tracking issue on every remaining discovery run.
+    objects = _patch_db("GoogleAds", source_exists=False)
+
+    with (
+        mock.patch.object(module, "close_old_connections"),
+        mock.patch.object(module.ExternalDataSource, "objects", objects),
+        mock.patch.object(module, "delete_discover_schemas_schedule") as delete_schedule,
+        mock.patch.object(module, "sync_old_schemas_with_new_schemas") as sync_schemas,
+    ):
+        sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
+
+    delete_schedule.assert_called_once_with("src")
+    sync_schemas.assert_not_called()
+
+
+def test_source_type_outside_the_enum_is_skipped():
+    # A stored source type this build's enum does not carry (one dropped from the enum while rows
+    # still referenced it, or one created by web code before every worker carries it) cannot be
+    # synced by any code path here. Resolving it must not fail the activity, or the one row keeps
+    # failing every discovery run for good.
+    objects = _patch_db("NotARealSourceType")
+
+    with (
+        mock.patch.object(module, "close_old_connections"),
+        mock.patch.object(module.ExternalDataSource, "objects", objects),
+        mock.patch.object(module, "delete_discover_schemas_schedule") as delete_schedule,
+        mock.patch.object(module, "sync_old_schemas_with_new_schemas") as sync_schemas,
+        mock.patch.object(module.SourceRegistry, "get_source") as get_source,
+    ):
+        sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
+
+    get_source.assert_not_called()
+    sync_schemas.assert_not_called()
+    # The value can become known again on a newer worker, so the schedule has to survive.
+    delete_schedule.assert_not_called()
+
+
 def _run_activity(source_mock, schemas_created=None, source_api_version=None, merge_error=None):
     patches = _patch_common(
         source_mock, schemas_created, source_api_version=source_api_version, merge_error=merge_error
