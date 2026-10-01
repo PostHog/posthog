@@ -134,15 +134,15 @@ def firehydrant_source(
                 job_id=job_id,
                 db_incremental_field_last_value=None,
                 page_size_param="per_page",
-                # A response that drops the `data` envelope is a shape change, not an empty page:
+                # A response that drops its rows envelope is a shape change, not an empty page:
                 # tolerating it would silently replace the whole table with no rows.
                 parent_endpoint_extra={
-                    "data_selector": "data",
+                    "data_selector": FIREHYDRANT_ENDPOINTS[config.fanout.parent_name].data_selector,
                     "data_selector_required": True,
                     "data_selector_empty_ok": True,
                 },
                 child_endpoint_extra={
-                    "data_selector": "data",
+                    "data_selector": config.data_selector,
                     "data_selector_required": True,
                     "data_selector_empty_ok": True,
                 },
@@ -162,7 +162,7 @@ def firehydrant_source(
                         # Paginated endpoints wrap rows in a top-level `data` array. A missing/empty
                         # `data` key degrades to zero rows (not required) so an endpoint with nothing
                         # to return ends cleanly rather than raising.
-                        "data_selector": "data",
+                        "data_selector": config.data_selector,
                     },
                 }
             ],

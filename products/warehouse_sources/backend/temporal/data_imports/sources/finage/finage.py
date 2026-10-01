@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import (
     FINAGE_ENDPOINTS,
+    FinageAssetClass,
     FinageEndpointConfig,
     FinageEndpointKind,
 )
@@ -45,6 +46,10 @@ CALENDAR_WINDOW_DAYS = 30
 # window runs past today so a sync picks up the events that are already scheduled.
 CALENDAR_FORWARD_DAYS = 90
 
+# The symbol list is page-numbered with no total count, so the walk stops on an empty page. The cap
+# bounds it anyway: an API that ignores `page` would otherwise re-serve page one for ever.
+SYMBOL_LIST_MAX_PAGES = 500
+
 REQUEST_TIMEOUT_SECONDS = 60
 
 # Each symbol costs one request per point-in-time sync and one 50k-row fetch per aggregate sync, so the
@@ -52,6 +57,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_SYMBOLS = 100
 # US tickers are short and alphanumeric; dots/hyphens cover class shares (e.g. BRK.B, BF-B).
 SYMBOL_PATTERN = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,11}$")
+# Forex and crypto symbols are concatenated currency pairs (GBPUSD, BTCUSD, MATICUSDT) — no separators.
+PAIR_SYMBOL_PATTERN = re.compile(r"^[A-Z0-9]{4,20}$")
 # Finage's US stock history doesn't meaningfully predate this; a floor rejects typos and unbounded ranges.
 MIN_START_DATE = "2000-01-01"
 
@@ -76,23 +83,46 @@ def parse_symbols(symbols: str) -> list[str]:
     return parsed
 
 
-def validate_source_config(symbols: list[str], start_date: str) -> None:
+def _validate_symbol_list(
+    symbols: list[str], pattern: re.Pattern[str], *, label: str, example: str, allow_empty: bool
+) -> None:
+    """Reject an oversized or malformed symbol list for one asset class."""
+    if not symbols:
+        if allow_empty:
+            return
+        raise FinageConfigError(f"Enter at least one {label} symbol to sync.")
+    if len(symbols) > MAX_SYMBOLS:
+        raise FinageConfigError(
+            f"Too many {label} symbols ({len(symbols)}). Enter at most {MAX_SYMBOLS} comma-separated symbols."
+        )
+    invalid = [s for s in symbols if not pattern.match(s)]
+    if invalid:
+        preview = ", ".join(invalid[:5])
+        raise FinageConfigError(f"Invalid {label} symbol(s): {preview}. Use symbols like {example}.")
+
+
+def validate_source_config(
+    symbols: list[str],
+    start_date: str,
+    forex_symbols: list[str] | None = None,
+    crypto_symbols: list[str] | None = None,
+) -> None:
     """Reject oversized symbol lists, malformed tickers, and out-of-range start dates before a sync runs.
 
     Each symbol fans out into its own Finage request (and, for aggregates, up to a 50k-row fetch), so an
     unbounded symbol list or a start date in the distant past is a resource-exhaustion vector. Raises
     `FinageConfigError` with a user-facing message on the first problem found.
+
+    Only the stock list is required; forex and crypto are opt-in, and their tables sync nothing when
+    the matching list is empty.
     """
-    if not symbols:
-        raise FinageConfigError("Enter at least one stock symbol to sync.")
-    if len(symbols) > MAX_SYMBOLS:
-        raise FinageConfigError(
-            f"Too many symbols ({len(symbols)}). Enter at most {MAX_SYMBOLS} comma-separated stock symbols."
-        )
-    invalid = [s for s in symbols if not SYMBOL_PATTERN.match(s)]
-    if invalid:
-        preview = ", ".join(invalid[:5])
-        raise FinageConfigError(f"Invalid stock symbol(s): {preview}. Use US tickers like AAPL, MSFT, BRK.B.")
+    _validate_symbol_list(symbols, SYMBOL_PATTERN, label="stock", example="AAPL, MSFT, BRK.B", allow_empty=False)
+    _validate_symbol_list(
+        forex_symbols or [], PAIR_SYMBOL_PATTERN, label="forex", example="GBPUSD, EURUSD", allow_empty=True
+    )
+    _validate_symbol_list(
+        crypto_symbols or [], PAIR_SYMBOL_PATTERN, label="crypto", example="BTCUSD, ETHUSD", allow_empty=True
+    )
 
     try:
         parsed_start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=UTC).date()
@@ -244,7 +274,8 @@ def _iter_aggregate_rows(
             to_date=to_date,
         )
         try:
-            data = _fetch_json(session, path, api_key, logger, params={"limit": AGG_LIMIT, "sort": "asc"})
+            params: dict[str, Any] = {"limit": AGG_LIMIT, "sort": "asc", **config.extra_params}
+            data = _fetch_json(session, path, api_key, logger, params=params)
         except requests.HTTPError as exc:
             _handle_symbol_http_error(exc, logger, f"aggregates request for {symbol}")
             continue
@@ -287,18 +318,16 @@ def _records(data: JsonBody, what: str, logger: FilteringBoundLogger) -> list[di
     return data
 
 
-def _keyed_row(
+def _symbol_keyed_row(
     record: dict[str, Any], config: FinageEndpointConfig, *, pinned_symbol: str | None, what: str
 ) -> dict[str, Any]:
-    """Return the record with `symbol` and `date` pinned, rejecting records that can't supply them.
+    """Return the record with `symbol` pinned, rejecting records that can't supply one.
 
-    Both columns are part of the primary key on every fundamentals endpoint, and `date` is also the
-    partition key. A missing symbol merges unrelated companies onto one key, and a missing or
-    malformed date buckets the row into the fallback 1970-01 partition, so either fails the sync
-    rather than corrupting the table.
+    `symbol` is part of the primary key on every fundamentals endpoint, and a missing one merges
+    unrelated companies onto the same key.
 
     A per-symbol request passes `pinned_symbol` so the row is keyed by the symbol we asked for. The
-    response cannot then relabel one company's history under another company's key, and the four
+    response cannot then relabel one company's history under another company's key, and the
     per-symbol tables key the same way whether or not the response repeats the symbol. A calendar
     request passes `None`, because only the record says which company it is about.
     """
@@ -307,11 +336,24 @@ def _keyed_row(
     if not symbol:
         raise ValueError(f"Finage {config.name} for {what} returned a record with no symbol")
 
+    return {**record, "symbol": symbol}
+
+
+def _keyed_row(
+    record: dict[str, Any], config: FinageEndpointConfig, *, pinned_symbol: str | None, what: str
+) -> dict[str, Any]:
+    """Return the record with `symbol` and `date` pinned, rejecting records that can't supply them.
+
+    `date` completes the primary key and is also the partition key, so a missing or malformed one
+    buckets the row into the fallback 1970-01 partition. Fail the sync rather than corrupt the table.
+    """
+    row = _symbol_keyed_row(record, config, pinned_symbol=pinned_symbol, what=what)
+
     date = record.get("date")
     if not _is_iso_date(date):
         raise ValueError(f"Finage {config.name} for {what} returned a record with an invalid date: {date!r}")
 
-    return {**record, "symbol": symbol, "date": date}
+    return {**row, "date": date}
 
 
 def _symbol_history_params(config: FinageEndpointConfig) -> list[Optional[dict[str, Any]]]:
@@ -349,6 +391,73 @@ def _iter_symbol_history_rows(
                 continue
 
             yield [_keyed_row(record, config, pinned_symbol=symbol, what=symbol) for record in records]
+
+
+def _iter_symbol_profile_rows(
+    session: requests.Session,
+    api_key: str,
+    symbols: list[str],
+    config: FinageEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield one company profile row per symbol.
+
+    Finage wraps the single profile object in an array. The row carries no date, so `symbol` alone
+    is the key and the table holds the current profile rather than a history.
+    """
+    for symbol in symbols:
+        path = config.path.format(symbol=symbol)
+        try:
+            data = _fetch_json(session, path, api_key, logger)
+        except requests.HTTPError as exc:
+            _handle_symbol_http_error(exc, logger, f"{config.name} request for {symbol}")
+            continue
+
+        records = _records(data, f"{config.name} for {symbol}", logger)
+        if not records:
+            continue
+
+        yield [_symbol_keyed_row(record, config, pinned_symbol=symbol, what=symbol) for record in records]
+
+
+def _iter_symbol_list_rows(
+    session: requests.Session,
+    api_key: str,
+    config: FinageEndpointConfig,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield the tradeable symbols of each configured market, one page at a time.
+
+    A symbol is only unique within its market, so the requested market is pinned onto every row and
+    is part of the key. The response reports no total, so the walk ends on the first empty page.
+    """
+    for market in config.markets:
+        path = config.path.format(market=market)
+        for page in range(1, SYMBOL_LIST_MAX_PAGES + 1):
+            what = f"{config.name} for {market} page {page}"
+            try:
+                data = _fetch_json(session, path, api_key, logger, params={"page": page})
+            except requests.HTTPError as exc:
+                _handle_symbol_http_error(exc, logger, what)
+                break
+
+            if not isinstance(data, dict):
+                logger.warning(f"Finage: {what} returned no symbols, skipping")
+                break
+            symbols = data.get("symbols")
+            if not symbols:
+                break
+            if not all(isinstance(record, dict) for record in symbols):
+                raise ValueError(f"Finage {what} returned a symbol entry that is not a record")
+
+            yield [
+                {**_symbol_keyed_row(record, config, pinned_symbol=None, what=what), "market": market}
+                for record in symbols
+            ]
+        else:
+            logger.warning(
+                f"Finage: {config.name} for {market} hit the {SYMBOL_LIST_MAX_PAGES}-page cap; later symbols skipped"
+            )
 
 
 @frozen
@@ -412,8 +521,20 @@ def get_rows(
     symbols: list[str],
     start_date: str,
     logger: FilteringBoundLogger,
+    forex_symbols: list[str] | None = None,
+    crypto_symbols: list[str] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FINAGE_ENDPOINTS[endpoint]
+    endpoint_symbols = {
+        FinageAssetClass.STOCK: symbols,
+        FinageAssetClass.FOREX: forex_symbols or [],
+        FinageAssetClass.CRYPTO: crypto_symbols or [],
+    }[config.asset_class]
+    if config.asset_class is not FinageAssetClass.STOCK and not endpoint_symbols:
+        # Nothing to fan out over. Say so, otherwise the table just syncs empty with no explanation.
+        logger.warning(f"Finage: no {config.asset_class} symbols configured, so {endpoint} has nothing to sync")
+        return
+
     # One session reused across every symbol so urllib3 keeps the connection alive. Redact the key
     # so the `apikey` query value is never persisted raw in tracked logs / sample capture. Disable the
     # adapter's default retry policy: `_fetch_json` already retries 429/5xx with tenacity, and stacking a
@@ -422,13 +543,17 @@ def get_rows(
 
     match config.kind:
         case FinageEndpointKind.AGGREGATE:
-            yield from _iter_aggregate_rows(session, api_key, symbols, config, start_date, logger)
+            yield from _iter_aggregate_rows(session, api_key, endpoint_symbols, config, start_date, logger)
         case FinageEndpointKind.SYMBOL_HISTORY:
-            yield from _iter_symbol_history_rows(session, api_key, symbols, config, logger)
+            yield from _iter_symbol_history_rows(session, api_key, endpoint_symbols, config, logger)
+        case FinageEndpointKind.SYMBOL_PROFILE:
+            yield from _iter_symbol_profile_rows(session, api_key, endpoint_symbols, config, logger)
         case FinageEndpointKind.CALENDAR:
             yield from _iter_calendar_rows(session, api_key, config, start_date, logger)
+        case FinageEndpointKind.SYMBOL_LIST:
+            yield from _iter_symbol_list_rows(session, api_key, config, logger)
         case FinageEndpointKind.POINT_IN_TIME:
-            yield from _iter_point_in_time_rows(session, api_key, symbols, config, logger)
+            yield from _iter_point_in_time_rows(session, api_key, endpoint_symbols, config, logger)
 
 
 def finage_source(
@@ -437,6 +562,8 @@ def finage_source(
     symbols: list[str],
     start_date: str,
     logger: FilteringBoundLogger,
+    forex_symbols: list[str] | None = None,
+    crypto_symbols: list[str] | None = None,
 ) -> SourceResponse:
     config = FINAGE_ENDPOINTS[endpoint]
 
@@ -448,6 +575,8 @@ def finage_source(
             symbols=symbols,
             start_date=start_date,
             logger=logger,
+            forex_symbols=forex_symbols,
+            crypto_symbols=crypto_symbols,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

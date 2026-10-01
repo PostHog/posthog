@@ -24,8 +24,8 @@ from temporalio.worker import (
 
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
 
-# The workflow type name (matches @workflow.defn(name=...) in recalculation_workflow).
-_RECALCULATION_WORKFLOW_TYPE = "experiment-metrics-recalculation-workflow"
+from products.experiments.backend.temporal.models import METRICS_RECALCULATION_WORKFLOW_NAME
+
 # Activity type names (the registered activity function names).
 _RECALCULATION_ACTIVITY_TYPES = {
     "discover_experiment_metrics",
@@ -88,7 +88,7 @@ def increment_workflow_finished(status: str) -> None:
     `workflow_type` is attached so dashboards stay scoped when other experiments workflows ship later.
     """
     workflow.metric_meter().with_additional_attributes(
-        {"status": status, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+        {"status": status, "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
     ).create_counter(
         "experiment_metrics_recalculation_workflow_finished",
         "Number of experiment metrics recalculation workflows that reached a terminal state.",
@@ -111,7 +111,7 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
             return await super().execute_activity(input)
 
         meter = activity.metric_meter().with_additional_attributes(
-            {"activity_type": activity_type, "workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+            {"activity_type": activity_type, "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
         )
         # Queue-pressure signal (see bucket comment above). Per-attempt scheduling time, so retry backoff
         # (including the intentional quota-wait delays) doesn't read as queue pressure.
@@ -135,7 +135,7 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
                 description="Execution latency for experiment metrics recalculation activities.",
                 histogram_attributes={
                     "activity_type": activity_type,
-                    "workflow_type": _RECALCULATION_WORKFLOW_TYPE,
+                    "workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME,
                 },
             ):
                 result = await super().execute_activity(input)
@@ -162,10 +162,10 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
 
 class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> typing.Any:
-        if workflow.info().workflow_type != _RECALCULATION_WORKFLOW_TYPE:
+        if workflow.info().workflow_type != METRICS_RECALCULATION_WORKFLOW_NAME:
             return await super().execute_workflow(input)
         workflow.metric_meter().with_additional_attributes(
-            {"workflow_type": _RECALCULATION_WORKFLOW_TYPE}
+            {"workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME}
         ).create_counter(
             "experiment_metrics_recalculation_workflow_started",
             "Number of experiment metrics recalculation workflows started.",
@@ -174,7 +174,7 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
             with ExecutionTimeRecorder(
                 "experiment_metrics_recalculation_workflow_execution_latency",
                 description="End-to-end execution latency for the experiment metrics recalculation workflow.",
-                histogram_attributes={"workflow_type": _RECALCULATION_WORKFLOW_TYPE},
+                histogram_attributes={"workflow_type": METRICS_RECALCULATION_WORKFLOW_NAME},
             ):
                 return await super().execute_workflow(input)
         except BaseException:

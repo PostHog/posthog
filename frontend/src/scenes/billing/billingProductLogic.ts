@@ -184,10 +184,10 @@ export interface billingProductLogicActions {
     } // billingLogic
     loadBilling: () => any // billingLogic
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     } // billingLogic
     setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {
@@ -204,14 +204,14 @@ export interface billingProductLogicActions {
         [key: string]: number | null
     } // billingLogic
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?:
             | {
                   [key: string]: number | null
               }
             | undefined
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }

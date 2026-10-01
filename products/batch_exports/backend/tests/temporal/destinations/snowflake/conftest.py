@@ -10,10 +10,10 @@ import pytest_asyncio
 import snowflake.connector
 
 from posthog.models.integration import Integration, SnowflakeIntegration
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import load_private_key
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 
 @pytest.fixture

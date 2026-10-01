@@ -88,6 +88,7 @@ pub const GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER: &str =
 // (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
 pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
 pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_PERSON_RETRIES_COUNTER: &str = "flags_batch_eval_person_retries_total";
 pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";

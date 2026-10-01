@@ -249,6 +249,27 @@ def _org_groups_for_person(ticket: Ticket, team: Team, person: Person, distinct_
         return None
 
 
+def _has_unverified_relayed_identity(ticket: Ticket) -> bool:
+    return (ticket.anonymous_traits or {}).get("email_relayed") is True and ticket.identity_verified is not True
+
+
+def _identified_person_for_ticket(ticket: Ticket, team: Team) -> tuple[Person, str] | None:
+    if not ticket.distinct_id:
+        return None
+    try:
+        # Only is_identified and properties are read, and the membership lookup keys off
+        # the ticket's own distinct_id, so skip fetching the person's distinct_ids.
+        with personhog_caller_tag("conversations/ticket-event-person"):
+            persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
+    except Exception:
+        # A failed lookup is not "no identified person": the caller still tries the email path
+        # instead of losing attribution to a transient personhog error.
+        logger.exception("ticket_org_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
+        return None
+    identified_person = next((person for person in persons if person.is_identified), None)
+    return (identified_person, ticket.distinct_id) if identified_person is not None else None
+
+
 def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     """Resolve the customer organization's ``$groups`` from the requester's identity.
 
@@ -263,26 +284,18 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     way, the person's own ``organization_id`` profile property is the last
     resort when the membership and analytics lookups both miss.
     """
-    # 1. Real distinct_id (web widget). An identified person is authoritative: if they
-    # have no org membership, don't guess via email (a shared email could resolve to a
-    # different person's org), so return early instead of falling through.
-    if ticket.distinct_id:
-        persons: list[Person] = []
-        try:
-            # Only is_identified and properties are read, and the membership lookup keys off
-            # the ticket's own distinct_id — so skip fetching the person's distinct_ids.
-            with personhog_caller_tag("conversations/ticket-event-person"):
-                persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
-        except Exception:
-            # A failed lookup is not "no identified person": fall through to the email
-            # path instead of losing attribution to a transient personhog error.
-            logger.exception("ticket_org_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
-        identified_person = next((p for p in persons if p.is_identified), None)
-        if identified_person is not None:
-            groups = _org_groups_for_person(ticket, team, identified_person, [ticket.distinct_id])
-            if groups:
-                return True, groups
-            return False, None
+    if _has_unverified_relayed_identity(ticket):
+        return False, None
+
+    # An identified person is authoritative. If they have no org membership, do not guess
+    # via email because a shared address could resolve to a different person's org.
+    identified_identity = _identified_person_for_ticket(ticket, team)
+    if identified_identity is not None:
+        identified_person, distinct_id = identified_identity
+        groups = _org_groups_for_person(ticket, team, identified_person, [distinct_id])
+        if groups:
+            return True, groups
+        return False, None
 
     # 2. Email fallback, restricted to channels with a provider-verified email identity.
     # Never trust the public widget's attacker-controlled anonymous_traits.email here.

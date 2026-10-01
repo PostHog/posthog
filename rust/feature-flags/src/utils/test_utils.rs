@@ -27,6 +27,7 @@ use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
@@ -200,10 +201,7 @@ pub async fn write_flags_wire_json_to_redis(
 }
 
 pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait + Send + Sync> {
-    let redis_url = match url {
-        Some(value) => value,
-        None => "redis://localhost:6379/".to_string(),
-    };
+    let redis_url = url.unwrap_or_else(|| DEFAULT_TEST_CONFIG.redis_url.clone());
     // Use reasonable test timeout defaults
     const TEST_RESPONSE_TIMEOUT_MS: u64 = 1000; // 1s for tests - longer than production to avoid flaky tests
     const TEST_CONNECTION_TIMEOUT_MS: u64 = 5000; // 5s connection timeout
@@ -287,6 +285,29 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
     async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
         Ok(())
     }
+}
+
+#[cfg(test)]
+pub fn counter_total(
+    snapshotter: &metrics_util::debugging::Snapshotter,
+    name: &str,
+    labels: &[(&str, &str)],
+) -> u64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter(|(key, ..)| {
+            key.key().name() == name
+                && labels
+                    .iter()
+                    .all(|(k, v)| key.key().labels().any(|l| l.key() == *k && l.value() == *v))
+        })
+        .map(|(.., value)| match value {
+            metrics_util::debugging::DebugValue::Counter(c) => c,
+            _ => 0,
+        })
+        .sum()
 }
 
 /// A dummy S3 client (always NotFound) for injecting into the test server.
@@ -638,6 +659,32 @@ impl Client for MockPgClient {
 
     fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
         // Return None for mock client
+        None
+    }
+}
+
+pub struct CountingFailingClient {
+    pub error: fn() -> SqlxError,
+    pub calls: AtomicUsize,
+}
+
+impl CountingFailingClient {
+    pub fn new(error: fn() -> SqlxError) -> Self {
+        Self {
+            error,
+            calls: AtomicUsize::new(0),
+        }
+    }
+}
+
+#[async_trait]
+impl Client for CountingFailingClient {
+    async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Err(CustomDatabaseError::Other((self.error)()))
+    }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
         None
     }
 }

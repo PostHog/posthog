@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.9 — 2026-09-28
+
+### Patch changes
+
+- [3587ad4eb53](https://github.com/PostHog/posthog/commit/3587ad4eb53fa404a8cd00871e30a3a19b01c326) Upload symbol sets with a presigned PUT when the server offers one. Presigned POST is an AWS S3 extension, so instances whose object storage does not implement it rejected every symbol set upload with 501 NotImplemented. The multipart POST stays in place for older servers. — Thanks @hpouillot!
+
 ## 0.18.8 — 2026-09-28
 
 ### Patch changes
