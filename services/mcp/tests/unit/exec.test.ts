@@ -2158,6 +2158,7 @@ describe('exec tool', () => {
             ['a hostname', 'example.com', '[redacted]'],
             ['a phone number', 'tel_15555550100', '[redacted]'],
             ['a token', `ghp_${'aB3'.repeat(12)}`, '[redacted]'],
+            ['a PostHog token without digits', `phx_${'aBc'.repeat(15)}`, '[redacted]'],
         ])('records an undeclared key that is %s', (_shape, key, recorded) => {
             const shape = describeInputShape({ [key]: 'secret-value', id: 1 }, z.object({ id: z.number() }))
 

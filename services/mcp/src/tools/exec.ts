@@ -1515,6 +1515,7 @@ export function describeValidationError(error: z.ZodError, schema: z.ZodType): {
 
 const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
 const DIGIT_RUN_PATTERN = /\d{5}/
+const POSTHOG_TOKEN_PREFIX_PATTERN = /^ph[a-z]_/
 const CREDENTIAL_SEGMENT_MIN_LENGTH = 16
 
 function hasCredentialSegment(key: string): boolean {
@@ -1523,10 +1524,15 @@ function hasCredentialSegment(key: string): boolean {
 
 /**
  * Undeclared names come from the caller and can hold private data, so only parameter-shaped
- * ones are recorded. The digit checks keep out phone numbers, IDs, and tokens such as `phx_` keys.
+ * ones are recorded. The digit checks keep out phone numbers, IDs, and most tokens. The prefix
+ * check keeps out PostHog tokens, whose suffix can have no digits.
  */
 const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
-    declared || (PARAMETER_NAME_PATTERN.test(key) && !DIGIT_RUN_PATTERN.test(key) && !hasCredentialSegment(key))
+    declared ||
+    (PARAMETER_NAME_PATTERN.test(key) &&
+        !DIGIT_RUN_PATTERN.test(key) &&
+        !hasCredentialSegment(key) &&
+        !POSTHOG_TOKEN_PREFIX_PATTERN.test(key))
 
 /**
  * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
