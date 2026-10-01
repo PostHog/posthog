@@ -727,6 +727,8 @@ export const redirects: Record<
     '/replay': urls.replay(),
     '/replay/recent': (_params, searchParams) =>
         urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId),
+    '/replay/templates': (_params, searchParams, hashParams) =>
+        combineUrl(urls.replay(), { ...searchParams, showFilters: true, filtersTab: 'templates' }, hashParams).url,
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
