@@ -1319,6 +1319,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
+        assert "properties.$feature_flag," not in response.hogql
         assert len(response.results) == 1
         star, *columns = response.results[0]
         assert {

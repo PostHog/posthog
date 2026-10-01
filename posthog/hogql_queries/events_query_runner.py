@@ -9,11 +9,14 @@ import orjson
 import structlog
 
 from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
     CachedEventsQueryResponse,
     DashboardFilter,
     EventPropertyFilter,
     EventsQuery,
     EventsQueryResponse,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
 )
 
@@ -127,6 +130,22 @@ def and_exprs(existing: ast.Expr | None, extra: ast.Expr | None) -> ast.Expr | N
     if existing is None:
         return extra
     return ast.And(exprs=[existing, extra])
+
+
+QueryPropertyFilter = AnyPropertyFilterDiscriminated | PropertyGroupFilter | PropertyGroupFilterValue
+
+
+def _exact_flag_keys(prop: QueryPropertyFilter) -> list[str] | None:
+    if not (
+        isinstance(prop, EventPropertyFilter)
+        and prop.key == "$feature_flag"
+        and prop.operator == PropertyOperator.EXACT
+    ):
+        return None
+    values = prop.value if isinstance(prop.value, list) else [prop.value]
+    if not values or not all(isinstance(value, str) for value in values):
+        return None
+    return [str(value) for value in values]
 
 
 def split_pagination_cursor(value: str) -> tuple[str, str | None]:
@@ -318,9 +337,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 aggregations: list[ast.Expr] = [column for column in select if has_aggregation(column)]
                 has_any_aggregation = len(aggregations) > 0
 
-            where_exprs = self._filter_where_exprs()
-            if table is FLAG_EVALUATIONS_LIST_TABLE:
-                where_exprs.extend(self._flag_key_where_exprs())
+            where_exprs = self._filter_where_exprs(table)
             where_exprs.extend(self._timestamp_where_exprs())
 
             # where & having
@@ -350,28 +367,17 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
 
-    def _flag_key_where_exprs(self) -> list[ast.Expr]:
-        # HogQL reads properties.$feature_flag from the properties JSON on flag_evaluations.
-        # The sort key starts with team_id and flag_key.
-        # The same filter on flag_key lets ClickHouse skip other flags' rows.
-        exprs: list[ast.Expr] = []
-        for prop in [*(self.query.properties or []), *(self.query.fixedProperties or [])]:
-            if not (
-                isinstance(prop, EventPropertyFilter)
-                and prop.key == "$feature_flag"
-                and prop.operator == PropertyOperator.EXACT
-            ):
-                continue
-            values = prop.value if isinstance(prop.value, list) else [prop.value]
-            if values and all(isinstance(value, str) for value in values):
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.In,
-                        left=ast.Field(chain=["flag_key"]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=value) for value in values]),
-                    )
-                )
-        return exprs
+    def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
+        flag_keys = _exact_flag_keys(prop) if table is FLAG_EVALUATIONS_LIST_TABLE else None
+        if flag_keys is None:
+            return property_to_expr(prop, self.team)
+        # HogQL reads properties.$feature_flag from the properties JSON, which reads the properties of every call of
+        # the flag in the date range. flag_key holds the same value and leads the table's sort key after team_id.
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["flag_key"]),
+            right=ast.Tuple(exprs=[ast.Constant(value=key) for key in flag_keys]),
+        )
 
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
@@ -401,17 +407,17 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 )
         return context
 
-    def _filter_where_exprs(self) -> list[ast.Expr]:
+    def _filter_where_exprs(self, table: EventsListTable) -> list[ast.Expr]:
         with self.timings.measure("filters"):
             with self.timings.measure("where"):
                 where_input = self.query.where or []
                 where_exprs = [parse_expr(expr, timings=self.timings) for expr in where_input]
             if self.query.properties:
                 with self.timings.measure("properties"):
-                    where_exprs.extend(property_to_expr(property, self.team) for property in self.query.properties)
+                    where_exprs.extend(self._property_where_expr(prop, table) for prop in self.query.properties)
             if self.query.fixedProperties:
                 with self.timings.measure("fixed_properties"):
-                    where_exprs.extend(property_to_expr(property, self.team) for property in self.query.fixedProperties)
+                    where_exprs.extend(self._property_where_expr(prop, table) for prop in self.query.fixedProperties)
             all_events = self._event_names()
             if all_events:
                 with self.timings.measure("event"):
