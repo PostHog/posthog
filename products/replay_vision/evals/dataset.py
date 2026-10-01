@@ -212,8 +212,9 @@ def download_pinned_dataset(
 ) -> GoldenDataset:
     """Download the pinned dataset's live cases into root, replacing any local case files.
 
-    Cases whose source recording is deleted or expired are dropped before any of their bytes are
-    fetched, and the saved manifest leaves them out. Local files are never reused, because a file
+    The source org's consent is checked before any case file is fetched. Cases whose source
+    recording is deleted or expired are dropped before any of their bytes are fetched, and the
+    saved manifest leaves them out. Local files are never reused, because a file
     left by another pin or a partial download has the same path as the pinned one and would be
     scored under the wrong manifest.
     """
@@ -222,7 +223,9 @@ def download_pinned_dataset(
     raw = _read_object(client, location, location.key)
     if raw is None:
         raise RuntimeError(f"No pinned golden dataset at s3://{location.bucket}/{location.key}")
-    dataset = drop_dead_cases(GoldenDataset.model_validate_json(raw), api_key)
+    dataset = GoldenDataset.model_validate_json(raw)
+    ensure_dataset_consent(dataset, api_key)
+    dataset = drop_dead_cases(dataset, api_key)
     root.mkdir(parents=True, exist_ok=True)
     save_dataset(root, dataset)
     for golden in dataset.cases:

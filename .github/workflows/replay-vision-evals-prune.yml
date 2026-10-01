@@ -5,8 +5,9 @@
 # pinned version under `replay-vision/golden/`. Readers already drop such cases before they fetch
 # any bytes, so this job only removes the bytes. See products/replay_vision/evals/README.md.
 #
-# It runs master code only: the `replay-vision-evals-prune` environment allows only master, and it
-# holds the delete-scoped role and the PostHog API key. Until those are set the job skips green.
+# It must run master code only. Before its vars and secret are set, restrict the
+# `replay-vision-evals-prune` environment to master and bind the delete-scoped role's trust policy
+# to `repo:PostHog/posthog:environment:replay-vision-evals-prune`. Until they are set the job skips green.
 name: Replay Vision Evals Prune
 
 on:
@@ -50,7 +51,10 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.gate.outputs.enabled == 'true'
               with:
-                  sparse-checkout: products/replay_vision/evals
+                  persist-credentials: false
+                  sparse-checkout: |
+                      products/replay_vision/evals
+                      .github/actions/setup-uv
 
             - name: Install uv
               if: steps.gate.outputs.enabled == 'true'

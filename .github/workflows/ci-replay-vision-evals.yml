@@ -19,10 +19,12 @@
 # If any required secret is missing the job skips green with a warning, so a fork or a
 # not-yet-configured environment is unaffected.
 #
-# The job runs in the `replay-vision-evals` environment, whose required reviewers gate every
-# run: a pull request executes its own checked-out code with repository secrets (the dogfood
-# PostHog key, model-provider keys, Braintrust key), so it must not run before a maintainer
-# approves it. A maintainer's own dispatch self-approves in the same queue.
+# The job runs in the `replay-vision-evals` environment, and that environment must have required
+# reviewers before any secret or pin var is set: a pull request executes its own checked-out code
+# with repository secrets (the dogfood PostHog key, model-provider keys, Braintrust key) and the
+# pin's S3 role, so it must not run before a maintainer approves it. Bind the role's trust policy
+# to `repo:PostHog/posthog:environment:replay-vision-evals`. A maintainer's own dispatch
+# self-approves in the same queue.
 #
 # Persisting real recordings in the internal bucket needs a data-governance decision; until it
 # clears, the pin vars stay unset and runs keep collecting fresh. See

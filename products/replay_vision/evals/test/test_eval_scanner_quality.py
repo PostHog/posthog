@@ -832,7 +832,13 @@ def test_eval_scanner_quality_checks_consent_and_recordings_before_scanning(
                 asyncio.run(eval_scanner_quality.eval_scanner_quality(MagicMock()))
 
     assert (_PIN_KEY in pin_store.reads) == pinned
-    assert sorted(posthog_api.recording_checks()) == ["sess-c1", "sess-c2"]
+    case_reads = [key for key in pin_store.reads if "/cases/" in key]
+    assert case_reads == (
+        ["replay-vision/golden/v1/cases/c1/video.mp4", "replay-vision/golden/v1/cases/c1/inputs.json"]
+        if pinned and approved
+        else []
+    )
+    assert sorted(posthog_api.recording_checks()) == (["sess-c1", "sess-c2"] if approved else [])
     assert one_shot.call_count == (1 if approved else 0)
     if approved:
         assert [case.metadata["case_id"] for case in one_shot.call_args.kwargs["cases"]] == ["c1"]

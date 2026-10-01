@@ -76,7 +76,7 @@ Gemini is nondeterministic and the dataset is re-sampled per run, so the score i
 It collects a fresh dataset on the runner (so consent is re-verified every run; nothing is cached, uploaded, or persisted), runs the suite, and writes the aggregate scores to the job's step summary.
 The summary also links the run's `/ai-evals` offline experiment, where the harness publishes the same scores.
 Only those allowlisted summary lines are public: collector and harness output stay in runner-local files, because they carry session and observation ids.
-The job runs in the `replay-vision-evals` environment, whose required reviewers approve every run: a pull request executes its own code with those secrets, so it waits for a maintainer first.
+The job runs in the `replay-vision-evals` environment. Add required reviewers to it before any secret is set: a pull request executes its own code with those secrets, so it must wait for a maintainer first.
 The job needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY` (a personal API key with scanner, session recording, export, and query read access to the dogfood project) plus the `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `BRAINTRUST_API_KEY` secrets `ci-ai.yml` already uses; if any is missing the job skips green and warns which.
 
 ### The benchmark, and its one limit
@@ -108,7 +108,7 @@ REPLAY_VISION_EVAL_DATASET_OBJECT_KEY=replay-vision/golden/v1/manifest.json \
 POSTHOG_API_KEY=... GEMINI_API_KEY=... hogli evals eval_scanner_quality
 ```
 
-The suite downloads the pinned manifest and the files of every live case, replacing local copies, then re-verifies the source org's consent before scanning. CI uses the pin only when the `replay-vision-evals` environment sets all three of `REPLAY_VISION_EVAL_PIN_BUCKET`, `REPLAY_VISION_EVAL_PIN_KEY`, and `REPLAY_VISION_EVAL_PIN_ROLE_ARN` (a read-only role GitHub OIDC can assume from that environment; `REPLAY_VISION_EVAL_PIN_REGION` defaults to `us-east-1`).
+The suite downloads the pinned manifest, re-verifies the source org's consent, then downloads the files of every live case, replacing local copies. CI uses the pin only when the `replay-vision-evals` environment sets all three of `REPLAY_VISION_EVAL_PIN_BUCKET`, `REPLAY_VISION_EVAL_PIN_KEY`, and `REPLAY_VISION_EVAL_PIN_ROLE_ARN` (a read-only role whose trust policy accepts only `repo:PostHog/posthog:environment:replay-vision-evals`; `REPLAY_VISION_EVAL_PIN_REGION` defaults to `us-east-1`).
 With any of them unset, CI collects fresh.
 
 ### Lifecycle
@@ -120,7 +120,7 @@ The API returns 404 after a deletion (by a user, a person deletion, or a team de
 - Every reader drops dead cases before it fetches any bytes: the download, the eval on a local directory, and `collect` when it reuses earlier cases. The eval refuses to run when no case is left.
 - The `Replay Vision Evals Prune` workflow runs daily on master. In every version under `replay-vision/golden/`, it deletes the video and inputs of every dead case, then rewrites the manifest without them. This is the one change a pinned key ever gets.
 - An API error stops the prune before it deletes anything more, so an outage never deletes a live case. The job prints only a count.
-- The workflow uses the `replay-vision-evals-prune` environment, restricted to master. It needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY`, `REPLAY_VISION_EVAL_PIN_BUCKET`, and `REPLAY_VISION_EVAL_PIN_PRUNE_ROLE_ARN` (a role that can list, read, write, and delete under `replay-vision/golden/`). With any of them unset, it skips green.
+- The workflow uses the `replay-vision-evals-prune` environment. Restrict it to master, and bind the prune role's trust policy to `repo:PostHog/posthog:environment:replay-vision-evals-prune`, before any of its vars is set. It needs `REPLAY_VISION_EVAL_POSTHOG_API_KEY`, `REPLAY_VISION_EVAL_PIN_BUCKET`, and `REPLAY_VISION_EVAL_PIN_PRUNE_ROLE_ARN` (a role that can list, read, write, and delete under `replay-vision/golden/`). With any of them unset, it skips green.
 
 To prune by hand:
 
