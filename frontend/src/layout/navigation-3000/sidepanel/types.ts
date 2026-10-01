@@ -13,5 +13,7 @@ export type SidePanelSceneContext = {
     discussions_disabled?: boolean
     /** The canvas on screen. Its panel tabs replace the general ones. */
     canvas_id?: string
+    /** Whether the canvas on screen is being edited by hand, which adds its Blocks tab. */
+    canvas_blocks?: boolean
 }
 export const SIDE_PANEL_CONTEXT_KEY = 'sidePanelContext'

@@ -16,6 +16,7 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { canvasEditLogic } from '../editing/canvasEditLogic'
 import {
     canvasBuildStatusBadgeVariant,
     canvasBuildStatusLabel,
@@ -60,7 +61,7 @@ function StepButton({
     )
 }
 
-/** Undo and redo through versions, and the version and draft pickers, in the canvas header. */
+/** Undo and redo through versions, and the version and draft pickers, in the canvas header. Undo and redo through local edits while editing. */
 export function CanvasVersionControls(): JSX.Element | null {
     const {
         versions,
@@ -74,7 +75,32 @@ export function CanvasVersionControls(): JSX.Element | null {
         isGenerating,
     } = useValues(canvasHistoryLogic)
     const { undo, redo, setBrowseVersion } = useActions(canvasHistoryLogic)
+    const { sourceEditing, canUndoEdit, canRedoEdit } = useValues(canvasEditLogic)
+    const { undoEdit, redoEdit } = useActions(canvasEditLogic)
 
+    // While editing, undo and redo step through local edits instead of published versions, like PostHog Desktop.
+    if (sourceEditing) {
+        return (
+            <ButtonGroup aria-label="Edits" data-attr="canvas-version-controls">
+                <StepButton
+                    label="Undo"
+                    disabledReason={canUndoEdit ? null : 'There is nothing to undo.'}
+                    onClick={undoEdit}
+                    dataAttr="canvas-edit-undo"
+                >
+                    <IconUndo />
+                </StepButton>
+                <StepButton
+                    label="Redo"
+                    disabledReason={canRedoEdit ? null : 'There is nothing to redo.'}
+                    onClick={redoEdit}
+                    dataAttr="canvas-edit-redo"
+                >
+                    <IconRedo />
+                </StepButton>
+            </ButtonGroup>
+        )
+    }
     if (versions.length === 0 && drafts.length === 0) {
         return null
     }

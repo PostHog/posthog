@@ -12,10 +12,22 @@ export const CANVAS_EVENTS = {
 // pinned: `surface` values, shared with PostHog Desktop
 export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene' | 'web_canvas_side_panel'
 
-// pinned: `action_type` values of the Dashboard action event. "revert" is shared with PostHog
-// Desktop. The rest name web actions Desktop does not track yet, so Desktop should reuse them.
+// pinned: `action_type` values of the Dashboard action event. "revert" and "edit_toggle" are shared
+// with PostHog Desktop. The rest name web actions Desktop does not track yet, so Desktop should reuse them.
 export type CanvasDashboardActionType =
     | 'revert'
+    | 'edit_toggle'
+    | 'block_insert'
+    | 'block_move'
+    | 'block_edit'
+    | 'block_remove'
+    | 'block_duplicate'
+    | 'text_edit'
+    | 'edit_undo'
+    | 'edit_redo'
+    | 'edit_save'
+    | 'edit_conflict'
+    | 'edit_conflict_resolve'
     | 'promote_draft'
     | 'panel_tab_change'
     | 'panel_toggle'
@@ -28,7 +40,7 @@ export type CanvasDashboardActionType =
     | 'build_unpin'
     | 'fix_request'
 
-/** Captures a canvas action from the scene or its side panel. Never pass prompt or comment text. */
+/** Captures a canvas action from the scene or its side panel. Never pass prompt, comment, or source text. */
 export function captureCanvasAction(
     actionType: CanvasDashboardActionType,
     properties: {
@@ -40,6 +52,14 @@ export function captureCanvasAction(
         open?: boolean
         origin?: 'build' | 'runtime'
         outcome?: string
+        /** edit_toggle: the state being entered. */
+        editing?: boolean
+        /** A library block type, "custom" for a component the agent wrote, or "element" for plain markup. */
+        block_type?: string
+        /** block_insert: whether the block was clicked in or dragged in. */
+        method?: 'click' | 'drag'
+        /** edit_conflict_resolve: whether the author kept their edits over the newer version. */
+        keep_local?: boolean
     }
 ): void {
     posthog.capture(CANVAS_EVENTS.dashboardAction, {

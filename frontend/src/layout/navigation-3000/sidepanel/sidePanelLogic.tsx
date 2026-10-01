@@ -36,6 +36,7 @@ export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.
 /** The tabs a canvas scene shows instead of the general ones, in order. */
 export const CANVAS_SIDE_PANEL_TABS = [
     SidePanelTab.CanvasChat,
+    SidePanelTab.CanvasBlocks,
     SidePanelTab.CanvasComments,
     SidePanelTab.CanvasTimeline,
 ]
@@ -177,7 +178,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (sceneSidePanelContext.canvas_id && currentTeam) {
                     // Support stays openable from the help menu, but the canvas tabs take the bar.
                     return [
-                        ...CANVAS_SIDE_PANEL_TABS,
+                        ...CANVAS_SIDE_PANEL_TABS.filter(
+                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
+                        ),
                         SidePanelTab.Exports,
                         ...(isCloudOrDev ? [SidePanelTab.Support] : []),
                     ]

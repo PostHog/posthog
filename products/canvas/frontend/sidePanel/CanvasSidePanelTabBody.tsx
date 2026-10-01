@@ -1,3 +1,4 @@
+import { CanvasBlocksTab } from './blocks/CanvasBlocksTab'
 import type { CanvasPanelTab } from './canvasPanelTabs'
 import { CanvasChatTab } from './chat/CanvasChatTab'
 import { CanvasCommentsTab } from './comments/CanvasCommentsTab'
@@ -8,6 +9,8 @@ export function CanvasSidePanelTabBody({ tab, canvasId }: { tab: CanvasPanelTab;
     switch (tab) {
         case 'chat':
             return <CanvasChatTab canvasId={canvasId} />
+        case 'blocks':
+            return <CanvasBlocksTab canvasId={canvasId} />
         case 'comments':
             return <CanvasCommentsTab />
         case 'timeline':
