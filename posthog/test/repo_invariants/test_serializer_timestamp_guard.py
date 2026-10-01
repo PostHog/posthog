@@ -146,7 +146,7 @@ REVIEWED_WRITABLE: dict[str, str] = {
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.end_date": "Client stops the survey by setting this",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.response_sampling_start_date": "Client sets when response sampling starts",
     "products.surveys.backend.api.survey.SurveySerializerCreateUpdateOnlySchema.start_date": "Client launches the survey by setting this",
-    "products.workflows.backend.api.hog_flow.HogFlowScheduleSerializer.starts_at": "Client sets when the schedule starts",
+    "products.workflows.backend.presentation.views.hog_flow.HogFlowScheduleSerializer.starts_at": "Client sets when the schedule starts",
 }
 
 # Views and serializers the guard cannot read, each with a reason. An entry hides part

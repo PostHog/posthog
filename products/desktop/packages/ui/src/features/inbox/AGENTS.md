@@ -87,7 +87,7 @@ Do not add frontend-only controls that imply a backend capability. If the UI exp
 
 ## Routes and Shell
 
-`InboxView` is the layout shell for `/inbox/*`. It owns the page header, tab bar, reviewer scope control, and nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
+`InboxView` is the layout shell for `/inbox/*`. On a triage route it renders `InboxTriagePane` in both layouts. On other list routes it renders `InboxHomePane` under the spaces layout and the sectioned `ReportsInboxView` page otherwise. Detail routes render through the nested route outlet. Route files live in `apps/code/src/renderer/routes/inbox/`.
 
 Under the spaces layout Self-driving is a rail destination that owns the column
 beside the rail (`railPaneHasSidebar`, `railPane.ts`). `InboxPane` draws the
@@ -145,7 +145,7 @@ and the page can never disagree about what is in the inbox. React Query dedupes
 the requests, but paging is a side effect, so only one caller may drive it: the
 sidebar pages, `InboxHomePane` passes `autoPage: false`.
 
-The tab components are intentionally simple:
+The tab list components are legacy. `InboxView` never renders the outlet on a list route (see Routes and Shell above), so no current route shows them. Do not extend them; they stay only until a follow-up removes them:
 
 - `PullRequestsTab` partitions scoped reports with `isPullRequestReport`.
 - `ReportsTab` partitions with `isReportTabReport`.
@@ -191,7 +191,7 @@ The Inbox reads from PostHog Cloud's Self-driving backend, currently implemented
 - `GET /api/projects/{teamId}/signals/reports/{id}/artefacts/`: structured report artefacts.
 - `GET /api/projects/{teamId}/signals/reports/{id}/tasks/`: tasks linked to a report.
 
-The shared renderer type for the report is `SignalReport` in `packages/shared/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
+The shared renderer type for the report is `SignalReport` in `packages/agent/packages/agent-contracts/src/domain-types.ts`. If the backend serializer changes, update that type and the client methods in `packages/api-client/src/posthog-client.ts` together.
 
 Report charts: `SignalReport.charts` carries scout-authored chart definitions (`chart_id`, `title`, `query`, `caption?`, `size?`). The desktop app renders them natively in the detail views: `packages/core/src/inbox/reportCharts.ts` classifies the stored query (runnable HogQL/trends vs saved-insight vs link-out fallback), `PostHogAPIClient.runQuery` executes runnable sources against `/api/projects/{teamId}/query/`, and `components/detail/ReportChartCard.tsx` draws the result with `@posthog/quill-charts`. Query kinds the app can't draw degrade to a card that links out to PostHog. Summary prose references charts as `[label](chart:<chart_id>)` links; `SignalReportSummaryMarkdown` turns those into in-page jumps to the chart card (plain text on list rows).
 

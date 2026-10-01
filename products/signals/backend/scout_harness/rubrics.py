@@ -28,6 +28,7 @@ from products.signals.backend.rubrics_schema import (
 logger = structlog.get_logger(__name__)
 
 RUBRIC_TEAM_ID = 2
+MAX_GENERATION_CONTEXT_LENGTH = 2000
 GENERATION_TIMEOUT = timedelta(minutes=30)
 
 
@@ -42,6 +43,7 @@ class ScoutRubricGeneration(BaseModel):
     id: str
     status: ScoutRubricGenerationStatus
     requested_at: datetime
+    context: str = Field(default="", max_length=MAX_GENERATION_CONTEXT_LENGTH)
     completed_at: datetime | None = None
     task_id: str | None = None
     task_run_id: str | None = None
@@ -118,7 +120,7 @@ def save_rubric(
     return config
 
 
-def reserve_generation(team_id: int, config_id: str) -> ScoutRubricReservation:
+def reserve_generation(team_id: int, config_id: str, *, context: str = "") -> ScoutRubricReservation:
     with transaction.atomic():
         config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config_id)
         state = read_rubric_state(config)
@@ -134,7 +136,10 @@ def reserve_generation(team_id: int, config_id: str) -> ScoutRubricReservation:
         ):
             return ScoutRubricReservation(config=config, created=False)
         state.generation = ScoutRubricGeneration(
-            id=str(uuid4()), status=ScoutRubricGenerationStatus.QUEUED, requested_at=timezone.now()
+            id=str(uuid4()),
+            status=ScoutRubricGenerationStatus.QUEUED,
+            requested_at=timezone.now(),
+            context=context.strip(),
         )
         config.rubrics = state.model_dump(mode="json")
         config.save(update_fields=["rubrics", "updated_at"])
@@ -223,13 +228,13 @@ def save_scout_rubric(
     return _to_document(save_rubric(team_id, config_id, revision=revision, criteria=criteria))
 
 
-def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> ScoutRubricDocument:
+def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int, context: str = "") -> ScoutRubricDocument:
     from products.signals.backend.scout_chat import (  # noqa: PLC0415 - keeps HTTP-only dependencies out of background rubric imports
         consume_daily_attempt,
         refund_daily_attempt,
     )
 
-    reservation = reserve_generation(team_id, config_id)
+    reservation = reserve_generation(team_id, config_id, context=context)
     if not reservation.created:
         return _to_document(reservation.config)
     generation = read_rubric_state(reservation.config).generation

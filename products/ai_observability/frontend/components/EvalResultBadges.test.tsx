@@ -8,7 +8,13 @@ import { initKeaTests } from '~/test/init'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import {
+    EvalResultBadges,
+    EvalTooltipContent,
+    getEvalBadgeProps,
+    getEvalSummaries,
+    scopeRunsToTarget,
+} from './EvalResultBadges'
 import {
     compareEvaluationResults,
     getEvaluationResultDisplay,
@@ -32,6 +38,12 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('shows a fallback when a run has no reasoning', () => {
+        render(<EvalTooltipContent latestRun={makeRun()} runCount={1} />)
+
+        expect(screen.getByText('No reasoning provided')).toBeInTheDocument()
+    })
+
     it('sorts numeric scores together without colliding with status ranks', () => {
         const rows = [
             makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
@@ -123,6 +135,22 @@ describe('EvalResultBadges', () => {
 
             const descResult = getEvalSummaries([newer, older])
             expect(descResult[0].latestRun.id).toBe('new')
+        })
+
+        it('orders by when a verdict was produced, not by its backdated timestamp', () => {
+            const live = makeRun({
+                id: 'live',
+                timestamp: '2026-04-10T12:00:05Z',
+                start_time: '2026-04-10T12:00:05Z',
+            })
+            const rerun = makeRun({
+                id: 'rerun',
+                timestamp: '2026-04-10T12:00:00.400Z',
+                start_time: '2026-04-12T09:00:00Z',
+                backfill_id: 'backfill-1',
+            })
+
+            expect(getEvalSummaries([live, rerun])[0]).toMatchObject({ latestRun: { id: 'rerun' }, runCount: 2 })
         })
 
         it('handles a single run', () => {

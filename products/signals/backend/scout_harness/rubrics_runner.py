@@ -22,6 +22,7 @@ from products.signals.backend.rubrics_generation import (
     RUBRIC_SELECTION_PROMPT as RUBRIC_SELECTION_PROMPT,
     RubricSelection as RubricSelection,
     build_generation_prompt,
+    build_owner_context_prompt as build_owner_context_prompt,
     build_selection_prompt as build_selection_prompt,
     generate_rubric,
     read_draft_output as read_draft_output,
@@ -53,7 +54,7 @@ logger = structlog.get_logger(__name__)
 MAX_RUNTIME_SECONDS = 15 * 60
 
 
-def build_rubric_prompt(team: Team, config: SignalScoutConfig) -> str:
+def build_rubric_prompt(team: Team, config: SignalScoutConfig, *, generation_context: str = "") -> str:
     skill = load_skill_for_run(team, config.skill_name)
     report_channel = resolve_report_channel_variant(skill.allowed_tools)
     runs = list(
@@ -122,7 +123,7 @@ def build_rubric_prompt(team: Team, config: SignalScoutConfig) -> str:
             "and report contents were not inspected or supplied to this generation."
         ),
     }
-    return build_generation_prompt(source_bundle)
+    return build_generation_prompt(source_bundle, generation_context=generation_context)
 
 
 async def run_rubric_generation(team_id: int, config_id: str, generation_id: str, user_id: int) -> None:
@@ -151,7 +152,9 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
             or generation.status != ScoutRubricGenerationStatus.QUEUED
         ):
             return
-        prompt = await database_sync_to_async(build_rubric_prompt, thread_sensitive=True)(team, config)
+        prompt = await database_sync_to_async(build_rubric_prompt, thread_sensitive=True)(
+            team, config, generation_context=generation.context
+        )
         sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=True)(
             team.id, SIGNALS_REPORT_RESEARCH_ENV_NAME, tasks_facade.SandboxNetworkAccessLevel.TRUSTED
         )
@@ -213,7 +216,12 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
             return read_rubric_state(saved_config).criteria
 
         async with asyncio.timeout(MAX_RUNTIME_SECONDS + 60):
-            result = await generate_rubric(prompt, send_prompt=send_prompt, load_saved_criteria=load_saved_criteria)
+            result = await generate_rubric(
+                prompt,
+                send_prompt=send_prompt,
+                load_saved_criteria=load_saved_criteria,
+                generation_context=generation.context,
+            )
             batch = result.batch
             if result.format_correction_attempted:
                 logger.info("scout_rubrics_format_correction_completed", config_id=config_id)

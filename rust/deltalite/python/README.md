@@ -183,6 +183,19 @@ disables the prefetch. Cached bytes also reserve space from
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES`, so concurrent table opens share the
 process-wide budget. The bytes are released as soon as the load finishes.
 
+**Commit snapshot adoption.** After a successful upsert the handle keeps the
+table state delta-rs derived for the commit it just wrote (the same state every
+delta-rs operation returns) instead of listing the log and reading that commit
+back. The next upsert still refreshes before it plans, so commits from other
+writers are observed exactly as before, and a checkpoint the upsert's own
+maintenance wrote is adopted on that refresh.
+`DELTALITE_ADOPT_COMMIT_SNAPSHOT=0` restores the post-commit refresh.
+
+**Data-file reads.** Every Parquet data file is opened with a 64 KiB footer size
+hint, so a footer that fits arrives in one GET instead of two, and a file the
+probe found a match in hands its parsed footer to the rewrite, so the file is
+not opened a second time.
+
 ## Metrics
 
 deltalite emits via the Rust [`metrics`](https://docs.rs/metrics) facade (static

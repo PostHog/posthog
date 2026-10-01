@@ -1336,6 +1336,77 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
+    ("run_origin", "config_after", "expect_autostart"),
+    [
+        ("background", "background", False),
+        ("background", "taken_over", False),
+        ("background", "deleted", False),
+        ("team", "team", True),
+    ],
+)
+async def test_background_scout_reports_never_reach_autostart(run_origin, config_after, expect_autostart):
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="background-org")
+        team = Team.objects.create(organization=organization, name="background-team")
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        for artefact_type, content in (
+            (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                {
+                    "explanation": "Clear fix in the affected module.",
+                    "actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    "already_addressed": False,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                {"repository": "owner/repo", "reason": "Linked repository.", "autostart_eligible": True},
+            ),
+            (
+                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                {"explanation": "Affects many sessions.", "priority": Priority.P2.value},
+            ),
+        ):
+            SignalReportArtefact.objects.create(
+                team=team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        scout_task = Task.objects.create(team=team, title="scout", description="d")
+        with team_scope(team.id):
+            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, managed_by=run_origin)
+            SignalScoutRun.objects.create(
+                team=team,
+                task_run=TaskRun.objects.create(team=team, task=scout_task),
+                scout_config=config,
+                skill_name=SCOUT_SKILL,
+                skill_version=1,
+                emitted_report_ids=[str(report.id)],
+                metadata={"managed_by": run_origin} if run_origin == "background" else {},
+            )
+            if config_after == "taken_over":
+                config.managed_by = SignalScoutConfig.ManagedBy.TEAM
+                config.enabled = False
+                config.save()
+            elif config_after == "deleted":
+                config.delete()
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
+        outcome = await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+
+    assert mock_autostart.called is expect_autostart
+    if not expect_autostart:
+        assert outcome.status == "blocked"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
     ("repository_autostart_eligible", "user_triggered", "expect_task"),
     [
         (True, False, True),

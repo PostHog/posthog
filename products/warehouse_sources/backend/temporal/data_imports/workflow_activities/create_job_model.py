@@ -47,6 +47,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.keyset_full_load_flag import (
+    is_keyset_full_load_enabled,
+)
 from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     billing_limit_reached,
@@ -165,8 +168,8 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
-# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
+# Per-run state, not configuration. `cdc_deferred_runs`, left on some schemas by the retired legacy
+# CDC lane, reaches hundreds of KB, and `schema_metadata` is the source table's column list.
 # Copying them onto every job row was most of the snapshot's storage cost.
 _SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
 
@@ -174,8 +177,8 @@ _SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadat
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     """The schema as it was when this job started, for debugging a run after the fact.
 
-    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
-    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
     `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
     """
     sync_type_config = {
@@ -329,6 +332,12 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
+    # True when this team and source may read a full load with keyset pages. The retry budget needs it
+    # because the resumable allowance only earns itself on a run that actually resumes, and the read
+    # path decides that from the same flag. Evaluated here because the budget is set when the import
+    # activity is scheduled, before that activity can evaluate anything. Defaults False so an older
+    # payload keeps the smaller budget.
+    keyset_full_load_enabled: bool = False
     # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
     # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
     scheduled_full_refresh: bool = False
@@ -436,13 +445,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
@@ -490,6 +494,7 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
+            keyset_full_load_enabled=is_keyset_full_load_enabled(inputs.team_id, str(source.source_type)),
             scheduled_full_refresh=scheduled_full_refresh,
             repartition_needed=repartition_needed,
             billing_limit_checked=True,

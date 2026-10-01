@@ -147,11 +147,16 @@ class TestSavedCaseValidation(SimpleTestCase):
         ]
         records = (records * ((event_count + 1) // 2))[:event_count]
         with tempfile.TemporaryDirectory() as temporary:
-            case = SavedScoutCase.load(write_case(Path(temporary), event_records=records))
+            path = write_case(Path(temporary), event_records=records)
+            manifest = json.loads(path.read_text())
+            manifest["time_strings"] *= 2
+            path.write_text(json.dumps(manifest))
+            case = SavedScoutCase.load(path)
 
             manifest_sha256 = hashlib.sha256(case.path.read_bytes()).hexdigest()
             case.path.write_text(case.path.read_text() + "\n")
             self.assertEqual(case.metadata["manifest_sha256"], manifest_sha256)
+            self.assertEqual(case.manifest.time_strings, manifest["time_strings"])
             restored = list(case.events())
             self.assertEqual(case.event_count, event_count)
             self.assertEqual(restored, records)
@@ -197,7 +202,7 @@ class TestSavedCaseValidation(SimpleTestCase):
         created = (SOURCE - timedelta(hours=1)).isoformat()
         nested = {"mixed": [None, False, 1, 2.5, "001", {}, []], "large_integer": 2**80}
         state: dict[str, object] = {
-            "checkpoint": SOURCE.isoformat(),
+            "checkpoint": (SOURCE - timedelta(minutes=30)).isoformat(),
             "complete": True,
             "timezone": "America/New_York",
             "reports": [
@@ -266,6 +271,8 @@ class TestSavedCaseValidation(SimpleTestCase):
             state_table("scratchpad").write(empty_table, [])
             manifest = json.loads(path.read_text())
             manifest["state"]["tables"]["scratchpad"] = file_reference(empty_table)
+            manifest["run_note"] = f"Review {report_id} after 2026-01-02T11:00:00Z for source-label."
+            manifest["string_replacements"] = {"source-label": "manifest-label"}
             path.write_text(json.dumps(manifest))
 
             case = SavedScoutCase.load(path)
@@ -273,6 +280,18 @@ class TestSavedCaseValidation(SimpleTestCase):
             self.assertEqual(case.state, SavedState.model_validate(state))
             self.assertEqual(case.event_count, 0)
             self.assertEqual(list(case.events()), [])
+            self.assertIn(f"Review {report_id} after 2026-02-03T13:00:00Z for manifest-label.", case.run_note(TARGET))
+            transformed = SavedCaseTransform(case, TARGET, {"source-label": "caller-label"})
+            self.assertEqual(
+                transformed.text(case.manifest.run_note),
+                f"Review {transformed.identity(UUID(report_id))} after 2026-02-03T13:00:00Z for caller-label.",
+            )
+            for identifier in (report_id, task_id, task_run_id, scout_run_id, metric_id):
+                self.assertNotEqual(transformed.text(identifier), identifier)
+                self.assertEqual(transformed.text(identifier), str(transformed.identity(UUID(identifier))))
+            config_id, restored_config_id = uuid4(), uuid4()
+            transformed.ids[config_id] = restored_config_id
+            self.assertEqual(transformed.text(str(config_id)), str(restored_config_id))
 
     @parameterized.expand(
         [
