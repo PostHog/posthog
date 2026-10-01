@@ -375,6 +375,65 @@ def query_ready_to_merge_facts(
     return [_merged_facts(row, approved_at=approvals.get(row.number, [])) for row in rows]
 
 
+def _query_pushes(curated: CuratedGitHubSource, numbers: ast.Constant, run_from: datetime) -> dict[int, list[datetime]]:
+    push_rows = push_rows_select(
+        runs_source=curated.run_source(started_floor=True),
+        run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
+    )
+    response = curated.run(
+        _PUSHES_SELECT.replace("__PUSH_ROWS__", push_rows),
+        query_type="engineering_analytics.delivery_summary_pushes",
+        placeholders={
+            "pr_numbers": numbers,
+            "run_from": ast.Constant(value=run_from),
+            "run_started_floor": run_started_floor_constant(run_from),
+        },
+    )
+    return {int(number): [at for at in times if at is not None] for number, times in response.results or []}
+
+
+def _query_gate_attempts(
+    curated: CuratedGitHubSource, numbers: ast.Constant, date_from: datetime
+) -> dict[int, list[GateAttempt]]:
+    gate_from = date_from - GATE_RUN_LOOKBACK
+    response = curated.run(
+        gate_attempts_sql(
+            runs_source=curated.run_source(started_floor=True),
+            pull_requests_source=curated.pr_source(),
+            pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
+            decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
+        )
+        + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
+        query_type="engineering_analytics.delivery_summary_gate_attempts",
+        placeholders={
+            "pr_numbers": numbers,
+            "gate_from": ast.Constant(value=gate_from),
+            "run_started_floor": run_started_floor_constant(gate_from),
+        },
+    )
+    gates: dict[int, list[GateAttempt]] = defaultdict(list)
+    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in response.results or []:
+        if started_at is not None:
+            gates[int(number)].append(
+                GateAttempt(
+                    started_at=started_at,
+                    completed_at=None if unfinished else completed_at,
+                    attempt=attempt or "",
+                    failed=bool(failed),
+                )
+            )
+    return gates
+
+
+def _query_costs(curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime) -> dict[int, PRCostAggregate]:
+    # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
+    # pull requests. The timelines read keeps the full key, because it shows the repository per row.
+    return {
+        number: cost
+        for (_, _, number), cost in query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from).items()
+    }
+
+
 def _query_merged_facts(
     curated: CuratedGitHubSource, *, scope: SummaryScope, date_from: datetime, date_to: datetime | None
 ) -> list[MergedPRFacts]:
@@ -385,62 +444,13 @@ def _query_merged_facts(
 
     run_from = date_from - CI_LOOKBACK
     numbers = ast.Constant(value=pr_numbers)
-    runs_source = curated.run_source(started_floor=True)
-    push_rows = push_rows_select(
-        runs_source=runs_source,
-        run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
-    )
-    gate_from = date_from - GATE_RUN_LOOKBACK
     with curated.concurrent_reads() as reads:
         approvals_read = reads.submit(lambda: _query_approvals(curated, numbers))
-        pushes_read = reads.submit(
-            lambda: curated.run(
-                _PUSHES_SELECT.replace("__PUSH_ROWS__", push_rows),
-                query_type="engineering_analytics.delivery_summary_pushes",
-                placeholders={
-                    "pr_numbers": numbers,
-                    "run_from": ast.Constant(value=run_from),
-                    "run_started_floor": run_started_floor_constant(run_from),
-                },
-            )
-        )
-        gates_read = reads.submit(
-            lambda: curated.run(
-                gate_attempts_sql(
-                    runs_source=runs_source,
-                    pull_requests_source=curated.pr_source(),
-                    pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
-                    decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,
-                )
-                + f"\nLIMIT {UNPAGED_SCAN_LIMIT}",
-                query_type="engineering_analytics.delivery_summary_gate_attempts",
-                placeholders={
-                    "pr_numbers": numbers,
-                    "gate_from": ast.Constant(value=gate_from),
-                    "run_started_floor": run_started_floor_constant(gate_from),
-                },
-            )
-        )
-        costs_read = reads.submit(lambda: query_pr_costs(curated=curated, pr_numbers=pr_numbers, run_from=run_from))
-    approvals = approvals_read.result()
-    pushes = {
-        int(number): [at for at in times if at is not None] for number, times in pushes_read.result().results or []
-    }
-    gates: dict[int, list[GateAttempt]] = defaultdict(list)
-    for number, attempt, started_at, completed_at, unfinished, failed, _merged_at in gates_read.result().results or []:
-        if started_at is not None:
-            gates[int(number)].append(
-                GateAttempt(
-                    started_at=started_at,
-                    completed_at=None if unfinished else completed_at,
-                    attempt=attempt or "",
-                    failed=bool(failed),
-                )
-            )
-
-    # A resolved source is one repository's tables, so dropping the owner and name cannot collide two
-    # pull requests. The timelines read keeps the full key, because it shows the repository per row.
-    costs = {number: cost for (_, _, number), cost in costs_read.result().items()}
+        pushes_read = reads.submit(lambda: _query_pushes(curated, numbers, run_from))
+        gates_read = reads.submit(lambda: _query_gate_attempts(curated, numbers, date_from))
+        costs_read = reads.submit(lambda: _query_costs(curated, pr_numbers, run_from))
+    approvals, pushes = approvals_read.result(), pushes_read.result()
+    gates, costs = gates_read.result(), costs_read.result()
 
     return [
         _merged_facts(

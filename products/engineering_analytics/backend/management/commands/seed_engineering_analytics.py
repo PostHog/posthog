@@ -41,7 +41,6 @@ from django.utils import timezone
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.logs.logs34 import TABLE_NAME as LOGS_LOCAL_TABLE
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -480,7 +479,6 @@ def _issue_event_rows(prs: list[dict[str, Any]], anchor: datetime) -> list[dict[
                 "actor": json.dumps({"login": (pr.get("user") or {}).get("login") or "", "avatar_url": ""}),
                 "issue": json.dumps({"number": pr["number"]}),
                 "created_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "requested_team": None,
             }
         )
 
@@ -1311,13 +1309,10 @@ class Command(BaseCommand):
                 deployment_statuses,
             )
 
-        seed_tags = {"product": Product.ENGINEERING_ANALYTICS, "feature": Feature.MANAGEMENT_COMMAND}
-
         # Per-test CI spans back the flaky-test leaderboard and the team CI health surfaces.
         # Best-effort: a dev stack without the traces table still gets the warehouse seed.
         try:
-            with tags_context(**seed_tags, team_id=team.pk):
-                span_count = _seed_trace_spans(team)
+            span_count = _seed_trace_spans(team)
             self.stdout.write(f"Seeded {span_count} per-test CI spans into trace_spans (flaky/team surfaces).")
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f"Skipped trace_spans seed (traces table unavailable?): {exc}"))
@@ -1325,8 +1320,7 @@ class Command(BaseCommand):
         # Thinned failure lines back the broken-tests panel and per-run failure-log drilldowns.
         # Best-effort: a dev stack without the logs table still gets the warehouse seed.
         try:
-            with tags_context(**seed_tags, team_id=team.pk):
-                log_count = _seed_ci_failure_logs(team, jobs)
+            log_count = _seed_ci_failure_logs(team, jobs)
             self.stdout.write(f"Seeded {log_count} CI failure log lines into logs (broken tests/failure logs).")
         except Exception as exc:
             self.stdout.write(self.style.WARNING(f"Skipped CI failure logs seed (logs table unavailable?): {exc}"))

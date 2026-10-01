@@ -234,30 +234,24 @@ class PullRequestTimelinesQuery:
             # A listed PR's CI is read from the same lookback the summary uses, and its timeline starts there.
             run_from = max(run_from, self._date_from - CI_LOOKBACK)
         default_branch = next((row[9] for row in prs if row[9]), "")
-
-        def read_ci() -> tuple[dict[int, list[RunAttempt]], MasterFailureIndex]:
-            # The master failures name the workflows of the failed attempts, so they follow the attempts.
-            run_attempts = self._query_run_attempts(pr_numbers, run_from)
-            return run_attempts, self._query_master_failures(run_attempts, default_branch, run_from)
-
         with self._curated.concurrent_reads() as reads:
             ready_at_read = reads.submit(lambda: self._query_ready_at(pr_numbers, run_from))
-            reviews_read = reads.submit(lambda: self._query_reviews(pr_numbers) if include_details else None)
-            ci_read = reads.submit(read_ci)
+            ci_read = reads.submit(lambda: self._query_ci(pr_numbers, run_from, default_branch))
             pushes_read = reads.submit(lambda: self._query_pushes(pr_numbers, run_from))
             gates_read = reads.submit(lambda: self._query_gate_attempts(pr_numbers))
             out_of_queue_read = reads.submit(lambda: self._query_out_of_queue(pr_numbers))
+            reviews_read = reads.submit(lambda: self._query_reviews(pr_numbers)) if include_details else None
             # Floored like the runs scan: an unfloored cost read scans the whole jobs history for a team scope.
-            costs_read = reads.submit(
-                lambda: (
-                    query_pr_costs(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from)
-                    if include_details
-                    else {}
-                )
+            costs_read = (
+                reads.submit(lambda: query_pr_costs(curated=self._curated, pr_numbers=pr_numbers, run_from=run_from))
+                if include_details
+                else None
             )
-        ready_at, reviews, pushes = ready_at_read.result(), reviews_read.result(), pushes_read.result()
+        ready_at, pushes, gates = ready_at_read.result(), pushes_read.result(), gates_read.result()
         attempts, master_failures = ci_read.result()
-        gates, out_of_queue, costs = gates_read.result(), out_of_queue_read.result(), costs_read.result()
+        out_of_queue = out_of_queue_read.result()
+        reviews = reviews_read.result() if reviews_read else None
+        costs = costs_read.result() if costs_read else {}
 
         items: list[PRTimeline] = []
         for row in prs:
@@ -595,6 +589,13 @@ class PullRequestTimelinesQuery:
         return MasterFailureIndex(
             [(workflow or "", name or "", completed_at) for workflow, name, completed_at, _job_id, _ci_engine in rows]
         )
+
+    def _query_ci(
+        self, pr_numbers: list[int], run_from: datetime, default_branch: str
+    ) -> tuple[dict[int, list[RunAttempt]], MasterFailureIndex]:
+        # The master failures read takes the workflows of the failed attempts, so it follows the attempts read.
+        attempts = self._query_run_attempts(pr_numbers, run_from)
+        return attempts, self._query_master_failures(attempts, default_branch, run_from)
 
     def _query_out_of_queue(self, pr_numbers: list[int]) -> set[int]:
         source = self._curated.trunk_merge_queue_source()
