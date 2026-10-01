@@ -775,7 +775,7 @@ mod tests {
                             "properties": [{
                                 "key": dependency.id.to_string(),
                                 "type": "flag",
-                                "value": "true",
+                                "value": true,
                                 "operator": "flag_evaluates_to",
                             }],
                             "rollout_percentage": 100,
