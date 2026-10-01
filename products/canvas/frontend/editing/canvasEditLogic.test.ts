@@ -5,6 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import * as api from '../generated/api'
 import type { CanvasSourcePublishResponseApi, CanvasSourceResponseApi } from '../generated/api.schemas'
+import { canvasSceneLogic } from '../scene/canvasSceneLogic'
 import { canvasEditLogic } from './canvasEditLogic'
 
 const source = {
@@ -38,6 +39,22 @@ describe('canvasEditLogic saving', () => {
     afterEach(() => {
         jest.restoreAllMocks()
         jest.useRealTimers()
+    })
+
+    test.each(['loading', 'failed'])('Done exits when source is %s and no edits exist', async (state) => {
+        jest.mocked(api.canvasesSourceRetrieve).mockImplementation(() => new Promise(() => {}))
+        const publish = jest.spyOn(api, 'canvasesPublishCreate')
+        const logic = canvasEditLogic({ id: 'canvas' })
+        await expectLogic(canvasSceneLogic({ id: 'canvas' }), () => {
+            logic.mount()
+        }).toDispatchActions(['loadViewSuccess', 'loadSpaceSuccess'])
+        logic.actions.setEditing(true)
+        if (state === 'failed') {
+            logic.actions.sourceLoadFailed('Source is unavailable')
+        }
+        logic.actions.finishEditing()
+        expect(logic.values.editing).toBe(false)
+        expect(publish).not.toHaveBeenCalled()
     })
 
     test.each([409, 503])('Done keeps recovery controls open after save status %s', async (status) => {

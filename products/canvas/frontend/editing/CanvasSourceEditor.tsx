@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useLayoutEffect, useRef } from 'react'
 
+import { assertCanvasCapability } from '../host/canvasCapabilities'
 import { CanvasDocumentBridge } from '../host/canvasDocumentBridge'
 import { CanvasHostCallbacks, createCanvasHostMessageRouter } from '../host/canvasHostMessageRouter'
 import {
@@ -159,6 +160,13 @@ export function CanvasSourceEditor({
             post: (message) => bridge.post(message),
             callbacks: () => ({
                 ...latest.current.callbacks,
+                onDataRequest: async (method, payload) => {
+                    assertCanvasCapability(latest.current.entry?.project.capabilities, method, payload)
+                    if (!latest.current.callbacks.onDataRequest) {
+                        throw new Error('Canvas data bridge is unavailable')
+                    }
+                    return latest.current.callbacks.onDataRequest(method, payload)
+                },
                 onReady: () => {
                     if (readyRef.current) {
                         return

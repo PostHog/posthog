@@ -535,7 +535,7 @@ export const canvasEditLogic = kea<canvasEditLogicType>([
 
         return {
             finishEditing: () => {
-                if (idle(values.entry)) {
+                if (!values.entry || idle(values.entry)) {
                     actions.setEditing(false)
                 } else {
                     actions.openTab('blocks', props.id)

@@ -1,4 +1,5 @@
-import type { CanvasSourceProjectApi } from '../generated/api.schemas'
+import type { CanvasCapabilitiesApi, CanvasSourceProjectApi } from '../generated/api.schemas'
+import { canvasCapabilities } from './blockLibrary/blockProject'
 import type { ParamSchema } from './blockLibrary/params'
 import type { GridGrowth, SourceFiles, SourceRange } from './blockLibrary/sourceEdits'
 
@@ -77,6 +78,10 @@ export function applySourceFiles(
 ): CanvasSourceEntry {
     return {
         ...entry,
+        project: {
+            ...entry.project,
+            capabilities: canvasCapabilities(entry.project.capabilities, files) as CanvasCapabilitiesApi | undefined,
+        },
         files,
         past: [...entry.past, entry.files].slice(-HISTORY_LIMIT),
         future: [],
