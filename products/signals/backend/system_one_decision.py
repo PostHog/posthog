@@ -1,8 +1,12 @@
 import math
 import random
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
+from copy import deepcopy
+from functools import partial
+from threading import BoundedSemaphore
 from time import perf_counter
 from typing import Generic, Literal, TypeVar
 from uuid import uuid4
@@ -51,6 +55,8 @@ MODEL_SHADOW_FLAG = "signals-system-one-jeeves-shadow"
 MODEL_SHADOW_SAMPLE_RATE = 0.05
 MODEL_SHADOW_TEAM_BUDGET = Budget(burst=1, per_hour=90)
 MODEL_SHADOW_FLAG_TIMEOUT_SECONDS = 1.0
+_MODEL_SHADOW_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="signals-model-shadow")
+_MODEL_SHADOW_SLOTS = BoundedSemaphore(2)
 
 SAFETY_CATEGORIES = {
     "none": "No matching safety category",
@@ -265,10 +271,6 @@ async def _compare_model_shadow(
     source_id: str | None,
     source_product: str | None,
 ) -> None:
-    if prompt.source != "managed" or prompt.model != DEFAULT_SYSTEM_ONE_MODEL:
-        return
-    if random.random() >= MODEL_SHADOW_SAMPLE_RATE:
-        return
     async with asyncio.timeout(MODEL_SHADOW_FLAG_TIMEOUT_SECONDS):
         flags = await asyncio.to_thread(
             posthoganalytics.evaluate_flags,
@@ -348,6 +350,27 @@ async def _compare_model_shadow(
         properties=properties,
         flags=flags,
     )
+
+
+def _run_model_shadow(stage: str, comparison: Callable[[], Coroutine[object, object, None]]) -> None:
+    try:
+        # The executor outlives short-lived caller loops and drains on process exit.
+        asyncio.run(comparison())
+    except Exception as error:
+        logger.warning("Model shadow comparison failed", stage=stage, error_type=type(error).__name__)
+    finally:
+        _MODEL_SHADOW_SLOTS.release()
+
+
+def _schedule_model_shadow(stage: str, comparison: Callable[[], Coroutine[object, object, None]]) -> None:
+    if not _MODEL_SHADOW_SLOTS.acquire(blocking=False):
+        _ADMISSIONS.labels(stage, "model_shadow_worker_busy").inc()
+        return
+    try:
+        _MODEL_SHADOW_EXECUTOR.submit(_run_model_shadow, stage, comparison)
+    except Exception as error:
+        _MODEL_SHADOW_SLOTS.release()
+        logger.warning("Model shadow scheduling failed", stage=stage, error_type=type(error).__name__)
 
 
 async def run_model_decision(
@@ -543,21 +566,28 @@ async def run_model_decision(
         if mode == "system-one-only":
             raise SignalsDecisionError("Signals decision returned no result")
         raise RuntimeError("Model decision returned no result")
-    if deciding_provider == "system_one" and system_one is not None:
-        try:
-            await _compare_model_shadow(
+    if (
+        deciding_provider == "system_one"
+        and system_one is not None
+        and prompt.source == "managed"
+        and prompt.model == DEFAULT_SYSTEM_ONE_MODEL
+        and random.random() < MODEL_SHADOW_SAMPLE_RATE
+    ):
+        _schedule_model_shadow(
+            stage,
+            partial(
+                _compare_model_shadow,
                 team_id=team_id,
                 stage=stage,
-                state=state,
+                state=deepcopy(state),
                 prompt=prompt,
                 primary=system_one,
                 primary_latency_seconds=system_one_call.latency_seconds,
                 trace_id=trace_id,
                 source_id=source_id,
                 source_product=source_product,
-            )
-        except Exception as error:
-            logger.warning("Model shadow comparison failed", stage=stage, error_type=type(error).__name__)
+            ),
+        )
     if on_deciding_provider is not None:
         on_deciding_provider(deciding_provider)
     return decision

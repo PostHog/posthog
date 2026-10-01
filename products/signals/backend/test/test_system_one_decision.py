@@ -1,7 +1,9 @@
 import asyncio
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Coroutine, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager
 from dataclasses import replace
+from threading import Event
 from uuid import UUID
 
 import pytest
@@ -233,6 +235,7 @@ async def test_model_shadow_cannot_change_the_primary_verdict(
     flags = MagicMock()
     flags.get_flag.return_value = True
     flags.get_flag_payload.return_value = {"prompt_versions": {prompt.name: 3}}
+    comparisons: list[Callable[[], Coroutine[object, object, None]]] = []
     with (
         patch("products.signals.backend.system_one_decision.random.random", return_value=0),
         patch(
@@ -241,6 +244,10 @@ async def test_model_shadow_cannot_change_the_primary_verdict(
         ),
         patch("products.signals.backend.system_one_decision.posthoganalytics.evaluate_flags", return_value=flags),
         patch("products.signals.backend.system_one_decision.model_shadow_prompt", return_value=candidate),
+        patch(
+            "products.signals.backend.system_one_decision._schedule_model_shadow",
+            side_effect=lambda stage, comparison: comparisons.append(comparison),
+        ),
         patch("products.signals.backend.system_one_decision.posthoganalytics.capture") as capture,
         patch(
             "products.signals.backend.system_one_decision.decision_api.decide_when_available",
@@ -248,6 +255,9 @@ async def test_model_shadow_cannot_change_the_primary_verdict(
         ) as decide,
     ):
         assert await _run_actionability(stage=stage, prompt=prompt) is (primary_probability > 0.9)
+        assert decide.call_count == 1
+        assert len(comparisons) == 1
+        await comparisons[0]()
     requests = [call.args[0] for call in decide.call_args_list]
     assert len(requests) == 2
     assert requests[0].state == requests[1].state
@@ -266,6 +276,41 @@ async def test_model_shadow_cannot_change_the_primary_verdict(
         assert comparison["shadow_verdict"] is (primary_probability < 0.9)
         assert comparison["disagreement"] is True
     flags.get_flag.assert_called_once_with(MODEL_SHADOW_FLAG)
+
+
+def test_model_shadow_outlives_the_caller_event_loop() -> None:
+    started, release, completed = Event(), Event(), Event()
+
+    async def compare(**kwargs: object) -> None:
+        started.set()
+        await asyncio.to_thread(release.wait)
+        completed.set()
+
+    prompt = replace(
+        bundled_prompt("signals-actionability-issue", "policy", "question", 0.9), source="managed", version=1
+    )
+    with (
+        ThreadPoolExecutor(max_workers=1) as executor,
+        patch("products.signals.backend.system_one_decision._MODEL_SHADOW_EXECUTOR", executor),
+        patch("products.signals.backend.system_one_decision._compare_model_shadow", side_effect=compare),
+        patch("products.signals.backend.system_one_decision.random.random", return_value=0),
+        patch(
+            "products.signals.backend.system_one_decision.posthoganalytics.get_feature_flag",
+            return_value="system-one-only",
+        ),
+        patch("products.signals.backend.system_one_decision.posthoganalytics.capture"),
+        patch(
+            "products.signals.backend.system_one_decision.decision_api.decide_when_available",
+            return_value=_actionability_result(),
+        ),
+    ):
+        try:
+            assert asyncio.run(_run_actionability(prompt=prompt)) is True
+            assert started.wait(timeout=5)
+            assert not completed.is_set()
+        finally:
+            release.set()
+    assert completed.is_set()
 
 
 @pytest.mark.asyncio
