@@ -496,3 +496,14 @@ class TestReservedVariantKey(SimpleTestCase):
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
         assert sentinel in str(serializer.errors["filters"][0])
+
+    @parameterized.expand([("list", ["$true"]), ("dict", {"key": "$true"})])
+    def test_non_string_key_is_a_validation_error(self, _name: str, key: Any) -> None:
+        filters = {
+            "groups": [{"properties": [], "rollout_percentage": 100}],
+            "multivariate": {"variants": [{"key": key, "rollout_percentage": 100}]},
+        }
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES={"*"}):
+            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            assert not serializer.is_valid()
+        assert serializer.errors["filters"][0].code == "structural.multivariate.variants[].key.invalid"

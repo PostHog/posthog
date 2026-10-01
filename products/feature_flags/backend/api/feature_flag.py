@@ -944,7 +944,9 @@ def _reserved_variant_key(filters: dict) -> str | None:
         (
             variant["key"]
             for variant in variants
-            if isinstance(variant, dict) and variant.get("key") in FEATURE_FLAG_VARIANT_SENTINELS
+            if isinstance(variant, dict)
+            and isinstance(variant.get("key"), str)
+            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
         ),
         None,
     )

@@ -339,6 +339,15 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("mapFilter(", "'\"$active_feature_flags\":'"),
                 ("JSONMergePatch(",),
             ),
+            (
+                "stored_document_restricted",
+                "SELECT toJSONString(if(1, properties, properties)) FROM events",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("JSONMergePatch(", "mapFilter((key, value) -> not(has("),
+                ("'\"$active_feature_flags\":'",),
+            ),
         ]
     )
     def test_feature_flag_property_compatibility_uses_the_schema_backed_map(
@@ -1706,12 +1715,17 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         }
         restricted = execute_hogql_query(
             "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')), "
-            "properties.$active_feature_flags "
+            "properties.$active_feature_flags, toJSONString(if(1, properties, properties)) "
             f"FROM events WHERE uuid = '{native_uuid}'",
             team=self.team,
             context=restricted_context,
         )
         assert restricted.results is not None
+        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
+        stored_document = json.loads(json.loads(restricted.results[0][3]))
+        assert "$feature/secret" not in stored_document
+        assert "secret" not in stored_document["$feature_flags"]
+        assert stored_document["$feature_flags"]["variant"] == "control"
         restricted_document = json.loads(restricted.results[0][0])
         assert "$feature_flags" not in restricted_document
         # The fixture sends "true" as a string, which the cleaner stores as `$true`, so it comes back as a string.
