@@ -52,8 +52,9 @@ if [ -n "$commit" ] && [ "$(git rev-parse HEAD)" != "$commit" ]; then
         echo 'The target dev stack is running or starting. Stop it before changing --ref, or use a new devbox.' >&2
         exit 1
     fi
-    for port in 8000 8010 8234; do
-        if ( : > "/dev/tcp/127.0.0.1/$port" ) 2>/dev/null; then
+    # The Docker proxy can listen on 8010 before the application starts.
+    for port in 8000 8234; do
+        if bash -c ': > "/dev/tcp/127.0.0.1/$1"' bash "$port" 2>/dev/null; then
             echo 'The target app is running. Stop it before changing --ref, or use a new devbox.' >&2
             exit 1
         fi

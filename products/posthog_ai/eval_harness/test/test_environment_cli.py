@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import json
+import errno
 import hashlib
 import tarfile
 import argparse
@@ -211,27 +212,39 @@ class TestEnvironmentApp(TestCase):
         ports.assert_not_called()
         command.assert_not_called()
 
-    def test_partial_stack_is_not_stopped_or_replaced(self) -> None:
+    @parameterized.expand([8000, 8234])
+    def test_partial_stack_is_not_stopped_or_replaced(self, occupied_port: int) -> None:
+        def bind(address: tuple[str, int]) -> None:
+            if address[1] == occupied_port:
+                raise OSError(errno.EADDRINUSE, "Address already in use")
+
         with (
             patch.object(cli.LocalApp, "healthy", return_value=False),
-            patch.object(cli.LocalApp, "occupied_ports", return_value=[8000]),
+            patch.object(cli.socket, "socket") as socket,
             patch.object(cli.subprocess, "run") as command,
         ):
+            socket.return_value.__enter__.return_value.bind.side_effect = bind
             with self.assertRaisesRegex(ValueError, "will not stop or replace"):
                 cli.LocalApp.ensure(timeout=60, workspace=Path("/unused"))
         command.assert_not_called()
 
-    def test_stopped_app_uses_own_checkout_and_skips_zombie_cleanup(self) -> None:
+    @parameterized.expand([("stopped", False), ("proxy_only", True)])
+    def test_stopped_app_uses_own_checkout_and_skips_zombie_cleanup(self, _: str, proxy_running: bool) -> None:
+        def bind(address: tuple[str, int]) -> None:
+            if proxy_running and address[1] == 8010:
+                raise OSError(errno.EADDRINUSE, "Address already in use")
+
         with tempfile.TemporaryDirectory() as temporary:
             workspace = Path(temporary)
             with (
                 patch.object(cli.LocalApp, "healthy", side_effect=[False, True]),
-                patch.object(cli.LocalApp, "occupied_ports", return_value=[]),
+                patch.object(cli.socket, "socket") as socket,
                 patch.object(cli.LocalApp, "checkout", return_value=None),
                 patch.object(cli.LocalApp, "process_status", return_value={"status": "done", "exit_code": 0}),
                 patch.object(cli.subprocess, "run") as command,
                 redirect_stdout(io.StringIO()),
             ):
+                socket.return_value.__enter__.return_value.bind.side_effect = bind
                 self.assertEqual(cli.LocalApp.ensure(timeout=60, workspace=workspace), str(cli.REPO_ROOT))
             self.assertEqual(
                 command.call_args.args[0],

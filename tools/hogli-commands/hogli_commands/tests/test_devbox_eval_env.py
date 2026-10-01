@@ -444,37 +444,65 @@ def test_readiness_waits_for_checkout_files_after_git_directory_appears(
     assert attempts == 2
 
 
-@pytest.mark.parametrize("dirty,running", [(True, False), (False, True)])
-def test_source_checkout_does_not_replace_edits_or_running_app(tmp_path: Path, dirty: bool, running: bool) -> None:
+@pytest.mark.parametrize(
+    "dirty,supervisor,open_port",
+    [
+        (True, None, None),
+        (False, "phrocs", None),
+        (False, "mprocs", None),
+        (False, None, 8000),
+        (False, None, 8234),
+        (False, None, 8010),
+        (False, None, None),
+    ],
+)
+def test_source_checkout_protects_app_processes_but_allows_idle_proxy(
+    tmp_path: Path, dirty: bool, supervisor: str | None, open_port: int | None
+) -> None:
     binaries = tmp_path / "bin"
     binaries.mkdir()
     home = tmp_path / "home"
-    (home / "posthog").mkdir(parents=True)
+    checkout = home / "posthog"
+    transfer = checkout / eval_env.TRANSFER_PATH
+    transfer.parent.mkdir(parents=True)
+    transfer.touch()
+    wrapper = checkout / ".codex/with-flox"
+    wrapper.parent.mkdir()
+    wrapper.write_text("#!/bin/sh\nexit 0\n")
+    wrapper.chmod(0o700)
     git = binaries / "git"
     git.write_text(
         "#!/bin/sh\n"
         'case "$1" in\n'
         "rev-parse) printf '%s\\n' old-commit ;;\n"
         f"status) {'echo changed-file' if dirty else ':'} ;;\n"
-        f"*) touch '{tmp_path / 'unexpected-mutation'}' ;;\n"
+        "cat-file) exit 0 ;;\n"
+        f"checkout) printf '%s\\n' \"$*\" > '{tmp_path / 'checkout-arguments'}' ;;\n"
+        "*) exit 1 ;;\n"
         "esac\n"
     )
     pgrep = binaries / "pgrep"
-    pgrep.write_text(f"#!/bin/sh\nexit {0 if running else 1}\n")
-    for executable in (git, pgrep):
+    pgrep.write_text(f'#!/bin/sh\n[ "$2" = "{supervisor}" ]\n')
+    probe = binaries / "bash"
+    probe.write_text(f'#!/bin/sh\n[ "$4" = "{open_port}" ]\n')
+    for executable in (git, pgrep, probe):
         executable.chmod(0o700)
 
     result = subprocess.run(
-        ["bash", "-c", eval_env._PREPARE_SOURCE, "bash", "a" * 40],
+        ["/bin/bash", "-c", eval_env._PREPARE_SOURCE, "bash", "a" * 40],
         env={"HOME": str(home), "PATH": f"{binaries}:/usr/bin:/bin"},
         capture_output=True,
         text=True,
         check=False,
     )
 
-    assert result.returncode == 1
-    assert ("local changes" if dirty else "running or starting") in result.stderr
-    assert not (tmp_path / "unexpected-mutation").exists()
+    blocked = dirty or supervisor is not None or open_port in {8000, 8234}
+    assert result.returncode == int(blocked), result.stderr
+    if blocked:
+        assert ("local changes" if dirty else "running") in result.stderr
+        assert not (tmp_path / "checkout-arguments").exists()
+    else:
+        assert (tmp_path / "checkout-arguments").read_text().strip() == f"checkout --quiet --detach {'a' * 40}"
 
 
 @pytest.mark.parametrize("cache_ready,prepare_status", [(True, 0), (False, 0), (False, 9)])
