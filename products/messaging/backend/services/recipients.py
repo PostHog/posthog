@@ -125,6 +125,7 @@ class RecipientQuery:
     limit: int
     search: str | None = None
     filters: tuple[RecipientFilter, ...] = ()
+    cursor: str | None = None
 
 
 @frozen
@@ -191,8 +192,12 @@ def parse_recipient_filter(raw: str) -> RecipientFilter:
 def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> RecipientPage:
     topics = _team_topics(team.id)
     rows = _query_recipient_rows(team, user, query, topics)
+    page_rows = rows[: query.limit]
     keys_by_id = topics.keys_by_id
-    return RecipientPage(results=[_build_recipient(row, keys_by_id) for row in rows], next_cursor=None)
+    return RecipientPage(
+        results=[_build_recipient(row, keys_by_id) for row in page_rows],
+        next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
+    )
 
 
 def _team_topics(team_id: int) -> _Topics:
@@ -206,7 +211,7 @@ def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, top
         placeholders={
             "address_filter": _address_filter(query),
             "facet_filter": _facet_filter(query.filters, topics),
-            "limit": ast.Constant(value=query.limit),
+            "limit": ast.Constant(value=query.limit + 1),
         },
     )
     response = execute_hogql_query(select, team=team, user=user, query_type="MessagingRecipientsQuery")
@@ -214,11 +219,17 @@ def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, top
 
 
 def _address_filter(query: RecipientQuery) -> ast.Expr:
-    if not query.search:
-        return ast.Constant(value=True)
-    return parse_expr(
-        "position(address, {search}) > 0", placeholders={"search": ast.Constant(value=query.search.strip().lower())}
-    )
+    conditions: list[ast.Expr] = [ast.Constant(value=True)]
+    if query.search:
+        conditions.append(
+            parse_expr(
+                "position(address, {search}) > 0",
+                placeholders={"search": ast.Constant(value=query.search.strip().lower())},
+            )
+        )
+    if query.cursor:
+        conditions.append(parse_expr("address > {cursor}", placeholders={"cursor": ast.Constant(value=query.cursor)}))
+    return ast.And(exprs=conditions)
 
 
 def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:

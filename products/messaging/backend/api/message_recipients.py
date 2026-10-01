@@ -38,6 +38,11 @@ class RecipientListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=200, help_text="Page size, 1-200. Defaults to 50."
     )
+    cursor = serializers.CharField(
+        required=False,
+        max_length=512,
+        help_text="`next_cursor` from the previous page. Omit for the first page.",
+    )
 
 
 class RecipientSuppressionSerializer(serializers.Serializer):
@@ -83,6 +88,9 @@ class RecipientSerializer(serializers.Serializer):
 
 class RecipientPageSerializer(serializers.Serializer):
     results = RecipientSerializer(many=True, help_text="Recipients on this page, ordered by address.")
+    next_cursor = serializers.CharField(
+        allow_null=True, help_text="Pass as `cursor` to get the next page. Null on the last page."
+    )
 
 
 class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -103,6 +111,7 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 limit=params["limit"],
                 search=params.get("search"),
                 filters=tuple(parse_recipient_filter(raw) for raw in params["filter"]),
+                cursor=params.get("cursor"),
             )
             page = list_recipients(self.team, request.user, query)
         except InvalidRecipientFilter as error:
