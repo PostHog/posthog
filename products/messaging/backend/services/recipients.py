@@ -46,7 +46,7 @@ FROM (
     UNION ALL
     SELECT
         'suppression' AS source_kind,
-        identifier AS address,
+        lower(trim(identifier)) AS address,
         '' AS preferences,
         suppressed_at AS changed_at,
         source AS suppression_source,
@@ -79,7 +79,7 @@ LIMIT {limit}
 """
 
 _LAST_SENT_QUERY = """
-SELECT lower(latest_recipient) AS address, max(latest_sent_at)
+SELECT lower(trim(latest_recipient)) AS address, max(latest_sent_at)
 FROM (
     SELECT
         argMax(recipient, version) AS latest_recipient,
@@ -89,7 +89,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND kind = 'email'
       AND sent_at >= now() - INTERVAL 30 DAY
-      AND lower(recipient) IN %(addresses)s
+      AND lower(trim(recipient)) IN %(addresses)s
     GROUP BY invocation_id, action_id
 )
 WHERE latest_is_deleted = 0
@@ -110,12 +110,14 @@ class RecipientFacet(StrEnum):
     PREFERENCE = "preference"
 
 
-_TOPIC_STATUS_COUNT = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = '%s')"
+_OPTED_OUT_ROWS = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = 'OPTED_OUT')"
+_OPTED_IN_ROWS = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = 'OPTED_IN')"
 
+# Unsubscribed wins: one casing of an address opting out outweighs another casing opting in.
 _TOPIC_CONDITIONS: dict[RecipientFacet, str] = {
-    RecipientFacet.SUBSCRIBED: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} = 0 AND {_TOPIC_STATUS_COUNT % 'OPTED_IN'} > 0",
-    RecipientFacet.UNSUBSCRIBED: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} > 0",
-    RecipientFacet.NO_PREFERENCE: f"{_TOPIC_STATUS_COUNT % 'OPTED_OUT'} = 0 AND {_TOPIC_STATUS_COUNT % 'OPTED_IN'} = 0",
+    RecipientFacet.SUBSCRIBED: f"{_OPTED_OUT_ROWS} = 0 AND {_OPTED_IN_ROWS} > 0",
+    RecipientFacet.UNSUBSCRIBED: f"{_OPTED_OUT_ROWS} > 0",
+    RecipientFacet.NO_PREFERENCE: f"{_OPTED_OUT_ROWS} = 0 AND {_OPTED_IN_ROWS} = 0",
 }
 
 _VALUE_CONDITIONS: dict[tuple[RecipientFacet, str], str] = {
@@ -159,7 +161,7 @@ class RecipientPerson:
 
 @frozen
 class RecipientSuppression:
-    source: str
+    source: SuppressionSource
     reason: str | None
     suppressed_at: datetime | None
 
@@ -167,8 +169,8 @@ class RecipientSuppression:
 @frozen
 class Recipient:
     email: str
-    all_marketing: str
-    topics: dict[str, str]
+    all_marketing: PreferenceStatus
+    topics: dict[str, PreferenceStatus]
     suppression: RecipientSuppression | None
     persons: list[RecipientPerson]
     person_count: int
@@ -329,7 +331,9 @@ def _build_recipient(
             topic_keys_by_id[topic_id]: status for topic_id, status in statuses.items() if topic_id in topic_keys_by_id
         },
         suppression=RecipientSuppression(
-            source=suppression_source, reason=suppression_reason or None, suppressed_at=suppressed_at
+            source=SuppressionSource(suppression_source),
+            reason=suppression_reason or None,
+            suppressed_at=suppressed_at,
         )
         if is_suppressed
         else None,
