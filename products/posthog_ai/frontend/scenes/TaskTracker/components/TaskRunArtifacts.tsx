@@ -19,7 +19,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { withStrictCsp } from '../artifactHtml'
 import {
-    ARTIFACT_KIND_LABEL,
     ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
@@ -28,6 +27,7 @@ import {
     parseCsv,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactImageViewer } from './ArtifactImageViewer'
 
 const MAX_CSV_ROWS = 500
 
@@ -96,17 +96,7 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
     }
     if (selectedKind === 'image') {
         const src = artifactDownloadUrl(currentProjectId, taskId, selectedArtifact)
-        return (
-            <div className="flex min-h-full items-center justify-center p-8">
-                {src && (
-                    <img
-                        src={src}
-                        alt={selectedArtifact.name}
-                        className="max-w-full rounded border border-primary bg-white"
-                    />
-                )}
-            </div>
-        )
+        return src ? <ArtifactImageViewer src={src} alt={selectedArtifact.name} /> : null
     }
     if (selectedKind === 'none') {
         return (
@@ -157,54 +147,62 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
 }
 
 function ArtifactNav({ taskId }: { taskId: string }): JSX.Element {
-    const { artifacts, selectedArtifact } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedFile } = useValues(taskRunArtifactsLogic({ taskId }))
     const { selectArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     return (
         <nav
-            className="hidden w-64 shrink-0 flex-col gap-px overflow-y-auto border-r border-primary p-2 @[52rem]/main-content:flex"
+            className="hidden w-64 shrink-0 flex-col border-r border-primary @[52rem]/main-content:flex"
             aria-label="Artifacts"
         >
-            <span className="py-1 pl-2 text-xs font-semibold text-secondary">{`Files ${artifacts.length}`}</span>
-            {artifacts.map((artifact) => {
-                const kind = artifactPreviewKind(artifact)
-                return (
-                    <LemonButton
-                        key={artifact.id}
-                        fullWidth
-                        size="small"
-                        active={artifact.id === selectedArtifact?.id}
-                        icon={<KindIcon kind={kind} />}
-                        onClick={() => artifact.id && selectArtifact(artifact.id)}
-                        data-attr="task-artifact-nav-item"
-                    >
-                        <span className="flex min-w-0 flex-col py-0.5">
-                            <span className="truncate">{artifact.name}</span>
-                            <span className="text-xs font-normal text-secondary">
-                                {`${ARTIFACT_KIND_LABEL[kind]} · ${formatArtifactSize(artifact.size)}`}
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-primary px-3 text-xs font-semibold text-secondary">
+                <span>Files</span>
+                <span className="font-normal tabular-nums">{files.length}</span>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto p-1.5">
+                {files.map((file) => {
+                    const artifact = file.latest
+                    const kind = artifactPreviewKind(artifact)
+                    return (
+                        <LemonButton
+                            key={file.name}
+                            fullWidth
+                            size="small"
+                            active={file.name === selectedFile?.name}
+                            icon={<KindIcon kind={kind} />}
+                            onClick={() => selectArtifact(file.name)}
+                            data-attr="task-artifact-nav-item"
+                        >
+                            <span className="flex min-w-0 flex-col py-0.5">
+                                <span className="truncate">{artifact.name}</span>
+                                <span className="text-xs font-normal text-secondary">
+                                    {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                                </span>
                             </span>
-                        </span>
-                    </LemonButton>
-                )
-            })}
+                        </LemonButton>
+                    )
+                })}
+            </div>
         </nav>
     )
 }
 
 function ArtifactToolbar({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element {
-    const { artifacts, selectedIndex, currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { files, selectedIndex, currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
     const { stepArtifact, downloadArtifact } = useActions(taskRunArtifactsLogic({ taskId }))
     const kind = artifactPreviewKind(artifact)
     const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
-    const single = artifacts.length < 2
+    const single = files.length < 2
     return (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-primary px-3 py-1.5">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-primary px-3">
             <span className="flex size-4 shrink-0 items-center text-secondary">
                 <KindIcon kind={kind} />
             </span>
             <span className="min-w-0 truncate font-semibold">{artifact.name}</span>
-            <span className="text-xs text-secondary">
-                {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
-            </span>
+            <Tooltip title={dayjs(artifact.uploaded_at).format('MMM D, YYYY HH:mm')}>
+                <span className="hidden shrink-0 text-xs text-secondary @[40rem]/main-content:inline">
+                    {`${formatArtifactSize(artifact.size)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
+                </span>
+            </Tooltip>
             {kind === 'html' && (
                 <Tooltip title="This page runs in a sandbox with scripts off. It cannot read your PostHog data, cookies or session.">
                     <LemonTag type="muted" icon={<IconLock />}>
@@ -212,22 +210,25 @@ function ArtifactToolbar({ taskId, artifact }: { taskId: string; artifact: RunAr
                     </LemonTag>
                 </Tooltip>
             )}
-            <div className="ml-auto flex items-center gap-1">
-                <span className="px-1 text-xs text-secondary tabular-nums">{`${selectedIndex + 1} of ${artifacts.length}`}</span>
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronLeft />}
-                    tooltip="Previous file"
-                    disabledReason={single ? 'This is the only file' : undefined}
-                    onClick={() => stepArtifact(-1)}
-                />
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronRight />}
-                    tooltip="Next file"
-                    disabledReason={single ? 'This is the only file' : undefined}
-                    onClick={() => stepArtifact(1)}
-                />
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+                {/* The file list replaces these once there is room for it. */}
+                <span className="flex items-center gap-1 @[52rem]/main-content:hidden">
+                    <span className="px-1 text-xs text-secondary tabular-nums">{`${selectedIndex + 1} of ${files.length}`}</span>
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronLeft />}
+                        tooltip="Previous file"
+                        disabledReason={single ? 'This is the only file' : undefined}
+                        onClick={() => stepArtifact(-1)}
+                    />
+                    <LemonButton
+                        size="small"
+                        icon={<IconChevronRight />}
+                        tooltip="Next file"
+                        disabledReason={single ? 'This is the only file' : undefined}
+                        onClick={() => stepArtifact(1)}
+                    />
+                </span>
                 <LemonButton
                     size="small"
                     icon={<IconDownload />}
@@ -271,7 +272,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
                 <div
                     className={cn(
                         'min-h-0 flex-1 bg-surface-secondary',
-                        selectedKind === 'html' ? 'flex flex-col' : 'overflow-y-auto'
+                        selectedKind === 'html' || selectedKind === 'image' ? 'flex flex-col' : 'overflow-y-auto'
                     )}
                 >
                     <ArtifactPreview taskId={taskId} />
@@ -283,7 +284,7 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
 
 /** Conversation and Artifacts tabs for a task run. The caller renders the thread as `conversation`. */
 export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversation: JSX.Element }): JSX.Element {
-    const { activeTab, artifacts } = useValues(taskRunArtifactsLogic({ taskId }))
+    const { activeTab, files } = useValues(taskRunArtifactsLogic({ taskId }))
     const { setActiveTab } = useActions(taskRunArtifactsLogic({ taskId }))
     return (
         <>
@@ -298,7 +299,10 @@ export function TaskRunTabs({ taskId, conversation }: { taskId: string; conversa
                         label: (
                             <span className="flex items-center gap-1.5">
                                 <span>Artifacts</span>
-                                {artifacts.length > 0 && <span className="text-secondary">{artifacts.length}</span>}
+                                {files.length > 0 && (
+                                    // The active tab colors its whole label, and a count is not a call to action.
+                                    <span className="font-normal text-secondary! tabular-nums">{files.length}</span>
+                                )}
                             </span>
                         ),
                         'data-attr': 'task-run-tab-artifacts',
