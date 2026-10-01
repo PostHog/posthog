@@ -1006,7 +1006,8 @@ export const ActivityKindEnumApi = {
  */
 export interface TaskActivityDTOApi {
     id: string
-    task_id: string
+    /** @nullable */
+    task_id: string | null
     task_title: string
     /** @nullable */
     channel_id: string | null
@@ -1060,8 +1061,11 @@ export interface TaskActivityPageDTOApi {
 }
 
 export interface TaskActivityReadMarkerApi {
-    /** Task whose displayed activity should be marked read. */
-    task_id: string
+    /**
+     * Task whose displayed activity should be marked read. Optional when activity_id is set.
+     * @nullable
+     */
+    task_id?: string | null
     /**
      * Comment activity row to mark read. Omit for collapsed task activity.
      * @nullable
@@ -2756,6 +2760,38 @@ export interface TaskPresenceBeaconRequestApi {
     device_id: string
 }
 
+export interface TaskReviewFileApi {
+    /** Repository-relative path. */
+    filename: string
+    /** Change type reported by GitHub. */
+    status: string
+    /** Added lines. */
+    additions: number
+    /** Removed lines. */
+    deletions: number
+    /** Unified diff, limited to 20,000 characters per file. */
+    patch: string
+    /** Open GitHub to read the complete or binary change. */
+    truncated: boolean
+}
+
+export interface TaskReviewApi {
+    /** GitHub pull request URL. */
+    url: string
+    /** Pull request title. */
+    title: string
+    /** Pull request state. */
+    state: string
+    /** Combined check result. */
+    ci_status: string
+    /** Head commit used for the check result. */
+    head_sha: string
+    /** Changed files on this page. */
+    files: TaskReviewFileApi[]
+    /** Whether another file page is available. */
+    has_more: boolean
+}
+
 /**
  * * `http` - http
  * * `sse` - sse
@@ -3194,11 +3230,10 @@ export type TaskRunCreateRequestSchemaApi =
 export type TaskRunResponseApiJsonSchema = { [key: string]: unknown } | null
 
 /**
- * Detail response for a task.
+ * The task ``run`` action's response: the refreshed task detail plus the run this call made.
  *
- * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
- * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
- * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+ * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
  */
 export interface TaskRunResponseApi {
     id: string
@@ -3250,6 +3285,8 @@ export interface TaskRunResponseApi {
     origin_key?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
+    /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+    run?: TaskRunDetailDTOApi | null
 }
 
 /**
@@ -5991,6 +6028,15 @@ export type TasksCommentsRetrieveParams = {
      * @maximum 100
      */
     limit?: number
+}
+
+export type TasksReviewRetrieveParams = {
+    /**
+     * Page of changed files.
+     * @minimum 1
+     * @maximum 100
+     */
+    page?: number
 }
 
 export type TasksRunsListParams = {

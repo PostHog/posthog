@@ -11,3 +11,7 @@ rules:
       owners: team-ingestion
     - match: '/sessions.py'
       owners: team-analytics-platform
+    - match:
+          - '/flag_evaluations_backfill.py'
+          - '/tests/test_flag_evaluations_backfill.py'
+      owners: team-feature-flags

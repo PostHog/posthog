@@ -124,7 +124,7 @@ The field must be on an endpoint that is in the schema. A viewset action marked 
 
 Data rows that no endpoint serves, such as the task model catalog, go through the projection registry instead of a script of their own:
 
-1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path.
+1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path. The text only has to be valid: the runner formats each output with oxfmt, or with Biome under `products/desktop` and `packages/agent`, so do not add a formatter exclusion for it.
 2. Add an entry to `PROJECTIONS` in `tools/hogli-commands/hogli_commands/projections.py` with the renderer, its inputs and its outputs.
 3. Run `hogli build:projections` and commit the outputs. CI runs `hogli build:projections --check` and fails when one is out of date.
 

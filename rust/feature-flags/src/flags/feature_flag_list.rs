@@ -78,8 +78,9 @@ impl FeatureFlagList {
     }
 
     /// Pre-compiles all regex patterns in property filters across a flag slice.
+    /// The v2 parser compiles its own predicates.
     pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
-        for flag in flags.iter_mut() {
+        for flag in flags.iter_mut().filter(|flag| flag.filters.is_v1()) {
             Self::prepare_group_regexes(&mut flag.filters.groups);
         }
     }

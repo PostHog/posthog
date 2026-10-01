@@ -91,7 +91,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric'",
+            "Invalid metric: metric kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -107,7 +107,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric'",
+            "Invalid metric: metric kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -122,7 +122,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Metric query kind must be 'ExperimentMetric'",
+            "Invalid metric: metric kind must be 'ExperimentMetric'",
         )
 
         response = self.client.post(
@@ -515,7 +515,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue("'loc': ('numerator',), 'msg': 'Field required'" in response.json()["detail"])
+        self.assertTrue(
+            "'loc': ('ratio', 'numerator'), 'type': 'missing', 'msg': 'Field required'" in response.json()["detail"]
+        )
 
         # Test missing denominator
         response = self.client.post(
@@ -536,7 +538,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertTrue("'loc': ('denominator',), 'msg': 'Field required'" in response.json()["detail"])
+        self.assertTrue(
+            "'loc': ('ratio', 'denominator'), 'type': 'missing', 'msg': 'Field required'" in response.json()["detail"]
+        )
 
     def test_invalid_create(self):
         response = self.client.post(

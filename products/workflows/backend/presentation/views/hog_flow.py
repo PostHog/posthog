@@ -25,7 +25,7 @@ from django.utils.dateparse import parse_datetime
 import requests
 import structlog
 import posthoganalytics
-from django_filters import BaseInFilter, CharFilter, FilterSet
+from django_filters import BaseInFilter, BooleanFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -78,16 +78,11 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import (
-    HogFunctionFiltersSerializer,
-    InputsSchemaItemSerializer,
-    InputsSerializer,
-    generate_template_bytecode,
-)
+from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -128,6 +123,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     resolve_connectors,
     validate_skill_names,
 )
+from products.workflows.backend.facade.api import create_batch_job
 from products.workflows.backend.metrics import (
     GUARDRAIL_LABELS,
     GUARDRAIL_METRICS,
@@ -150,6 +146,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -160,6 +157,11 @@ from products.workflows.backend.presentation.views.graph_validation import valid
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
+)
+from products.workflows.backend.presentation.views.hog_flow_fields import (
+    HOG_FLOW_VARIABLES_MAX_BYTES,
+    HogFlowMaskingSerializer,
+    HogFlowVariableSerializer,
 )
 from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -2017,59 +2019,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         except Exception as e:
             if strict:
                 raise serializers.ValidationError({"config": f"delay_until.expression could not be read as SQL: {e}"})
-
-
-# Caps both the variable definitions on a workflow and the variable values a single run passes,
-# so the two share one number instead of drifting. The runtime also checks dynamically set
-# variables against this same limit; each cap here front-runs that check with a clearer error.
-HOG_FLOW_VARIABLES_MAX_BYTES = 5120
-
-
-class HogFlowVariableSerializer(serializers.ListSerializer):
-    child = serializers.DictField(
-        child=serializers.CharField(allow_blank=True),
-        help_text="Variable: {key, type: string|number|boolean, default}.",
-    )
-
-    def validate(self, attrs):
-        # Make sure the keys are unique
-        keys = [item.get("key") for item in attrs]
-        if len(keys) != len(set(keys)):
-            raise serializers.ValidationError("Variable keys must be unique")
-
-        # Make sure entire variables definition is less than 5KB
-        # This is just a check for massive keys / default values, we also have a check for dynamically
-        # set variables during execution
-        total_size = sum(len(json.dumps(item)) for item in attrs)
-        if total_size > HOG_FLOW_VARIABLES_MAX_BYTES:
-            raise serializers.ValidationError("Total size of variables definition must be less than 5KB")
-
-        return super().validate(attrs)
-
-
-class HogFlowMaskingSerializer(serializers.Serializer):
-    ttl = serializers.IntegerField(
-        required=False,
-        min_value=60,
-        max_value=60 * 60 * 24 * 365 * 3,
-        allow_null=True,
-        help_text="Seconds (60 to ~94M / 3y) to suppress repeat firings of the same hash.",
-    )
-    threshold = serializers.IntegerField(
-        required=False,
-        allow_null=True,
-        help_text="Fire once per N matches of the same hash within ttl — a sampler: N=3 fires on the 1st, 4th, 7th… match. Omit to fire on the first match, then suppress repeats within ttl.",
-    )
-    hash = serializers.CharField(
-        required=True,
-        help_text="HogQL template defining the dedup/grouping key, e.g. '{person.id}' (once per person) within ttl.",
-    )
-    bytecode = serializers.JSONField(required=False, allow_null=True, help_text="Auto-compiled from hash. Do not set.")
-
-    def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
-
-        return super().validate(attrs)
 
 
 @extend_schema_field(HogFunctionFiltersSerializer)
@@ -3947,6 +3896,12 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class HogFlowOptimizationSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(
+        help_text="Whether PostHog may read this workflow's metrics and suggest changes to it."
+    )
+
+
 class WorkflowProposalSerializer(serializers.ModelSerializer):
     resolved_by = UserBasicSerializer(read_only=True, allow_null=True)
     content = WorkflowProposalContentField(read_only=True)
@@ -4191,6 +4146,15 @@ class ProposalNotRunnableError(exceptions.APIException):
         if reasons:
             detail = f"{detail} {' '.join(reasons)}"
         super().__init__(detail)
+
+
+class WorkflowNotOptimisedError(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = (
+        "This workflow is not set up for suggestions. Turn on 'Suggest improvements' on the workflow "
+        "before proposing a change to it."
+    )
+    default_code = "workflow_not_optimized"
 
 
 class ProposalOutOfDateError(exceptions.APIException):
@@ -4524,11 +4488,23 @@ def filter_by_broadcast_status(queryset: QuerySet, statuses: set[str]) -> QueryS
 
 
 class HogFlowFilterSet(FilterSet):
+    # A producer's work list, so an agent need not read every workflow to find the few it may look at.
+    optimization_enabled = BooleanFilter(
+        method="filter_optimization_enabled",
+        label="Only workflows someone turned suggestions on for.",
+    )
+
     class Meta:
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
         fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+
+    def filter_optimization_enabled(self, queryset, name: str, value: bool):
+        # Off keeps its row, so "on" is a row still enabled. Archived workflows drop out: nothing runs there.
+        if not value:
+            return queryset.exclude(optimization__enabled=True)
+        return queryset.filter(optimization__enabled=True).exclude(status=HogFlow.State.ARCHIVED)
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4739,6 +4715,11 @@ class HogFlowViewSet(
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
         # lists above can't distinguish GET (read) from POST (write) on the same action. Without
         # this, these actions declare no scope and reject all personal-API-key (MCP) access.
+        if self.action == "optimization":
+            # Reading the opt-in is workflow-read; flipping it decides whether an agent may read the workflow, so it is a write.
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return ["hog_flow:read"]
+            return ["hog_flow:write"]
         if self.action == "proposals":
             # Reading is workflow-read; authoring stages content into the draft, so it is a workflow write.
             if request.method in ("GET", "HEAD", "OPTIONS"):
@@ -5899,10 +5880,22 @@ class HogFlowViewSet(
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
+        source_id = params.get("source_id") or None
+
+        # A retry names the suggestion it already made, which is still in someone's queue whatever the switch says now.
+        retry_of = (
+            WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first() if source_id else None
+        )
+        if retry_of:
+            return Response(WorkflowProposalSerializer(retry_of).data, status=status.HTTP_200_OK)
+
+        # Reading the queue stays open while the flag is on; the workflow's opt-in only gates producing a new one.
+        if not HogFlowOptimization.objects.filter(hog_flow=instance, enabled=True).exists():
+            raise WorkflowNotOptimisedError()
+
         live_content = snapshot_flow_content(instance)
         # Proposal content is stored in plaintext like a revision snapshot, so secrets are stripped.
         content = strip_proposal_secrets(dict(params["content"]), live_content)
-        source_id = params.get("source_id") or None
 
         if "actions" in content or "edges" in content:
             merged = merge_proposal_content(live_content, content)
@@ -5920,11 +5913,6 @@ class HogFlowViewSet(
                         ]
                     }
                 )
-
-        if source_id:
-            existing = WorkflowProposal.objects.filter(hog_flow=instance, source_id=source_id).first()
-            if existing:
-                return Response(WorkflowProposalSerializer(existing).data, status=status.HTTP_200_OK)
 
         proposal = WorkflowProposal(
             hog_flow=instance,
@@ -6167,6 +6155,57 @@ class HogFlowViewSet(
         log_activity_from_viewset(self, instance, activity="proposal_rejected", name=instance.name)
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
         return Response(WorkflowProposalSerializer(locked_proposal).data)
+
+    @extend_schema(request=HogFlowOptimizationSerializer, responses={200: HogFlowOptimizationSerializer})
+    @action(detail=True, methods=["GET", "POST"], url_path="optimization", filter_backends=[])
+    def optimization(self, request: Request, *args, **kwargs):
+        """Whether PostHog may look at this workflow and suggest changes to it.
+
+        Turning it off stops a producer reading the workflow. Suggestions already made are left
+        alone: someone still has them to resolve.
+        """
+        self._require_self_optimising_enabled()
+        instance = self.get_object()
+
+        row = HogFlowOptimization.objects.filter(hog_flow=instance).first()
+
+        if request.method == "POST":
+            param_serializer = HogFlowOptimizationSerializer(data=request.data)
+            param_serializer.is_valid(raise_exception=True)
+            enabled = param_serializer.validated_data["enabled"]
+            if row is None:
+                # Turning it off for a workflow nobody turned on is a no-op, not a row saying "no".
+                changed = enabled
+                if enabled:
+                    # get_or_create rather than create: two first-time enables race, and the loser of
+                    # the one-to-one constraint would answer 500 for a workflow that is now on.
+                    # nosemgrep: idor-lookup-without-team - team scope is enforced by TeamScopedManager
+                    row, created = HogFlowOptimization.objects.get_or_create(
+                        hog_flow=instance, defaults={"enabled": True}
+                    )
+                    changed = created or not row.enabled
+                    if not created and not row.enabled:
+                        row.enabled = True
+                        row.save(update_fields=["enabled"])
+            else:
+                # Off keeps the row: how many tried this and stopped is a rollout question.
+                changed = row.enabled != enabled
+                if changed:
+                    row.enabled = enabled
+                    row.save(update_fields=["enabled"])
+
+            if changed:
+                log_activity_from_viewset(
+                    self,
+                    instance,
+                    activity="optimization_enabled" if enabled else "optimization_disabled",
+                    name=instance.name,
+                )
+                self._report_workflow_action(
+                    "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
+                )
+
+        return Response(HogFlowOptimizationSerializer({"enabled": row is not None and row.enabled}).data)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])
@@ -6814,15 +6853,20 @@ class HogFlowViewSet(
             if get_event_source(request) in AGENT_EVENT_SOURCES:
                 self._require_audience_confirm_token(request, hog_flow)
 
-            serializer = HogFlowBatchJobSerializer(
-                data={**request.data, "hog_flow": hog_flow.id}, context={**self.get_serializer_context()}
-            )
+            serializer = HogFlowBatchJobSerializer(data={**request.data, "hog_flow": hog_flow.id})
             if not serializer.is_valid():
                 return Response(serializer.errors, status=400)
 
-            # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-            # caller-supplied filters are never what actually runs.
-            batch_job = serializer.save(filters=(hog_flow.trigger or {}).get("filters") or {})
+            batch_job = create_batch_job(
+                team_id=self.team_id,
+                hog_flow_id=hog_flow.id,
+                created_by_id=cast(User, request.user).id,
+                variables=serializer.validated_data.get("variables", {}),
+                status=serializer.validated_data.get("status"),
+                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                # caller-supplied filters are never what actually runs.
+                filters=(hog_flow.trigger or {}).get("filters") or {},
+            )
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:

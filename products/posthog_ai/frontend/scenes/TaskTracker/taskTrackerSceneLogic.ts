@@ -91,6 +91,12 @@ export interface TaskTrackerSceneLogicProps {
     contextItems?: AttachedContextItem[]
     composerOverride?: ComposerOverride
     welcomeHeadlines?: string[]
+    /** Tasks channel that owns every task this composer creates. */
+    channelId?: string
+    /** Repository the composer starts from instead of the last-used one. The user can still change it. */
+    initialRepositoryConfig?: PersistedRepositoryConfig
+    /** Called with the created task's id after its run starts, so the host can open or list it. */
+    onTaskCreated?: (taskId: string) => void
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -619,7 +625,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
-            if (data.repositoryConfig?.repository) {
+            // A host default owns this composer's starting repo, so picks made here keep the shared memory intact.
+            if (data.repositoryConfig?.repository && !props.initialRepositoryConfig) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }
@@ -652,9 +659,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (githubIntegrations.length === 0) {
                 return
             }
-            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
-            // GitHubBranchCombobox re-selects the repo's actual default branch.
-            const { integrationId, repository } = values.persistedRepositoryConfig
+            // Restore the host default or the last-used repo only if its integration is still connected. Branch
+            // is left unset so GitHubBranchCombobox re-selects the repo's actual default branch.
+            const initial = props.initialRepositoryConfig
+            const { integrationId, repository } = initial?.repository
+                ? { integrationId: initial.integrationId ?? githubIntegrations[0].id, repository: initial.repository }
+                : values.persistedRepositoryConfig
             if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
                 actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
                 return
@@ -824,6 +834,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                           }
                         : { initial_permission_mode: permissionMode }),
                     pending_user_message: pendingUserMessage,
+                    ...(props.channelId ? { channel: props.channelId } : {}),
                 }
 
                 const newTask = await submitWithWarmRunRetry(
@@ -869,7 +880,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                             ),
                         disposables
                     )
-                    createdRun = runResponse.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
 
@@ -936,6 +948,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return

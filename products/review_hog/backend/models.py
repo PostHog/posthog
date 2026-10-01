@@ -404,6 +404,8 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     resolve_comments = models.BooleanField(default=True, db_default=True)
+    # Opt-out of the clean-review media in the PR status comment ("Nothing worth raising this time").
+    celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
     review_authored_prs = models.BooleanField(default=False, db_default=False)
     flash_reasoning_effort = models.CharField(
         max_length=10,

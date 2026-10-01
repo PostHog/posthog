@@ -5,6 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { mswDecorator } from '~/mocks/browser'
 
 import type {
+    ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
     ContentAutopilotRunApi,
     ContentAutopilotSiteProfileApi,
@@ -12,6 +13,7 @@ import type {
 import { ContentAutopilot } from './ContentAutopilot'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
+    EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
@@ -23,10 +25,12 @@ const workspaceHandlers = ({
     profiles,
     runs = [],
     proposals = [],
+    opportunities = [],
 }: {
     profiles: ContentAutopilotSiteProfileApi[]
     runs?: ContentAutopilotRunApi[]
     proposals?: ContentAutopilotProposalListApi[]
+    opportunities?: ContentAutopilotOpportunityApi[]
 }): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
@@ -46,8 +50,13 @@ const workspaceHandlers = ({
                 200,
                 EXAMPLE_PROPOSAL,
             ],
+            '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/': () => [
+                200,
+                { count: opportunities.length, next: null, previous: null, results: opportunities },
+            ],
         },
         post: {
+            '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/refresh/': () => [200, opportunities],
             '/api/projects/:team_id/web_analytics_content_autopilot_profiles/discover/': () => [
                 200,
                 {
@@ -100,7 +109,12 @@ export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => (
     </div>
 )
 ReadyForReview.decorators = [
-    workspaceHandlers({ profiles: [EXAMPLE_PROFILE], runs: [EXAMPLE_RUN], proposals: [EXAMPLE_PROPOSAL_LIST] }),
+    workspaceHandlers({
+        profiles: [EXAMPLE_PROFILE],
+        runs: [EXAMPLE_RUN],
+        proposals: [EXAMPLE_PROPOSAL_LIST],
+        opportunities: EXAMPLE_OPPORTUNITIES,
+    }),
 ]
 
 export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => (

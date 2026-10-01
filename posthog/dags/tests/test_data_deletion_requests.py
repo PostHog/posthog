@@ -2413,34 +2413,40 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
 
 
 @pytest.mark.django_db
-def test_execute_event_deletion_refuses_hogql_predicate_when_flag_evaluations_holds_matching_rows(
-    cluster: ClickhouseCluster,
-) -> None:
-    # flag_evaluations has no HogQL table definition, so it cannot accept the compiled predicate
-    # and falls into the unsweepable branch of _event_removal_placements. A matching row there must
-    # refuse the request rather than let it complete while HogQL-matched rows survive.
+def test_immediate_event_deletion_skips_flag_evaluations(cluster: ClickhouseCluster) -> None:
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-immediate-flag-evaluations")
+    team = Team.objects.create(organization=org, name="test-team-immediate-flag-evaluations")
     now = datetime.now()
-    start_time = now - timedelta(days=7)
-    end_time = now + timedelta(minutes=1)
 
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
+            _insert_events_with_properties,
+            [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid4(), now, '{"$browser": "Chrome"}')],
+        )
+    ).result()
+    cluster.any_host(
+        partial(
             _insert_flag_evaluations_with_properties,
-            [(PROP_TEAM_ID, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+            [(team.id, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
         )
     ).result()
 
     deletion_ctx = DeletionRequestContext(
         request_id=str(uuid4()),
-        team_id=PROP_TEAM_ID,
-        start_time=start_time,
-        end_time=end_time,
+        team_id=team.id,
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
         hogql_predicate="properties.$browser = 'Chrome'",
     )
-    with pytest.raises(dagster.Failure, match="cannot be deleted"):
-        execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+
+    assert cluster.any_host(partial(_count_events_by_name, team.id, FLAG_EVALUATIONS_SOURCE_EVENT)).result() == 0
+    assert len(cluster.any_host(partial(_flag_evaluation_person_ids, team.id)).result()) == 1
 
     cluster.any_host(_truncate_flag_evaluations).result()
 
