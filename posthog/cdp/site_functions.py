@@ -21,12 +21,16 @@ def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
     exposed: set[str] = set()
     configs: list[tuple[Any, bool]] = [
         ({"inputs_schema": hog_function.inputs_schema, "inputs": hog_function.inputs}, False),
-        *((mapping, True) for mapping in hog_function.mappings or []),
+        # The transpiler skips disabled mappings, so their values never reach the browser.
+        *((mapping, True) for mapping in hog_function.mappings or [] if not (mapping or {}).get("disabled")),
     ]
     for config, is_mapping in configs:
         if not isinstance(config, dict):
             continue
         inputs = config.get("inputs") or {}
+        # The transpiler emits a schema default for a null mapping input, so a mapping with one can
+        # carry any of its secret defaults into the browser.
+        has_null_input = is_mapping and any(not isinstance(value, dict) for value in inputs.values())
         for schema in config.get("inputs_schema") or []:
             if not isinstance(schema, dict) or not schema.get("secret") or "key" not in schema:
                 continue
@@ -36,7 +40,7 @@ def exposed_secret_input_keys(hog_function: HogFunction) -> set[str]:
             # The transpiler falls back to the schema default only for a mapping input the caller left
             # out. It builds the top-level inputs from stored values alone, so a top-level default never
             # reaches the browser.
-            elif is_mapping and schema["key"] not in inputs and schema.get("default") is not None:
+            elif is_mapping and (schema["key"] not in inputs or has_null_input) and schema.get("default") is not None:
                 exposed.add(str(schema["key"]))
     return exposed
 

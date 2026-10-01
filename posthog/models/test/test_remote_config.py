@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.helpers import mock_transpile
 from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET, RemoteConfig
@@ -21,6 +22,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
+SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -414,13 +416,14 @@ class TestRemoteConfig(_RemoteConfigBase):
             team=self.team,
             type="site_destination",
             enabled=True,
+            hog=SITE_HOG,
             inputs_schema=[{"key": "token", "type": "string", "secret": True, **default}],
             inputs={"token": {"value": "example-private-browser-value"}},
         )
         assert (function.inputs or {}) == {}
         assert (function.encrypted_inputs or {})["token"]["value"] == "example-private-browser-value"
 
-        with patch("posthog.cdp.site_functions.get_transpiled_function", return_value="function() {}"):
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(function.id) in result
@@ -430,6 +433,7 @@ class TestRemoteConfig(_RemoteConfigBase):
         [
             ("mapping", True, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
             ("mapping_default", True, {"inputs": {}, "default": "example-private-browser-value"}),
+            ("mapping_null_input", True, {"inputs": {"token": None}, "default": "example-private-browser-value"}),
             ("legacy_plaintext_inputs", False, {"inputs": {"token": {"value": "example-private-browser-value"}}}),
         ]
     )
@@ -444,6 +448,7 @@ class TestRemoteConfig(_RemoteConfigBase):
             team=self.team,
             type="site_destination",
             enabled=True,
+            hog=SITE_HOG,
             **({"mappings": [config]} if in_mapping else config),
         )
         if not in_mapping:
@@ -451,13 +456,34 @@ class TestRemoteConfig(_RemoteConfigBase):
             # `save()` would otherwise move out of the way.
             HogFunction.objects.filter(id=unsafe.id).update(inputs=config["inputs"], encrypted_inputs=None)
             unsafe.refresh_from_db()
-        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True)
+        safe = HogFunction.objects.create(team=self.team, type="site_destination", enabled=True, hog=SITE_HOG)
 
-        with patch("posthog.cdp.site_functions.get_transpiled_function", return_value="function() {}"):
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
             result = "".join(self.remote_config._build_site_apps_js())
 
         assert str(unsafe.id) not in result
         assert str(safe.id) in result
+        assert "example-private-browser-value" not in result
+
+    def test_site_functions_ignore_secrets_in_disabled_mappings(self) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            type="site_destination",
+            enabled=True,
+            hog=SITE_HOG,
+            mappings=[
+                {
+                    "disabled": True,
+                    "inputs_schema": [{"key": "token", "type": "string", "secret": True}],
+                    "inputs": {"token": {"value": "example-private-browser-value"}},
+                }
+            ],
+        )
+
+        with patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile):
+            result = "".join(self.remote_config._build_site_apps_js())
+
+        assert str(function.id) in result
         assert "example-private-browser-value" not in result
 
 
