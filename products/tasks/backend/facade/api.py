@@ -3443,7 +3443,7 @@ def set_task_run_output(
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
-    if task.json_schema:
+    if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
     run.publish_stream_state_event()
     _post_slack_update_for_pr(run)
