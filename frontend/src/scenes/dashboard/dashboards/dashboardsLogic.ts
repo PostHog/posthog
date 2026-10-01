@@ -36,7 +36,6 @@ export interface DashboardsFilters {
     createdBy: number[] | 'All users'
     pinned: boolean
     shared: boolean
-    /** true shows only archived dashboards; false (the default) excludes them from the list. */
     archived: boolean
     tags?: string[]
     /** Folder path to filter to, e.g. 'Unfiled/Dashboards' (empty string = project root). null means no folder filter. */
@@ -375,11 +374,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                         exclude_generated: 'true',
                         archived: archived ? 'true' : 'false',
                     })
-                    // Push tag/folder/archived filtering to the server so MCP and API clients see the
-                    // same result shape as the UI, and so the limit:200 cap operates on the right
-                    // population, filtered first rather than after. Without this, a folder filter
-                    // combined with search would only narrow the top-200 global matches and silently
-                    // drop the rest.
+                    // Apply these filters before the server caps search results at 200.
                     for (const tag of tags) {
                         params.append('tags', tag)
                     }
@@ -469,8 +464,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     filters.search && searchedDashboards
                         ? searchedDashboards.map((d) => (rawDashboards[d.id] as DashboardBasicType | undefined) ?? d)
                         : allDashboards
-                // A persisted filters object predating this field has no `archived` key, so treat
-                // a missing value as false rather than leaving every dashboard filtered out.
+                // Persisted filters from before archiving have no `archived` key.
                 haystack = haystack.filter((d) => Boolean(d.archived) === Boolean(filters.archived))
                 if (currentTab === DashboardsTab.Pinned) {
                     haystack = haystack.filter((d) => d.pinned)
@@ -725,10 +719,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             })
         },
         setFilters: ({ filters }) => {
-            // Tag/folder/archived changes refetch when a search is active so server-side filtering
-            // stays accurate, since those three are also sent to the search endpoint. Other filter
-            // keys (pinned/shared/createdBy/currentTab) are still applied client-side over the
-            // in-memory list so they don't refetch.
+            // Search applies these filters on the server before pagination.
             if (('tags' in filters || 'folder' in filters || 'archived' in filters) && values.filters.search) {
                 actions.loadSearchedDashboards({
                     search: values.filters.search,

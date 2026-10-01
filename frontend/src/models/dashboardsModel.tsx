@@ -663,11 +663,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         },
     })),
     reducers({
-        // Tracked by id, not a single boolean, so archiving one row doesn't disable every
-        // archive button in the list while its request is in flight. kea-loaders' generated
-        // Failure action carries only the error, not the original {id}, so settling (both
-        // success and failure) goes through the explicit dashboardArchiveSettled action below
-        // instead of the two generated Success/Failure actions.
+        // Track each request because several dashboard rows can update concurrently.
         archivingDashboardIds: [
             new Set<number>(),
             {

@@ -65,7 +65,8 @@ describe('DashboardsTable move to folder', () => {
         tags?: string[],
         primaryDashboard?: number,
         homepageDashboard?: number,
-        homepageSaving: boolean = false
+        homepageSaving: boolean = false,
+        archivingDashboardIds: Set<number> = new Set()
     ): void => {
         ;(useValues as jest.Mock).mockReturnValue({
             tableSorting: null,
@@ -74,7 +75,7 @@ describe('DashboardsTable move to folder', () => {
             homepage: homepageDashboard ? { id: `homepage-dashboard-${homepageDashboard}` } : null,
             homepageSaving,
             filedDashboardIds: new Set(filedRows),
-            archivingDashboardIds: new Set(),
+            archivingDashboardIds,
         })
         mockCtx = { selectedKeys, clearSelection, setSelectedKeys }
         render(
@@ -121,6 +122,12 @@ describe('DashboardsTable move to folder', () => {
         }
         fireEvent.click(screen.getAllByText('Set as my homepage')[0])
         expect(setHomepage).not.toHaveBeenCalled()
+    })
+
+    it('disables archive while that dashboard is saving', () => {
+        renderTable([1], [], [1], undefined, undefined, undefined, false, new Set([1]))
+
+        expect(screen.getByText('Archive dashboard').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('offers the per-row move action and moves that dashboard', () => {

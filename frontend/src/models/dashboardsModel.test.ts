@@ -313,8 +313,6 @@ describe('the dashboards model', () => {
             },
         })
 
-        // Marking the id pending synchronously (not just after the response lands) is what lets
-        // the archive button disable itself before a second click can fire a duplicate request.
         await expectLogic(logic, () => {
             logic.actions.archiveDashboard(1, DashboardEventSource.DashboardsList)
         })
@@ -331,6 +329,21 @@ describe('the dashboards model', () => {
         expect(lastPatchBody).toEqual({ archived: false })
         expect(logic.values.rawDashboards[1].archived).toBe(false)
         expect(logic.values.archivingDashboardIds).toEqual(new Set())
+    })
+
+    it('clears archive loading state after a failed request', async () => {
+        useMocks({
+            patch: {
+                '/api/environments/:team_id/dashboards/:id/': () => [500, {}],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.archiveDashboard(1, DashboardEventSource.DashboardsList)
+        })
+            .toMatchValues({ archivingDashboardIds: new Set([1]) })
+            .toDispatchActions(['archiveDashboardFailure'])
+            .toMatchValues({ archivingDashboardIds: new Set() })
     })
 })
 

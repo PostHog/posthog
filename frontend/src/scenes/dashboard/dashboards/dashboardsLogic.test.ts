@@ -244,8 +244,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('shows all non-archived dashboards when no filters', async () => {
-        // Archived dashboards stay in the fetched set (so the archived filter can find them
-        // without a refetch) but are hidden from the default view.
         expect(logic.values.dashboards).toHaveLength(visibleDashboards.length)
         expect(logic.values.dashboards.some((d) => d.id === archivedDashboard.id)).toBe(false)
     })
@@ -305,8 +303,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('shows dashboards from all selected creators when multiple are chosen', async () => {
-        // Multi-select is a union: selecting both users returns every non-archived dashboard,
-        // since each was created by one of them.
         expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [CURRENT_USER.id, OTHER_USER.id] })
         }).toMatchValues({
@@ -364,9 +360,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('uses server-side search results when a search term is set', async () => {
-        // Search is executed server-side (Postgres trigram word similarity); the logic
-        // delegates ranking to the API and uses the returned list as-is. We mock the search
-        // endpoint and assert the selector swaps the in-memory list for the response.
         const needleDashboard = allDashboards.find((d) => d.name === 'needle')!
         useMocks({
             get: {
@@ -407,8 +400,6 @@ describe('dashboardsLogic', () => {
     })
 
     it('sends tag filters to the server alongside search', async () => {
-        // Server-side tag filtering keeps MCP/API clients in sync with the UI and ensures
-        // the limit:200 cap operates on the right population (pre-tag-filtered, not post).
         let lastRequestUrl: URL | null = null
         useMocks({
             get: {
@@ -427,8 +418,6 @@ describe('dashboardsLogic', () => {
         expect(lastRequestUrl).not.toBeNull()
         expect(lastRequestUrl!.searchParams.get('search')).toBe('sales')
         expect(lastRequestUrl!.searchParams.getAll('tags')).toEqual(['finance', 'q4'])
-        // Sent explicitly (not merely omitted) so the server-side limit:200 cap applies to the
-        // archived population, not the mixed one, matching the tag/folder rationale above.
         expect(lastRequestUrl!.searchParams.get('archived')).toBe('true')
     })
 

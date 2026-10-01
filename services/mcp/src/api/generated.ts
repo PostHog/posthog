@@ -112229,7 +112229,7 @@ export namespace Schemas {
 
     export type DashboardsListParams = {
     /**
-     * Optional. true returns only archived dashboards, false returns only non-archived ones. Omitted, both are included.
+     * Return only archived dashboards when true, or only non-archived dashboards when false.
      */
     archived?: boolean;
     /**

@@ -66,9 +66,7 @@ export const DashboardsListQueryParams = () => zod.object({
     archived: zod
         .boolean()
         .optional()
-        .describe(
-            'Optional. true returns only archived dashboards, false returns only non-archived ones. Omitted, both are included.'
-        ),
+        .describe('Return only archived dashboards when true, or only non-archived dashboards when false.'),
     exclude_generated: zod.boolean().optional().describe('Optional. Exclude dashboards that PostHog generated.'),
     folder: zod
         .string()

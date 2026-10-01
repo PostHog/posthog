@@ -491,11 +491,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, patched = self.dashboard_api.update_dashboard(archived_id, {"archived": True})
         assert patched["archived"] is True
 
-        # Archiving does not exclude the dashboard from the default list. Only the
-        # `archived=true` filter narrows down to it, so the frontend can keep loading the
-        # full set and filter client-side.
         default_ids = {d["id"] for d in self.dashboard_api.list_dashboards(parent="environment")["results"]}
         assert {archived_id, active_id}.issubset(default_ids)
+        assert not FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(archived_id)).exists()
+        assert archived_id not in Dashboard.get_file_system_unfiled(self.team).values_list("id", flat=True)
+        assert self.dashboard_api.get_dashboard(archived_id)["id"] == archived_id
 
         archived_only_ids = [
             d["id"]
@@ -515,6 +515,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         _, unarchived = self.dashboard_api.update_dashboard(archived_id, {"archived": False})
         assert unarchived["archived"] is False
+        assert FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(archived_id)).exists()
         archived_only_ids = [
             d["id"]
             for d in self.dashboard_api.list_dashboards(parent="environment", query_params={"archived": "true"})[
@@ -522,6 +523,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             ]
         ]
         assert archived_only_ids == []
+
+    def test_list_rejects_invalid_archived_filter(self) -> None:
+        response = self.dashboard_api.list_dashboards(
+            parent="environment", query_params={"archived": "invalid"}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+
+        assert response["attr"] == "archived"
+        assert response["detail"] == "Must be a valid boolean."
 
     @parameterized.expand(
         [
