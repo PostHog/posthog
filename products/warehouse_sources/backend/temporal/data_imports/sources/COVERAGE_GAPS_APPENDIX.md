@@ -3726,14 +3726,14 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## Gong — gaps
 
-Today (5): `calls`, `calls_extensive`, `scorecards`, `users`, `workspaces`
+Today (10): `answered_scorecards`, `calls`, `calls_content`, `calls_extensive`, `interaction_stats`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
 
 Diffed against: <https://help.gong.io/llms.txt>
 
-- [ ] `calls/transcript (POST /v2/calls/transcript)` — the actual conversation text - Gong's headline data and the thing most warehouse users want (high)
-- [ ] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
-- [ ] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
-- [ ] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
+- [x] `calls/transcript (POST /v2/calls/transcript)` — the actual conversation text - Gong's headline data and the thing most warehouse users want (high)
+- [x] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
+- [x] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
+- [x] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
 - [ ] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
 - [ ] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
 - [ ] `stats/activity/aggregate-by-period` — pre-aggregated activity by period, cheaper than deriving from raw calls (medium)
