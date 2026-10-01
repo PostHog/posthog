@@ -77,6 +77,13 @@ class StaleFeatureFlagsCheck(HealthCheck):
     # Postgres-heavy and one issue per stale flag rather than per team, so smaller
     # batches than the default policy.
     policy = HealthExecutionPolicy(batch_size=250, max_concurrent=2)
+    # Both stay for one more deploy, so the gate reaches every worker before anything can write.
+    # Web's migrate job copies these into the schedule's workflow inputs, and the health-check
+    # worker deploys as a separate app behind it. A worker still on the previous release has no
+    # `eligible_team_ids`, so removing them in this release would let a run that starts inside
+    # that window write live issues for every active team. The follow-up removes both.
+    dry_run = True
+    rollout_percentage = 0.01
     remediation = Remediation(
         human="""
             Open the flag and confirm the staleness evidence is still current. Check every

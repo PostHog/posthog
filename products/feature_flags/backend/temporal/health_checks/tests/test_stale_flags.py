@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.client import Client
 from structlog.testing import capture_logs
 
 from posthog.clickhouse.query_tagging import Product
@@ -862,15 +863,16 @@ class TestStaleFlagsContract(SimpleTestCase):
             unique_hash="h",
         )
 
-    def test_registered_with_the_flag_as_its_only_gate(self) -> None:
+    def test_registered_dry_until_the_gate_reaches_every_worker(self) -> None:
         ensure_registry_loaded()
         registration = HEALTH_CHECKS["stale_feature_flags"]
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # A registry-level dry run or team sample would gate the check a second time, out of
-        # reach of the flags UI.
-        assert registration.dry_run is False
-        assert registration.rollout_percentage == 1.0
+        # Web writes these into the schedule before the worker redeploys, so a worker without
+        # `eligible_team_ids` must still find a dry registration. The follow-up drops both and
+        # leaves the flag as the only gate.
+        assert registration.dry_run is True
+        assert registration.rollout_percentage == 0.01
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
         # Payloads carry flag keys and names, so the Health API must gate them on flag access.
@@ -955,3 +957,83 @@ class TestStaleFlagsContract(SimpleTestCase):
     def test_render_signal_returns_none(self) -> None:
         issue = self._issue({"flag_id": 42, "flag_key": "checkout-v2"})
         assert StaleFeatureFlagsCheck.render_signal(issue) is None
+
+
+class TestLiveGateAgainstRealLocalEvaluation(SimpleTestCase):
+    """The gate against a real SDK client, because every other test patches the read.
+
+    `settings.TEST` disables the global client, so the patched tests assert the arguments the
+    gate sends but never resolve them against a definition. These load one into a standalone
+    client and evaluate it, which is what catches a condition shape that silently matches nobody.
+    """
+
+    def _client_holding(self, flags: list[dict[str, Any]]) -> Client:
+        client = Client(
+            project_api_key="test-key",
+            personal_api_key="test-personal-key",
+            host="http://localhost:8000",
+            poll_interval=99999,
+            send=False,
+            enable_exception_autocapture=False,
+        )
+        client.feature_flags = flags
+        client.group_type_mapping = {"0": "project"}
+        return client
+
+    def _gate_flag(self, *, region: str, team_id: int) -> dict[str, Any]:
+        return {
+            "id": 1,
+            "key": LIVE_GATE_FLAG,
+            "active": True,
+            "filters": {
+                "aggregation_group_type_index": 0,
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [
+                            {"group_type_index": 0, "key": "id", "value": str(team_id), "operator": "exact"},
+                            {"group_type_index": 0, "key": "region", "value": region, "operator": "exact"},
+                        ],
+                    }
+                ],
+            },
+        }
+
+    def _answer_for(self, client: Client, team_id: int) -> Any:
+        region = "DEV"
+        return client.get_feature_flag(
+            LIVE_GATE_FLAG,
+            f"team-{team_id}",
+            groups={"project": f"{region}:{team_id}"},
+            group_properties={"project": {"id": str(team_id), "region": region}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+
+    def test_a_project_and_region_condition_matches_only_that_project(self) -> None:
+        client = self._client_holding([self._gate_flag(region="DEV", team_id=2)])
+
+        assert self._answer_for(client, 2) is True
+        assert self._answer_for(client, 3) is False
+
+    def test_a_condition_on_another_region_matches_nobody(self) -> None:
+        # The property the gate sends is what keeps US project N and EU project N apart.
+        client = self._client_holding([self._gate_flag(region="EU", team_id=2)])
+
+        assert self._answer_for(client, 2) is False
+
+    def test_a_gate_aggregated_on_another_group_type_answers_false_for_every_team(self) -> None:
+        # The trap: the gate sends only the `project` group, so a flag aggregated on anything
+        # else answers False rather than None. Under this design that drops the team, which is
+        # safe, but it means such a flag enables nobody and looks like a flag nobody matched.
+        flag = self._gate_flag(region="DEV", team_id=2)
+        flag["filters"]["aggregation_group_type_index"] = 1
+        client = self._client_holding([flag])
+        client.group_type_mapping = {"0": "project", "1": "organization"}
+
+        assert self._answer_for(client, 2) is False
+
+    def test_an_absent_gate_answers_none(self) -> None:
+        client = self._client_holding([{"id": 9, "key": "some-other-flag", "active": True, "filters": {}}])
+
+        assert self._answer_for(client, 2) is None
