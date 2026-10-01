@@ -142,6 +142,41 @@ class TestRequestLiftOnMerge:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestCancelLiftRequest:
+    @pytest.mark.parametrize(
+        ("name", "request_pr_number", "state", "cancels"),
+        [
+            ("pending_request_of_this_pull_request", PR_NUMBER, QuarantineLiftState.PENDING, True),
+            ("already_applied", PR_NUMBER, QuarantineLiftState.APPLIED, False),
+            ("request_of_another_pull_request", PR_NUMBER + 1, QuarantineLiftState.PENDING, False),
+        ],
+    )
+    def test_cancels_only_a_pending_request_of_the_runs_pull_request(
+        self, repo, quarantine_row, name, request_pr_number, state, cancels
+    ):
+        run = _run(repo, branch="fix-flake", pr_number=PR_NUMBER, commit_sha="pr-head")
+        request = QuarantineLiftRequest.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            quarantine=quarantine_row,
+            identifier=IDENTIFIER,
+            run_type=RunType.STORYBOOK,
+            pr_number=request_pr_number,
+            expected_hash="base",
+            state=state,
+        )
+
+        if cancels:
+            quarantine_lifts.cancel_lift_request(request.id, repo.team_id, run.id)
+        else:
+            with pytest.raises(errors.QuarantineLiftRequestNotFoundError):
+                quarantine_lifts.cancel_lift_request(request.id, repo.team_id, run.id)
+
+        request.refresh_from_db()
+        assert request.state == (QuarantineLiftState.CANCELLED if cancels else state)
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestReconcileLiftRequests:
     @pytest.fixture
     def pending_request(self, repo, quarantine_row):

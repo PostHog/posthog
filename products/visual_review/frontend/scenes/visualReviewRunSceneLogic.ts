@@ -61,8 +61,6 @@ export interface visualReviewRunSceneLogicValues {
     isRunInProgress: boolean
     isRunProcessing: boolean
     liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
-    selectedLiftRequest: QuarantineLiftEntryApi | null
-    selectedLiftOnMergeDisabledReason: string | null
     quarantineLifts: QuarantineLiftEntryApi[]
     quarantineLiftsLoading: boolean
     quarantinedIdentifierSet: Set<string>
@@ -74,6 +72,8 @@ export interface visualReviewRunSceneLogicValues {
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    selectedLiftOnMergeDisabledReason: string | null
+    selectedLiftRequest: QuarantineLiftEntryApi | null
     selectedSnapshot: SnapshotApi | null
     selectedSnapshotId: string | null
     showQuarantinedThumbnails: boolean
@@ -296,13 +296,18 @@ export interface visualReviewRunSceneLogicMeta {
         ) => Set<string>
         liftRequestByIdentifier: (
             quarantineLifts: QuarantineLiftEntryApi[],
+            quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
             run: RunApi | null
         ) => Record<string, QuarantineLiftEntryApi>
         selectedLiftRequest: (
             selectedSnapshot: SnapshotApi | null,
             liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
         ) => QuarantineLiftEntryApi | null
-        selectedLiftOnMergeDisabledReason: (selectedSnapshot: SnapshotApi | null, run: RunApi | null) => string | null
+        selectedLiftOnMergeDisabledReason: (
+            selectedSnapshot: SnapshotApi | null,
+            run: RunApi | null,
+            quarantineLiftsLoading: boolean
+        ) => string | null
         repoFullName: (repo: RepoApi | null) => string | null
         thumbnailBasePath: (run: RunApi | null, currentProjectId: number | string) => string | null
         isRunInProgress: (run: RunApi | null) => boolean
@@ -647,11 +652,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         .map((q: QuarantinedIdentifierEntryApi) => q.identifier)
                 ),
         ],
-        // Lift requests cover the whole pull request, which can hold runs of other run types.
+        // Lift requests cover the whole pull request, which can hold runs of other run types. A request
+        // made under an earlier quarantine of the same story does not describe the active one.
         liftRequestByIdentifier: [
-            (s) => [s.quarantineLifts, s.run],
-            (quarantineLifts: QuarantineLiftEntryApi[], run: RunApi | null): Record<string, QuarantineLiftEntryApi> =>
-                liftRequestsByIdentifier(quarantineLifts.filter((r) => r.run_type === run?.run_type)),
+            (s) => [s.quarantineLifts, s.quarantinedIdentifiers, s.run],
+            (
+                quarantineLifts: QuarantineLiftEntryApi[],
+                quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
+                run: RunApi | null
+            ): Record<string, QuarantineLiftEntryApi> => {
+                const activeQuarantineIds = new Set(quarantinedIdentifiers.map((q) => q.id))
+                return liftRequestsByIdentifier(
+                    quarantineLifts.filter(
+                        (r) =>
+                            r.run_type === run?.run_type &&
+                            (activeQuarantineIds.has(r.quarantine_id) || r.state === 'applied')
+                    )
+                )
+            },
         ],
         selectedLiftRequest: [
             (s) => [s.selectedSnapshot, s.liftRequestByIdentifier],
@@ -662,8 +680,16 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 selectedSnapshot ? (liftRequestByIdentifier[selectedSnapshot.identifier] ?? null) : null,
         ],
         selectedLiftOnMergeDisabledReason: [
-            (s) => [s.selectedSnapshot, s.run],
-            (selectedSnapshot: SnapshotApi | null, run: RunApi | null): string | null => {
+            (s) => [s.selectedSnapshot, s.run, s.quarantineLiftsLoading],
+            (
+                selectedSnapshot: SnapshotApi | null,
+                run: RunApi | null,
+                quarantineLiftsLoading: boolean
+            ): string | null => {
+                // Until the list arrives, a pending request for this story can exist without showing.
+                if (quarantineLiftsLoading) {
+                    return 'Loading the lift requests of this pull request'
+                }
                 if (run?.is_stale) {
                     return 'Request the lift from the latest run of this pull request'
                 }

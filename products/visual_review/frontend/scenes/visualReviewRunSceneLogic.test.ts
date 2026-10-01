@@ -186,9 +186,15 @@ describe('visualReviewRunSceneLogic', () => {
                 result: 'changed',
                 review_state: reviewState,
             }
-            const lift = (id: string, state: string, runType = 'storybook'): Record<string, unknown> => ({
+            const lift = (
+                id: string,
+                state: string,
+                runType = 'storybook',
+                quarantineId = 'quarantine-active'
+            ): Record<string, unknown> => ({
                 id,
                 identifier: 'flaky',
+                quarantine_id: quarantineId,
                 run_type: runType,
                 state,
                 detail: 'Waiting for the pull request to merge',
@@ -200,10 +206,27 @@ describe('visualReviewRunSceneLogic', () => {
                         { id: RUN_ID, repo_id: 'repo', run_type: 'storybook', pr_number: 7, status: 'completed' },
                     ],
                     [SNAPSHOTS_URL]: [200, { count: 1, next: null, previous: null, results: [quarantined] }],
+                    '/api/projects/:team_id/visual_review/repos/repo/quarantine/': [
+                        200,
+                        {
+                            count: 1,
+                            next: null,
+                            previous: null,
+                            results: [
+                                {
+                                    id: 'quarantine-active',
+                                    identifier: 'flaky',
+                                    run_type: 'storybook',
+                                    expires_at: null,
+                                },
+                            ],
+                        },
+                    ],
                     // Newest first, as the endpoint returns them.
                     [LIFTS_URL]: [
                         200,
                         [
+                            lift('earlier-quarantine', 'pending', 'storybook', 'quarantine-ended'),
                             lift('cancelled-newer', 'cancelled'),
                             lift('other-run-type', 'pending', 'playwright'),
                             lift('pending-older', 'pending'),
