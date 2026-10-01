@@ -12,8 +12,9 @@ and the SQL editor use), so no web worker ever waits on ClickHouse:
   still executing, and the rows as an Arrow stream once complete. The kernel's
   background thread polls this — invisible to the user, who already waits on the
   run callback or the page response.
+- `POST .../data_plane/heartbeat/` tells the backend a long cell is still running.
 
-Wired in posthog/urls.py at internal/notebooks/data_plane/query/.
+Wired in posthog/urls.py under internal/notebooks/data_plane/.
 """
 
 import json
@@ -96,6 +97,34 @@ def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonRespons
         return verify_data_plane_token(token)
     except signing.BadSignature:
         return JsonResponse({"error": "Invalid data-plane token"}, status=401)
+
+
+@extend_schema(
+    tags=["notebooks"],
+    request=None,
+    responses={
+        204: OpenApiResponse(description="Progress recorded"),
+        401: OpenApiResponse(description="Missing or invalid data-plane token"),
+    },
+    summary="SQLV2 data-plane heartbeat",
+    description=(
+        "Internal endpoint the notebook sandbox POSTs to while a cell executes. Authenticated with "
+        "the signed data-plane token minted at run dispatch. Resets the run's watchdog clock and "
+        "renews its concurrency slots, so a long cell is not failed while it works."
+    ),
+)
+def notebook_sql_v2_data_plane_heartbeat(request: HttpRequest) -> HttpResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    claims = _verify_request_token(request)
+    if isinstance(claims, JsonResponse):
+        return claims
+    # A cell that computes without reading data makes no data-plane fetches, so without this
+    # its only sign of life would be the final callback, and the watchdog would fail it first.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
+    return HttpResponse(status=204)
 
 
 @extend_schema(

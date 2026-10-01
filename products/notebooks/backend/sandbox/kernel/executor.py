@@ -23,6 +23,7 @@ import queue
 import shutil
 import hashlib
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from jupyter_client import KernelManager
@@ -34,7 +35,10 @@ from . import data_plane, envelope
 # one record batch) is the arch-doc target; a high cap is the pragmatic first cut.
 _MATERIALIZE_ROW_CAP = 2_000_000
 _KERNEL_READY_TIMEOUT_SECONDS = 30
-_EXECUTE_TIMEOUT_SECONDS = 300
+# A backstop for a cell that never ends. A long cell stays alive through the heartbeat, so this
+# can be generous; the backend's token lifetimes in sql_v2.py must outlast it.
+_EXECUTE_TIMEOUT_SECONDS = 6 * 60 * 60
+_HEARTBEAT_INTERVAL_SECONDS = 60
 _SHELL_POLL_SECONDS = 1.0
 # Completion and introspection answer while the user types: a kernel busy with a cell queues
 # the request behind it, so give up quickly and return nothing rather than block the editor.
@@ -156,7 +160,6 @@ class KernelExecutor:
                 self._introspection_kc = km.client(
                     session=Session(key=km.session.key, signature_scheme=km.session.signature_scheme)
                 )
-                self._introspection_kc.start_channels()
                 self._introspection_kc.start_channels()
                 self._introspection_km = km
             client = self._introspection_kc
@@ -310,6 +313,13 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
+            data_plane_url = payload.get("data_plane_url")
+            data_plane_token = payload.get("data_plane_token")
+            heartbeat = (
+                (lambda: data_plane.send_heartbeat(data_plane_url, data_plane_token))
+                if data_plane_url and data_plane_token
+                else None
+            )
             # Only while the cell is actually executing may an interrupt SIGINT the kernel.
             self._active_run_id = run_id
             try:
@@ -317,7 +327,8 @@ class KernelExecutor:
                     "import json as __j\n"
                     f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
                     "__envelope = _ph.run_node(__payload)\n"
-                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
+                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n",
+                    heartbeat=heartbeat,
                 )
             finally:
                 self._active_run_id = None
@@ -335,7 +346,7 @@ class KernelExecutor:
             # paging live under /data/results, so the per-run dir must not accumulate.
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    def _execute(self, code: str) -> tuple[str, str | None]:
+    def _execute(self, code: str, heartbeat: Callable[[], None] | None = None) -> tuple[str, str | None]:
         """Run code in the kernel; return (execute_reply status, error detail when not ok).
 
         The detail is the reply's exception name and value — without it a run-machinery
@@ -345,7 +356,11 @@ class KernelExecutor:
         """
         msg_id = self._kc.execute(code, store_history=False, silent=True)
         deadline = time.monotonic() + _EXECUTE_TIMEOUT_SECONDS
+        next_heartbeat = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
         while time.monotonic() < deadline:
+            if heartbeat is not None and time.monotonic() >= next_heartbeat:
+                heartbeat()
+                next_heartbeat = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
             try:
                 reply = self._kc.get_shell_msg(timeout=_SHELL_POLL_SECONDS)
             except queue.Empty:

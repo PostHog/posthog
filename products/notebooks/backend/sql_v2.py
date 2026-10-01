@@ -56,9 +56,12 @@ DELIVERY_NONE = "none"  # kernel run that read no ClickHouse result, so no trans
 DELIVERY_MIXED = "mixed"  # one run materialized several inputs and they did not agree on a transport
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
-_CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
 _DATA_PLANE_TOKEN_SALT = "notebooks.sql_v2.data_plane"
-_DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 3600
+# Both tokens are minted at dispatch and used until the run ends: the data-plane token for the
+# heartbeat, the callback token for the result. They must outlive the kernel's execute cap
+# (_EXECUTE_TIMEOUT_SECONDS in sandbox/kernel/executor.py, 6 hours) plus the input fetches.
+_CALLBACK_TOKEN_MAX_AGE_SECONDS = 7 * 60 * 60
+_DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 7 * 60 * 60
 
 # Rows in the display page the run envelope carries to the UI.
 DISPLAY_PAGE_LIMIT = 50

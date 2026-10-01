@@ -2030,14 +2030,23 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
             # dispatch, a two-input cell outruns the 20 minute budget while working correctly,
             # and the watchdog fails it. A fetch is the kernel's only sign of life mid-run, so
             # it has to move the clock.
-            ("running_run_stays_alive", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
+            ("running_run_stays_alive", "query", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
             # And the guard on the other side: a fetch arriving after the run already finished
             # must not revive its clock, or a late straggler would resurrect a settled row.
-            ("finished_run_is_not_revived", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+            ("finished_run_is_not_revived", "query", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+            # A cell that trains a model for hours fetches nothing; its heartbeat is the only sign of life.
+            (
+                "heartbeat_keeps_running_run_alive",
+                "heartbeat",
+                NotebookNodeRun.Status.RUNNING,
+                False,
+                NotebookNodeRun.Status.RUNNING,
+            ),
+            ("heartbeat_does_not_revive", "heartbeat", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
         ]
     )
-    def test_a_data_plane_fetch_resets_the_run_watchdog_clock(
-        self, _name, initial_status, expect_expired, expected_status
+    def test_a_data_plane_request_resets_the_run_watchdog_clock(
+        self, _name, endpoint, initial_status, expect_expired, expected_status
     ):
         with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
             run = NotebookNodeRun.objects.create(
@@ -2048,13 +2057,65 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
                 status=initial_status,
             )
         token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, str(run.id))
-        self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+        if endpoint == "query":
+            self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+        else:
+            response = self.client.post(
+                "/internal/notebooks/data_plane/heartbeat/", HTTP_AUTHORIZATION=f"Bearer {token}"
+            )
+            self.assertEqual(response.status_code, 204)
 
         from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
 
         run.refresh_from_db()
         self.assertEqual(expire_stale_kernel_run(run), expect_expired)
         self.assertEqual(run.status, expected_status)
+
+    @parameterized.expand(
+        [
+            (
+                "running_run_is_checked_again",
+                NotebookNodeRun.Status.RUNNING,
+                5 * 60,
+                15 * 60,
+                NotebookNodeRun.Status.RUNNING,
+            ),
+            (
+                "quiet_run_fails_and_ends_the_watch",
+                NotebookNodeRun.Status.RUNNING,
+                21 * 60,
+                None,
+                NotebookNodeRun.Status.FAILED,
+            ),
+            ("finished_run_ends_the_watch", NotebookNodeRun.Status.DONE, 5 * 60, None, NotebookNodeRun.Status.DONE),
+        ]
+    )
+    def test_watchdog_activity_schedules_the_next_check(
+        self, _name, initial_status, quiet_seconds, expected_wait, expected_status
+    ):
+        from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput, expire_sql_v2_run_activity
+
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=initial_status,
+            )
+        with time_machine.travel("2026-07-01T00:00:00Z", tick=False) as traveller:
+            traveller.shift(quiet_seconds)
+            wait = expire_sql_v2_run_activity(
+                SQLV2RunInput(team_id=self.team.id, run_id=str(run.id), notebook_short_id=self.notebook.short_id)
+            )
+
+        self.assertEqual(wait, expected_wait)
+        run.refresh_from_db()
+        self.assertEqual(run.status, expected_status)
+
+    def test_heartbeat_rejects_a_bad_token(self):
+        response = self.client.post("/internal/notebooks/data_plane/heartbeat/", HTTP_AUTHORIZATION="Bearer nope")
+        self.assertEqual(response.status_code, 401)
 
     def test_a_fetch_without_a_run_claim_touches_no_run(self):
         # Tokens minted before the run claim existed stay valid across the deploy that adds

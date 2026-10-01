@@ -53,6 +53,7 @@ from products.messaging.backend.api.push_subscriptions import push_subscriptions
 from products.notebooks.backend.facade.sql_v2 import (
     notebook_sql_v2_callback,
     notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_heartbeat,
     notebook_sql_v2_data_plane_status,
 )
 from products.product_tours.backend.api import product_tours
@@ -235,6 +236,10 @@ urlpatterns = [
     path(
         "internal/notebooks/data_plane/query/<str:query_id>/",
         csrf_exempt(notebook_sql_v2_data_plane_status),
+    ),
+    path(
+        "internal/notebooks/data_plane/heartbeat/",
+        csrf_exempt(notebook_sql_v2_data_plane_heartbeat),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
