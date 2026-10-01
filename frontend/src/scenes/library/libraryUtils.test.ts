@@ -1,4 +1,4 @@
-import { libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
+import { filterLibraryTypes, libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
 
 describe('libraryUtils', () => {
     test.each([
@@ -30,5 +30,18 @@ describe('libraryUtils', () => {
         ['/notebooks/abc', null],
     ])('finds the object type of %s', (path, type) => {
         expect(libraryTypeForPath(path)).toBe(type)
+    })
+
+    test.each([
+        ['', ['feature_flag', 'dashboard']],
+        ['  FLAG ', ['feature_flag']],
+        ['boards', ['dashboard']],
+        ['nothing', []],
+    ])('filters types by %j', (search, values) => {
+        const types = [
+            { value: 'feature_flag', label: 'Feature flag', pluralLabel: 'Feature flags' },
+            { value: 'dashboard', label: 'Dashboard', pluralLabel: 'Dashboards' },
+        ]
+        expect(filterLibraryTypes(types, search).map((type) => type.value)).toEqual(values)
     })
 })

@@ -1,7 +1,8 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconFolder } from '@posthog/icons'
+import { LemonInput } from '@posthog/lemon-ui'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
@@ -16,13 +17,25 @@ import { TodayPaneRow } from './TodayPaneRow'
 
 /** The Library sub-nav: every saved object type, each opening a filtered list in the main area. */
 export function TodayLibrarySidebar(): JSX.Element {
-    const { objectTypes } = useValues(libraryLogic)
+    const { filteredObjectTypes, typeSearch } = useValues(libraryLogic)
+    const { setTypeSearch } = useActions(libraryLogic)
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const objectPageType = libraryTypeForPath(path)
 
     return (
         <div className="TodayPane">
+            <div className="TodayPane__filters">
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search library"
+                    value={typeSearch}
+                    onChange={setTypeSearch}
+                    data-attr="today-library-search"
+                    fullWidth
+                />
+            </div>
             <div className="TodayPane__scroll">
                 <div className="TodayPane__heading Today__label">Library</div>
                 <TodayPaneRow
@@ -32,7 +45,10 @@ export function TodayLibrarySidebar(): JSX.Element {
                     active={path === urls.library()}
                     dataAttr="today-library-all"
                 />
-                {objectTypes.map((type) => (
+                {!filteredObjectTypes.length && (
+                    <div className="TodayPane__state">No object types match that search.</div>
+                )}
+                {filteredObjectTypes.map((type) => (
                     <TodayPaneRow
                         key={type.value}
                         label={type.pluralLabel}
