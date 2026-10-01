@@ -32,7 +32,7 @@ describe('taskRunArtifactsLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             activeTab: 'artifacts',
-            selectedFileName: 'report.md',
+            selectedFileKey: 'report.md',
             selectedVersionId: 'v1',
         })
 
@@ -53,6 +53,6 @@ describe('taskRunArtifactsLogic', () => {
         const logic = taskRunArtifactsLogic({ taskId: TASK_ID })
         logic.mount()
 
-        await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileName: null })
+        await expectLogic(logic).toMatchValues({ activeTab: 'conversation', selectedFileKey: null })
     })
 })

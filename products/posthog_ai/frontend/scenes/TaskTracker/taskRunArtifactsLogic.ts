@@ -74,7 +74,7 @@ export interface taskRunArtifactsLogicValues {
     mediaById: Record<string, ArtifactMedia>
     selectedArtifact: RunArtifact | null
     selectedFile: ArtifactFile | null
-    selectedFileName: string | null
+    selectedFileKey: string | null
     selectedIndex: number
     selectedKind: ArtifactPreviewKind | null
     selectedMedia: ArtifactMedia | null
@@ -147,17 +147,20 @@ export interface taskRunArtifactsLogicActions {
         payload?: string[]
     }
     openFromUrl: (
-        fileName: string,
+        fileKey: string,
         versionId: string | null
     ) => {
-        fileName: string
+        fileKey: string
         versionId: string | null
     }
     reportLinkCopied: () => {
         value: true
     }
-    selectArtifact: (fileName: string) => {
-        fileName: string
+    reportObjectOpened: (objectKind: string) => {
+        objectKind: string
+    }
+    selectArtifact: (fileKey: string) => {
+        fileKey: string
     }
     selectVersion: (artifactId: string | null) => {
         artifactId: string | null
@@ -176,7 +179,7 @@ export interface taskRunArtifactsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         artifacts: (selectedRun: TaskRunDetailDTOApi | null, chainRuns: TaskRunDetailDTOApi[]) => RunArtifact[]
         files: (artifacts: RunArtifact[]) => ArtifactFile[]
-        selectedIndex: (files: ArtifactFile[], selectedFileName: string | null) => number
+        selectedIndex: (files: ArtifactFile[], selectedFileKey: string | null) => number
         selectedFile: (files: ArtifactFile[], selectedIndex: number) => ArtifactFile | null
         selectedVersionIndex: (selectedFile: ArtifactFile | null, selectedVersionId: string | null) => number
         selectedVersion: (selectedFile: ArtifactFile | null, selectedVersionIndex: number) => RunArtifact | null
@@ -188,7 +191,7 @@ export interface taskRunArtifactsLogicMeta {
         ) => ArtifactMedia | null
         shareUrl: (
             currentProjectId: number | null,
-            selectedFileName: string | null,
+            selectedFileKey: string | null,
             selectedFile: ArtifactFile | null,
             selectedVersionId: string | null,
             arg: any
@@ -244,14 +247,15 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     })),
     actions({
         setActiveTab: (tab: TaskRunTab) => ({ tab }),
-        selectArtifact: (fileName: string) => ({ fileName }),
+        selectArtifact: (fileKey: string) => ({ fileKey }),
         // `null` follows the latest version, so a new upload of the open file shows at once.
         selectVersion: (artifactId: string | null) => ({ artifactId }),
         stepArtifact: (delta: number) => ({ delta }),
         downloadArtifact: (artifact: RunArtifact) => ({ artifact }),
         ensureSelectedText: true,
-        openFromUrl: (fileName: string, versionId: string | null) => ({ fileName, versionId }),
+        openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
+        reportObjectOpened: (objectKind: string) => ({ objectKind }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -343,9 +347,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
         ],
-        selectedFileName: [
+        selectedFileKey: [
             null as string | null,
-            { selectArtifact: (_, { fileName }) => fileName, openFromUrl: (_, { fileName }) => fileName },
+            { selectArtifact: (_, { fileKey }) => fileKey, openFromUrl: (_, { fileKey }) => fileKey },
         ],
         selectedVersionId: [
             null as string | null,
@@ -378,11 +382,11 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
         files: [(s) => [s.artifacts], (artifacts: RunArtifact[]): ArtifactFile[] => groupArtifactVersions(artifacts)],
         selectedIndex: [
-            (s) => [s.files, s.selectedFileName],
-            (files: ArtifactFile[], selectedFileName: string | null): number =>
+            (s) => [s.files, s.selectedFileKey],
+            (files: ArtifactFile[], selectedFileKey: string | null): number =>
                 Math.max(
                     0,
-                    files.findIndex((file) => file.name === selectedFileName)
+                    files.findIndex((file) => file.key === selectedFileKey)
                 ),
         ],
         selectedFile: [
@@ -419,24 +423,24 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         shareUrl: [
             (s) => [
                 s.currentProjectId,
-                s.selectedFileName,
+                s.selectedFileKey,
                 s.selectedFile,
                 s.selectedVersionId,
                 (_, props) => props.taskId,
             ],
             (
                 currentProjectId: number | null,
-                selectedFileName: string | null,
+                selectedFileKey: string | null,
                 selectedFile: ArtifactFile | null,
                 selectedVersionId: string | null,
                 taskId: string
             ): string | null => {
                 // The same file the url sync writes, so the copied link matches the address bar.
-                const fileName = selectedFileName ?? selectedFile?.name
-                if (currentProjectId === null || !fileName) {
+                const fileKey = selectedFileKey ?? selectedFile?.key
+                if (currentProjectId === null || !fileKey) {
                     return null
                 }
-                const params: Record<string, string> = { task: taskId, [ARTIFACT_PARAM]: fileName }
+                const params: Record<string, string> = { task: taskId, [ARTIFACT_PARAM]: fileKey }
                 if (selectedVersionId) {
                     params[VERSION_PARAM] = selectedVersionId
                 }
@@ -499,11 +503,15 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 const { files, selectedIndex } = values
                 const next = files[(selectedIndex + delta + files.length) % files.length]
                 if (next) {
-                    actions.selectArtifact(next.name)
+                    actions.selectArtifact(next.key)
                 }
             },
             downloadArtifact: ({ artifact }) => {
                 posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
+            },
+            reportObjectOpened: ({ objectKind }) => {
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact object opened', { object_kind: objectKind })
             },
             reportLinkCopied: () => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
@@ -527,9 +535,9 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             const next = { ...searchParams }
             delete next[ARTIFACT_PARAM]
             delete next[VERSION_PARAM]
-            const fileName = values.selectedFileName ?? values.selectedFile?.name
-            if (values.activeTab === 'artifacts' && fileName) {
-                next[ARTIFACT_PARAM] = fileName
+            const fileKey = values.selectedFileKey ?? values.selectedFile?.key
+            if (values.activeTab === 'artifacts' && fileKey) {
+                next[ARTIFACT_PARAM] = fileKey
                 if (values.selectedVersionId) {
                     next[VERSION_PARAM] = values.selectedVersionId
                 }
@@ -540,18 +548,18 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
     }),
     urlToAction(({ actions, values, props }) => ({
         '*': (_, searchParams, __, { pathname }) => {
-            const fileName = searchParams[ARTIFACT_PARAM]
-            if (typeof fileName !== 'string' || !fileName || !urlIsForTask(pathname, searchParams, props.taskId)) {
+            const fileKey = searchParams[ARTIFACT_PARAM]
+            if (typeof fileKey !== 'string' || !fileKey || !urlIsForTask(pathname, searchParams, props.taskId)) {
                 return
             }
             const versionId = typeof searchParams[VERSION_PARAM] === 'string' ? searchParams[VERSION_PARAM] : null
             // Our own `actionToUrl` writes land here too. Those match the state already.
             if (
                 values.activeTab !== 'artifacts' ||
-                values.selectedFileName !== fileName ||
+                values.selectedFileKey !== fileKey ||
                 values.selectedVersionId !== versionId
             ) {
-                actions.openFromUrl(fileName, versionId)
+                actions.openFromUrl(fileKey, versionId)
             }
         },
     })),
