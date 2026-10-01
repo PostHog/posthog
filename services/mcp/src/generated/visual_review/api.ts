@@ -127,7 +127,7 @@ export const VisualReviewReposQuarantineCreateBody = () => zod.object({
         .datetime({ offset: true })
         .nullish()
         .describe(
-            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted expiry becomes 30 days from now; anywhere else it means no expiry.'
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted or later expiry becomes 30 days from now; anywhere else omitting it means no expiry.'
         ),
     source_run_id: zod
         .string()

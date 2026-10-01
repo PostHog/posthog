@@ -13882,7 +13882,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-quarantine-create": {
-        "description": "Stop one identifier of one run type from failing any run in the repo until the quarantine expires. It is still captured and diffed. Use it only for a story that flakes on the default branch (`unstable` in `visual-review-repos-flakiness-retrieve`, `hard_count` of 5 or more, and a failure in the last 7 days), never for a `broken` entry (its baseline needs a fix) or a diff your own change caused. Pass the failing run as `source_run_id` and a `reason` with the evidence. An omitted `expires_at` becomes 30 days; do not set a later one. A repeat call replaces the quarantine. Then call `visual-review-runs-recompute-create` to update the open pull request's gate.",
+        "description": "Stop one identifier of one run type from failing any run in the repo until the quarantine expires. It is still captured and diffed. Use it only for a story that flakes on the default branch (`unstable` in `visual-review-repos-flakiness-retrieve`, `hard_count` of 5 or more, and a failure in the last 7 days), never for a `broken` entry (its baseline needs a fix) or a diff your own change caused. Pass the failing run as `source_run_id` and a `reason` with the evidence. An omitted or later `expires_at` becomes 30 days. A repeat call replaces the quarantine. Then call `visual-review-runs-recompute-create` to update the open pull request's gate.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Quarantine a visual review snapshot",
