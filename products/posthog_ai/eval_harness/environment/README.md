@@ -1,0 +1,90 @@
+# Reusable local evaluation environments
+
+Prepare a persistent PostHog project from saved events and metric definitions. This runs the normal dev app and verifies the restored data through HogQL. It does not run an agent, create a scout, or start an evaluation. No model API keys are needed.
+
+## Restore an environment
+
+From a standard PostHog devbox with its dependencies installed:
+
+```bash
+products/posthog_ai/eval_harness/prepare-devbox /private/path/environment.tar.gz
+```
+
+An unpacked folder containing `environment.json` works too. The command validates the bundle before starting the app, reuses a healthy local app, and leaves services running. It prints the project URL, receipt path, and a private credentials-file path if it created a local login. With several active local users, pass `--user-id ID` to select the owner.
+
+The default state directory is `.flox/cache/eval-environment`. Keep it for reruns: the receipt pins the input, database, project, identity namespace, and target cutoff. A successful rerun verifies and reuses that project without appending events. It also checks that metrics and the project's Drop Events transformation remain unchanged. The transformation prevents normal capture from adding events to this snapshot project.
+
+Use `--state-dir /private/path/another-import` to create a separate project or recover from a failed import. A pending or failed receipt is not resumed, and the command does not delete a partially created project. Do not delete a receipt to retry into the same project. After a startup failure before import, rerun with the same state directory.
+
+The command only accepts local development database settings. It never stops another checkout's app. If the running app belongs to another checkout and this checkout needs migrations, it refuses the import: start a compatible normal app before retrying. For its own checkout, it waits for startup migrations and can apply the normal forward PostgreSQL migrations. The workspace retains private startup and migration logs.
+
+## Build a bundle
+
+Use the canonical `EnvironmentEvent` and `EnvironmentMetric` models with `EVENT_TABLE` and `METRIC_TABLE`. These helpers write the exact Parquet column types, including JSON-encoded properties and timezone-aware timestamps. Arbitrary query-export Parquet schemas are not accepted.
+
+This complete example uses invented data and writes only to `/tmp`:
+
+```bash
+.codex/with-flox python - <<'PY'
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import UUID
+
+from products.posthog_ai.eval_harness.environment.schema import (
+    EVENT_TABLE, METRIC_TABLE, EnvironmentEvent, EnvironmentMetric,
+)
+
+folder = Path("/tmp/posthog-environment-example")
+folder.mkdir(mode=0o700, exist_ok=True)
+cutoff = datetime(2030, 6, 4, 12, tzinfo=UTC)
+EVENT_TABLE.write(folder / "events.parquet", [EnvironmentEvent(
+    uuid=UUID("00000000-0000-4000-8000-000000000001"),
+    event="example_action",
+    distinct_id="example-user",
+    timestamp=cutoff - timedelta(hours=1),
+    created_at=cutoff - timedelta(minutes=59),
+    properties={"$current_url": "https://example.com/demo", "duration": 3},
+)])
+METRIC_TABLE.write(folder / "metrics.parquet", [EnvironmentMetric(
+    id=UUID("00000000-0000-4000-8000-000000000002"),
+    created_at=cutoff - timedelta(days=1),
+    name="example_actions",
+    description="Count example actions.",
+    definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+    referenced_table_names=["events"],
+    status="approved",
+)])
+PY
+
+.codex/with-flox python -m products.posthog_ai.eval_harness.environment pack \
+  --events /tmp/posthog-environment-example/events.parquet \
+  --metrics /tmp/posthog-environment-example/metrics.parquet \
+  --source-cutoff 2030-06-04T12:00:00Z \
+  --name example-environment \
+  --output /tmp/posthog-environment-example/environment.tar.gz
+```
+
+`--events` accepts several files. Exact duplicate event rows with the same UUID are combined; conflicting rows are rejected. `--metrics` is optional. `--timezone` defaults to `UTC` and sets the restored project's timezone. The archive contains only the manifest, data files, and complete `SHA256SUMS`; it never replaces an existing output. Files are private, and archive extraction rejects links, special files, and paths outside the bundle.
+
+## Time and scope
+
+The source cutoff is an exclusive bound for event `timestamp` and `created_at`. Metric timestamps must be at or before the source cutoff. Version 1 captures metric state at that same checkpoint.
+
+On the first restore, the target cutoff defaults to UTC now. Every typed timestamp shifts by `target_cutoff - source_cutoff`, retaining microsecond precision. Pass `--target-cutoff 2030-07-04T12:00:00Z` for a fixed reference time. Reruns retain the original target; they do not move the data forward as wall time advances. Use a new state directory for a new reference time.
+
+Dates inside SQL, descriptions, or JSON strings shift only when explicitly listed in a `--text-policy` JSON file:
+
+```json
+{
+  "time_strings": ["2030-06-04T12:00:00Z"],
+  "string_replacements": {}
+}
+```
+
+Declared time strings retain their written precision. A date-only or seconds-only string cannot represent a finer cutoff shift: choose an aligned target cutoff when exact textual query boundaries matter. `string_replacements` applies literal substitutions to restored property and metric text; it is an explicit preparation rule, not an anonymizer.
+
+Version 1 restores events and data-catalog metrics only. It does not reconstruct people, groups, dashboards, insights, external tables, agent state, tasks, or report history. Metrics may reference only `events`; source insight references are unsupported. Event UUIDs, distinct IDs, and source event identity values remain in the saved data, while restored metric IDs and their references receive a project-local namespace. Ensure the chosen event window and metric definitions are sufficient for the task you plan to run.
+
+## Private data
+
+Keep source files, bundles, extracted data, receipts, and credentials outside Git or in an ignored directory. Packing validates structure and checksums; it does not remove sensitive text or identifiers. Review and anonymize real data before sharing it through an approved private channel. Pseudonymized customer-derived data remains private; public repository examples and fixtures must be independently invented. Preparing this project does not authorize uploading its contents through a later evaluation or agent run.
