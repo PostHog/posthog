@@ -83,7 +83,12 @@ class BackfillEnumerationThrottle(PersonalApiKeyOrUserRateThrottle):
 
 class BackfillWindowSerializer(serializers.Serializer):
     window_start = serializers.DateTimeField(help_text="Inclusive lower bound of the historical window to scan.")
-    window_end = serializers.DateTimeField(help_text="Exclusive upper bound of the window; clamped server-side to now.")
+    window_end = serializers.DateTimeField(
+        help_text=(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to "
+            "the experiment's end date."
+        ),
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if attrs["window_start"] >= attrs["window_end"]:
@@ -119,7 +124,11 @@ class BackfillEstimateResponseSerializer(serializers.Serializer):
         allow_null=True, help_text="Credits left in the org's monthly quota; null when the org is uncapped."
     )
     window_start = serializers.DateTimeField(help_text="The window lower bound the estimate covered.")
-    window_end = serializers.DateTimeField(help_text="The window upper bound after clamping to now.")
+    window_end = serializers.DateTimeField(
+        help_text=(
+            "The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date."
+        ),
+    )
 
 
 class ReplayScannerBackfillSerializer(serializers.ModelSerializer):

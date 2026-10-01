@@ -1594,7 +1594,7 @@ export interface PaginatedReplayScannerBackfillListApi {
 export interface BackfillCreateApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
     /**
      * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -1606,7 +1606,7 @@ export interface BackfillCreateApi {
 export interface BackfillWindowApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
 }
 
@@ -1624,7 +1624,7 @@ export interface BackfillEstimateResponseApi {
     credits_remaining: number | null
     /** The window lower bound the estimate covered. */
     window_start: string
-    /** The window upper bound after clamping to now. */
+    /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
     window_end: string
 }
 
