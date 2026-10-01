@@ -24,6 +24,9 @@ interface TodaySessionRowProps {
     dataAttr: string
     surface: TodaySessionSurface
     unread: boolean
+    selected?: boolean
+    /** Takes a modifier click over for the sidebar's multi-select. */
+    onSelectClick?: (event: React.MouseEvent<HTMLElement>) => void
 }
 
 export function TodaySessionRow({
@@ -33,6 +36,8 @@ export function TodaySessionRow({
     dataAttr,
     surface,
     unread,
+    selected = false,
+    onSelectClick,
 }: TodaySessionRowProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
@@ -69,6 +74,8 @@ export function TodaySessionRow({
             }
             badgeCount={badgeCount === 2 ? 2 : 1}
             ticker
+            selected={selected}
+            onClickCapture={onSelectClick}
             action={
                 <TodaySessionMenu
                     sessionId={item.id}
