@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from posthog.test.base import BaseTest, NonAtomicBaseTest
@@ -1445,7 +1446,7 @@ class TestSystemMessageSuppressions(NonAtomicBaseTest):
         AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
 
     def test_exposes_the_suppression_of_each_address(self):
-        suppressed_at = timezone.now()
+        suppressed_at = datetime(2026, 9, 1, 12, 30, tzinfo=UTC)
         _create_message_suppression(
             self.team, "bounced", source="BOUNCE", reason="Mailbox full", suppressed_at=suppressed_at
         )
