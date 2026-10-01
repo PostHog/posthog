@@ -115,6 +115,11 @@ The activities live in
 Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
 Other refresh failures retry on the default cadence.
 
+A follow-up command read timeout leaves its turn open, even if an earlier turn's
+completion signal arrived during delivery. This applies to user and peer messages.
+An open turn blocks sandbox rotation. If its sandbox disappears before completion,
+a workflow-origin run fails instead of reporting unfinished work as completed.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
