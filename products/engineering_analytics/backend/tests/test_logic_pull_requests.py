@@ -9,13 +9,18 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.database.database import Database
+
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     CIStatusRollup,
     MetricQuality,
     PRLifecycleEventKind,
     PRState,
+    PullRequestList,
 )
+from products.engineering_analytics.backend.logic.queries import pull_request_list
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
@@ -182,14 +187,12 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             1,
             ["E2E CI"],
-            5,
-            2,
         )
         # The query returns newest-first (its per-PR LIMIT BY keeps the most recent pushes); the mapper
         # reverses to the oldest-first contract, so the mock is ordered newest-first to match.
         push_rows = [
-            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1),
-            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0),
+            ("PostHog", "posthog", 10, "sha-new", _dt("2026-01-11T10:00:00"), None, 0, 1, 5, 2),
+            ("PostHog", "posthog", 10, "sha-old", _dt("2026-01-10T10:00:00"), 900, 1, 0, 5, 2),
         ]
         with mock.patch(_RUN_QUERY, side_effect=_pr_list_run([row], push_rows)):
             result = api.list_pull_requests(team=self.team, date_from="-30d")
@@ -243,8 +246,6 @@ class TestPullRequestEndpointMapping(BaseTest):
             0,
             0,
             list[str](),
-            0,
-            0,
         )
         with (
             mock.patch(f"{_PR_LIST}._LIMIT", 2),
@@ -288,13 +289,23 @@ class TestResolveBranchMapping(BaseTest):
 class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     """PR-scoped end-to-end aggregates over the shared seeded warehouse tables."""
 
-    def test_ci_cards_counts(self) -> None:
+    def test_ci_cards_and_attention_list_agree(self) -> None:
         self._seed()
         cards = api.get_ci_cards(team=self.team)
         assert cards.open_prs == 5  # 10, 11, 12, 13, 16
         assert cards.repos == 1  # all PostHog/posthog
         assert cards.stuck == 1  # only 11 (10 recent, 12 draft, 13 and 16 bots)
         assert cards.failing_ci == 1  # only 10 has a failing latest run
+
+        attention = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in attention.items] == [10, 11]  # failing first, then stuck
+        assert attention.total == 2
+        assert attention.items[0].push_history  # enriched like the full list
+
+        with mock.patch.object(pull_request_list, "_ATTENTION_LIMIT", 1):
+            capped = api.list_attention_pull_requests(team=self.team)
+        assert [item.number for item in capped.items] == [10]
+        assert capped.total == 2  # counts past the cap
 
     def test_pull_request_list_window_and_rollup(self) -> None:
         self._seed()
@@ -311,18 +322,25 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # its head SHA is a rebase the queue made, so it must not inflate the author's push count.
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
         assert {sample.head_sha for sample in by_number[10].push_history} == {"sha10", "sha10b"}
+        with mock.patch.object(pull_request_list, "_PUSH_HISTORY_LIMIT", 1):
+            capped = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 10)
+        assert [sample.head_sha for sample in capped.push_history] == ["sha10"]
+        assert (capped.pushes, capped.rerun_cycles) == (2, 1)  # counts include the push the cap dropped
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure
         # No issue-events source seeded: the column degrades to NULL (never 0) and the query still runs.
         assert by_number[14].merged_at is not None and by_number[14].ready_to_merge_seconds is None
 
-    def test_pull_request_list_includes_cost_when_jobs_synced(self) -> None:
+    def test_pull_request_list_includes_cost_and_reuses_it(self) -> None:
         # With the jobs source synced, the list carries per-PR cost + billable minutes.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
-            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70")],
+            [
+                _pr_row(70, "alice", "open", 0, _ago(1), head_sha="sha70"),
+                _pr_row(71, "bob", "open", 0, _ago(1), head_sha="sha71"),
+            ],
         )
         self._create_table(
             "github_workflow_runs",
@@ -334,10 +352,28 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             WORKFLOW_JOBS_COLUMNS,
             [_job_row(94000, 9400, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
-        item = next(i for i in api.list_pull_requests(team=self.team).items if i.number == 70)
+
+        def list_counting_cost_queries() -> tuple[PullRequestList, int]:
+            with mock.patch.object(CuratedGitHubSource, "run", autospec=True, wraps=CuratedGitHubSource.run) as run:
+                result = api.list_pull_requests(team=self.team)
+            queries = [
+                call for call in run.call_args_list if call.kwargs.get("query_type") == "engineering_analytics.pr_costs"
+            ]
+            return result, len(queries)
+
+        result, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
+        item = next(i for i in result.items if i.number == 70)
         # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
         assert item.estimated_cost_usd == pytest.approx(0.016)
         assert item.billable_minutes == pytest.approx(2.0)
+
+        repeat, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 0
+        assert next(i for i in repeat.items if i.number == 70).estimated_cost_usd == pytest.approx(0.016)
+        with mock.patch.object(Database, "is_table_access_denied", return_value=True):
+            _, cost_queries = list_counting_cost_queries()
+        assert cost_queries == 1
 
     def test_ready_to_merge_semantics(self) -> None:
         # PR 20: only the LAST ready counts. PR 21: no transitions, whole life inside the window ->
@@ -608,7 +644,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
     def test_pull_request_list_rollup_is_repo_qualified(self) -> None:
         # PR numbers restart per repo. Two repos share PR #10; the per-PR push / re-run rollup must
         # attribute each repo's runs to its own PR, not merge them on number alone. (The head-SHA CI
-        # rollup is already repo-safe; this proves the runs_by_pr join is too.) A resolved source is
+        # rollup is already repo-safe; this proves the push-activity rollup is too.) A resolved source is
         # one repo today, so this is the defensive guarantee, exercised by seeding both into one.
         self._create_table(
             "github_pull_requests",
