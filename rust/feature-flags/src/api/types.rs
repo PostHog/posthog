@@ -1,5 +1,5 @@
 use crate::api::errors::FlagError;
-use crate::flags::evaluate_v2::Evaluation;
+use crate::flags::evaluate_v2::EvaluationDetail;
 use crate::flags::flag_group_type_mapping::GroupTypeIndex;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
@@ -446,15 +446,15 @@ pub struct FlagDetails {
 }
 
 /// The config format and, for a v2 flag that evaluated, the typed outcome the v3 record needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ConfigOutcome {
     #[default]
     V1,
-    V2(Option<Evaluation>),
+    V2(Option<EvaluationDetail>),
 }
 
 impl ConfigOutcome {
-    fn of(flag: &FeatureFlag, evaluation: Option<Evaluation>) -> Self {
+    fn of(flag: &FeatureFlag, evaluation: Option<EvaluationDetail>) -> Self {
         if flag.filters.is_v1() {
             Self::V1
         } else {
@@ -532,23 +532,32 @@ impl From<FlagDetails> for FlagDetailsV3 {
             FlagValue::Boolean(enabled) => Value::Bool(enabled),
             FlagValue::String(variant) => Value::String(variant),
         };
-        let (value, reason, rule, config_version, variant_key) = match flag.config_outcome {
+        let (value, reason, rule, config_version, payload, variant_key) = match flag.config_outcome
+        {
             ConfigOutcome::V1 => {
                 let value = if flag.failed {
                     Value::Null
                 } else {
                     legacy_value
                 };
-                (value, flag.reason, None, 1, flag.variant)
+                (
+                    value,
+                    flag.reason,
+                    None,
+                    1,
+                    flag.metadata.payload,
+                    flag.variant,
+                )
             }
+            // A v2 value travels only in `value`; the legacy payload channel stays null.
             ConfigOutcome::V2(Some(evaluation)) => {
-                let rule = evaluation.rule();
+                let rule = evaluation.rule;
                 let reason = FlagEvaluationReason {
-                    code: evaluation.code().to_string(),
+                    code: evaluation.code.to_string(),
                     condition_index: rule.map(|rule| rule.index as i32),
-                    description: Some(evaluation.description()),
+                    description: Some(evaluation.description),
                 };
-                (Value::from(evaluation.value()), reason, rule, 2, None)
+                (evaluation.value, reason, rule, 2, None, None)
             }
             ConfigOutcome::V2(None) => {
                 let reason = FlagEvaluationReason {
@@ -556,7 +565,7 @@ impl From<FlagDetails> for FlagDetailsV3 {
                     condition_index: None,
                     description: flag.reason.description,
                 };
-                (Value::Null, reason, None, 2, None)
+                (Value::Null, reason, None, 2, None, None)
             }
         };
         Self {
@@ -569,7 +578,7 @@ impl From<FlagDetails> for FlagDetailsV3 {
                 version: flag.metadata.version,
                 config_version,
                 description: flag.metadata.description,
-                payload: flag.metadata.payload,
+                payload,
                 has_experiment: flag.metadata.has_experiment,
                 rule_type: rule.map(|rule| rule.kind.as_str().to_string()),
                 rule_id: rule.map(|rule| rule.id),
@@ -690,7 +699,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     Vec::new()
                 }
             }),
-            config_outcome: ConfigOutcome::of(flag, flag_match.evaluation_v2),
+            config_outcome: ConfigOutcome::of(flag, flag_match.evaluation_v2.clone()),
         }
     }
 

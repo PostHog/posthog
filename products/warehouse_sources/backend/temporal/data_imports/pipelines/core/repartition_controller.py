@@ -9,6 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -116,6 +117,78 @@ def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
+
+
+def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
+    """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
+
+    We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
+    post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
+    below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
+    that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
+    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
+    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
+    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
+    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
+
+    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
+    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
+    """
+    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return False
+    if schema.coarsen_requested is not None:
+        return True
+    return enabled
+
+
+def is_pending_repartition_released_by_flag(
+    schema: ExternalDataSchema, pending: Mapping[str, object], *, enabled: bool | None = None
+) -> bool:
+    """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
+
+    Mirrors `_maybe_repartition_table`'s 'release' branch in `repartition_table.py` exactly: each
+    auto-staged trigger family answers to the flag that staged it (the flag is the only lever support
+    has to release such a table), and any other reason fails open because operator-staged work (admin,
+    a staged swap) must never dead-end on a rollout flag. Shared so `repartition_activity_has_work`
+    agrees with the activity's own answer instead of scheduling a round trip the activity would just
+    skip.
+
+    `enabled` lets a caller that already evaluated `WAREHOUSE_AUTO_REPARTITION_FLAG` this run thread
+    the result through instead of paying for a second evaluation.
+    """
+    reason = pending.get("trigger_reason")
+    if reason in ("proactive_threshold", "oom_history"):
+        return not (enabled if enabled is not None else is_auto_repartition_enabled(schema))
+    if reason == "coarsening":
+        return not is_auto_coarsen_enabled(schema)
+    return False
+
+
+def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
+    """Whether the pre-extraction repartition activity would do more than log and return.
+
+    The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
+    itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
+    the rollout flag (or a coarsening nomination) wants measured on disk. A pending corruption revive
+    makes the activity stand down before any of that, so it is a no-op here too. The flag is only
+    evaluated when nothing is queued, which is the one case the activity's answer depends on it.
+
+    A queued rewrite whose own trigger flag has since been disabled is also a no-op: the activity's
+    fast path stands it down without doing any work (see `is_pending_repartition_released_by_flag`), so
+    scheduling the activity for it would just pay a full round trip to log and return.
+    """
+    if schema.delta_revive_required is not None:
+        return False
+    pending = schema.repartition_pending
+    swap = schema.repartition_swap
+    if swap is not None:
+        return True
+    if pending is not None:
+        enabled = is_auto_repartition_enabled(schema)
+        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
+            return needs_pre_extraction_detection(schema, enabled)
+        return True
+    return needs_pre_extraction_detection(schema, is_auto_repartition_enabled(schema))
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:

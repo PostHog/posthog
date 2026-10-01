@@ -56,14 +56,14 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
-from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.temporal.metric_resolution import (
+from products.experiments.backend.metric_resolution import (
     ExperimentMetric,
     build_metric,
     find_metric_dict,
-    iter_metric_dicts,
+    scheduled_metric_definitions,
 )
+from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     ALL_OUTCOMES,
     MAX_CANARY_DETAIL_LENGTH,
@@ -150,7 +150,11 @@ def _eligible_experiments() -> list[Experiment]:
 
 def _experiment_metric_dicts(experiment: Experiment) -> list[dict[str, Any]]:
     with team_scope(experiment.team_id, canonical=True):
-        return [m for m in iter_metric_dicts(experiment) if m.get("metric_type") in ELIGIBLE_METRIC_TYPES]
+        return [
+            m
+            for m in scheduled_metric_definitions(experiment).values()
+            if m.get("metric_type") in ELIGIBLE_METRIC_TYPES
+        ]
 
 
 def _uses_data_warehouse(metric_dict: dict[str, Any]) -> bool:

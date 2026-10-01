@@ -29,6 +29,7 @@ class TestSpaceliftSource:
             "Invalid Spacelift API key: the API key ID or secret is incorrect",
             "Spacelift API returned unauthorized: the API key lacks access to this data (unauthorized)",
             "Invalid Spacelift account name: 'evil.com/x'",
+            "Spacelift account not found: token exchange failed (Account not found)",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

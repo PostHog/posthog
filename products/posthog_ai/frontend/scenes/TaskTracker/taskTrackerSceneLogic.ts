@@ -67,6 +67,7 @@ export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
+    seedContextItems?: AttachedContextItem[]
     repositoryConfig: RepositoryConfig
     /** null = no explicit pick; the run launches with the server-resolved default (user preference
      * over project default, else the built-in composer default). An explicit pick applies to this
@@ -90,6 +91,12 @@ export interface TaskTrackerSceneLogicProps {
     contextItems?: AttachedContextItem[]
     composerOverride?: ComposerOverride
     welcomeHeadlines?: string[]
+    /** Tasks channel that owns every task this composer creates. */
+    channelId?: string
+    /** Repository the composer starts from instead of the last-used one. The user can still change it. */
+    initialRepositoryConfig?: PersistedRepositoryConfig
+    /** Called with the created task's id after its run starts, so the host can open or list it. */
+    onTaskCreated?: (taskId: string) => void
 }
 
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
@@ -467,7 +474,16 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         newTaskData: [
             EMPTY_TASK_FORM as TaskCreateForm,
             {
-                setNewTaskData: (state, { data }) => ({ ...state, ...data }),
+                setNewTaskData: (state, { data }) => ({
+                    ...state,
+                    ...data,
+                    seedContextItems:
+                        'seedContextItems' in data
+                            ? data.seedContextItems
+                            : data.description !== undefined && data.description !== state.description
+                              ? undefined
+                              : state.seedContextItems,
+                }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
             },
         ],
@@ -609,7 +625,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
-            if (data.repositoryConfig?.repository) {
+            // A host default owns this composer's starting repo, so picks made here keep the shared memory intact.
+            if (data.repositoryConfig?.repository && !props.initialRepositoryConfig) {
                 const { integrationId, repository } = data.repositoryConfig
                 actions.setPersistedRepositoryConfig({ integrationId, repository })
             }
@@ -642,9 +659,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             if (githubIntegrations.length === 0) {
                 return
             }
-            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
-            // GitHubBranchCombobox re-selects the repo's actual default branch.
-            const { integrationId, repository } = values.persistedRepositoryConfig
+            // Restore the host default or the last-used repo only if its integration is still connected. Branch
+            // is left unset so GitHubBranchCombobox re-selects the repo's actual default branch.
+            const initial = props.initialRepositoryConfig
+            const { integrationId, repository } = initial?.repository
+                ? { integrationId: initial.integrationId ?? githubIntegrations[0].id, repository: initial.repository }
+                : values.persistedRepositoryConfig
             if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
                 actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
                 return
@@ -662,7 +682,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
         // typing (the component focuses the textarea in that case).
         applySuggestion: ({ item }) => {
-            actions.setNewTaskData({ description: item.content })
+            actions.setNewTaskData({ description: item.content, seedContextItems: undefined })
             if (!item.requiresUserInput) {
                 actions.submitNewTask()
             }
@@ -704,7 +724,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             // pane renders, and survives across the React swap into the detail page (which adopts the same
             // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
             const streamKey = `draft-${uuid()}`
-            const seededContext = props.contextItems ?? values.contextItems
+            const seededContext = [
+                ...(props.contextItems ?? values.contextItems),
+                ...(values.newTaskData.seedContextItems ?? []),
+            ]
             actions.claimApplyBackTargets(streamKey)
             const stream = runStreamLogic({ streamKey })
             const interaction = runInteractionLogic({
@@ -811,6 +834,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                           }
                         : { initial_permission_mode: permissionMode }),
                     pending_user_message: pendingUserMessage,
+                    ...(props.channelId ? { channel: props.channelId } : {}),
                 }
 
                 const newTask = await submitWithWarmRunRetry(
@@ -856,7 +880,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                             ),
                         disposables
                     )
-                    createdRun = runResponse.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    createdRun = runResponse.run ?? runResponse.latest_run
                     runId = createdRun?.id
                 }
 
@@ -923,6 +948,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.submitNewTaskSuccess()
                 actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
+                props.onTaskCreated?.(newTask.id)
             } catch (error) {
                 if (disposables.isDisposed) {
                     return
@@ -944,6 +970,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     if (unsent.length > 0) {
                         actions.setNewTaskData({
                             description: [values.newTaskData.description, ...unsent].join('\n\n'),
+                            seedContextItems: values.newTaskData.seedContextItems,
                         })
                     }
                     actions.clearActiveCreation()
@@ -962,6 +989,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         },
         openExistingTask: ({ task }) => {
+            actions.setNewTaskData({ seedContextItems: undefined })
             if (task.latest_run) {
                 // No optimistic stream seeding — the run surface bootstraps the thread from the API.
                 actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
@@ -1007,7 +1035,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
             // Consume-once: clear before applying so a re-entrant dispatch can't double-apply/submit.
             actions.consumeSeed()
-            actions.setNewTaskData({ description: seed.prompt })
+            actions.setNewTaskData({ description: seed.prompt, seedContextItems: seed.contextItems })
             if (seed.autoSubmit) {
                 actions.submitNewTask()
             }

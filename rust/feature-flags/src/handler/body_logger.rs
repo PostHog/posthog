@@ -821,7 +821,8 @@ mod tests {
         let mut resp = make_response(&["null-default", "other"]);
         let flag = resp.flags.get_mut("null-default").unwrap();
         flag.enabled = false;
-        flag.config_outcome = ConfigOutcome::V2(Some(Evaluation::NoRuleMatch { value: None }));
+        flag.config_outcome =
+            ConfigOutcome::V2(Some(Evaluation::NoRuleMatch { value: None }.into()));
         let patterns = TeamPatterns::new(vec!["null-default".into()]);
 
         let (v2_body, _, _) = serialize_filtered_response(&resp, &patterns, false);

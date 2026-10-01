@@ -29,6 +29,14 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     // Connectable, and shares the "apple" token with the unreleased `Apple` above so a search for
     // "apple" fuzzy-matches both — used to assert connectable results outrank "Coming soon" ones.
     ApplePay: { name: 'ApplePay', label: 'Apple Pay', fields: [] } as unknown as SourceConfigResponseApi,
+    // A Databases-category source, so a search for the words people use for the category itself
+    // has something to find.
+    Postgres: {
+        name: 'Postgres',
+        label: 'Postgres',
+        category: 'Databases',
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
     // Two sources in distinct categories, used to assert that a category-filtered search which only
     // matches a source in another category flags a cross-category hint instead of dead-ending.
     Salesforce: {
@@ -159,6 +167,15 @@ describe('sourceCatalogLogic', () => {
         expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
     })
 
+    // "database" already found these through the category name. The word in the product's own
+    // name found nothing at all, which sent the user to "request a source".
+    it.each(['warehouse', 'dwh'])('finds database sources when searching "%s"', (search) => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch(search)
+
+        expect(logic.values.filteredItems.map((item) => item.name)).toContain('Postgres')
+    })
+
     it('flags a cross-category match when a filtered search only hits another category', () => {
         const logic = sourceCatalogLogic()
         logic.actions.setSelectedCategory('Sales')
@@ -230,6 +247,18 @@ describe('sourceCatalogLogic', () => {
         const byName = Object.fromEntries(logic.values.catalogItems.map((item) => [item.name, item]))
         expect(byName.Stripe.existingSource).toBe(true)
         expect(byName.Mango.existingSource).toBeUndefined()
+    })
+
+    it('records which "Coming soon" sources the visit already asked about', () => {
+        const logic = sourceCatalogLogic()
+        const apple = logic.values.catalogItems.find((item) => item.name === 'Apple')!
+
+        logic.actions.registerInterest(apple)
+        logic.actions.registerInterest(apple)
+
+        // The tile swaps to a confirmation once it is in here, so a second entry would let the
+        // same source be registered twice.
+        expect(logic.values.registeredInterestSources).toEqual(['Apple'])
     })
 
     it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {

@@ -80,7 +80,11 @@ class TestFeaturebaseSource:
             ("conversations", False, False),
             ("tickets", True, False),
             ("ticket_statuses", False, False),
+            ("ticket_categories", False, False),
             ("conversation_tags", False, False),
+            # Surveys and their responses take no sort or timestamp param either.
+            ("surveys", False, False),
+            ("survey_responses", False, False),
             ("post_voters", False, False),
         ]
     )

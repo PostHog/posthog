@@ -198,3 +198,35 @@ docker() {
         PLATFORMS=platforms,
     )
     assert (result.returncode == 0) == ok, result.stderr
+
+
+@pytest.mark.parametrize("digest", ["c" * 64, ""])
+def test_bump_quotes_the_tarball_digest_default(tmp_path: Path, digest: str) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(f'ARG AGENT_VERSION=1.0.0\nARG AGENT_TARBALL_SHA256="{"a" * 64}"\n')
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "Dockerfile"], cwd=tmp_path, check=True)
+    result = run(
+        tmp_path,
+        script(UPDATE, "bump"),
+        HOME=str(tmp_path),
+        DOCKERFILE="Dockerfile",
+        LATEST="2.0.0",
+        TARBALL_SHA256=digest,
+    )
+    assert result.returncode == 0, result.stderr
+    assert dockerfile.read_text() == f'ARG AGENT_VERSION=2.0.0\nARG AGENT_TARBALL_SHA256="{digest}"\n'
+
+
+@pytest.mark.parametrize("default,source", [(f'"{"c" * 64}"', "GitHub"), ('""', "npm")])
+def test_wait_polls_the_tarball_only_when_the_pin_carries_a_digest(tmp_path: Path, default: str, source: str) -> None:
+    dockerfile = tmp_path / "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base"
+    dockerfile.parent.mkdir(parents=True)
+    dockerfile.write_text(f"ARG AGENT_VERSION=1.0.0\nARG AGENT_TARBALL_SHA256={default}\n")
+    stubs = """
+curl() { return 0; }
+npm() { printf '1.0.0\\n'; }
+"""
+    result = run(tmp_path, stubs + script(BUILD, "wait", "wait_for_agent"))
+    assert result.returncode == 0, result.stderr
+    assert f"{source} serves" in result.stdout

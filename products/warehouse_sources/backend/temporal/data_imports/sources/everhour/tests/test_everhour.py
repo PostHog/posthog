@@ -159,6 +159,19 @@ class TestBuildInitialUrls:
             f"{EVERHOUR_BASE_URL}/projects/p2/tasks?limit=100",
         ]
 
+    @mock.patch(f"{EVERHOUR_MODULE}._iter_all_items")
+    def test_user_fan_out_draws_parents_from_the_team_users_endpoint(self, mock_iter_items: mock.MagicMock) -> None:
+        mock_iter_items.return_value = iter([{"id": 11}, {"id": 22}])
+        urls = _build_initial_urls(EVERHOUR_ENDPOINTS["timesheets"], None, {}, mock.MagicMock(), mock.MagicMock())
+
+        # The parent walk must hit /team/users, not /users.
+        assert mock_iter_items.call_args.args[0] == f"{EVERHOUR_BASE_URL}/team/users?limit=100"
+        # `limit` on the timesheets endpoint is a week count, so it carries the endpoint's own value.
+        assert urls == [
+            f"{EVERHOUR_BASE_URL}/users/11/timesheets?limit=260",
+            f"{EVERHOUR_BASE_URL}/users/22/timesheets?limit=260",
+        ]
+
 
 class TestGetRows:
     @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
@@ -284,6 +297,28 @@ class TestGetRows:
 
         assert len(rows) == 101
         assert "offset=100" in mock_fetch.call_args_list[1].args[0]
+
+    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
+    @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")
+    @mock.patch(f"{EVERHOUR_MODULE}._fetch_page")
+    def test_unpaginated_endpoint_fetches_each_url_once_without_offset(
+        self, mock_fetch: mock.MagicMock, mock_build_urls: mock.MagicMock, _mock_session: mock.MagicMock
+    ) -> None:
+        # /users/{id}/timesheets takes no offset, and its `limit` caps weeks rather than page size,
+        # so a full page must not be read as "there may be more".
+        urls = [
+            f"{EVERHOUR_BASE_URL}/users/11/timesheets?limit=260",
+            f"{EVERHOUR_BASE_URL}/users/22/timesheets?limit=260",
+        ]
+        mock_build_urls.return_value = list(urls)
+        mock_fetch.side_effect = [_items(0, 260), _items(260, 260)]
+
+        manager = _make_manager()
+        rows = [row for batch in get_rows("key", "timesheets", mock.MagicMock(), manager) for row in batch]
+
+        assert len(rows) == 520
+        assert mock_fetch.call_count == 2
+        assert [call.args[0] for call in mock_fetch.call_args_list] == urls
 
     @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
     @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")

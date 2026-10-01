@@ -58,7 +58,7 @@ IntegrationStatus = Literal[
     "sync_broken",  # sync error/stale
     "events_broken",  # sync ok but no UTM-matched events
     "events_unmatched",  # events arrive but UTM values don't match (fb vs facebook)
-    "events_only",  # no platform sync but UTM-matched events arrive (rare)
+    "events_only",  # no platform sync but UTM-matched events with paid attribution arrive
     "schema_misconfigured",  # connected and syncing but required schema columns unmapped
     "not_connected",  # no source for this integration
 ]
@@ -237,25 +237,26 @@ def _diagnose_one(
 
     has_matched_events = attr is not None and attr.events_matched_last_7d > 0
     has_likely_yours = attr is not None and attr.events_unmatched_likely_yours_last_7d > 0
+    has_paid_events = attr is not None and attr.events_matched_paid_last_7d > 0
 
-    if not_connected and not has_matched_events and not has_likely_yours:
+    if not_connected and not has_paid_events:
         return IntegrationDiagnostic(
             integration_key=key,
             source_type=source_type_str,
             display_name=display,
             overall_status="not_connected",
-            diagnosis=f"{display} is not connected and no events with matching utm_source were seen.",
+            diagnosis=f"{display} is not connected and no matching events with paid attribution were seen.",
             data_source=ds,
             attribution=attr,
             recommended_actions=[],
         )
 
-    if not_connected and (has_matched_events or has_likely_yours):
+    if not_connected:
         actions.append(
             RecommendedAction(
                 title=f"Connect {display}",
                 detail=(
-                    f"Events with utm_source matching {display} are arriving "
+                    f"Events with utm_source matching {display} include traffic with paid attribution "
                     f"({attr.events_matched_last_7d if attr else 0} matched, "
                     f"{attr.events_unmatched_likely_yours_last_7d if attr else 0} likely-yours), "
                     "but the platform is not connected. Connect it to enable cost/ROAS analysis."
@@ -270,7 +271,7 @@ def _diagnose_one(
             display_name=display,
             overall_status="events_only",
             diagnosis=(
-                f"{display} is not connected, but UTM-tagged events for it are arriving. "
+                f"{display} is not connected, but matching events with paid attribution are arriving. "
                 "Connect the platform to attribute spend to those events."
             ),
             data_source=ds,

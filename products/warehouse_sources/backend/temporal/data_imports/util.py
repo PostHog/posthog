@@ -3,9 +3,9 @@ import time
 import errno
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
-from typing import Literal, Optional, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Literal, Optional, ParamSpec, TypeVar
 from uuid import uuid4
 
 from django.conf import settings
@@ -25,6 +25,13 @@ from posthog.utils import str_to_bool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import (
+    QueryFolderPointerHistory,
+    query_folder_slot_names,
+)
+
+if TYPE_CHECKING:
+    from s3fs import S3FileSystem
 
 LOGGER = get_logger(__name__)
 
@@ -235,6 +242,10 @@ def with_internal_db_retries(fn: Callable[P, T]) -> Callable[P, T]:
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
 
+# Per-schema rollout flag for the fixed a/b query folder pair below. Off (or unevaluable) means the
+# timestamped-folder path, so a bad rollout is undone by turning the flag off.
+DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG = "data-warehouse-double-buffered-query-folders"
+
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
 # fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
@@ -258,6 +269,101 @@ def is_posthog_team(team_id: int) -> bool:
     return (region == "EU" and team_id == 1) or (region == "US" and team_id == 2)
 
 
+def _unread_long_enough(stopped_being_active: Optional[datetime]) -> bool:
+    """Whether a slot that stopped being the pointer at `stopped_being_active` can be rewritten: every
+    read of it started before that instant, and none runs longer than the buffer."""
+    if stopped_being_active is None:
+        return False
+    return (datetime.now(UTC) - stopped_being_active).total_seconds() >= S3_DELETE_TIME_BUFFER
+
+
+async def _list_query_folder_files(s3: "S3FileSystem", folder_uri: str) -> dict[str, str]:
+    """Map each file under `folder_uri` from its folder-relative path to its full `s3://` URI.
+
+    Recursive because a partitioned table keeps its parquet files under `key=value/` subfolders,
+    which the copy step mirrors into the query folder.
+    """
+    try:
+        found = await s3._find(folder_uri, detail=True)
+    except FileNotFoundError:
+        return {}
+    entries = found.values() if isinstance(found, dict) else found
+    prefix = folder_uri.split("://", 1)[-1].rstrip("/") + "/"
+    files: dict[str, str] = {}
+    for entry in entries:
+        if entry.get("type") == "directory":
+            continue
+        key = str(entry["Key"]).split("://", 1)[-1]
+        if key.startswith(prefix):
+            files[key[len(prefix) :]] = f"s3://{key}"
+    return files
+
+
+async def _pick_standby_slot(
+    s3: "S3FileSystem",
+    s3_folder_for_job: str,
+    normalized_table_name: str,
+    existing_queryable_folder: Optional[str],
+    pointer_history: Optional[QueryFolderPointerHistory],
+    log: Callable[..., Awaitable[None]],
+) -> Optional[tuple[str, dict[str, str]]]:
+    """The slot to reconcile and what it holds, or None when every slot may still be read.
+
+    Candidates are tried from the one that stopped being the pointer longest ago. A slot is usable
+    when it is empty (no prefix in S3, so nothing can be reading it) or when it stopped being the
+    pointer at least `S3_DELETE_TIME_BUFFER` ago. A slot with no pointer record is treated as unread
+    since the record began; with no record at all, only an empty slot is usable.
+    """
+    slot_names = query_folder_slot_names(f"{normalized_table_name}__query")
+    recorded_active = pointer_history.active if pointer_history is not None else None
+    candidates = [name for name in slot_names if name not in (existing_queryable_folder, recorded_active)]
+
+    def stopped_at(name: str) -> Optional[datetime]:
+        return pointer_history.stopped_being_active(name) if pointer_history is not None else None
+
+    candidates.sort(key=lambda name: (stopped_at(name) is None, stopped_at(name) or datetime.min.replace(tzinfo=UTC)))
+    for name in candidates:
+        listed = await _list_query_folder_files(s3, f"{s3_folder_for_job}/{name}")
+        if not listed or _unread_long_enough(stopped_at(name)):
+            await log(f"Reconciling standby query folder {name} holding {len(listed)} files")
+            return name, listed
+        await log(f"Standby query folder {name} stopped being read at {stopped_at(name)}, too recent to rewrite")
+    await log("No query folder slot is safe to rewrite; falling back to a fresh timestamped folder")
+    return None
+
+
+async def _delete_stale_standby_files(
+    s3: "S3FileSystem",
+    stale_files: list[str],
+    log: Callable[..., Awaitable[None]],
+) -> None:
+    """Remove files from the standby that are not in the live set.
+
+    Unlike the old-folder cleanup, this is not best effort: the caller repoints readers at this
+    folder next, and a leftover file would make the glob return rows twice. A failure here raises so
+    the pointer stays on the current folder and the next sync reconciles again.
+    """
+    delete_attempt = 0
+    while True:
+        delete_attempt += 1
+        try:
+            await s3._rm(stale_files)
+            return
+        except FileNotFoundError:
+            # Already gone, which is the state this delete wanted.
+            return
+        except Exception as e:
+            if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
+                await log(
+                    f"S3 throttled the delete of stale standby files (attempt "
+                    f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
+                    level="error",
+                )
+                await asyncio.sleep(2**delete_attempt)
+                continue
+            raise S3OperationError("remove stale files from this table's standby query folder", e)
+
+
 async def prepare_s3_files_for_querying(
     folder_path: str,
     table_name: str,
@@ -268,8 +374,26 @@ async def prepare_s3_files_for_querying(
     delete_existing: bool = True,
     logger: Optional[FilteringBoundLogger] = None,
     refresh_file_uris: Optional[Callable[[], Awaitable[list[str]]]] = None,
+    double_buffer: bool = False,
+    pointer_history: Optional[QueryFolderPointerHistory] = None,
 ) -> str:
-    """Async version that uses s3fs native async methods for concurrent file operations."""
+    """Publish the table's live parquet files into a folder readers glob, and return that folder's name.
+
+    The caller repoints `DataWarehouseTable.queryable_folder` at the returned folder afterwards, so a
+    folder this function returns must be complete: S3 has no multi-object atomic update, so a
+    reader glob over a half-written folder sees missing or duplicated rows.
+
+    Default path: a fresh `<table>__query_<ts>_<uuid>` folder receives a copy of every live file, and
+    timestamped folders older than `S3_DELETE_TIME_BUFFER` are removed.
+
+    `double_buffer`: the table rotates through `<table>__query_a`, `_b` and `_c`. The standby to
+    reconcile is the slot that stopped being the pointer longest ago (per `pointer_history`); it is
+    reconciled against the live file set, so a sync copies only the files the standby lacks and
+    removes the ones no longer live. The diff is taken against an S3 listing rather than a commit
+    range, so a missed sync or a crash mid-reconcile heals on the next pass. A populated slot that
+    stopped being the pointer within `S3_DELETE_TIME_BUFFER`, or whose last use is unknown, is not
+    touched; the sync falls back to the default path.
+    """
 
     async def _log(msg: str, level: Optional[Literal["debug", "error"]] = "debug") -> None:
         if logger:
@@ -280,7 +404,8 @@ async def prepare_s3_files_for_querying(
 
     await _log(
         f"Preparing S3 files for querying for table {table_name} in folder {folder_path}. "
-        f"delete_existing={delete_existing}. use_timestamped_folders={use_timestamped_folders}."
+        f"delete_existing={delete_existing}. use_timestamped_folders={use_timestamped_folders}. "
+        f"double_buffer={double_buffer}."
     )
 
     async with aget_s3_client() as s3:
@@ -298,7 +423,19 @@ async def prepare_s3_files_for_querying(
 
         s3_folder_for_querying = f"{normalized_table_name}__query"
         s3_path_for_querying = f"{s3_folder_for_job}/{s3_folder_for_querying}"
-        if use_timestamped_folders:
+
+        # Relative path -> full URI of what the standby already holds. None means a full copy into a
+        # fresh folder, either because double buffering is off or because no slot is safe to touch yet.
+        standby_files: Optional[dict[str, str]] = None
+        if double_buffer and use_timestamped_folders:
+            standby = await _pick_standby_slot(
+                s3, s3_folder_for_job, normalized_table_name, existing_queryable_folder, pointer_history, _log
+            )
+            if standby is not None:
+                s3_folder_for_querying, standby_files = standby
+                s3_path_for_querying = f"{s3_folder_for_job}/{s3_folder_for_querying}"
+
+        if standby_files is None and use_timestamped_folders:
             # Seconds first (the age-based GC below parses them), then a unique suffix:
             # two syncs completing within the same second must not share a folder, or the
             # additive copy below merges two parquet generations into one folder and the
@@ -313,6 +450,7 @@ async def prepare_s3_files_for_querying(
                 # Match only directories belonging to this specific table.
                 # Keys may be bare folder names or full paths, so use (?:^|.+/) to handle both.
                 # The uniqueness suffix is optional so folders created before it existed still match.
+                # The a/b slot folders end in a letter, so this pattern never selects them.
                 query_folder_pattern = re.compile(
                     rf"(?:^|.+/){re.escape(normalized_table_name)}\_\_query\_(\d+)(?:_[0-9a-f]{{8}})?\/?$"
                 )
@@ -365,20 +503,25 @@ async def prepare_s3_files_for_querying(
                 if await s3._exists(s3_path_for_querying):
                     files_to_delete.append(s3_path_for_querying)
 
-        # Copy files concurrently with limited concurrency to avoid overwhelming S3
-        await _log(f"Copying {len(file_uris)} files to {s3_path_for_querying}")
+        def relative_path(file: str) -> str:
+            return file.replace(f"{s3_folder_for_schema}/", "")
 
+        def pending_copies() -> list[str]:
+            if standby_files is None:
+                return list(file_uris)
+            return [file for file in file_uris if relative_path(file) not in standby_files]
+
+        # Copy files concurrently with limited concurrency to avoid overwhelming S3
         semaphore = asyncio.Semaphore(50)
 
         async def copy_file(file: str) -> None:
             async with semaphore:
-                file_name = file.replace(f"{s3_folder_for_schema}/", "")
                 # _cp_file() copies a single known source to a known destination key directly.
                 # The generic _copy() also globs the source and probes whether the destination
                 # is a directory, each requiring its own S3 ListObjectsV2 call — with hundreds of
                 # files copied concurrently, that multiplies into enough LIST traffic to trigger
                 # S3's SlowDown rate limiting on the destination prefix.
-                await s3._cp_file(file, f"{s3_path_for_querying}/{file_name}")
+                await s3._cp_file(file, f"{s3_path_for_querying}/{relative_path(file)}")
 
         import deltalake.exceptions  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
 
@@ -392,8 +535,10 @@ async def prepare_s3_files_for_querying(
         attempt = 0
         while True:
             attempt += 1
+            files_to_copy = pending_copies()
+            await _log(f"Copying {len(files_to_copy)} of {len(file_uris)} files to {s3_path_for_querying}")
             try:
-                await asyncio.gather(*[copy_file(file) for file in file_uris])
+                await asyncio.gather(*[copy_file(file) for file in files_to_copy])
                 break
             except FileNotFoundError as e:
                 if refresh_file_uris is None or attempt >= _COPY_FILES_MAX_ATTEMPTS:
@@ -450,6 +595,13 @@ async def prepare_s3_files_for_querying(
                     level="error",
                 )
                 await asyncio.sleep(2**attempt)
+
+        if standby_files is not None:
+            live_relative_paths = {relative_path(file) for file in file_uris}
+            stale_files = [uri for relative, uri in standby_files.items() if relative not in live_relative_paths]
+            if stale_files:
+                await _log(f"Removing {len(stale_files)} files no longer live from {s3_path_for_querying}")
+                await _delete_stale_standby_files(s3, stale_files, _log)
 
         # Delete existing files after copying new ones
         if delete_existing and files_to_delete:

@@ -7,6 +7,7 @@ import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { EmailLinksTable } from '../Workflows/EmailLinksTable'
 import { BroadcastPerformanceLogicProps, broadcastPerformanceLogic } from './broadcastPerformanceLogic'
+import { BroadcastSendActivity } from './BroadcastSendActivity'
 
 function share(part: number, whole: number): string {
     return whole > 0 ? percentage(part / whole, 1) : '-'
@@ -71,6 +72,8 @@ export function BroadcastPerformance(props: BroadcastPerformanceLogicProps): JSX
                 ))}
                 <span className="text-xs text-muted">Opens and clicks are counted against sends with tracking on.</span>
             </div>
+
+            <BroadcastSendActivity {...props} />
 
             <div className="flex flex-col gap-2">
                 <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
