@@ -116,8 +116,9 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <LemonBanner type="warning">
-                        Ingestion doesn't act on this mode yet, so it still writes $feature_flag_called to the events
-                        table for organizations on it. Once ingestion supports this mode, it stops those writes.
+                        Ingestion no longer writes $feature_flag_called to the events table for these organizations, so
+                        a failed write to flag_evaluations loses the event. Lowering an organization from this mode
+                        restarts the events writes, but the events table keeps a gap for the time it spent here.
                     </LemonBanner>
                 )}
 

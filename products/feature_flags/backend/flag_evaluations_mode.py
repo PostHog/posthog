@@ -91,9 +91,9 @@ def set_organization_flag_evaluations_mode(
 ) -> OrganizationModeChange:
     """Move the organization to `mode`.
 
-    An organization above `mode` stays where it is unless `allow_downgrade` is set. Once ingestion
-    supports FLAG_EVALUATIONS_ONLY, lowering an organization from it restarts events writes and
-    leaves a gap in the events table.
+    An organization above `mode` stays where it is unless `allow_downgrade` is set. Lowering an
+    organization from FLAG_EVALUATIONS_ONLY restarts events writes and leaves a gap in the events
+    table.
 
     Opens no transaction. A caller that writes several organizations wraps its own loop.
     """
