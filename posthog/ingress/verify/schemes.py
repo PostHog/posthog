@@ -168,7 +168,12 @@ class HmacSignature:
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
-        if not self.secret_getter():
+        try:
+            secret = self.secret_getter()
+        except (DatabaseError, InterfaceError):
+            # Leave a failed read to `_outcome`, which answers UNAVAILABLE for it.
+            return False
+        if not secret:
             return False
         return self._headers_fail(headers)
 
