@@ -23,6 +23,7 @@ function IconGitMerge(props: IconProps): JSX.Element {
 
 interface SpaceFeedPullRequestRowProps {
     pullRequest: TaskPullRequest
+    pullRequestTitle: string | undefined
     /** The session that opened the pull request. */
     session: TodayWorkItem
     author: TaskUserBasicInfoApi | null
@@ -32,6 +33,7 @@ interface SpaceFeedPullRequestRowProps {
 /** A pull request in the feed's PRs view, as a card or a list row, like PostHog Desktop's. It opens on GitHub. */
 export function SpaceFeedPullRequestRow({
     pullRequest,
+    pullRequestTitle,
     session,
     author,
     listRow,
@@ -39,8 +41,7 @@ export function SpaceFeedPullRequestRow({
     const { pullRequestStates } = useValues(todaySpacesLogic)
     const state = pullRequestStates[pullRequest.url]
     const known = pullRequestStateMeta(state)
-    // GitHub reports no title to the web, so the row names the session that opened the pull request.
-    const title = session.title || 'Untitled session'
+    const title = pullRequestTitle || session.title || 'Untitled session'
     const Icon = state === 'merged' ? IconGitMerge : IconPullRequest
     const icon = <Icon className={cn('size-3.5 shrink-0', known ? known.iconClassName : 'opacity-50')} />
     const number = (
