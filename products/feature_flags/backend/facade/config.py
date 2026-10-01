@@ -13,8 +13,8 @@ A JSON string or boolean never selects a version, and a stored value that is not
 reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
-route on (return type, ordered rule identities, experiment identity) and nothing else. The
-full v2 schema lives in the contract; do not grow this module into a second copy of it.
+route on (return type, ordered rule identities and values, experiment identity) and nothing
+else. The full v2 schema lives in the contract; do not grow this module into a second copy of it.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``): consumer model
 modules import this at module level.
@@ -82,6 +82,8 @@ class RuleV2:
     id: str
     rule_type: RuleType
     experiment_id: int | None
+    # None for an experiment rule, whose values sit on its variants.
+    value: FlagValue | None
 
     def __post_init__(self) -> None:
         if self.rule_type not in get_args(RuleType):
@@ -124,4 +126,5 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
         id=rule["id"],
         rule_type=rule_type,
         experiment_id=rule["experiment_id"] if rule_type == "experiment" else None,
+        value=None if rule_type == "experiment" else rule["value"],
     )
