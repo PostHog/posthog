@@ -60,6 +60,11 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         balance_variants = scanner_config.get("balance_variants")
         if balance_variants is not None and not isinstance(balance_variants, bool):
             return "balance_variants must be true or false."
+        # Scan-time fields the workflow injects per session (see `ExperimentScanner`). They are model
+        # fields, so the unknown-keys check below admits them; saved values would let an editor fake
+        # the variant or hypothesis in the prompt, and a saved `experiment_context: {}` fails every scan.
+        if "experiment_context" in scanner_config or "session_variant" in scanner_config:
+            return "experiment_context and session_variant are resolved per scan and can't be saved."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):

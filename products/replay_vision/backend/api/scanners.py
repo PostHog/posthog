@@ -983,7 +983,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if data.get("experiment_targeting") and not self._can_view_targeted_experiment(data["experiment_targeting"]):
             data["experiment_targeting"] = None
         # The experiment type keeps its scope in scanner_config; hide only the experiment keys from
-        # a denied caller, so the rest of the config (prompt, length) stays editable.
+        # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
+        # separate question: `_restore_redacted_experiment_config` refuses every config write from a
+        # denied caller.
         if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
             experiment_id = data["scanner_config"].get("experiment_id")
             if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
