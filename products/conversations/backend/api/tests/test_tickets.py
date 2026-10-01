@@ -194,10 +194,16 @@ class TestTicketAPI(APIBaseTest):
         self.assertIn(str(other_ticket.id), ticket_ids)
 
     def test_retrieve_ticket(self, mock_on_commit):
+        self.ticket.unread_team_count = 3
+        self.ticket.save(update_fields=["unread_team_count"])
+
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(self.ticket.id))
         self.assertEqual(response.json()["status"], Status.NEW)
+
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.unread_team_count, 3)
 
     def test_retrieve_ticket_by_ticket_number(self, mock_on_commit):
         """Test retrieving a ticket by ticket_number instead of UUID."""
