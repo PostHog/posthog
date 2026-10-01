@@ -918,6 +918,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     mode,
     scope,
     hasFilterTokens,
+    matchNoun,
     searchText,
     keyChips,
     matchCount,
@@ -1169,7 +1170,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
               <div className="border-border border-b px-3 py-1.5 text-subtle-foreground text-xs tabular-nums">
                 {partialResults
                   ? "Some matching tasks may not be shown."
-                  : matchSummary(matchCount, shownCount, hasRepairs)}
+                  : matchSummary(matchCount, shownCount, hasRepairs, matchNoun)}
               </div>
             ) : (
               query !== "" && (
