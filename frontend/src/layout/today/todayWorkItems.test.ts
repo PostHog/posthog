@@ -4,6 +4,7 @@ import { ConversationDetail } from '~/types'
 
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { TodayListItemField } from './todayListAppearance'
 import {
     DEFAULT_RECENT_FILTERS,
     TodayRecentFilters,
@@ -18,6 +19,7 @@ import {
     canHandOff,
     chatItem,
     groupByDay,
+    sessionDetails,
     sessionItem,
     shortTimeAgo,
 } from './todayWorkItems'
@@ -217,5 +219,45 @@ describe('todayWorkItems', () => {
         const item = sessionItem({ id: 's', title: 'Session', latest_run: { output } } as unknown as TaskListItemApi)
 
         expect(item.finalMessage).toBe(message)
+    })
+
+    it.each<[string, Partial<TaskListItemApi>, TodayListItemField[], string[]]>([
+        [
+            'the chosen details in the chosen order',
+            {},
+            ['creator', 'branch', 'space', 'repository'],
+            ['Ada Lovelace', 'fix/retry', 'checkout', 'example-org/web'],
+        ],
+        ['nothing when no detail is chosen', {}, [], []],
+        ['how long ago the session moved', {}, ['activity'], ['2h ago']],
+        [
+            'just now for a session that moved this minute',
+            { last_activity_at: '2026-03-10T12:00:30' },
+            ['activity'],
+            ['just now'],
+        ],
+        [
+            'only the details the session has',
+            { channel: 'deleted-space', repository: null, latest_run: null, created_by: null },
+            ['space', 'repository', 'branch', 'creator', 'activity'],
+            ['2h ago'],
+        ],
+    ])('shows %s under a session row', (_name, overrides, fields, expected) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            last_activity_at: '2026-03-10T10:00:00',
+            channel: 'space-1',
+            repository: 'example-org/web',
+            latest_run: { branch: 'fix/retry' },
+            created_by: { first_name: 'Ada', last_name: 'Lovelace', email: 'ada@example.com' },
+            ...overrides,
+        } as TaskListItemApi)
+
+        expect(
+            sessionDetails(item, fields, { 'space-1': 'checkout' }, dayjs('2026-03-10T12:00:59')).map(
+                (detail) => detail.text
+            )
+        ).toEqual(expected)
     })
 })
