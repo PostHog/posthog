@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { screen, waitFor } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { canvasHostLogic } from './canvasHostLogic'
@@ -23,7 +24,12 @@ export default meta
 type Story = StoryObj<typeof CanvasHostPromptDialog>
 
 export const StartTask: Story = {
-    play: () => {
+    play: async () => {
+        await waitFor(() => {
+            if (!canvasHostLogic.findMounted(props)) {
+                throw new Error('Canvas host is not mounted yet')
+            }
+        })
         canvasHostLogic(props).actions.enqueuePrompt({
             kind: 'action',
             id: 'example-prompt',
@@ -41,5 +47,6 @@ export const StartTask: Story = {
                 },
             },
         })
+        await screen.findByRole('dialog', { name: 'Let this canvas make this change?' })
     },
 }
