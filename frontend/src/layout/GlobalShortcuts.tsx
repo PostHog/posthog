@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { openJumpToTimestampModal } from 'lib/components/DateFilter/openJumpToTimestampModal'
@@ -19,6 +18,8 @@ import { urls } from 'scenes/urls'
 import { SidePanelTab } from '~/types'
 
 import hesoyamSfx from 'public/hesoyam.mp3'
+
+import { billingCouponsClaimCreate } from 'products/billing/frontend/generated/api'
 
 import { navigation3000Logic } from './navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
@@ -179,9 +180,7 @@ export function GlobalShortcuts(): null {
         interaction: 'function',
         callback: async () => {
             try {
-                await api.create('api/billing/coupons/claim', {
-                    campaign_slug: 'hesoyam',
-                })
+                await billingCouponsClaimCreate({ campaign_slug: 'hesoyam' })
 
                 new Audio(hesoyamSfx).play().catch(() => {})
 
