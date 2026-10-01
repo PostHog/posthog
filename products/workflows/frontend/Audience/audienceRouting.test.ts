@@ -22,6 +22,10 @@ function currentPath(): string {
     return removeProjectIdIfPresent(router.values.location.pathname)
 }
 
+function redirectEvents(): unknown[][] {
+    return jest.mocked(posthog.capture).mock.calls.filter(([event]) => event === 'messaging tab redirected to audience')
+}
+
 function setAudienceFlag(enabled: boolean): void {
     featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: enabled })
 }
@@ -44,9 +48,9 @@ describe('audience routing', () => {
 
         router.actions.push(from)
 
+        expect(redirectEvents()).toEqual([['messaging tab redirected to audience', { tab, from: surface }]])
         expect(currentPath()).toBe(to)
         expect(router.values.lastMethod).toBe('REPLACE')
-        expect(posthog.capture).toHaveBeenCalledWith('messaging tab redirected to audience', { tab, from: surface })
     })
 
     it.each(MOVED_TAB_REDIRECTS)('with the flag off, $from stays put', ({ from }) => {
@@ -55,7 +59,7 @@ describe('audience routing', () => {
         router.actions.push(from)
 
         expect(currentPath()).toBe(from)
-        expect(posthog.capture).not.toHaveBeenCalledWith('messaging tab redirected to audience', expect.anything())
+        expect(redirectEvents()).toEqual([])
     })
 
     it('redirects a moved tab that opened before the flags arrived', () => {
