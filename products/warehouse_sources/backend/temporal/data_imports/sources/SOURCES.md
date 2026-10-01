@@ -348,6 +348,7 @@ the row lists both.
 | google_sheets                    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | google_webfonts                  | HTTP                        | requests                                                        | ✅                          |
 | grafana                          | HTTP                        | requests                                                        | ✅                          |
+| grafana_irm                      | HTTP                        | requests                                                        | ✅                          |
 | granola                          | HTTP                        | requests                                                        | ✅                          |
 | gorgias                          | HTTP                        | requests                                                        | ✅                          |
 | greenhouse                       | HTTP                        | requests                                                        | ✅                          |
