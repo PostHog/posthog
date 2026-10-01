@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGridMasonry, IconPlus } from '@posthog/icons'
-import { Button, Spinner } from '@posthog/quill'
+import { IconGridMasonry, IconPlus, IconSearch } from '@posthog/icons'
+import { Button, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -11,15 +11,28 @@ import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
 import { TodayPaneRow } from './TodayPaneRow'
+import { TodayPaneSearchField } from './TodayPaneSearchField'
 import { TodayPaneSection } from './TodayPaneSection'
+import { TodayViewsFilterMenu } from './TodayViewsFilterMenu'
 import { todayViewsLogic } from './todayViewsLogic'
 import { shortTimeAgo } from './todayWorkItems'
 
 /** The Views sub-nav: a "New" menu, the full list, and the most recent views of every type, newest first. */
 export function TodayViewsSidebar(): JSX.Element {
-    const { recentViews, recentItems, recentViewsLoading, recentUnavailable, recentCollapsed } =
-        useValues(todayViewsLogic)
-    const { loadRecentViews, toggleRecent } = useActions(todayViewsLogic)
+    const {
+        recentViews,
+        recentItems,
+        recentViewsLoading,
+        recentUnavailable,
+        recentCollapsed,
+        recentQuery,
+        recentSearchVisible,
+        recentFiltersActive,
+        buildingViewIds,
+    } = useValues(todayViewsLogic)
+    const { loadRecentViews, toggleRecent, setRecentQuery, setRecentSearchOpen, clearRecentSearchAndFilters } =
+        useActions(todayViewsLogic)
+    const narrowed = recentQuery.trim() !== '' || recentFiltersActive
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const failedTypes = recentViews?.failedTypes ?? []
@@ -58,6 +71,42 @@ export function TodayViewsSidebar(): JSX.Element {
                     count={recentItems.length}
                     onToggle={toggleRecent}
                     dataAttr="today-views-section-recent"
+                    heading={
+                        recentSearchVisible ? (
+                            <TodayPaneSearchField
+                                query={recentQuery}
+                                resultCount={recentItems.length}
+                                label="Search views"
+                                onQueryChange={setRecentQuery}
+                                onClose={() => setRecentSearchOpen(false)}
+                                dataAttr="today-views-search"
+                            />
+                        ) : null
+                    }
+                    actions={
+                        <>
+                            {!recentSearchVisible && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        delay={0}
+                                        render={
+                                            <Button
+                                                size="icon-xs"
+                                                className="text-muted-foreground"
+                                                aria-label="Search views"
+                                                onClick={() => setRecentSearchOpen(true)}
+                                                data-attr="today-views-search-open"
+                                            />
+                                        }
+                                    >
+                                        <IconSearch />
+                                    </TooltipTrigger>
+                                    <TooltipContent>Search views</TooltipContent>
+                                </Tooltip>
+                            )}
+                            <TodayViewsFilterMenu />
+                        </>
+                    }
                 >
                     {!recentViews ? (
                         recentUnavailable ? (
@@ -70,6 +119,18 @@ export function TodayViewsSidebar(): JSX.Element {
                                 <Spinner />
                             </div>
                         )
+                    ) : !recentItems.length && narrowed ? (
+                        <div className="TodayPane__state">
+                            <span>Nothing here matches.</span>
+                            <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => clearRecentSearchAndFilters()}
+                                data-attr="today-views-clear-filters"
+                            >
+                                Clear filters
+                            </Button>
+                        </div>
                     ) : !recentItems.length && !failedTypes.length && !recentUnavailable ? (
                         <div className="TodayPane__state">
                             Canvases, notebooks and dashboards you create show up here.
@@ -91,17 +152,20 @@ export function TodayViewsSidebar(): JSX.Element {
                                     Some views are not shown. Open All views and use search to find them.
                                 </div>
                             )}
-                            {recentItems.map((item) => (
-                                <TodayPaneRow
-                                    key={`${item.type}-${item.id}`}
-                                    label={item.name}
-                                    icon={<ViewTypeIcon type={item.type} />}
-                                    meta={shortTimeAgo(item.timestamp)}
-                                    to={item.href}
-                                    active={path === removeProjectIdIfPresent(item.href)}
-                                    dataAttr={`today-views-recent-${item.type}`}
-                                />
-                            ))}
+                            {recentItems.map((item) => {
+                                const building = buildingViewIds.includes(item.id)
+                                return (
+                                    <TodayPaneRow
+                                        key={`${item.type}-${item.id}`}
+                                        label={item.name}
+                                        icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
+                                        meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
+                                        to={item.href}
+                                        active={path === removeProjectIdIfPresent(item.href)}
+                                        dataAttr={`today-views-recent-${item.type}`}
+                                    />
+                                )
+                            })}
                         </>
                     )}
                 </TodayPaneSection>

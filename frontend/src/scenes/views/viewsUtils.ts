@@ -57,6 +57,9 @@ export interface ViewItem {
     spaceId: string | null
     /** The space's name. Null for other types, or when the space is unknown. */
     spaceName: string | null
+    createdByUuid: string | null
+    /** The run building a canvas that has no version yet. Null once it has one, and for other types. */
+    firstBuildTaskId: string | null
 }
 
 export function canvasToView(canvas: CanvasApi, spaceNames: Record<string, string>): ViewItem {
@@ -69,6 +72,8 @@ export function canvasToView(canvas: CanvasApi, spaceNames: Record<string, strin
         timestampLabel: 'Edited',
         spaceId: canvas.channel,
         spaceName: spaceNames[canvas.channel] ?? null,
+        createdByUuid: canvas.created_by?.uuid ?? null,
+        firstBuildTaskId: canvas.current_version_id ? null : (canvas.generation_task_id ?? null),
     }
 }
 
@@ -82,6 +87,8 @@ export function notebookToView(notebook: NotebookMinimalApi): ViewItem {
         timestampLabel: 'Edited',
         spaceId: null,
         spaceName: null,
+        createdByUuid: notebook.created_by?.uuid ?? null,
+        firstBuildTaskId: null,
     }
 }
 
@@ -96,6 +103,8 @@ export function dashboardToView(dashboard: DashboardBasicApi): ViewItem {
         timestampLabel: dashboard.last_viewed_at ? 'Viewed' : 'Created',
         spaceId: null,
         spaceName: null,
+        createdByUuid: dashboard.created_by?.uuid ?? null,
+        firstBuildTaskId: null,
     }
 }
 

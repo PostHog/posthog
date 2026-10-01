@@ -1,4 +1,17 @@
-import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -82,6 +95,7 @@ export interface canvasSceneLogicValues {
     currentProjectId: number | null // projectLogic
     bodyState: CanvasBodyState
     breadcrumbs: Breadcrumb[]
+    busy: boolean
     buildStatus: CanvasBuildStatus
     builds: CanvasBuildsResponseApi | null
     buildsLoading: boolean
@@ -110,6 +124,13 @@ export interface canvasSceneLogicActions {
     clearStartHandoff: () => {
         value: true
     } // canvasNewLogic
+    setOpenCanvasBuilding: (
+        canvasId: string,
+        building: boolean | null
+    ) => {
+        building: boolean | null
+        canvasId: string
+    } // todayViewsLogic
     canvasUpdated: (canvas: CanvasApi) => {
         canvas: CanvasApi
     }
@@ -130,6 +151,9 @@ export interface canvasSceneLogicActions {
         value: true
     }
     generationStarted: () => {
+        value: true
+    }
+    reportBusy: () => {
         value: true
     }
     loadBuilds: () => any
@@ -246,6 +270,7 @@ export interface canvasSceneLogicMeta {
             buildStatus: CanvasBuildStatus
         ) => boolean
         breadcrumbs: (canvas: CanvasApi | null, space: CanvasSpace | null, arg: string) => Breadcrumb[]
+        busy: (isGenerating: boolean, buildStatus: CanvasBuildStatus) => boolean
     }
 }
 
@@ -263,7 +288,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
     connect(() => ({
         // The start page hands over a prompt whose canvas exists but whose build did not start.
         values: [projectLogic, ['currentProjectId'], canvasNewLogic, ['startHandoff']],
-        actions: [canvasNewLogic, ['clearStartHandoff']],
+        // Connecting keeps the Views sidebar's logic mounted, so it knows this canvas's state when it opens.
+        actions: [canvasNewLogic, ['clearStartHandoff'], todayViewsLogic, ['setOpenCanvasBuilding']],
     })),
     actions({
         renameCanvas: (name: string) => ({ name }),
@@ -273,6 +299,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         setInstruction: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
         generateCanvas: (instruction: string, fromSuggestion: boolean) => ({ instruction, fromSuggestion }),
         generationStarted: true,
+        /** Tells the Views sidebar whether this canvas is busy, when that changed. */
+        reportBusy: true,
         generationFinished: true,
         setSidePanelOpen: (open: boolean) => ({ open }),
         startPolling: true,
@@ -369,6 +397,12 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         ],
     }),
     selectors({
+        /** Whether an agent or a build is at work on the canvas, which the Views sidebar marks with a spinner. */
+        busy: [
+            (s) => [s.isGenerating, s.buildStatus],
+            (isGenerating: boolean, buildStatus: CanvasBuildStatus): boolean =>
+                isGenerating || buildStatus === 'building',
+        ],
         canvas: [(s) => [s.view], (view: CanvasViewResponseApi | null): CanvasApi | null => view?.canvas ?? null],
         sandboxDocumentUrl: [
             (s) => [s.view],
@@ -464,7 +498,15 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        reportBusy: () => {
+            if (cache.reportedBusy !== values.busy) {
+                cache.reportedBusy = values.busy
+                actions.setOpenCanvasBuilding(props.id, values.busy)
+            }
+        },
+        canvasUpdated: () => actions.reportBusy(),
         loadViewSuccess: ({ view }) => {
+            actions.reportBusy()
             if (!view) {
                 return
             }
@@ -488,6 +530,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             }
         },
         loadGenerationTaskSuccess: () => {
+            actions.reportBusy()
             if (values.shouldPoll) {
                 actions.startPolling()
             } else {
@@ -495,6 +538,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             }
         },
         loadBuildsSuccess: ({ builds }) => {
+            actions.reportBusy()
             const view = values.view
             // A new live build or head version changes what renders, so the view is re-read.
             if (
@@ -603,5 +647,8 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
         }
         actions.loadView()
         actions.loadBuilds()
+    }),
+    beforeUnmount(({ actions, props }) => {
+        actions.setOpenCanvasBuilding(props.id, null)
     }),
 ])

@@ -232,6 +232,17 @@ const VIEW_CANVASES = [
         kind: 'freeform',
         channel: 'space-checkout',
         updated_at: '2026-09-28T17:50:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
+    },
+    {
+        id: 'canvas-building',
+        name: 'Signup funnel by country',
+        kind: 'freeform',
+        channel: 'space-checkout',
+        updated_at: '2026-09-28T18:05:00Z',
+        current_version_id: null,
+        generation_task_id: 'task-canvas-building',
     },
     {
         id: 'canvas-2',
@@ -239,6 +250,8 @@ const VIEW_CANVASES = [
         kind: 'grid',
         channel: 'space-general',
         updated_at: '2026-09-26T08:15:00Z',
+        current_version_id: 'version-1',
+        generation_task_id: null,
     },
 ].map((canvas) => ({ description: '', pinned: false, created_by: USER, created_at: canvas.updated_at, ...canvas }))
 
@@ -488,6 +501,12 @@ const meta: Meta = {
                     return [200, { results, count: results.length }]
                 },
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
+                '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
+                '/api/projects/:team_id/tasks/task-canvas-building/': {
+                    id: 'task-canvas-building',
+                    title: 'Signup funnel by country',
+                    latest_run: { id: 'run-canvas-building', status: 'in_progress' },
+                },
                 '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, count: NOTEBOOKS.length },
                 '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, count: DASHBOARDS.length },
             },
