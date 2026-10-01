@@ -264,11 +264,11 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
         create_person_id_override_by_distinct_id("merged_from", "merged_to", self.team.pk)
 
     def _execute(
-        self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool, sample: str = ""
+        self, where: str | None, mode: PersonsOnEventsMode, pushdown: bool, sample: str = "", table: str = "events"
     ) -> HogQLQueryResponse:
         where_clause = f"WHERE {where}" if where else ""
         return execute_hogql_query(
-            f"SELECT event, person.properties.plan FROM events {sample} {where_clause} ORDER BY event",
+            f"SELECT event, person.properties.plan FROM {table} {sample} {where_clause} ORDER BY event",
             self.team,
             modifiers=HogQLQueryModifiers(personsOnEventsMode=mode, personIdPushdown=pushdown),
         )
@@ -311,14 +311,26 @@ class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
                 PersonsOnEventsMode.DISABLED,
                 {"in_window_paid"},
             ),
+            (
+                "aliased_from_table",
+                "e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-03' AND e.person.properties.plan = 'paid'",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                {"in_window_paid", "in_window_merged"},
+                "events AS e",
+            ),
         ]
     )
     def test_pushdown_returns_same_rows_as_without(
-        self, _name: str, where: str | None, mode: PersonsOnEventsMode, expected_events: set[str]
+        self,
+        _name: str,
+        where: str | None,
+        mode: PersonsOnEventsMode,
+        expected_events: set[str],
+        table: str = "events",
     ):
-        without_pushdown = self._execute(where, mode, pushdown=False).results
+        without_pushdown = self._execute(where, mode, pushdown=False, table=table).results
 
-        with_pushdown = self._execute(where, mode, pushdown=True).results
+        with_pushdown = self._execute(where, mode, pushdown=True, table=table).results
 
         assert {row[0] for row in without_pushdown} == expected_events
         assert with_pushdown == without_pushdown
