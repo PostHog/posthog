@@ -14,6 +14,7 @@ criteria as stored, maturity and the excluded variants. The other fields do not 
 
 import json
 import hashlib
+from collections.abc import Collection
 from copy import deepcopy
 from dataclasses import field
 from datetime import datetime
@@ -23,7 +24,6 @@ from zoneinfo import ZoneInfo
 import pydantic
 
 from posthog.dataclasses import frozen
-from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries import get_baseline_variant_key
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, resolve_experiment_cuped_config
@@ -39,7 +39,14 @@ from products.experiments.backend.hogql_queries.utils import (
     resolve_frequentist_settings,
     resolve_stats_method,
 )
-from products.experiments.backend.metric_resolution import MetricRole, resolve_scheduled_metrics
+from products.experiments.backend.metric_resolution import (
+    MetricRole,
+    resolve_experiment_metrics,
+    resolve_saved_metric_definition,
+    resolve_scheduled_metrics,
+    saved_metric_links,
+    saved_metric_role,
+)
 from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -87,6 +94,17 @@ def _analytical_definition(definition: dict[str, Any]) -> dict[str, Any]:
 def _variant_keys(feature_flag: "FeatureFlag", excluded_variants: tuple[str, ...]) -> tuple[str, ...]:
     keys = (variant.get("key") for variant in feature_flag.variants if isinstance(variant, dict))
     return tuple(key for key in keys if isinstance(key, str) and key not in excluded_variants)
+
+
+def team_experiments_configs(team_ids: Collection[int]) -> dict[int, TeamExperimentsConfig]:
+    """The experiment settings of each team, read in one query.
+
+    A team without a stored row gets an unsaved row with the model defaults. `get_or_create_team_extension`
+    stores the same values, so the settings do not change, and a read path such as the experiment API
+    response never writes a row.
+    """
+    stored = {config.team_id: config for config in TeamExperimentsConfig.objects.filter(team_id__in=team_ids)}
+    return {team_id: stored.get(team_id) or TeamExperimentsConfig(team_id=team_id) for team_id in team_ids}
 
 
 def _resolve_exposure(
@@ -147,8 +165,9 @@ class ExperimentCalculationSettings:
 
         Stored configuration never makes this raise, because the experiment read and write paths build
         settings to stamp the metric keys. A configuration the query runner rejects still resolves.
+        Without `team_config`, this reads the team's experiment settings with one query.
         """
-        config = team_config or get_or_create_team_extension(team, TeamExperimentsConfig)
+        config = team_config or team_experiments_configs([team.id])[team.id]
         stats_config = stats_config if isinstance(stats_config, dict) else None
         excluded = tuple(sorted(set(excluded_variants or [])))
         variants = _variant_keys(feature_flag, excluded)
@@ -301,3 +320,38 @@ def stamp_calculation_keys(
         metric_copy["fingerprint"] = spec.calculation_key()
         stamped.append(metric_copy)
     return stamped
+
+
+def inline_metric_calculation_keys(experiment: Experiment, settings: ExperimentCalculationSettings) -> dict[str, str]:
+    """The key of each inline metric of the experiment, by metric uuid.
+
+    When inline metrics share a uuid, the first one in primary-then-secondary order wins. The daily
+    calculation computes that metric for the uuid, so the key matches what it computes.
+    """
+    keys: dict[str, str] = {}
+    for metric in resolve_experiment_metrics(experiment):
+        if metric.source == "inline" and metric.uuid not in keys:
+            spec = settings.spec_for(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
+            keys[metric.uuid] = spec.calculation_key()
+    return keys
+
+
+def saved_metric_calculation_keys(experiment: Experiment, settings: ExperimentCalculationSettings) -> dict[int, str]:
+    """The key of each saved metric linked to the experiment, by link id.
+
+    Unlike `plan`, this keeps metrics that cannot be scheduled, and it keys each saved metric by its own
+    effective definition even when an inline metric has the same uuid. The daily saved-metric discovery
+    and the `fingerprint` in the API response hash each link this way. A prefetched
+    `experimenttosavedmetric_set` with its saved metrics makes this read no rows.
+    """
+    keys: dict[int, str] = {}
+    for link in saved_metric_links(experiment):
+        query = link.saved_metric.query
+        if isinstance(query, dict):
+            spec = settings.spec_for(
+                metric_id=query.get("uuid") or "",
+                role=saved_metric_role(link.metadata),
+                definition=resolve_saved_metric_definition(query, link.metadata),
+            )
+            keys[link.id] = spec.calculation_key()
+    return keys
