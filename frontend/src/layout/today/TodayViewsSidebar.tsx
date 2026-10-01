@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGridMasonry, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Spinner } from '@posthog/quill'
 
-import { Spinner } from 'lib/lemon-ui/Spinner'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 import { NewViewMenu } from 'scenes/views/NewViewMenu'
@@ -25,21 +24,23 @@ export function TodayViewsSidebar(): JSX.Element {
     const path = removeProjectIdIfPresent(location.pathname)
     const failedTypes = recentViews?.failedTypes ?? []
 
-    const retryButton = (size: 'small' | 'xsmall'): JSX.Element => (
-        <LemonButton
+    const retryButton = (size: 'sm' | 'xs'): JSX.Element => (
+        <Button
             size={size}
-            type="secondary"
+            variant="outline"
             loading={recentViewsLoading}
             onClick={() => loadRecentViews()}
             data-attr="today-views-retry"
         >
             Try again
-        </LemonButton>
+        </Button>
     )
 
     return (
-        <div className="TodayPane">
-            <NewViewMenu trigger={<button type="button" className="TodaySidebar__new" data-attr="today-views-new" />}>
+        <div className="TodayPane" data-quill>
+            <NewViewMenu
+                trigger={<Button variant="primary" size="lg" className="w-full" data-attr="today-views-new" />}
+            >
                 <IconPlus />
                 New…
             </NewViewMenu>
@@ -62,7 +63,7 @@ export function TodayViewsSidebar(): JSX.Element {
                         recentUnavailable ? (
                             <div className="TodayPane__state">
                                 <span>Your views didn’t load.</span>
-                                {retryButton('small')}
+                                {retryButton('sm')}
                             </div>
                         ) : (
                             <div className="TodayPane__state" aria-busy>
@@ -82,7 +83,7 @@ export function TodayViewsSidebar(): JSX.Element {
                                             ? 'Your views didn’t refresh.'
                                             : `${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
                                     </span>
-                                    {retryButton('xsmall')}
+                                    {retryButton('xs')}
                                 </div>
                             )}
                             {recentViews.truncated && (
