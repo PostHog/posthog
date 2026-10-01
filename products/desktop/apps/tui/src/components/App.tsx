@@ -18,13 +18,10 @@ import { useWorkList } from "../hooks/useWorkList";
 import {
   activeWorkspace,
   allPanes,
-  type LayoutNode,
   type LayoutState,
   loadLayout,
   type PaneNode,
-  paneIds,
   saveLayout,
-  splitSizes,
 } from "../layout";
 import type { LocalSession } from "../local";
 import type { PiControl } from "../models";
@@ -33,22 +30,8 @@ import type { CloudRuns } from "../runs";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
+import { PaneTree } from "./PaneTree";
 import { Sidebar } from "./Sidebar";
-
-// A split draws one line between neighbours: left of each column after the first, above each row after the first.
-function dividerProps(divider: "left" | "top" | null) {
-  return divider
-    ? {
-        borderStyle: "single" as const,
-        borderColor: "gray",
-        borderDimColor: true,
-        borderTop: divider === "top",
-        borderLeft: divider === "left",
-        borderRight: false,
-        borderBottom: false,
-      }
-    : {};
-}
 
 export interface Session {
   work: WorkList;
@@ -241,89 +224,42 @@ export function App({
     return taskOf(pane.taskId)?.title || pane.title || "Untitled";
   };
 
-  // Splits get whole-cell sizes worked out here; flex layout rounds half cells and leaves gaps.
-  const renderNode = (
-    node: LayoutNode,
-    divider: "left" | "top" | null,
-    width: number,
-    height: number,
-  ): ReactElement => {
-    if (node.kind === "pane") {
-      return (
-        <Box
-          key={node.id}
-          ref={(element) => boxes.setPane(node.id, element)}
-          width={width}
-          height={height}
-          flexDirection="column"
-          {...dividerProps(divider)}
-        >
-          <Pane
-            title={titleOf(node)}
-            paneTaskId={node.taskId}
-            task={taskOf(node.taskId)}
-            runs={runs ?? null}
-            local={
-              isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined
-            }
-            isLocalPane={isLocal(node.taskId)}
-            newChatPlace={placeFor(node.id)}
-            chat={chatFor(node.id, node.taskId)}
-            composer={composerFor(node.id)}
-            pending={pending.get(node.id) ?? null}
-            pendingShells={shellsFor(node.taskId)}
-            onLines={(lines) => setLines(node.id, lines)}
-            onOffer={(offer) => setOffer(node.id, offer)}
-            picker={pickerFor(node.id)}
-            modal={modalFor(node.id) ?? null}
-            model={modelName(node.id, node.taskId)}
-            onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
-            onTurn={(turn) => setTurn(node.id, turn)}
-            chips={
-              isLocal(node.taskId) || !node.taskId
-                ? statusChips(
-                    undefined,
-                    newChatRepository,
-                    isLocal(node.taskId) ? "local" : placeFor(node.id),
-                  )
-                : taskOf(node.taskId)
-                  ? statusChips(taskOf(node.taskId), newChatRepository)
-                  : []
-            }
-            onPrChip={(element, url) => boxes.setPrChip(node.id, element, url)}
-            onChatBox={(element) => boxes.setChat(node.id, element)}
-            focused={!sidebarFocused && node.id === workspace.focusedPaneId}
-          />
-        </Box>
-      );
-    }
-    const across = node.direction === "row";
-    // This split's own divider takes a row or column before its children share the rest.
-    const innerWidth = width - (divider === "left" ? 1 : 0);
-    const innerHeight = height - (divider === "top" ? 1 : 0);
-    const sizes = splitSizes(
-      across ? innerWidth : innerHeight,
-      node.children.length,
-    );
-    return (
-      <Box
-        key={paneIds(node).join()}
-        flexDirection={node.direction}
-        width={width}
-        height={height}
-        {...dividerProps(divider)}
-      >
-        {node.children.map((child, index) =>
-          renderNode(
-            child,
-            index === 0 ? null : across ? "left" : "top",
-            across ? sizes[index] : innerWidth,
-            across ? innerHeight : sizes[index],
-          ),
-        )}
-      </Box>
-    );
-  };
+  const renderPane = (node: PaneNode): ReactElement => (
+    <Pane
+      title={titleOf(node)}
+      paneTaskId={node.taskId}
+      task={taskOf(node.taskId)}
+      runs={runs ?? null}
+      local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
+      isLocalPane={isLocal(node.taskId)}
+      newChatPlace={placeFor(node.id)}
+      chat={chatFor(node.id, node.taskId)}
+      composer={composerFor(node.id)}
+      pending={pending.get(node.id) ?? null}
+      pendingShells={shellsFor(node.taskId)}
+      onLines={(lines) => setLines(node.id, lines)}
+      onOffer={(offer) => setOffer(node.id, offer)}
+      picker={pickerFor(node.id)}
+      modal={modalFor(node.id) ?? null}
+      model={modelName(node.id, node.taskId)}
+      onRunLive={(taskId, runId) => onRunLive(node.id, taskId, runId)}
+      onTurn={(turn) => setTurn(node.id, turn)}
+      chips={
+        isLocal(node.taskId) || !node.taskId
+          ? statusChips(
+              undefined,
+              newChatRepository,
+              isLocal(node.taskId) ? "local" : placeFor(node.id),
+            )
+          : taskOf(node.taskId)
+            ? statusChips(taskOf(node.taskId), newChatRepository)
+            : []
+      }
+      onPrChip={(element, url) => boxes.setPrChip(node.id, element, url)}
+      onChatBox={(element) => boxes.setChat(node.id, element)}
+      focused={!sidebarFocused && node.id === workspace.focusedPaneId}
+    />
+  );
 
   // A spare row under everything keeps bottom composers off the window's edge.
   return (
@@ -337,8 +273,15 @@ export function App({
         activePaneId={workspace.focusedPaneId}
       />
       <Box ref={chatArea} flexGrow={1}>
-        {area.hasMeasured &&
-          renderNode(workspace.root, null, area.width, area.height)}
+        {area.hasMeasured && (
+          <PaneTree
+            node={workspace.root}
+            width={area.width}
+            height={area.height}
+            renderPane={renderPane}
+            onPaneBox={boxes.setPane}
+          />
+        )}
       </Box>
     </Box>
   );
