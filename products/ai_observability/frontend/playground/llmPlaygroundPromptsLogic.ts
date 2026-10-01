@@ -517,15 +517,7 @@ export interface llmPlaygroundPromptsLogicActions {
         promptId: string | undefined
         response: string
     }
-    applySavedModelSelection: (
-        selection: {
-            model: string
-            provider: string | null
-            providerKeyId: string | null
-        },
-        promptId?: string
-    ) => {
-        promptId: string | undefined
+    applySavedModelSelection: (selection: { model: string; provider: string | null; providerKeyId: string | null }) => {
         selection: {
             model: string
             provider: string | null
@@ -802,10 +794,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         toggleCollapsed: (key: string) => ({ key }),
         setToolsJsonError: (promptId: string, error: string | null) => ({ promptId, error }),
         setSourceSetupLoading: (isLoading: boolean) => ({ isLoading }),
-        applySavedModelSelection: (
-            selection: { model: string; provider: string | null; providerKeyId: string | null },
-            promptId?: string
-        ) => ({ selection, promptId }),
+        applySavedModelSelection: (selection: {
+            model: string
+            provider: string | null
+            providerKeyId: string | null
+        }) => ({ selection }),
         saveToLinkedPrompt: (promptId: string, modelConfig: PlaygroundModelConfig | null) => ({
             promptId,
             modelConfig,
@@ -1307,14 +1300,11 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
                                 }))
                             )
                             if (parsedConfig.model) {
-                                actions.applySavedModelSelection(
-                                    {
-                                        model: parsedConfig.model,
-                                        provider: parsedConfig.provider,
-                                        providerKeyId: parsedConfig.providerKeyId,
-                                    },
-                                    promptId
-                                )
+                                actions.applySavedModelSelection({
+                                    model: parsedConfig.model,
+                                    provider: parsedConfig.provider,
+                                    providerKeyId: parsedConfig.providerKeyId,
+                                })
                             }
                         }
                     } catch {
