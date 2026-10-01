@@ -14,7 +14,6 @@ import posthoganalytics
 import temporalio.activity
 
 from posthog.event_usage import groups
-from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -140,19 +139,14 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
 
     recalculation_id = str(payload["id"])
     try:
-        start_metrics_recalculation_workflow(recalculation_id, str(experiment.team.organization_id))
+        start_metrics_recalculation_workflow(
+            recalculation_id,
+            team_id=experiment.team_id,
+            organization_id=str(experiment.team.organization_id),
+        )
     except Exception:
-        # Mirrors the API path in presentation/views.py: start_metrics_recalculation_workflow can
-        # raise after the server accepted the start, so only a row that is still PENDING with no
-        # query_to is safe to fail. A row past mark_started belongs to its running workflow.
-        # Without this the orphan row would look active to every later scheduled run.
-        with team_scope(experiment.team_id, canonical=True):
-            ExperimentMetricsRecalculation.objects.filter(
-                team=experiment.team,
-                id=recalculation_id,
-                status=ExperimentMetricsRecalculation.Status.PENDING,
-                query_to__isnull=True,
-            ).update(status=ExperimentMetricsRecalculation.Status.FAILED)
+        # start_metrics_recalculation_workflow rolls the row back to FAILED itself, so an orphaned
+        # PENDING row cannot look active to every later scheduled run.
         logger.warning(
             "scheduled_recalculation_dispatch_failed",
             experiment_id=experiment_id,
