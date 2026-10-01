@@ -2566,6 +2566,15 @@ export namespace Schemas {
       Uuid: 'uuid',
     } as const;
 
+    export type WebAnalyticsScreenViewMode = typeof WebAnalyticsScreenViewMode[keyof typeof WebAnalyticsScreenViewMode];
+
+
+    export const WebAnalyticsScreenViewMode = {
+      Pageviews: 'pageviews',
+      Screens: 'screens',
+      PageviewsAndScreens: 'pageviews_and_screens',
+    } as const;
+
     export interface HogQLQueryModifiers {
       bounceRateDurationSeconds?: number | null;
       bounceRatePageViewMode?: BounceRatePageViewMode | null;
@@ -2613,6 +2622,8 @@ export namespace Schemas {
       useWebAnalyticsPreAggregatedTables?: boolean | null;
       /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
       webAnalyticsFirstPageviewFilters?: boolean | null;
+      /** Which events web analytics counts as views. Unset keeps `$pageview` + `$screen` for totals and `$pathname` for paths. `pageviews_and_screens` falls back to `$screen_name` when an event has no `$pathname`. */
+      webAnalyticsScreenViewMode?: WebAnalyticsScreenViewMode | null;
     }
 
     export interface ClickhouseQueryProgress {

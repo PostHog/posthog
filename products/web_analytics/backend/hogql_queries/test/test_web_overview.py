@@ -31,6 +31,7 @@ from posthog.schema import (
     SessionPropertyFilter,
     SessionTableVersion,
     WebAnalyticsSampling,
+    WebAnalyticsScreenViewMode,
     WebOverviewQuery,
     WebOverviewQueryResponse,
     WebStatsBreakdown,
@@ -122,10 +123,13 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         action: Optional[Action] = None,
         custom_event: Optional[str] = None,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
+        screen_view_mode: Optional[WebAnalyticsScreenViewMode] = None,
     ):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(
-                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+                sessionTableVersion=session_table_version,
+                bounceRatePageViewMode=bounce_rate_mode,
+                webAnalyticsScreenViewMode=screen_view_mode,
             )
             query = WebOverviewQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -324,6 +328,28 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         self.assertEqual(100, bounce.value)
         self.assertEqual(0, bounce.previous)
         self.assertEqual(None, bounce.changeFromPreviousPct)
+
+    @parameterized.expand(
+        [
+            ("unset", None, 2, 3, 2),
+            ("pageviews", WebAnalyticsScreenViewMode.PAGEVIEWS, 1, 2, 1),
+            ("screens", WebAnalyticsScreenViewMode.SCREENS, 1, 1, 1),
+            ("pageviews_and_screens", WebAnalyticsScreenViewMode.PAGEVIEWS_AND_SCREENS, 2, 3, 2),
+        ]
+    )
+    def test_screen_view_mode_selects_counted_events(
+        self, _name, screen_view_mode, expected_visitors, expected_views, expected_sessions
+    ):
+        web_session = str(uuid7("2023-12-10"))
+        app_session = str(uuid7("2023-12-11"))
+        self._create_events([("web", [("2023-12-10", web_session), ("2023-12-10", web_session)])])
+        self._create_events([("app", [("2023-12-11", app_session)])], event="$screen")
+
+        results = self._run_web_overview_query(
+            "2023-12-08", "2023-12-15", compare=False, screen_view_mode=screen_view_mode
+        ).results
+
+        assert [r.value for r in results[:3]] == [expected_visitors, expected_views, expected_sessions]
 
     def test_all_time(self):
         s1a = str(uuid7("2023-12-02"))

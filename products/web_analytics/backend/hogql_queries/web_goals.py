@@ -151,7 +151,7 @@ SELECT
 FROM events
 WHERE and(
     {events_session_id} IS NOT NULL,
-    event = '$pageview' OR event = '$screen' OR {action_where},
+    or({view_event_where}, {action_where}),
     {periods_expression},
     {event_properties},
     {session_properties}
@@ -163,6 +163,7 @@ GROUP BY {events_session_id}
                     "event_properties": self.event_properties(),
                     "session_properties": self.session_properties(),
                     "action_where": ast.Or(exprs=action_exprs),
+                    "view_event_where": self.view_event_expr,
                     "events_session_id": self.events_session_property,
                 },
             )

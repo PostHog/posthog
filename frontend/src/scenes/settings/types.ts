@@ -119,6 +119,7 @@ export type SettingId =
     | 'base-currency'
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
+    | 'web-analytics-screen-view-mode'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
     | 'change-password'

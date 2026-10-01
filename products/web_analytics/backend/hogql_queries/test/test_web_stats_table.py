@@ -35,6 +35,7 @@ from posthog.schema import (
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebAnalyticsSampling,
+    WebAnalyticsScreenViewMode,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -240,10 +241,13 @@ class TestWebStatsTableQueryRunner(
         filter_test_accounts: Optional[bool] = False,
         bounce_rate_mode: Optional[BounceRatePageViewMode] = BounceRatePageViewMode.COUNT_PAGEVIEWS,
         orderBy=None,
+        screen_view_mode: Optional[WebAnalyticsScreenViewMode] = None,
     ):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             modifiers = HogQLQueryModifiers(
-                sessionTableVersion=session_table_version, bounceRatePageViewMode=bounce_rate_mode
+                sessionTableVersion=session_table_version,
+                bounceRatePageViewMode=bounce_rate_mode,
+                webAnalyticsScreenViewMode=screen_view_mode,
             )
             query = WebStatsTableQuery(
                 dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -316,6 +320,78 @@ class TestWebStatsTableQueryRunner(
             ["Home", (2, None), (2, None), 2 / 3, ""],
             ["Login", (1, None), (1, None), 1 / 3, ""],
         ] == results
+
+    @parameterized.expand(
+        [
+            (mode_name, mode, include_bounce_rate, expected_paths)
+            for mode_name, mode, expected_paths in [
+                ("unset", None, {"/", "/login"}),
+                ("pageviews", WebAnalyticsScreenViewMode.PAGEVIEWS, {"/", "/login"}),
+                ("screens", WebAnalyticsScreenViewMode.SCREENS, {"Home"}),
+                ("pageviews_and_screens", WebAnalyticsScreenViewMode.PAGEVIEWS_AND_SCREENS, {"/", "/login", "Home"}),
+            ]
+            for include_bounce_rate in (False, True)
+        ]
+    )
+    def test_page_breakdown_by_screen_view_mode(self, _name, screen_view_mode, include_bounce_rate, expected_paths):
+        web_session = str(uuid7("2023-12-02"))
+        app_session = str(uuid7("2023-12-03"))
+        self._create_events([("web", [("2023-12-02", web_session, "/"), ("2023-12-02", web_session, "/login")])])
+        self._create_events([("app", [("2023-12-03", app_session, "Home")])], event="$screen")
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-11",
+            include_bounce_rate=include_bounce_rate,
+            screen_view_mode=screen_view_mode,
+        ).results
+
+        assert {row[0] for row in results} == expected_paths
+
+    @parameterized.expand(
+        [
+            ("screens", WebAnalyticsScreenViewMode.SCREENS, False, {"Home": 1}),
+            ("screens_avg_time", WebAnalyticsScreenViewMode.SCREENS, True, {"Home": 1}),
+            ("both", WebAnalyticsScreenViewMode.PAGEVIEWS_AND_SCREENS, False, {"/": 0, "Home": 1}),
+            ("both_avg_time", WebAnalyticsScreenViewMode.PAGEVIEWS_AND_SCREENS, True, {"/": 0, "Home": 1}),
+        ]
+    )
+    def test_screen_rows_get_bounce_rate_from_entry_screen(
+        self, _name, screen_view_mode, include_avg_time_on_page, expected_bounce
+    ):
+        web_session = str(uuid7("2023-12-02"))
+        app_session = str(uuid7("2023-12-03"))
+        self._create_events([("web", [("2023-12-02", web_session, "/"), ("2023-12-02", web_session, "/login")])])
+        self._create_events([("app", [("2023-12-03", app_session, "Home")])], event="$screen")
+
+        response = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-11",
+            include_bounce_rate=True,
+            include_avg_time_on_page=include_avg_time_on_page,
+            screen_view_mode=screen_view_mode,
+        )
+
+        bounce_index = response.columns.index("context.columns.bounce_rate")
+        bounce_by_row = {row[0]: row[bounce_index][0] for row in response.results}
+        assert {path: bounce_by_row[path] for path in expected_bounce} == expected_bounce
+
+    @parameterized.expand([(False,), (True,)])
+    def test_pathname_filter_matches_screen_name_fallback(self, include_bounce_rate):
+        web_session = str(uuid7("2023-12-02"))
+        app_session = str(uuid7("2023-12-03"))
+        self._create_events([("web", [("2023-12-02", web_session, "/")])])
+        self._create_events([("app", [("2023-12-03", app_session, "Home")])], event="$screen")
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01",
+            "2023-12-11",
+            include_bounce_rate=include_bounce_rate,
+            properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value=["Home"])],
+            screen_view_mode=WebAnalyticsScreenViewMode.PAGEVIEWS_AND_SCREENS,
+        ).results
+
+        assert [row[0] for row in results] == ["Home"]
 
     def test_in_app_browser_breakdown_groups_by_webview_app_and_drops_regular_traffic(self):
         s1 = str(uuid7("2023-12-02"))
