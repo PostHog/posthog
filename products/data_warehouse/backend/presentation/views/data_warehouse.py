@@ -514,7 +514,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin, eds.source_id as source_id
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
@@ -647,7 +647,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         SELECT edj.id, edsrc.source_type as type, eds.name, edj.status,
                                COALESCE(edj.rows_synced, 0) as rows, edj.created_at,
                                edj.finished_at, edj.latest_error, edj.workflow_run_id,
-                               null as origin, eds.source_id as source_id
+                               null as origin, edj.pipeline_id as source_id
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id

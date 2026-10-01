@@ -113,6 +113,7 @@ export function RecentRuns(): JSX.Element {
                                 type="tertiary"
                                 size="xsmall"
                                 to={urls.dataWarehouseSource(`managed-${sourceId}`, 'syncs')}
+                                data-attr="etl-run-view-source"
                             >
                                 View
                             </LemonButton>

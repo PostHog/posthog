@@ -163,9 +163,30 @@ describe('pipelineOverviewSceneLogic', () => {
             expect.anything(),
             expect.objectContaining({ outcome: 'all' })
         )
-        expect(api.dataWarehouseRunningActivityRetrieve).toHaveBeenCalled()
+        expect(api.dataWarehouseRunningActivityRetrieve).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ kind: 'import', cutoff_days: 7, limit: 50 })
+        )
         // Running first, so what is happening now is at the top of the table.
         expect(logic.values.recentRunRows.map((r: any) => r.id)).toEqual(['live', 'done'])
+    })
+
+    it('prefers a finished run when it also appears in the running response', async () => {
+        const run = { id: 'same', type: 'Stripe', name: 'charges' }
+        api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({
+            results: [{ ...run, status: 'Completed' }],
+            next: null,
+            previous: null,
+        })
+        api.dataWarehouseRunningActivityRetrieve.mockResolvedValue({
+            results: [{ ...run, status: 'Running' }],
+            next: null,
+            previous: null,
+        })
+
+        await expectLogic(logic, () => logic.actions.loadRecentRuns()).toFinishAllListeners()
+
+        expect(logic.values.recentRunRows).toEqual([expect.objectContaining({ id: 'same', status: 'Completed' })])
     })
 
     it('leaves the billing-period row total alone when the window changes', async () => {

@@ -267,9 +267,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                         // In-flight runs come from a separate endpoint, so a sync that started
                         // seconds ago appears at the top rather than waiting until it finishes.
                         dataWarehouseRunningActivityRetrieve(String(values.currentTeamId), {
-                            // Imports only, for the same reason as above: a team with many view
-                            // refreshes in flight would otherwise fill this page with them.
                             kind: 'import',
+                            cutoff_days: values.window,
+                            limit: 50,
                         }),
                     ])
                     return {
@@ -360,7 +360,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     return []
                 }
                 const isImport = (run: PipelineActivityRowApi): boolean => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE
-                return [...answer.running.filter(isImport), ...answer.finished.filter(isImport)]
+                const finished = answer.finished.filter(isImport)
+                const finishedIds = new Set(finished.map((run) => run.id))
+                return [...answer.running.filter((run) => isImport(run) && !finishedIds.has(run.id)), ...finished]
             },
         ],
         // A first load shows skeletons; a refresh keeps the numbers on screen and dims them, so

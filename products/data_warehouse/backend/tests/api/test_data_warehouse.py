@@ -643,6 +643,27 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertIn("Stripe", types)
         self.assertIn("Materialized view", types)
 
+    def test_activity_uses_pipeline_id_for_schema_less_jobs(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        running_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.RUNNING
+        )
+        completed_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.COMPLETED
+        )
+
+        running_response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/running_activity?kind=import")
+        completed_response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/completed_activity?kind=import"
+        )
+
+        self.assertEqual(running_response.json()["results"][0]["id"], str(running_job.id))
+        self.assertEqual(running_response.json()["results"][0]["source_id"], str(source.id))
+        self.assertEqual(completed_response.json()["results"][0]["id"], str(completed_job.id))
+        self.assertEqual(completed_response.json()["results"][0]["source_id"], str(source.id))
+
     def test_completed_activity_returns_only_completed_jobs(self):
         """Test completed_activity endpoint returns only jobs with status 'Completed'"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
