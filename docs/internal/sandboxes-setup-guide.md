@@ -112,10 +112,6 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
-The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
-ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
-ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
-
 Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
 Other refresh failures retry on the default cadence.
 
