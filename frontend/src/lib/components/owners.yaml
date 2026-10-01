@@ -4,7 +4,7 @@ rules:
     - match: '/HogQLEditor/'
       owners: team-data-tools
     - match: '/MarkdownNotebook/'
-      owners: team-data-tools
+      owners: team-data-modeling
     - match: '/NavPanelAdvertisement/'
       owners: team-growth
     - match: '/ProductEmptyState/'

@@ -9,3 +9,7 @@ rules:
           - '/unit/posthog/analytics.test.ts'
           - '/tools/projects.integration.test.ts'
       owners: mcp-analytics
+    - match:
+          - '/tools/notebooks.integration.test.ts'
+          - '/unit/notebook-*.test.ts'
+      owners: team-data-modeling

@@ -65,7 +65,7 @@ rules:
     - match: '/models/'
       owners: team-data-modeling
     - match: '/notebooks/'
-      owners: team-data-tools
+      owners: team-data-modeling
     - match: ['/oauth/', '/onboarding/']
       owners: team-growth
     - match: '/onboarding/legacy/sdks/ai-observability/'

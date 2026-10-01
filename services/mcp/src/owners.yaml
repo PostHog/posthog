@@ -22,3 +22,7 @@ rules:
           - '/tools/generated/ai_observability.ts'
           - '/ui-apps/apps/generated/llm-costs.tsx'
       owners: team-ai-observability
+    - match:
+          - '/templates/sections/notebook-*.md'
+          - '/tools/notebooks/'
+      owners: team-data-modeling
