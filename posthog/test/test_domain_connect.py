@@ -383,6 +383,15 @@ class TestTemplateResolverAlignment(BaseTest):
                 dns.resolver.Timeout(),
                 False,
             ),
+            (
+                "sender whose dmarc record is not utf-8",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                [MagicMock(strings=[b"\xff"])],
+                False,
+            ),
         ]
     )
     @patch("posthog.models.integration.EmailIntegration")

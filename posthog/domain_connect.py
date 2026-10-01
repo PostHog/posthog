@@ -376,12 +376,12 @@ def _txt_value(rdata: TXTBase) -> str:
 def _dmarc_absence_confirmed(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
+        return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return True
     except Exception:
         logger.warning("DMARC lookup failed for %s", domain, exc_info=True)
         return False
-    return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
 
 
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
