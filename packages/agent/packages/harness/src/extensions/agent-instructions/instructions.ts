@@ -43,7 +43,7 @@ Material you were given as task context — customer conversations, support tick
 
 const MEMORY_FILES_BY_RUNTIME = {
   claude: `- \`AGENTS.md\` files: at the repo root and in any directory whose files you edit or whose behavior you judge. \`CLAUDE.md\` is loaded for you automatically; when an \`AGENTS.md\` merely mirrors it you can move on, but when it carries its own content, follow that too.`,
-  codex: `- \`CLAUDE.md\` files: at the repo root and in any directory whose files you edit or whose behavior you judge. \`AGENTS.md\` is loaded for you automatically; when a \`CLAUDE.md\` merely mirrors it (often as a symlink) you can move on, but when it carries its own content, follow that too.`,
+  codex: `- \`AGENTS.md\` and \`CLAUDE.md\` files: at the repo root and in any directory whose files you edit or whose behavior you judge. An \`AGENTS.md\` is loaded for you automatically only on the path from the repo root to your working directory, so read any nested one below it yourself. When a \`CLAUDE.md\` merely mirrors its \`AGENTS.md\` (often as a symlink), reading one is enough; when it carries its own content, follow that too.`,
 } as const;
 
 function buildRepositoryConventions(
