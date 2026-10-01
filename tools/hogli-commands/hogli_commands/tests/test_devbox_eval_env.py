@@ -269,6 +269,33 @@ def test_invalid_bundle_source_is_rejected_before_creating_devbox(
     start.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "workspace,status",
+    [
+        ({"latest_build": {"status": "stopping"}}, "stopping"),
+        ({"latest_build": {"status": "stopped"}}, "stopped"),
+        ({"latest_build": {"status": "deleting"}}, "deleting"),
+        (None, "deleted"),
+    ],
+)
+def test_stopping_or_deleted_devbox_fails_before_waiting_for_ssh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workspace: dict[str, object] | None, status: str
+) -> None:
+    bundle = tmp_path / "environment.tar.gz"
+    bundle.write_bytes(b"invented environment bundle")
+    process = MagicMock(return_value=subprocess.CompletedProcess([], 0))
+    monkeypatch.setattr(eval_env, "start_or_create_workspace", MagicMock(return_value="devbox-engineer-eval1"))
+    monkeypatch.setattr(eval_env, "coder_ssh_alias_configured", lambda name: True)
+    monkeypatch.setattr(eval_env, "get_workspace", lambda name: workspace)
+    monkeypatch.setattr(eval_env.subprocess, "run", process)
+
+    result = CliRunner().invoke(eval_env.cmd_prepare_eval_env, ["-n", "eval1", "--bundle", str(bundle)])
+
+    assert result.exit_code == 1
+    assert f"Devbox 'devbox-engineer-eval1' is {status}" in result.output
+    process.assert_not_called()
+
+
 @pytest.mark.parametrize("operation", ["help", "local", "s3"])
 def test_optional_aws_sdk_is_only_required_for_s3_bundles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
