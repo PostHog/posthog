@@ -33,7 +33,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply, slack_message_exists
-from products.tasks.backend.models import TaskArtifact, TaskRun
+from products.tasks.backend.models import Task, TaskArtifact, TaskOwnershipChangedError, TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +100,16 @@ def serialize_task_artifact(artifact: TaskArtifact) -> dict[str, Any]:
     }
 
 
+def _require_current_task_ownership(run: TaskRun, *, lock: bool = False) -> None:
+    # A handoff rotates the task's ownership version while it holds a row lock on the task.
+    # With lock=True this read waits for that lock, so a write from a run that started before
+    # the handoff cannot commit into the new owner's task.
+    tasks = Task.objects.select_for_update(of=("self",)) if lock else Task.objects
+    task = tasks.only("state").get(pk=run.task_id, team_id=run.team_id)
+    if not run.matches_task_ownership(task):
+        raise TaskOwnershipChangedError("Task ownership changed during the artifact write")
+
+
 def create_living_artifact(
     *,
     run: TaskRun,
@@ -130,6 +140,7 @@ def create_living_artifact(
     )
     selected_adapter = _resolve_adapter(run, adapter, artifact_type)
     artifact_id = uuid.uuid4()
+    _require_current_task_ownership(run)
     commit = selected_adapter.create(
         run=run,
         name=name,
@@ -140,6 +151,7 @@ def create_living_artifact(
     )
 
     with transaction.atomic():
+        _require_current_task_ownership(run, lock=True)
         artifact = TaskArtifact.objects.for_team(run.team_id).create(
             id=artifact_id,
             team=run.team,
@@ -200,6 +212,7 @@ def edit_living_artifact(
     )
     existing_content = selected_adapter.open(artifact)
     next_content = selected_adapter.apply_edit(existing_content, content_payload.body)
+    _require_current_task_ownership(run)
     commit = selected_adapter.commit(
         artifact=artifact,
         run=run,
@@ -212,6 +225,7 @@ def edit_living_artifact(
     )
 
     with transaction.atomic():
+        _require_current_task_ownership(run, lock=True)
         locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
         versions = list(locked.versions or [])
         versions.append(commit.version)

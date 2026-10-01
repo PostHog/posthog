@@ -306,6 +306,7 @@ class BaseTaskAPITest(TestCase):
         client_id: str = ARRAY_APP_CLIENT_ID_DEV,
         bound: bool = True,
         internal_scope: bool = False,
+        extra_scopes: tuple[str, ...] = (),
     ) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Task artifact uploader",
@@ -322,7 +323,7 @@ class BaseTaskAPITest(TestCase):
             application=application,
             token=f"pha_task_agent_{uuid.uuid4().hex}",
             expires=django_timezone.now() + timedelta(hours=1),
-            scope=f"task:read task:write{' internal_run:read' if internal_scope else ''}",
+            scope=" ".join(["task:read task:write", *(["internal_run:read"] if internal_scope else []), *extra_scopes]),
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id if bound else None,
         )
@@ -12352,10 +12353,12 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_run_vanishing_before_registration_returns_404(self, mock_render, mock_create):
-        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        asset = self._rendered_asset()
+        mock_render.return_value = (asset, b"png-bytes")
         mock_create.return_value = (None, None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        asset.delete.assert_called_once()
 
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource"
@@ -12378,6 +12381,38 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_render.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("sandbox_bound_to_this_task", "this_task", status.HTTP_200_OK),
+            ("sandbox_bound_to_another_task", "another_task", status.HTTP_404_NOT_FOUND),
+            ("sandbox_token_without_task_binding", None, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_only_the_task_bound_sandbox_charts_a_run_its_user_does_not_own(
+        self, _name, bound_to, expected_status, mock_render, mock_create
+    ):
+        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        task = self.create_task(created_by=self.create_organization_user("thread-starter"))
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        another_task = self.create_task(title="Another task")
+        client = self._sandbox_oauth_client(
+            another_task.id if bound_to == "another_task" else task.id,
+            bound=bound_to is not None,
+            extra_scopes=("query:read",),
+        )
+
+        response = client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/chart/",
+            {"name": "Chart", "query": self.CHART_QUERY},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_render.called, expected_status == status.HTTP_200_OK)
 
     def test_listing_artifacts_on_a_readable_run_still_allowed(self):
         task, run = self._teammates_experiments_run()

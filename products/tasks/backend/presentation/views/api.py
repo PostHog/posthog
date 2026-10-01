@@ -4214,10 +4214,19 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
         return run_id
 
     def _ensure_task_accessible(self) -> str:
-        """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
+        """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``.
+
+        The task's own sandbox agent skips the creator check, as it does for runs: when a
+        teammate continues a shared Slack thread, the run executes under their credentials
+        while the task keeps its original creator, and the agent must still deliver into its
+        own run. Only an OAuth token minted for this exact task's sandbox qualifies, never a
+        session or API key, and the run ownership check below still applies.
+        """
         task_id = self._task_id()
         is_read = self.action in ("list", "retrieve")
-        bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
+        bypass_visibility = is_sandbox_agent_request(self.request, task_id) or (
+            is_read and _can_bypass_visibility(self.request, self.team_id)
+        )
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
             self.team_id,
@@ -4421,12 +4430,13 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 "export_asset_id": asset.id,
             },
         )
-        if artifact is None and error is None:
-            raise NotFound()
-        if error is not None:
+        if artifact is None:
             # The render already persisted the export; without this it would sit
             # orphaned until its own six-month expiry instead of being cleaned up now.
             asset.delete()
+            if error is None:
+                capture_render(failure_reason="run_not_found")
+                raise NotFound()
             capture_render(failure_reason="artifact_create_failed")
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         capture_render(export_asset_id=asset.id)
