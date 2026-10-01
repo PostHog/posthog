@@ -1648,6 +1648,22 @@ class TestMultiTurnSessionStartFallback:
         else:
             session.end.assert_not_awaited()  # type: ignore[attr-defined]
 
+    @pytest.mark.asyncio
+    async def test_failed_json_retry_turn_never_salvages(self):
+        # A retry turn that times out is an execution failure, so the fallback must not turn it into a result.
+        session = self._fake_session()
+        session.send_followup_raw = AsyncMock(side_effect=RuntimeError("poll timed out"))  # type: ignore[method-assign]
+        fallback = MagicMock()
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, "prose only"))):
+            with pytest.raises(RuntimeError):
+                await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON", fallback_from_text=fallback
+                )
+
+        fallback.assert_not_called()
+        assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+
 
 class TestPollForTurnConnectionDrop:
     """poll_for_turn runs for many minutes while the activity's pooled DB connection sits idle;

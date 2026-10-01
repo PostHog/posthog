@@ -133,6 +133,8 @@ class MultiTurnSession:
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
         )
+        # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
+        salvageable = True
         try:
             try:
                 parsed = cls._parse_and_validate(last_message, model, label="initial turn")
@@ -145,7 +147,10 @@ class MultiTurnSession:
                     session.task_run.id,
                     e,
                 )
-                parsed = await session.send_followup(json_retry_prompt, model, label="initial turn json retry")
+                salvageable = False
+                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                salvageable = True
+                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -153,6 +158,7 @@ class MultiTurnSession:
             # a Temporal cancellation (CancelledError), which must propagate and fail the run.
             if (
                 fallback_from_text is not None
+                and salvageable
                 and last_message is not None
                 and not isinstance(e, asyncio.CancelledError)
             ):
