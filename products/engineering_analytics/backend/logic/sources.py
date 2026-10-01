@@ -31,7 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
-from products.engineering_analytics.backend.logic.views import depot_ci
+from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -227,14 +227,9 @@ class JobSourceTables:
         )
 
     @property
-    def jobs_source(self) -> str:
+    def jobs_source(self) -> workflow_jobs.JobsTable:
         """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
         return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
-
-    @property
-    def duplicate_jobs_source(self) -> str:
-        """The source of the jobs builder's duplicate scan: ``jobs_source`` without the hand-off shell filter."""
-        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, runs_table=None)
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:

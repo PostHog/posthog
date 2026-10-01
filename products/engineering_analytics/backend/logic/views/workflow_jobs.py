@@ -43,7 +43,7 @@ can prune on — the parsed ``created_at`` stays the precise filter, the raw twi
 A caller's own outer ``created_at_raw`` predicate can prune the jobs scan, but never the duplicate
 scan, which reads no ``created_at_raw``. Windowed callers therefore pass ``created_floor=True`` and
 register the ``{job_created_floor}`` placeholder (see ``run_started_floor_constant``, shared with
-the runs builder). The floor is a prefilter on the RAW column inside the shared table source, so it
+the runs builder). The floor is a prefilter on the RAW column inside the source of each scan, so it
 bounds both scans. The trade is exact: a run whose
 earlier attempt falls below the floor loses the evidence that its later attempt is a copy, so a
 boundary re-run reads as billable — the same coarseness the floor already has, and why the floor sits
@@ -51,6 +51,8 @@ a day below the window.
 
 Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
 """
+
+from posthog.dataclasses import frozen
 
 # The moment the job actually began running: the first entry of the ``steps`` JSON array. ``steps`` is
 # a Nullable JSON string, and ClickHouse rejects an Array nested inside a Nullable, so it is
@@ -70,11 +72,24 @@ def branch(jobs_alias: str, runs_alias: str) -> str:
     return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
 
 
-def build_query(table_name: str, *, created_floor: bool = False, duplicates_table: str | None = None) -> str:
-    """``duplicates_table`` is the source of the duplicate scan, and ``table_name`` when omitted. It may hold
-    runs that ``table_name`` leaves out, because the join only gives a job row the first attempt of its own
-    run. A source that pays to leave runs out, like the hand-off shell filter, then pays once per read."""
+@frozen
+class JobsTable:
+    """The jobs a read returns, and the source of the builder's duplicate scan.
 
+    ``duplicates`` may hold runs that ``rows`` leaves out, because the join only gives a job row the first
+    attempt of its own run. A source that pays to leave runs out, like the hand-off shell filter, then pays
+    once per jobs read.
+    """
+
+    rows: str
+    duplicates: str
+
+    @classmethod
+    def of(cls, table: "str | JobsTable") -> "JobsTable":
+        return table if isinstance(table, JobsTable) else cls(rows=table, duplicates=table)
+
+
+def build_query(table_name: str | JobsTable, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
     # so a WHERE there would compare the parsed DateTime against the floor string. The jobs scan and
@@ -82,8 +97,9 @@ def build_query(table_name: str, *, created_floor: bool = False, duplicates_tabl
     def floored(table: str) -> str:
         return f"(SELECT * FROM {table} WHERE created_at >= {{job_created_floor}})" if created_floor else table
 
-    table_source = floored(table_name)
-    duplicates_source = floored(duplicates_table or table_name)
+    table = JobsTable.of(table_name)
+    table_source = floored(table.rows)
+    duplicates_source = floored(table.duplicates)
     return f"""
         SELECT
             job.id AS id,

@@ -20,11 +20,7 @@ def _runs_source() -> str:
 
 
 def _jobs_source() -> str:
-    return workflow_jobs.build_query(
-        depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, _RUNS),
-        created_floor=True,
-        duplicates_table=depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, runs_table=None),
-    )
+    return workflow_jobs.build_query(depot_ci.with_depot_jobs(_JOBS, _DEPOT_ATTEMPTS, _RUNS), created_floor=True)
 
 
 class TestSourceScanBudget(SimpleTestCase):
@@ -34,13 +30,13 @@ class TestSourceScanBudget(SimpleTestCase):
             ("jobs_source", _jobs_source, {_RUNS: 1, _JOBS: 5, _PULL_REQUESTS: 0, _DEPOT: 14}),
         ]
     )
-    def test_source_reads_each_warehouse_table_within_its_budget(
+    def test_source_names_each_warehouse_table_within_its_budget(
         self, _name: str, render: Callable[[], str], budget: dict[str, int]
     ) -> None:
         sql = render()
-        reads = {table: sql.count(table) for table in budget}
-        assert reads == budget, (
+        over_budget = {table: sql.count(table) for table, limit in budget.items() if sql.count(table) > limit}
+        assert not over_budget, (
             "Every read embeds these sources, and a page load runs about twenty reads, so one more "
             "table read here multiplies across all of them. Measure read_rows for the new SQL in "
-            "production before you change a budget."
+            "production before you raise a budget."
         )

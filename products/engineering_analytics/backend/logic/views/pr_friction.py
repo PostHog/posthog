@@ -109,13 +109,13 @@ def build_query(
     source_id: str,
     pull_requests_table: str,
     workflow_runs_table: str,
-    workflow_jobs_table: str,
+    workflow_jobs_table: str | workflow_jobs.JobsTable,
     issue_events_table: str | None,
     reviews_table: str | None,
-    duplicate_jobs_table: str | None = None,
 ) -> str:
     if not _SOURCE_ID.fullmatch(source_id):
         raise ValueError(f"not a source id: {source_id!r}")
+    job_rows = workflow_jobs.JobsTable.of(workflow_jobs_table).rows
     window_days = _days(FRICTION_WINDOW)
     run_days = window_days + _days(CI_LOOKBACK)
     gate_days = window_days + _days(GATE_RUN_LOOKBACK)
@@ -127,9 +127,9 @@ def build_query(
     runs = workflow_runs.build_query(
         workflow_runs_table, pull_requests_table=pull_requests_table, started_floor=True
     ).replace("{run_started_floor}", _raw_floor(run_days))
-    jobs = workflow_jobs.build_query(
-        workflow_jobs_table, created_floor=True, duplicates_table=duplicate_jobs_table
-    ).replace("{job_created_floor}", _raw_floor(job_floor_days))
+    jobs = workflow_jobs.build_query(workflow_jobs_table, created_floor=True).replace(
+        "{job_created_floor}", _raw_floor(job_floor_days)
+    )
     run_from = f"now() - INTERVAL {run_days} DAY"
 
     if issue_events_table:
@@ -211,7 +211,7 @@ master AS (
         SELECT ifNull(j.workflow_name, '') AS workflow_name,
             {_strip_shard("j.name")} AS job,
             parseDateTimeBestEffort(j.completed_at) AS completed_at
-        FROM {workflow_jobs_table} AS j
+        FROM {job_rows} AS j
         INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND j.ci_engine = mr.ci_engine
         WHERE j.created_at >= {_raw_floor(run_days)}
             AND {workflow_jobs.branch("j", "mr")} IN (SELECT default_branch FROM pr WHERE default_branch != '')
@@ -434,7 +434,7 @@ def build_team_view(team: "Team") -> str | None:
         return None
     # Each SELECT carries its own WITH, so each sits in its own subquery to keep the CTE names apart.
     return "\nUNION ALL\n".join(
-        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews, duplicate_jobs_table=source.duplicate_jobs_source)})"
+        f"SELECT * FROM ({build_query(source_id=source.source_id, pull_requests_table=source.pull_requests, workflow_runs_table=source.runs_source, workflow_jobs_table=source.jobs_source, issue_events_table=source.issue_events, reviews_table=source.reviews)})"
         for source in sources
         if source.pull_requests
     )

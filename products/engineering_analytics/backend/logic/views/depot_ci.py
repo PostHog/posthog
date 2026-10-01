@@ -26,7 +26,7 @@ import re
 from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
-from products.engineering_analytics.backend.logic.views import workflow_runs
+from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -263,18 +263,20 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
     # keeps the id of its run, and run ids grow with time, so the first run that handed off bounds the scans
     # instead: a scan can skip files on an id range, and no attempt of a later run is below that id.
     first_run = f"(SELECT min(run_id) FROM {jobs_table} WHERE {handed_off})"
+    failed = f"conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})"
+    # Only the hand-off, relay and failed rows feed the aggregates, so the grouping skips every other job.
     relays = f"""
         SELECT run_id
         FROM {jobs_table}
-        WHERE run_id >= {first_run}
+        WHERE run_id >= {first_run} AND (name IN ('{_GITHUB_HANDOFF_JOB}', '{_GITHUB_RELAY_JOB}') OR {failed})
         GROUP BY run_id
         HAVING countIf({handed_off}) > 0
             AND argMaxIf(
                 ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}' AND created_at >= {floor}
             ) = 'success'
-            AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
+            AND countIf({failed}) = 0
     """
-    # The runs builder parses three JSON columns per row, so the raw columns narrow its input first.
+    # The runs builder parses JSON columns on every row, so the raw columns narrow its input first.
     successful_relays = f"id >= {first_run} AND status = 'completed' AND conclusion = 'success' AND id IN ({relays})"
     return f"""
         SELECT r.id
@@ -316,19 +318,22 @@ def with_depot_runs(
     return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str | None) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> workflow_jobs.JobsTable:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Hand-off shells are left out, as in ``with_depot_runs``. Without ``runs_table`` the shells of both engines
-    stay. Depot job rows carry no branch: the jobs builder scans its source twice, so a PR snapshot lookup here
-    would cost two PR scans per jobs read. A reader that joins a job to its run reads the branch through
-    ``workflow_jobs.branch``, which falls back to the run's.
+    Hand-off shells are left out of the rows, as in ``with_depot_runs``. They stay in the source of the
+    duplicate scan, so a jobs read builds the shell filter once. Depot job rows carry no branch: the jobs
+    builder scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A
+    reader that joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back
+    to the run's.
     """
     if depot is None:
-        return f"({_github_jobs(jobs_table)})"
-    if runs_table is None:
-        return f"({_github_jobs(jobs_table)} UNION ALL {_jobs(_attempts(depot, pull_requests_table=None))})"
+        return workflow_jobs.JobsTable.of(f"({_github_jobs(jobs_table)})")
     handoffs = _handoff_workflows(depot)
     where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})"
     depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))
-    return f"({_github_jobs(jobs_table, where)} UNION ALL {depot_jobs})"
+    every_depot_job = _jobs(_attempts(depot, pull_requests_table=None))
+    return workflow_jobs.JobsTable(
+        rows=f"({_github_jobs(jobs_table, where)} UNION ALL {depot_jobs})",
+        duplicates=f"({_github_jobs(jobs_table)} UNION ALL {every_depot_job})",
+    )
