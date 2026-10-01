@@ -40,6 +40,8 @@ DEFAULT_TIMEOUT_SECONDS = 30.0
 # The decision models the gateway serves (JevK5) answer with one letter per option, A to P.
 GATEWAY_MAX_CHOICE_OPTIONS = 16
 GATEWAY_MAX_QUESTIONS = 32
+# The model for the filter picker and emoji search questions.
+DECISION_MODEL = "posthog/hogference/jeeves-0.1"
 
 
 @frozen
