@@ -248,6 +248,8 @@ type SceneMainTitleProps = {
     maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
+    /** The scene whose release stage the title shows, when the title is for a scene other than the active one */
+    sceneId?: string | null
 }
 
 export function SceneTitleSection({
@@ -275,11 +277,13 @@ export function SceneTitleSection({
     maxToolProps,
     maxButtonLabel,
     descriptionMaxLength,
+    sceneId,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
     const { activeSceneId } = useValues(sceneLogic)
-    const releaseStageProduct = useMemo(() => releaseStageProductForScene(activeSceneId), [activeSceneId])
+    const releaseStageSceneId = sceneId ?? activeSceneId
+    const releaseStageProduct = useMemo(() => releaseStageProductForScene(releaseStageSceneId), [releaseStageSceneId])
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
