@@ -241,6 +241,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                         ),
                         "chunks": judgment.chunks,
                         "failed_chunks": judgment.failed_chunks,
+                        "chunk_error_types": judgment.chunk_error_types,
                         "jev_model": judgment.model,
                         "input_tokens": judgment.input_tokens,
                         "estimated_cost_usd": judgment.estimated_cost_usd,
