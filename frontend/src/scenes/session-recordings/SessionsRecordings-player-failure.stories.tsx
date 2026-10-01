@@ -24,7 +24,7 @@ const meta: Meta = {
         // API is set up so that everything except the call to load session recording metadata succeeds
         mswDecorator({
             get: {
-                '/stats': () => [200, { users_on_product: 42, active_recordings: 7 }],
+                '/api/projects/:team_id/session_recordings/live_count/': () => [200, { active_recordings: 7 }],
                 '/api/environments/:team_id/session_recordings': ({ request }) => {
                     const version = new URL(request.url).searchParams.get('version')
                     return [

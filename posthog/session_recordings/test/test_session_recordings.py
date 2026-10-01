@@ -2213,6 +2213,32 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         for unexpected in must_not_be_in_results:
             assert unexpected not in session_ids, f"Expected {unexpected} to NOT be in results, but got {session_ids}"
 
+    def test_live_count_counts_recently_ingested_sessions_for_the_team(self):
+        current_time = now()
+        other_team = Team.objects.create(organization=self.organization)
+        sessions = [
+            # (team_id, session_id, first_timestamp, kafka_timestamp)
+            (self.team.pk, "live_session", current_time - timedelta(minutes=10), current_time - timedelta(minutes=1)),
+            (self.team.pk, "live_session", current_time - timedelta(minutes=10), current_time - timedelta(minutes=9)),
+            (self.team.pk, "long_live_session", current_time - timedelta(hours=20), current_time),
+            (self.team.pk, "idle_session", current_time - timedelta(minutes=30), current_time - timedelta(minutes=6)),
+            (other_team.pk, "other_team_session", current_time, current_time),
+        ]
+        for team_id, session_id, first_timestamp, kafka_timestamp in sessions:
+            produce_replay_summary(
+                team_id=team_id,
+                session_id=session_id,
+                first_timestamp=first_timestamp,
+                last_timestamp=first_timestamp,
+                kafka_timestamp=kafka_timestamp,
+                ensure_analytics_event_in_session=False,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/live_count")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"active_recordings": 2}
+
     def test_batch_check_exists_returns_correct_results(self):
         """Test that batch_check_exists returns correct existence status for session IDs."""
         base_time = now() - relativedelta(days=1)

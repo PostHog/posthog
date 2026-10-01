@@ -340,6 +340,11 @@ export interface SessionRecordingBulkDeleteResponseApi {
     failed_ids: string[]
 }
 
+export interface SessionRecordingLiveCountResponseApi {
+    /** Number of recordings that received data in the last few minutes. Cached for up to 30 seconds. */
+    active_recordings: number
+}
+
 export type SessionRecordingPlaylistsListParams = {
     created_by?: number
     /**

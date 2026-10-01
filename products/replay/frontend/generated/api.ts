@@ -16,6 +16,7 @@ import type {
     SessionRecordingApi,
     SessionRecordingBulkDeleteRequestApi,
     SessionRecordingBulkDeleteResponseApi,
+    SessionRecordingLiveCountResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
@@ -330,5 +331,22 @@ export const sessionRecordingsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sessionRecordingBulkDeleteRequestApi),
+    })
+}
+
+export const getSessionRecordingsLiveCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/session_recordings/live_count/`
+}
+
+/**
+ * Count the recordings that are in progress, meaning they received data in the last few minutes.
+ */
+export const sessionRecordingsLiveCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SessionRecordingLiveCountResponseApi> => {
+    return apiMutator<SessionRecordingLiveCountResponseApi>(getSessionRecordingsLiveCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

@@ -9,7 +9,7 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
+import { LiveRecordingsCount } from 'lib/components/LiveUserCount/LiveRecordingsCount'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
