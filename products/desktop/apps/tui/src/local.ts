@@ -92,13 +92,13 @@ export class LocalSession {
     return () => this.listeners.delete(onView);
   }
 
-  // A message sent mid-turn waits for the turn to finish.
+  // A message sent mid-turn steers it: the agent reads it after its current tool calls, before its next step.
   async prompt(message: string): Promise<void> {
     const response = await this.runtime.sendCommand({
       type: "prompt",
       id: globalThis.crypto.randomUUID(),
       message,
-      streamingBehavior: "followUp",
+      streamingBehavior: "steer",
     });
     if (!response.success) throw new Error(response.error);
   }

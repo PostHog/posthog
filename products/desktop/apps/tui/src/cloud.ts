@@ -139,7 +139,7 @@ export function createCloud(
       runId,
       ...(await context()),
       method: "user_message",
-      params: { content, artifact_ids: [], steer: false },
+      params: { content, artifact_ids: [], steer: true },
     });
     if (!result.success)
       throw new Error(result.error ?? "Couldn't send the message");
