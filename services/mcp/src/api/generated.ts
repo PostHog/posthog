@@ -23183,6 +23183,40 @@ export namespace Schemas {
       token: string;
     }
 
+    export interface ContentAutopilotBriefCompetitor {
+      /** Product to compare against. */
+      name: string;
+      /** The product's own page to research. */
+      url: string;
+    }
+
+    export interface ContentAutopilotBrief {
+      /** What the person asking wants to know or decide. */
+      intent?: string;
+      /** Who the content is for. */
+      audience?: string;
+      /** Whether the brief recommends new_content or page_improvement. */
+      recommended_type?: string;
+      /** Site page the brief chose to improve. Empty for a new page. */
+      target_page?: string;
+      /** Site pages the brief asked to read for facts. */
+      site_pages_to_read?: string[];
+      /** Products the brief asked to research for a comparison. */
+      competitors_to_research?: ContentAutopilotBriefCompetitor[];
+      /** Working title for the page. */
+      working_title?: string;
+      /** Planned sections, in order. */
+      outline?: string[];
+      /** Questions the page must answer. */
+      questions_to_answer?: string[];
+      /** Topics the cited competitor pages cover that the site's pages don't. */
+      competitor_coverage?: string[];
+      /** What AI answer engines currently say, including what they get wrong. */
+      engine_answer_summary?: string;
+      /** What the question means, when AI answer engines misread which product or company it asks about. */
+      disambiguation?: string;
+    }
+
     export interface ContentAutopilotEngineAnswer {
       /** Answer engine that gave the answer. */
       engine: string;
@@ -23283,6 +23317,10 @@ export namespace Schemas {
       internal_links: string[];
       /** Portable source notes included with the export. */
       source_notes: string[];
+      /** JSON-LD structured data to embed in the page, such as an FAQPage document. */
+      json_ld?: string;
+      /** Suggested llms.txt entry for the page. */
+      llms_txt_line?: string;
     }
 
     export interface ContentAutopilotExportResponse {
@@ -23378,6 +23416,17 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ContentAutopilotOpportunityDraftRequest {
+      /** Site profile the opportunities belong to. */
+      profile_id: string;
+      /**
+         * Opportunities to draft, up to 5 at a time.
+         * @minItems 1
+         * @maxItems 5
+         */
+      opportunity_ids: string[];
+    }
+
     export interface ContentAutopilotOpportunityRefreshRequest {
       /** Site profile to refresh opportunities for. */
       profile_id: string;
@@ -23421,6 +23470,32 @@ export namespace Schemas {
       checks: ContentAutopilotValidationCheck[];
     }
 
+    /**
+     * * `site` - site
+     * * `competitor` - competitor
+     */
+    export type ContentAutopilotSourceLedgerEntryKindEnum = typeof ContentAutopilotSourceLedgerEntryKindEnum[keyof typeof ContentAutopilotSourceLedgerEntryKindEnum];
+
+
+    export const ContentAutopilotSourceLedgerEntryKindEnum = {
+      Site: 'site',
+      Competitor: 'competitor',
+    } as const;
+
+    export interface ContentAutopilotSourceLedgerEntry {
+      /** Factual claim the draft makes. */
+      claim: string;
+      /** Page that supports the claim. */
+      source_url: string;
+      /** Short quote from the source page. */
+      quote: string;
+      /** Whether the source is one of the site's pages or a competitor's own page.
+       *
+       * * `site` - site
+       * * `competitor` - competitor */
+      kind?: ContentAutopilotSourceLedgerEntryKindEnum;
+    }
+
     export interface ContentAutopilotProposal {
       readonly id: string;
       /** Run that generated this proposal. */
@@ -23454,6 +23529,10 @@ export namespace Schemas {
       readonly original_markdown: string;
       /** Full proposed Markdown after edits. */
       readonly proposed_markdown: string;
+      /** Content brief the draft was written from. */
+      brief: ContentAutopilotBrief;
+      /** Factual claims in the draft and the site pages that support them. */
+      source_ledger: ContentAutopilotSourceLedgerEntry[];
       readonly created_at: string;
       readonly updated_at: string;
     }

@@ -354,6 +354,21 @@ export const WebAnalyticsBotRulesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Starts a run that researches and drafts content for the selected opportunities.
+ * @summary Draft content for opportunities
+ */
+export const webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax = 5
+
+export const WebAnalyticsContentAutopilotOpportunitiesDraftBody = /* @__PURE__ */ zod.object({
+    profile_id: zod.uuid().describe('Site profile the opportunities belong to.'),
+    opportunity_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax)
+        .describe('Opportunities to draft, up to 5 at a time.'),
+})
+
+/**
  * Re-reads AI citation checks and updates the site's content opportunities. Makes no model calls.
  * @summary Refresh content opportunities
  */
@@ -450,6 +465,11 @@ export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod
                 .array(zod.url())
                 .describe('Validated same-origin internal links included in the content.'),
             source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
+            json_ld: zod
+                .string()
+                .optional()
+                .describe('JSON-LD structured data to embed in the page, such as an FAQPage document.'),
+            llms_txt_line: zod.string().optional().describe('Suggested llms.txt entry for the page.'),
         })
         .describe('Updated structured package to save with the proposal.'),
 })
