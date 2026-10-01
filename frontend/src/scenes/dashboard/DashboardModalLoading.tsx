@@ -10,9 +10,11 @@ const SHOW_AFTER_MS = 200
 export function DashboardModalLoading({
     isOpen,
     onClose,
+    label = 'Loading',
 }: {
     isOpen: boolean
     onClose: () => void
+    label?: string
 }): JSX.Element | null {
     const [visible, setVisible] = useState(false)
 
@@ -23,7 +25,8 @@ export function DashboardModalLoading({
 
     return visible ? (
         <LemonModal isOpen={isOpen} onClose={onClose} simple>
-            <div className="flex justify-center p-8">
+            {/* role="status" with a name gives the spinner-only dialog an accessible loading announcement. */}
+            <div role="status" aria-label={label} className="flex justify-center p-8">
                 <Spinner />
             </div>
         </LemonModal>

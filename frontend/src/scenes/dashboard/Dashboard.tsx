@@ -1,6 +1,7 @@
 import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { Suspense } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -125,6 +126,12 @@ function DashboardScene({
     const { reportDashboardViewed, abortAnyRunningQuery, loadDashboard, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
+    const closeAddInsightToDashboardModal = (): void => {
+        // Mirror AddInsightToDashboardModal.handleClose, so a close during the chunk load still
+        // emits this event. 'insight dashboard modal - closed' is a frozen event name; keep both in sync.
+        posthog.capture('insight dashboard modal - closed')
+        hideAddInsightToDashboardModal()
+    }
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
@@ -177,7 +184,8 @@ function DashboardScene({
                     fallback={
                         <DashboardModalLoading
                             isOpen={addInsightToDashboardModalVisible}
-                            onClose={hideAddInsightToDashboardModal}
+                            onClose={closeAddInsightToDashboardModal}
+                            label="Loading insights"
                         />
                     }
                 >
