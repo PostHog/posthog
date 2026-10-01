@@ -998,4 +998,5 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             egress_identity=egress_identity,
             response_name=response_name,
             api_version=self.resolve_api_version(inputs.api_version),
+            shutdown_wait=inputs.shutdown_wait,
         )
