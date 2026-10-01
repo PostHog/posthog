@@ -1,7 +1,9 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
+from itertools import batched
 from typing import cast
+from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -80,6 +82,7 @@ class EventsListTable:
     chain: tuple[str, ...]
     alias: str | None
     person_id: str
+    looks_up_person_display_names: bool
 
     def join_expr(self) -> ast.JoinExpr:
         return ast.JoinExpr(table=ast.Field(chain=[*self.chain]), alias=self.alias)
@@ -89,6 +92,7 @@ EVENTS_LIST_TABLE = EventsListTable(
     chain=("events",),
     alias=None,
     person_id="person.id",
+    looks_up_person_display_names=False,
 )
 FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     chain=("posthog", "flag_evaluations"),
@@ -99,6 +103,9 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # The persons join reads a zero UUID from person.id for a distinct_id with no person row.
     # person_id holds the id that flag_evaluations resolved through person merges.
     person_id="person_id",
+    # Reading person.properties in the query joins persons. That join deduplicates every person in the team before
+    # the query picks the page. The runner reads display names for only the page's persons after the query.
+    looks_up_person_display_names=True,
 )
 
 # Pagination cursors are encoded as ``<timestamp>|<uuid>`` so a stable uuid tiebreaker can advance
@@ -184,8 +191,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             self.source_runner.validate()
 
     def _person_display_name_key(self, table: EventsListTable) -> str:
-        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-        props = person_display_name_property_exprs(property_keys, "person.properties")
+        props = self._person_display_name_property_exprs("person.properties")
         return f"coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id})"
 
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
@@ -201,7 +207,11 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 select_input.append("distinct_id")
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
-                select_input.append(f"({self._person_display_name_key(table)}, distinct_id)")
+                if table.looks_up_person_display_names:
+                    # _expand_person_display_name_columns replaces distinct_id with the person's name.
+                    select_input.append(f"(distinct_id, toString({table.person_id}), distinct_id)")
+                else:
+                    select_input.append(f"({self._person_display_name_key(table)}, distinct_id)")
             else:
                 select_input.append(col)
         return select_input, [
@@ -383,8 +393,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         context = self.build_hogql_context()
         assert context.database is not None
         if table is FLAG_EVALUATIONS_LIST_TABLE:
-            # flag_evaluations.person carries only the id, but the default columns and test account filters read
-            # person.properties. This joins persons the way events does under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
+            # flag_evaluations.person carries only the id. Person property filters, test account filters, and
+            # selected or sorted person columns read person.properties. This joins persons the way events does under
+            # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy, so a query that reads no person field skips it.
             # The change applies only to this runner's database. Every other reader keeps the narrow person.
             flag_evaluations = context.database.get_table([*table.chain])
             flag_evaluations.fields["person"] = LazyJoin(
@@ -668,7 +679,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if len(self.paginator.results) > 0:
                 self._annotate_session_recordings()
 
-        person_indices = self._expand_person_display_name_columns()
+        person_indices = self._expand_person_display_name_columns(table)
 
         # TODO: get rid of this logic once we don't use `person` columns anywhere
         if len(person_indices) > 0 and len(self.paginator.results) > 0:
@@ -715,23 +726,70 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 if isinstance(session_id, str) and session_id:
                     properties["$has_recording"] = session_id in session_recordings_map
 
-    def _expand_person_display_name_columns(self) -> list[int]:
+    def _expand_person_display_name_columns(self, table: EventsListTable) -> list[int]:
         """Convert each person_display_name tuple into a dict, and return the `person` column indices."""
         person_indices: list[int] = []
+        display_name_indices: list[int] = []
         for column_index, col in enumerate(self.select_input_raw()):
             stripped = col.split("--")[0].strip()
             if stripped == "person":
                 person_indices.append(column_index)
             if stripped == "person_display_name":
-                for index, result in enumerate(self.paginator.results):
-                    row = list(self.paginator.results[index])
-                    row[column_index] = {
-                        "display_name": result[column_index][0],
-                        "id": str(result[column_index][1]),
-                        "distinct_id": str(result[column_index][2]),
-                    }
-                    self.paginator.results[index] = row
+                display_name_indices.append(column_index)
+
+        names: dict[str, str] = {}
+        if table.looks_up_person_display_names and display_name_indices:
+            with self.timings.measure("person_display_name_lookup"):
+                names = self._person_display_names(
+                    {str(result[index][1]) for result in self.paginator.results for index in display_name_indices}
+                )
+
+        for column_index in display_name_indices:
+            for index, result in enumerate(self.paginator.results):
+                row = list(self.paginator.results[index])
+                person_id = str(result[column_index][1])
+                row[column_index] = {
+                    "display_name": names.get(person_id, result[column_index][0]),
+                    "id": person_id,
+                    "distinct_id": str(result[column_index][2]),
+                }
+                self.paginator.results[index] = row
         return person_indices
+
+    def _person_display_name_property_exprs(self, prefix: str) -> list[str]:
+        property_keys = self.team.person_display_name_properties or PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+        return person_display_name_property_exprs(property_keys, prefix)
+
+    def _person_display_names(self, person_ids: set[str]) -> dict[str, str]:
+        """Read display names from ClickHouse for only the given persons, keyed by person id."""
+        name_exprs = [parse_expr(expr) for expr in self._person_display_name_property_exprs("properties")]
+        names: dict[str, str] = {}
+        # Sorting keeps the printed query the same for the same page.
+        for batch in batched(sorted(person_ids), 1000, strict=False):
+            # persons applies this id filter before it deduplicates person versions only when persons is the
+            # query's own unaliased FROM. Under a join or an alias it deduplicates every person in the team first.
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=["id"]), ast.Call(name="coalesce", args=name_exprs)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Field(chain=["id"]),
+                    right=ast.Tuple(exprs=[ast.Constant(value=UUID(person_id)) for person_id in batch]),
+                ),
+                # Without a LIMIT, execute_hogql_query returns at most its default row count.
+                limit=ast.Constant(value=len(batch)),
+            )
+            response = execute_hogql_query(
+                query=query,
+                team=self.team,
+                user=self.user,
+                query_type="EventsQueryPersonDisplayNames",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                context=self.build_hogql_context(),
+            )
+            names.update((str(person_id), name) for person_id, name in response.results if name)
+        return names
 
     def _expand_person_columns(self, person_indices: list[int]) -> None:
         with self.timings.measure("person_column_extra_query"):

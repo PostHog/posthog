@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import time_machine
@@ -1234,13 +1234,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
 
-    def _create_flag_calls_in_both_tables(self, person_id: uuid.UUID | None = None) -> uuid.UUID:
-        self._create_events(
-            data=[("events-user", FLAG_CALL_TIMESTAMP.isoformat(), {"$feature_flag": EVENTS_FLAG_KEY})],
-            event="$feature_flag_called",
-        )
-        flush_persons_and_events()
-
+    def _insert_flag_evaluation(
+        self,
+        distinct_id: str,
+        person_id: uuid.UUID,
+        timestamp: datetime = FLAG_CALL_TIMESTAMP,
+        properties: dict[str, Any] | None = None,
+    ) -> uuid.UUID:
         row_uuid = uuid.uuid4()
         sync_execute(
             """
@@ -1252,27 +1252,54 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 (
                     str(row_uuid),
                     "$feature_flag_called",
-                    json.dumps(
-                        {
-                            "$feature_flag": FLAG_EVALUATIONS_FLAG_KEY,
-                            "$feature_flag_response": "variant-a",
-                            "$current_url": "https://example.com/pricing",
-                            "$lib": "web",
-                            "$group_0": FLAG_EVALUATIONS_GROUP_KEY,
-                        }
-                    ),
-                    FLAG_CALL_TIMESTAMP,
+                    json.dumps(properties or {"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY}),
+                    timestamp,
                     self.team.pk,
-                    FLAG_EVALUATIONS_DISTINCT_ID,
-                    FLAG_CALL_TIMESTAMP,
-                    str(person_id or uuid.uuid4()),
+                    distinct_id,
+                    timestamp,
+                    str(person_id),
                 )
             ],
         )
         return row_uuid
 
-    def test_flag_evaluations_only_organization_reads_flag_calls_from_flag_evaluations(self):
+    def _create_flag_calls_in_both_tables(self, person_id: uuid.UUID | None = None) -> uuid.UUID:
+        self._create_events(
+            data=[("events-user", FLAG_CALL_TIMESTAMP.isoformat(), {"$feature_flag": EVENTS_FLAG_KEY})],
+            event="$feature_flag_called",
+        )
+        flush_persons_and_events()
+
+        return self._insert_flag_evaluation(
+            FLAG_EVALUATIONS_DISTINCT_ID,
+            person_id or uuid.uuid4(),
+            properties={
+                "$feature_flag": FLAG_EVALUATIONS_FLAG_KEY,
+                "$feature_flag_response": "variant-a",
+                "$current_url": "https://example.com/pricing",
+                "$lib": "web",
+                "$group_0": FLAG_EVALUATIONS_GROUP_KEY,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "person_property_filter",
+                [PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
+                False,
+            ),
+            ("test_account_filter", [], True),
+        ]
+    )
+    def test_flag_evaluations_only_organization_reads_flag_calls_from_flag_evaluations(
+        self, _name: str, person_filters: list[PersonPropertyFilter], filter_test_accounts: bool
+    ):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "test-account", "operator": "not_icontains"}
+        ]
+        self.team.save()
         person = _create_person(
             team_id=self.team.pk,
             distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
@@ -1287,7 +1314,17 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             group_key=FLAG_EVALUATIONS_GROUP_KEY,
             properties={"industry": "software"},
         )
+        test_account = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["flag-test-account"],
+            properties={"email": "tester@test-account.example.com"},
+        )
         row_uuid = self._create_flag_calls_in_both_tables(person_id=person.uuid)
+        self._insert_flag_evaluation(
+            "flag-test-account",
+            test_account.uuid,
+            properties={"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY, "$group_0": FLAG_EVALUATIONS_GROUP_KEY},
+        )
 
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
             query = EventsQuery(
@@ -1308,11 +1345,12 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     EventPropertyFilter(
                         key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT
                     ),
-                    PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT),
+                    *person_filters,
                     GroupPropertyFilter(
                         key="industry", value="software", operator=PropertyOperator.EXACT, group_type_index=0
                     ),
                 ],
+                filterTestAccounts=filter_test_accounts,
                 after="-30d",
             )
             response = EventsQueryRunner(query=query, team=self.team).run()
@@ -1402,6 +1440,47 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0] for row in response.results] == [expected_flag_key]
+
+    @snapshot_clickhouse_queries
+    def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        first = _create_person(
+            team_id=self.team.pk, distinct_ids=["first-user"], properties={"email": "first-user@example.com"}
+        )
+        merged = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["merged-user", "merged-user-anon"],
+            properties={"email": "merged-user@example.com"},
+        )
+        flush_persons_and_events()
+        orphan_person_id = uuid.UUID("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+        self._insert_flag_evaluation("first-user", first.uuid)
+        # The stored person_id has no person row. Only the override resolves this distinct_id to the merged person.
+        self._insert_flag_evaluation("merged-user-anon", uuid.uuid4(), FLAG_CALL_TIMESTAMP + timedelta(seconds=1))
+        self._insert_flag_evaluation("orphan-user", orphan_person_id, FLAG_CALL_TIMESTAMP + timedelta(seconds=2))
+        self._insert_flag_evaluation("first-user", first.uuid, FLAG_CALL_TIMESTAMP + timedelta(seconds=3))
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [(self.team.pk, "merged-user-anon", str(merged.uuid), 1, 0)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=["timestamp ASC"],
+                after="-30d",
+            )
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [
+            {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
+            {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"},
+            {"display_name": "orphan-user", "id": str(orphan_person_id), "distinct_id": "orphan-user"},
+            {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
+        ]
 
     def _enable_property_access_control(self) -> None:
         from posthog.constants import AvailableFeature
@@ -1535,6 +1614,39 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert len(response.results) > 0
         assert response.results[0][0]["display_name"] == "Test User"
+
+    def test_flag_evaluations_person_display_names_mask_restricted_person_properties(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._enable_property_access_control()
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
+            properties={"email": FLAG_EVALUATIONS_EMAIL, "name": "Flag User"},
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation(FLAG_EVALUATIONS_DISTINCT_ID, person.uuid)
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                after="-30d",
+            )
+            response = EventsQueryRunner(query=query, team=self.team, user=self.user).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["display_name"] for row in response.results] == ["Flag User"]
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_users_with_different_restrictions_get_different_cache_keys(self):
