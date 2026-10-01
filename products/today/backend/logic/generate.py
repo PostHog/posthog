@@ -6,9 +6,11 @@ from uuid import UUID
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.facade import api as signals
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 
@@ -43,6 +45,15 @@ def _title(briefing: DailyBriefing) -> str:
     return f"Today briefing, {briefing.local_day.isoformat()} {briefing.edition}"
 
 
+def _preranked_reports(team: Team, user: User) -> list[signals.BriefingReport]:
+    """The reports PostHog already ranked for the person. A failure here costs the agent its head start, not the run."""
+    try:
+        return signals.reports_for_briefing(team_id=team.id, user_id=user.id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "product": "today"})
+        return []
+
+
 def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext, str, str] | None:
     """The sandbox context and the prompt, or None when the person may not get a briefing.
 
@@ -71,7 +82,7 @@ def _prepare(team_id: int, briefing_id: str) -> tuple[CustomPromptSandboxContext
         # Headless: the agent must be able to call the write tool without anyone approving it.
         initial_permission_mode="full-access",
     )
-    return context, build_prompt(briefing, user), _title(briefing)
+    return context, build_prompt(briefing, user, _preranked_reports(team, user)), _title(briefing)
 
 
 def _is_written(team_id: int, briefing_id: str) -> bool:

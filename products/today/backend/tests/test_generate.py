@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingEdition, BriefingStatus, BriefingTrigger
 from products.today.backend.logic.generate import MODEL, run_agent
 from products.today.backend.models import DailyBriefing
@@ -22,6 +23,22 @@ from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 FLAG = "products.today.backend.feature_flags.feature_enabled_or_false"
 SESSION = "products.today.backend.logic.generate.MultiTurnSession"
 SANDBOX_ENV = "products.today.backend.logic.generate.tasks_facade.upsert_internal_sandbox_env"
+REPORTS = "products.today.backend.logic.generate.signals.reports_for_briefing"
+
+
+def _report(report_id: str, relation: signals.BriefingReportRelation, priority: str) -> signals.BriefingReport:
+    return signals.BriefingReport(
+        report_id=report_id,
+        relation=relation,
+        title=f"Report {report_id}",
+        summary="",
+        status="ready",
+        priority=priority,
+        has_implementation_pr=False,
+        source_products=["error_tracking"],
+        updated_at=datetime(2026, 9, 30, tzinfo=UTC),
+        pr_merged_probability=None,
+    )
 
 
 class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
@@ -38,6 +55,10 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
             trigger=BriefingTrigger.FIRST_OPEN,
             status=BriefingStatus.COLLECTING,
         )
+        self.reports = [
+            _report("b", signals.BriefingReportRelation.SUGGESTED_REVIEWER, "P2"),
+            _report("a", signals.BriefingReportRelation.WAITING_FOR_YOU, "P3"),
+        ]
 
     def _run(self, *, on_start: Callable[[], None] | None = None) -> MagicMock:
         session = MagicMock()
@@ -50,6 +71,7 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
 
         with (
             patch(SANDBOX_ENV, return_value="env-1"),
+            patch(REPORTS, return_value=self.reports),
             patch(f"{SESSION}.start_raw", side_effect=start_raw) as start,
             patch(FLAG, return_value=True),
         ):
@@ -64,6 +86,8 @@ class TestRunAgent(TodayTeamScopedTestMixin, BaseTest):
 
         prompt, context = start.call_args.args
         assert str(self.briefing.id) in prompt
+        # The pre-ranked reports go in best first: what waits for the person before what names them.
+        assert prompt.index("report:a") < prompt.index("report:b")
         assert (context.user_id, context.posthog_mcp_scopes, context.model) == (self.user.id, "today_briefing", MODEL)
         assert context.initial_permission_mode == "full-access"
         # The run shows in the person's session list, under a name rather than the prompt.
