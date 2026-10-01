@@ -387,6 +387,10 @@ because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PR
 the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
 only separates the fleet's Modal cost from user-driven runs.
 
+ReviewHog owns each session's lifecycle.
+Tasks with `origin_product=review_hog` do not expose the agent's `finish` tool, because it marks the TaskRun terminal and tears down the sandbox before the caller can validate the final JSON or send another validation turn.
+The agent returns JSON at the end of each turn; the caller validates it and ends the session when its work is complete.
+
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
 1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
