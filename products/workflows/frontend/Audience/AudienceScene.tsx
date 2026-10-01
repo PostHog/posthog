@@ -53,7 +53,7 @@ export function AudienceScene(): JSX.Element {
                 name={sceneConfigurations[Scene.Audience].name}
                 description={sceneConfigurations[Scene.Audience].description}
                 resourceType={{ type: 'cohort' }}
-                actions={currentTab === 'topics' ? <NewCategoryButton /> : null}
+                actions={currentTab === 'topics' ? <NewCategoryButton /> : undefined}
             />
             <EmailSuspensionBanner />
             <LemonTabs activeKey={currentTab} tabs={AUDIENCE_SCENE_TABS} sceneInset data-attr="audience-scene-tabs" />
