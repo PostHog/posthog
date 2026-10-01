@@ -104,7 +104,9 @@ import { ArtifactImageViewer } from './ArtifactImageViewer'
 
 const MAX_CSV_ROWS = 500
 
-const ArtifactObjectEmbed = lazy(() => import('./ArtifactObjectEmbed'))
+const ArtifactObjectEmbed = lazy(() =>
+    import('./ArtifactObjectEmbed').then((m) => ({ default: m.ArtifactObjectEmbed }))
+)
 
 type PreviewMode = 'rendered' | 'source'
 

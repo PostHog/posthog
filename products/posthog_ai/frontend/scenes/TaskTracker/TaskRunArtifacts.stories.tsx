@@ -4,6 +4,7 @@ import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import FEATURE_FLAGS_FIXTURE from 'scenes/feature-flags/__mocks__/feature_flags.json'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +14,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
 import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
+import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -200,7 +202,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag',
+    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -225,18 +227,76 @@ const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
     objectReference('phref_growth', 'Growth review', 'dashboard', '42', '2026-09-28T18:11:00Z'),
     objectReference('phref_flag', 'new-plan-picker', 'flag', '7', '2026-09-28T18:10:00Z'),
+    objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
+    objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
+    objectReference('phref_survey', 'Plan picker feedback', 'survey', 'survey-plan-picker', '2026-09-28T18:07:00Z'),
 ]
 
 const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
 
-// The live insight embed loads the saved insight, then runs its query.
-const INSIGHT_MOCKS = {
+const CITED_FLAG = {
+    ...FEATURE_FLAGS_FIXTURE.results[0],
+    id: 7,
+    key: 'new-plan-picker',
+    name: 'Pin the start trial button to the top of the plan table',
+    active: true,
+    filters: {
+        groups: [
+            {
+                properties: [{ key: 'email', type: 'person', value: 'example.com', operator: 'icontains' }],
+                rollout_percentage: 100,
+                description: 'Internal testers',
+            },
+            { properties: [], rollout_percentage: 50 },
+        ],
+        multivariate: null,
+        payloads: {},
+    },
+}
+
+const CITED_COHORT = {
+    id: 3,
+    name: 'Trial starters on laptops',
+    count: 1009,
+    is_static: false,
+    is_calculating: false,
+    last_calculation: '2026-09-28T17:00:00Z',
+    created_at: '2026-09-21T10:00:00Z',
+    deleted: false,
+    filters: { properties: { type: 'AND', values: [] } },
+}
+
+const COHORT_PEOPLE = ['ada@example.com', 'grace@example.com', 'linus@example.com', 'margaret@example.com']
+
+/** The insight and cohort embeds each run their own query through the same endpoint. */
+async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
+    const { query } = (await request.json()) as { query: { kind: string; source?: { kind: string } } }
+    if (query.kind === NodeKind.ActorsQuery || query.source?.kind === NodeKind.ActorsQuery) {
+        return {
+            columns: ['person_display_name -- Person', 'id', 'created_at'],
+            results: COHORT_PEOPLE.map((email, index) => [
+                { display_name: email, id: `person-${index}` },
+                `person-${index}`,
+                '2026-09-21T10:00:00Z',
+            ]),
+            hasMore: false,
+        }
+    }
+    return { results: CITED_INSIGHT.result }
+}
+
+// Each live embed loads its object, then runs the queries its own page runs.
+const OBJECT_MOCKS = {
     get: {
         '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
         '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
+        '/api/projects/:team_id/feature_flags/7/': CITED_FLAG,
+        '/api/projects/:team_id/feature_flags/7/status': { status: 'active', reason: 'Feature flag is active' },
+        '/api/projects/:team_id/cohorts/3/': CITED_COHORT,
     },
     post: {
-        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
+        '/api/environments/:team_id/query/': queryByKind,
+        '/api/environments/:team_id/query/:kind': queryByKind,
     },
 }
 
@@ -481,7 +541,7 @@ export const Video: Story = {
 
 function objectMocks(): ReturnType<typeof taskMocks> {
     const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
-    return { get: { ...mocks.get, ...INSIGHT_MOCKS.get }, post: { ...mocks.post, ...INSIGHT_MOCKS.post } }
+    return { get: { ...mocks.get, ...OBJECT_MOCKS.get }, post: { ...mocks.post, ...OBJECT_MOCKS.post } }
 }
 
 export const PostHogObjects: Story = {
@@ -489,9 +549,19 @@ export const PostHogObjects: Story = {
     render: () => <StoryPage fileName="phref_trial_funnel" />,
 }
 
-export const PostHogObjectWithoutEmbed: Story = {
+export const PostHogObjectFlag: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_flag" />,
+}
+
+export const PostHogObjectCohort: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_cohort" />,
+}
+
+export const PostHogObjectWithoutEmbed: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_survey" />,
 }
 
 export const Versions: Story = {
