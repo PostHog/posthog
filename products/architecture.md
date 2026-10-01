@@ -199,6 +199,7 @@ All three are a declared residual, not permission to add more.
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+The one exception is a check that DevEx introduces: findings that already exist in Isolated products at that moment are recorded in the crossings ledger instead, and those lines may only go away.
 
 **Inbound webhook consumers are a designated location of the same kind.**
 A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.

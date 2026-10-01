@@ -54,6 +54,7 @@ from .import_resolution import (
     source_file,
 )
 from .paths import REPO_ROOT, TACH_TOML, get_tach_block
+from .wiring_interfaces import WiringInterfaceResolver, WiringVerdict
 
 # ---------------------------------------------------------------------------
 # tach.toml parsing
@@ -832,6 +833,52 @@ def facade_class_imports(backend_dir: Path, name: str) -> list[FacadeClassImport
     genuinely used inside function bodies, AND separately imported by core anyway — core-side misuse
     this lint doesn't chase."""
     return list(_split_facade_reexports(backend_dir, name).leaks)
+
+
+@dataclass(frozen=True)
+class UnapprovedWiringClass:
+    """A class a facade hands out from a wiring location without an approved interface."""
+
+    facade_module: str  # path inside facade/, e.g. "destinations/s3.py"
+    class_name: str
+    source_path: str  # backend-relative, e.g. "backend/temporal/destinations/s3_batch_export.py"
+    verdict: WiringVerdict  # UNAPPROVED or UNRESOLVED
+
+
+def _backend_module(name: str, source_path: str) -> str:
+    """The dotted module of a backend-relative path: 'backend/temporal/x.py' -> 'products.<name>.backend.temporal.x'."""
+    relative = source_path.removeprefix("backend").strip("/").removesuffix(".py")
+    parts = [part for part in relative.split("/") if part]
+    if parts and parts[-1] == "__init__":
+        parts.pop()
+    return ".".join([f"products.{name}.backend", *parts])
+
+
+def facade_unapproved_wiring(backend_dir: Path, name: str) -> list[UnapprovedWiringClass]:
+    """Classes a facade hands out from a wiring location that implement no approved interface.
+
+    The class re-export check accepts a wiring location by its path. This check reads the class:
+    a location is necessary but not enough under § Wiring couplings, which also requires an approved
+    decorator or base (APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS)."""
+    resolver = WiringInterfaceResolver(REPO_ROOT, roots={f"products.{name}.backend": backend_dir})
+    parse_cache: dict[Path, ast.Module | None] = {}
+    findings: list[UnapprovedWiringClass] = []
+    for module_file in _iter_facade_modules(backend_dir):
+        module_key = _facade_module_key(backend_dir, module_file)
+        if module_key in ("contracts.py", "enums.py"):
+            continue
+        tree = ast_parse_safe(module_file)
+        if tree is None:
+            continue
+        for handed in _iter_handed_out_names(tree, backend_dir, _facade_package_parts(module_key)):
+            if not handed.source_path.startswith(GARAGE_PREFIXES):
+                continue
+            if not _name_is_class(handed.source_path, handed.original, backend_dir, cache=parse_cache):
+                continue
+            verdict = resolver.verdict(_backend_module(name, handed.source_path), handed.original)
+            if verdict is not WiringVerdict.APPROVED:
+                findings.append(UnapprovedWiringClass(module_key, handed.original, handed.source_path, verdict))
+    return findings
 
 
 def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
@@ -1674,6 +1721,9 @@ class IsolationStatus:
     # product fails to keep in its contract-check inputs; every narrowed product must watch them.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
+    # Classes from wiring locations without an approved interface (see facade_unapproved_wiring).
+    # Information below the Isolated rung; on an Isolated product each one needs a ledger row.
+    unapproved_wiring: tuple[UnapprovedWiringClass, ...] = ()
 
     @property
     def deferred_count(self) -> int:
@@ -1763,4 +1813,5 @@ def compute_isolation_status(
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
+        unapproved_wiring=tuple(facade_unapproved_wiring(backend_dir, name)),
     )

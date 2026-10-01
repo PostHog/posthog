@@ -17,11 +17,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import module_import_targets
-from .crossings import driven_wiring_locations, facade_shape_use, recorded_facade_shape_rows
+from .crossings import driven_wiring_locations, facade_shape_use, facade_wiring_use, recorded_facade_shape_rows
 from .isolation import (
     GARAGE_PREFIXES,
     FacadeShapeFinding,
+    IsolationRung,
     IsolationStatus,
+    UnapprovedWiringClass,
     compute_isolation_status,
     facade_shape_findings,
     has_contracts_module,
@@ -37,6 +39,7 @@ from .isolation import (
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
+from .wiring_interfaces import WiringVerdict
 
 # ---------------------------------------------------------------------------
 # Utilities
@@ -1057,11 +1060,68 @@ class FacadeShapeCheck(ProductCheck):
 
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
-        elif recorded:
-            result.warnings.append(f"facade shape debt: {len(recorded)} row(s) in {_CROSSING_LEDGER}")
-            result.lines = [f"⚠ facade shape debt: {len(recorded)} rows"]
+        elif shape_rows := {row for row in recorded if " facade-wiring " not in row}:
+            result.warnings.append(f"facade shape debt: {len(shape_rows)} row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ facade shape debt: {len(shape_rows)} rows"]
         else:
             result.lines = ["✓ ok"]
+        return result
+
+
+_APPROVED_INTERFACES = "QueryRunner, MaxTool, @workflow.defn, @activity.defn, @shared_task"
+
+
+def _wiring_issue(finding: UnapprovedWiringClass) -> str:
+    """The lint line for one class: where it crosses, why it fails, and the moves that clear it."""
+    reason = (
+        "whose bases the lint cannot read statically"
+        if finding.verdict is WiringVerdict.UNRESOLVED
+        else f"which implements no approved interface ({_APPROVED_INTERFACES})"
+    )
+    return (
+        f"facade/{finding.facade_module} hands out {finding.class_name} from {finding.source_path}, {reason}. "
+        "A wiring folder alone does not make a class wiring. Return contracts from a facade function, "
+        "register a plain function, or put the class behind an approved interface "
+        "(products/architecture.md § Wiring couplings). The ledger only shrinks, so this is not a row to add"
+    )
+
+
+class WiringInterfaceCheck(ProductCheck):
+    """Hold the approved-interface rule of § Wiring couplings for classes from wiring locations.
+
+    The class re-export check accepts a wiring location by its path. This check reads the class: it
+    must carry an approved decorator or reach an approved base. Only an Isolated product is held to
+    it, so every product clears it on the way to Isolated. Below that rung the finding is
+    information. An Isolated product's findings that existed when the check was introduced are
+    `facade-wiring` rows in the crossings ledger, and an unrecorded finding blocks.
+    """
+
+    label = "wiring interfaces"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and (ctx.backend_dir / "facade").is_dir()
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        status = ctx.isolation_status()
+        findings = status.unapproved_wiring
+        result = CheckResult(file=f"products/{ctx.name}/backend/facade")
+        if not findings:
+            result.lines = ["✓ ok"]
+            return result
+        if status.rung is not IsolationRung.ISOLATED:
+            names = ", ".join(sorted({f.class_name for f in findings}))
+            result.lines = [f"ℹ {len(findings)} class(es) from wiring locations without an approved interface"]
+            if ctx.detailed:
+                result.lines.append(f"  → information below the Isolated rung, clear before isolating: {names}")
+            return result
+        recorded = recorded_facade_shape_rows(ctx.name)
+        unrecorded = [f for f in findings if facade_wiring_use(ctx.name, f).as_baseline_line() not in recorded]
+        result.issues.extend(_wiring_issue(f) for f in unrecorded)
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.warnings.append(f"wiring debt: {len(findings)} grandfathered row(s) in {_CROSSING_LEDGER}")
+            result.lines = [f"⚠ wiring debt: {len(findings)} grandfathered rows"]
         return result
 
 
@@ -1287,5 +1347,6 @@ CHECKS: list[ProductCheck] = [
     TachCheck(),
     IsolationChainCheck(),
     FacadeShapeCheck(),
+    WiringInterfaceCheck(),
     OrphanedTestFilesCheck(),
 ]

@@ -44,7 +44,9 @@ linter sees the same edge whether a facade imports a model module to build contr
 the model, so publicness has to come from the shape of the API and not from the location of the
 file. isolation.py reads the signatures; each finding lands as one of the disallowed kinds
 `facade-returns`, `facade-accepts(<parameter>)` and `facade-logic`. The rule is
-products/architecture.md § Facades: The Public Interface.
+products/architecture.md § Facades: The Public Interface. The kind `facade-wiring` reads the classes a
+facade hands out from a wiring location: one without an approved interface is a row, but only for a
+product on the Isolated rung, because below that rung the finding is information.
 """
 
 from __future__ import annotations
@@ -65,11 +67,15 @@ from .isolation import (
     COMPUTED_WIRING_LOCATIONS,
     MODEL_CROSSINGS,
     FacadeShapeFinding,
+    IsolationRung,
+    UnapprovedWiringClass,
+    _facade_module_dotted,
     _iter_facade_modules,
+    compute_isolation_status,
     facade_model_crossings,
     facade_shape_findings,
 )
-from .paths import PRODUCTS_DIR, REPO_ROOT, backend_product_dirs
+from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, backend_product_dirs
 from .reverse_accessors import reverse_accessor_edge_lines
 
 # Where Python that can consume a product model lives. Everything else at the repo root is
@@ -1688,9 +1694,42 @@ def facade_shape_uses(products: Iterable[str] | None = None) -> list[CrossingUse
     ]
 
 
+def facade_wiring_use(product: str, finding: UnapprovedWiringClass) -> CrossingUse:
+    """One unapproved wiring class as a baseline row. The class crosses, and the consumer slot holds
+    the facade module that hands it out."""
+    return CrossingUse(
+        f"{product}.{finding.class_name}", _facade_module_dotted(product, finding.facade_module), "facade-wiring", 1
+    )
+
+
+def facade_wiring_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
+    """Unapproved wiring classes of Isolated products, as CrossingUse rows.
+
+    Below the Isolated rung the finding is information and leaves no row, so a product reaches
+    Isolated only after it clears every finding. The rows that exist were recorded when the check
+    was introduced, and they may only go away."""
+    wanted = set(products) if products is not None else None
+    tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+    uses: list[CrossingUse] = []
+    for product_dir in backend_product_dirs():
+        if wanted is not None and product_dir.name not in wanted:
+            continue
+        status = compute_isolation_status(
+            product_dir.name, product_dir, product_dir / "backend", tach_content=tach_content
+        )
+        if status.rung is IsolationRung.ISOLATED:
+            uses.extend(facade_wiring_use(product_dir.name, finding) for finding in status.unapproved_wiring)
+    return uses
+
+
 def all_crossing_uses(products: Iterable[str] | None = None) -> list[CrossingUse]:
-    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade shapes."""
-    return scan_crossing_uses(products) + reverse_accessor_uses(products) + facade_shape_uses(products)
+    """Every channel: the three AST scans, the model-graph reverse accessors, and the facade rows."""
+    return (
+        scan_crossing_uses(products)
+        + reverse_accessor_uses(products)
+        + facade_shape_uses(products)
+        + facade_wiring_uses(products)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1765,7 +1804,8 @@ NEW_LINE_INSTRUCTION = (
     "traversal alive); seal it, remove the explicit query name, and give callers a facade read "
     "function. A 'drives(...)' line is a test outside the product that executes one of its query "
     "runners; move that test into the product. A 'facade-...' line is a facade that puts a Django, a "
-    "DRF or an ORM type on its own boundary, or a capability submodule that holds bodies; the "
+    "DRF or an ORM type on its own boundary, a capability submodule that holds bodies, or an "
+    "Isolated product's class from a wiring location without an approved interface; the "
     "lint prints the move that clears each kind. A coupling that "
     "must stand is a doctrine amendment: hand-edit the line in, and record why in "
     "products/architecture.md § Wiring couplings. Regenerating the baseline cannot add a line."
@@ -1798,7 +1838,10 @@ BASELINE_HEADER = f"""\
 # submodule holds bodies rather than re-exports, and its count is how many are left. The first
 # column says what crosses — `<product>.<Class>`, `<library>.<Type>`, or the facade module for a
 # `facade-logic` line — and the consumer column holds the symbol or the module that carries it.
-# The rule is products/architecture.md § Facades: The Public Interface.
+# The rule is products/architecture.md § Facades: The Public Interface. `facade-wiring` means an
+# Isolated product's facade hands out a class from a wiring location that implements no approved
+# interface (§ Wiring couplings). Only Isolated products get these lines; below that rung the
+# lint reports the class as information.
 #
 # Counts may only go down, and a line that disappears must be deleted here too.
 #

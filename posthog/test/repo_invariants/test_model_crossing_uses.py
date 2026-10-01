@@ -28,6 +28,8 @@ promises rather than what a caller does. `facade-returns` and `facade-accepts(<p
 public facade callable puts a Django, a DRF or an ORM type on its signature; `facade-logic` means a
 capability submodule holds bodies instead of re-exports. An import linter sees the same edge either
 way, so the shape is frozen here. The rule is `products/architecture.md` § Facades: The Public Interface.
+`facade-wiring` means an Isolated product's facade hands out a class from a wiring location that
+implements no approved interface (§ Wiring couplings). Only Isolated products get these lines.
 
 The check is strict equality, not "no worse than": a line that disappears must be deleted from the
 file in the same change, so the file can never go stale behind the code.

@@ -23,6 +23,7 @@ from hogli_commands.product.checks import (
     PackageJsonScriptsCheck,
     ProductYamlCheck,
     ProductYamlOwnersCheck,
+    WiringInterfaceCheck,
     _has_test_files,
     _is_noop_script,
     _names_from_pattern,
@@ -40,6 +41,7 @@ from hogli_commands.product.isolation import (
     facade_class_imports,
     facade_model_crossings,
     facade_shape_findings,
+    facade_unapproved_wiring,
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
@@ -450,6 +452,61 @@ class TestIsolationRung:
         if skip_configured:
             (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
         assert ctx.isolation_status().rung == expected
+
+
+_WIRING_FACADE = "from ..temporal.flows import Handed\n\n__all__ = ['Handed']\n"
+_WIRING_SOURCES: dict[str, dict[str, str]] = {
+    "decorated_workflow": {
+        "temporal/flows.py": "from temporalio import workflow\n\n\n@workflow.defn\nclass Handed:\n    pass\n",
+    },
+    "approved_base_through_product_class": {
+        "temporal/base.py": "from posthog.hogql_queries.query_runner import QueryRunner\n\n\nclass Base(QueryRunner):\n    pass\n",
+        "temporal/flows.py": "from .base import Base\n\n\nclass Handed(Base):\n    pass\n",
+    },
+    "plain_client": {"temporal/flows.py": "class Handed:\n    pass\n"},
+    "unreadable_base": {"temporal/flows.py": "class Handed(Mystery):\n    pass\n"},
+}
+
+
+class TestWiringInterfaces:
+    @pytest.mark.parametrize(
+        "case, expected",
+        [
+            ("decorated_workflow", set()),
+            ("approved_base_through_product_class", set()),
+            ("plain_client", {("Handed", "unapproved")}),
+            ("unreadable_base", {("Handed", "unresolved")}),
+        ],
+    )
+    def test_scan_reads_the_class_not_the_folder(
+        self, tmp_path: Path, case: str, expected: set[tuple[str, str]]
+    ) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, facade_files={"wiring.py": _WIRING_FACADE}, sources=_WIRING_SOURCES[case]
+        )
+        assert {(f.class_name, str(f.verdict)) for f in facade_unapproved_wiring(backend, "my_product")} == expected
+
+    @pytest.mark.parametrize(
+        "isolated, recorded, blocks",
+        [
+            pytest.param(False, False, False, id="information_below_isolated"),
+            pytest.param(True, False, True, id="isolated_blocks_an_unrecorded_class"),
+            pytest.param(True, True, False, id="isolated_passes_a_grandfathered_row"),
+        ],
+    )
+    def test_only_isolated_products_are_held_to_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated: bool, recorded: bool, blocks: bool
+    ) -> None:
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, strict=True)
+        (ctx.backend_dir / "facade" / "wiring.py").write_text(_WIRING_FACADE)
+        (ctx.backend_dir / "temporal").mkdir()
+        (ctx.backend_dir / "temporal" / "flows.py").write_text(_WIRING_SOURCES["plain_client"]["temporal/flows.py"])
+        if isolated:
+            (ctx.product_dir / "turbo.json").write_text(json.dumps(_NARROWED_TURBO))
+        row = "my_product.Handed products.my_product.backend.facade.wiring facade-wiring 1"
+        monkeypatch.setattr(checks_module, "recorded_facade_shape_rows", lambda _name: {row} if recorded else set())
+        assert bool(WiringInterfaceCheck().run(ctx).issues) == blocks
 
 
 class TestIsolationChainRoutes:
