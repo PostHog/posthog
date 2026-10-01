@@ -60,6 +60,7 @@ import {
     sessionItem,
     sessionReadRequest,
     setActivityUnread,
+    unreadSessionCountsBySpace,
     unreadSessionIds,
     unreadSpaceIds,
 } from './todayWorkItems'
@@ -164,6 +165,7 @@ export interface todaySpacesLogicValues {
     storedRecentFilters: Partial<TodayRecentFilters>
     taskActivity: TaskActivityDTOApi[]
     taskActivityLoading: boolean
+    unreadSessionCounts: Record<string, number>
     unreadSessionIds: Set<string>
     unreadSpaceIds: Set<string>
     visibleSpaces: ChannelDTOApi[]
@@ -372,10 +374,12 @@ export interface todaySpacesLogicMeta {
         ) => TodayRecentSection[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
         unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        unreadSessionCounts: (taskActivity: TaskActivityDTOApi[]) => Record<string, number>
         spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
         spacePreviews: (
             visibleSpaces: ChannelDTOApi[],
-            spaceActivity: SpaceActivity
+            spaceActivity: SpaceActivity,
+            unreadSessionCounts: Record<string, number>
         ) => Record<string, TodaySpacePreview>
     }
 }
@@ -664,14 +668,22 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.taskActivity],
             (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
         ],
+        unreadSessionCounts: [
+            (s) => [s.taskActivity],
+            (taskActivity: TaskActivityDTOApi[]): Record<string, number> => unreadSessionCountsBySpace(taskActivity),
+        ],
         spacePresence: [
             (s) => [s.spaceActivity],
             (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
         ],
         // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
         spacePreviews: [
-            (s) => [s.visibleSpaces, s.spaceActivity],
-            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+            (s) => [s.visibleSpaces, s.spaceActivity, s.unreadSessionCounts],
+            (
+                visibleSpaces: ChannelDTOApi[],
+                spaceActivity: SpaceActivity,
+                unreadSessionCounts: Record<string, number>
+            ): Record<string, TodaySpacePreview> =>
                 Object.fromEntries(
                     visibleSpaces.map((space) => [
                         space.id,
@@ -679,7 +691,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                             space,
                             spaceLabel(space),
                             spaceActivity.presence[space.id],
-                            spaceActivity.lastActivityAt[space.id]
+                            spaceActivity.lastActivityAt[space.id],
+                            unreadSessionCounts[space.id] ?? 0
                         ),
                     ])
                 ),

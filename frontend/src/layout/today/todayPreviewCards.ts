@@ -42,6 +42,7 @@ export interface TodaySpacePreview {
     liveUuids: string[]
     creatorUuid: string | null
     lastActivityAt: string | null
+    unreadSessions: number
     repositories: string[]
     hiddenRepositoryCount: number
 }
@@ -115,7 +116,8 @@ export function spacePreview(
     space: ChannelDTOApi,
     name: string,
     presence: SpacePresence | undefined,
-    lastActivityAt: string | undefined
+    lastActivityAt: string | undefined,
+    unreadSessions: number = 0
 ): TodaySpacePreview {
     return {
         kind: 'space',
@@ -126,6 +128,7 @@ export function spacePreview(
         liveUuids: presence?.liveUuids ?? [],
         creatorUuid: space.created_by?.uuid ?? null,
         lastActivityAt: lastActivityAt ?? null,
+        unreadSessions,
         repositories: space.repositories.slice(0, SPACE_PREVIEW_REPOSITORY_LIMIT),
         hiddenRepositoryCount: Math.max(0, space.repositories.length - SPACE_PREVIEW_REPOSITORY_LIMIT),
     }
