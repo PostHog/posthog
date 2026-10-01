@@ -1870,6 +1870,60 @@ class TestIntegrationAPIKeyAccess:
         mock_list_repos.assert_called_once_with(search="posthog", limit=1, offset=1)
 
     @pytest.mark.parametrize(
+        "compact,expected_keys",
+        [
+            (True, {"id", "name", "full_name"}),
+            (False, {"id", "name", "full_name", "private", "default_branch", "archived", "can_push"}),
+        ],
+    )
+    def test_github_repos_next_offset_walks_roster_larger_than_one_page(
+        self, client: HttpClient, compact: bool, expected_keys: set[str]
+    ):
+        self.github_integration.repository_cache = [
+            {
+                "id": i,
+                "name": f"repo{i}",
+                "full_name": f"org/repo{i}",
+                "private": True,
+                "default_branch": "main",
+                "archived": False,
+                "can_push": True,
+            }
+            for i in range(250)
+        ]
+        self.github_integration.repository_cache_updated_at = timezone.now()
+        self.github_integration.save()
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        seen: list[str] = []
+        offset: int | None = 0
+        pages = 0
+        while offset is not None:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/github_repos/"
+                f"?limit=100&offset={offset}&compact={str(compact).lower()}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            data = response.json()
+            assert data["total"] == 250
+            assert data["has_more"] is (data["next_offset"] is not None)
+            assert all(set(repo) == expected_keys for repo in data["repositories"])
+            seen.extend(repo["full_name"] for repo in data["repositories"])
+            offset = data["next_offset"]
+            pages += 1
+
+        assert pages == 3
+        assert seen == [f"org/repo{i}" for i in range(250)]
+
+    @pytest.mark.parametrize(
         "query_string,mock_return,expected_call",
         [
             (
