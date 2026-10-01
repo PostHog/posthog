@@ -82969,6 +82969,11 @@ export namespace Schemas {
          * @nullable
          */
       origin: string | null;
+      /**
+         * Id of the source the run belongs to, for linking to it. Null for model runs.
+         * @nullable
+         */
+      source_id?: string | null;
     }
 
     export interface PipelineActivityResponse {
@@ -113860,10 +113865,11 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     * Which outcome to return: 'completed', 'failed', or 'all' for every run that finished either way. Defaults to 'completed'. Running jobs come from `running_activity` instead.
      *
      * * `completed` - completed
      * * `failed` - failed
+     * * `all` - all
      * @minLength 1
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome;
@@ -113884,6 +113890,7 @@ export namespace Schemas {
     export const DataWarehouseCompletedActivityRetrieveOutcome = {
       Completed: 'completed',
       Failed: 'failed',
+      All: 'all',
     } as const;
 
     export type DataWarehouseJobStatsRetrieveParams = {
@@ -113967,6 +113974,39 @@ export namespace Schemas {
      */
     source_id: string;
     };
+
+    export type DataWarehouseRunningActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number;
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseRunningActivityRetrieveKind;
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number;
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number;
+    };
+
+    export type DataWarehouseRunningActivityRetrieveKind = typeof DataWarehouseRunningActivityRetrieveKind[keyof typeof DataWarehouseRunningActivityRetrieveKind];
+
+
+    export const DataWarehouseRunningActivityRetrieveKind = {
+      All: 'all',
+      Import: 'import',
+      Model: 'model',
+    } as const;
 
     export type DatasetItemsListParams = {
     /**
