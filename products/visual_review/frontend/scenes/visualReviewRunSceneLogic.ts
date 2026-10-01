@@ -1007,6 +1007,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             } catch (e: any) {
                 actions.cancelLiftOnMergeFailure()
                 lemonToast.error(e?.detail || e?.message || 'Could not cancel the lift. Try again.')
+                // The request may have been applied or cancelled elsewhere since the page loaded.
+                actions.loadQuarantineLifts()
             }
         },
         unquarantineSnapshot: async ({ snapshot }) => {
