@@ -1,10 +1,13 @@
 """Integration tests for visual_review DRF views."""
 
+from datetime import timedelta
 from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,8 +15,12 @@ from rest_framework import status
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from products.visual_review.backend.facade import api
-from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import RunPurpose, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.contracts import (
+    AGENT_QUARANTINE_DEFAULT_DAYS,
+    CreateRunInput,
+    SnapshotManifestItem,
+)
+from products.visual_review.backend.facade.enums import RunPurpose, ActorType, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.logic import artifact_store, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
@@ -94,6 +101,28 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id) == []
+
+    @parameterized.expand([(ActorType.AGENT, True), (ActorType.HUMAN, False)])
+    def test_only_an_agent_quarantine_without_expiry_gets_one(self, source, expect_expiry):
+        repo = api.create_repo(team_id=self.team.id, repo_external_id=666, repo_full_name="org/agent")
+        before = timezone.now()
+
+        entry = quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier="Button",
+            run_type=RunType.STORYBOOK,
+            reason="flaky",
+            user_id=self.user.id,
+            team_id=self.team.id,
+            source=source,
+        )
+
+        if expect_expiry:
+            window = timedelta(days=AGENT_QUARANTINE_DEFAULT_DAYS)
+            assert entry.expires_at is not None
+            assert before + window <= entry.expires_at <= timezone.now() + window
+        else:
+            assert entry.expires_at is None
 
     def test_opening_a_quarantine_still_needs_a_reason(self):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=555, repo_full_name="org/open")

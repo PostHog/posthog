@@ -50,13 +50,18 @@ export const VisualReviewReposQuarantineCreateBody = /* @__PURE__ */ zod.object(
         .string()
         .max(visualReviewReposQuarantineCreateBodyReasonMax)
         .describe('Why this snapshot is being quarantined.'),
+    expires_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe(
+            'When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted expiry becomes 30 days from now; anywhere else it means no expiry.'
+        ),
     source_run_id: zod
         .uuid()
         .nullish()
         .describe(
             "Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later."
         ),
-    expires_at: zod.iso.datetime({ offset: true }).nullish(),
 })
 
 /**

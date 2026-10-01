@@ -653,6 +653,10 @@ FLAKINESS_MIN_HEADROOM = 0.2
 # lapse, so it counts toward `needs_decision`.
 FLAKINESS_EXPIRY_SOON_DAYS = 7
 
+# Expiry for an agent's quarantine when the call names none. A quarantine without
+# an expiry never lifts itself, and no agent comes back to lift it.
+AGENT_QUARANTINE_DEFAULT_DAYS = 30
+
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this
 # is a backstop against a repo whose diff threshold is misconfigured and

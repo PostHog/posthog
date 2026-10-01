@@ -8,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from ..facade.contracts import (
+    AGENT_QUARANTINE_DEFAULT_DAYS,
     FLAKINESS_RATE_DAYS,
     FLAKINESS_WINDOW_DAYS,
     PIXEL_DIFF_THRESHOLD_PERCENT,
@@ -363,6 +364,14 @@ class BaselineQuarantineSummarySerializer(DataclassSerializer):
 class QuarantineInputSerializer(DataclassSerializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to quarantine.")
     reason = serializers.CharField(max_length=255, help_text="Why this snapshot is being quarantined.")
+    expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted expiry "
+            f"becomes {AGENT_QUARANTINE_DEFAULT_DAYS} days from now; anywhere else it means no expiry."
+        ),
+    )
     source_run_id = serializers.UUIDField(
         required=False,
         allow_null=True,

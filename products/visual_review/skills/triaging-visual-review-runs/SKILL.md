@@ -1,283 +1,119 @@
 ---
 name: triaging-visual-review-runs
 description: >
-  Inspects PostHog Visual Review (VR) runs that gate PR merges with screenshot regression checks.
+  Inspects and resolves PostHog Visual Review (VR) runs that gate PR merges with screenshot regression checks.
   Use when the user mentions "visual review", "VR", "snapshot diff", "screenshot test", "storybook regression",
-  "playwright snapshot", asks why a PR is blocked or what changed visually, wants to triage the VR backlog,
-  decide whether a snapshot diff is real vs flaky, or check whether a story has been changing across runs.
-  Also invoke when a PR has a failing `visual-review` status check, when a PR comment mentions "Visual review",
-  when a PR from a fork fails `Visual regression tests pass`, or when the user is on a branch with an open VR run.
+  "playwright snapshot", "quarantine", or "tolerate", asks why a PR is blocked or what changed visually,
+  wants to triage the VR backlog, decide whether a snapshot diff is real or flaky, quarantine or lift a flaky story,
+  or check whether a story has been changing across runs.
+  Also invoke when a PR has a failing `visual-review` status, `Visual regression tests pass`, or `Playwright tests pass` check,
+  or when a PR comment mentions "Visual review".
 ---
 
 # Triaging visual review runs
 
-Visual Review is PostHog's screenshot-regression product: CI captures storybook + playwright screenshots,
-diffs them against committed baseline hashes, and gates the PR until a human approves the visible changes.
-A PR with visual changes carries a `visual-review` GitHub status check that stays red until each diffed
-snapshot is approved or tolerated in the [VR UI](https://us.posthog.com/project/2/visual_review).
-A PR from a fork is the exception: it gets no Visual Review run at all.
-See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
+Visual Review is PostHog's screenshot-regression product.
+CI captures Storybook and Playwright screenshots, diffs them against committed baseline hashes, and fails the PR until every changed snapshot is resolved.
+You may resolve flakes on your own.
+You may not ship a visual change on your own.
+Tool names below are PostHog MCP tools; prefix them with `posthog:` where your client needs it.
 
-This skill teaches an agent how to answer the questions a human reviewer would actually ask, by chaining
-the VR MCP tools — instead of reaching for `gh pr view` and tab-hopping to the VR web UI. The read tools
-cover status / scope / history / triage. Two are reversible DB-only triage marks (`approve-create`,
-`tolerate-create`); one ships the change (`finalize-create`) — it commits the baseline and greens the gate,
-and only that one needs explicit per-run human confirmation.
+## Decide first
 
-## When this skill applies
+Gather the evidence in [Gather the evidence](#gather-the-evidence), then take the first row that matches each changed snapshot.
 
-Trigger this skill on any of:
+| Evidence                                                                                                        | Action                                                                                                | Human yes needed                   |
+| --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| PR comes from a fork (`isCrossRepository: true`)                                                                | Report only. See [Fork PRs](#fork-prs)                                                                | No VR writes possible              |
+| The diff comes from your change and is intended                                                                 | `approve-create`, then ask for finalize                                                               | Yes, for each run, before finalize |
+| The diff comes from your change and is not intended                                                             | Fix the code and push. No VR write                                                                    | No                                 |
+| Story outside your change, flakiness entry `unstable`, `window_runs` ≥ 5, `hard_count` ≥ 2                      | `quarantine-create`, then `recompute-create`. Report it                                               | No                                 |
+| Story outside your change, flakiness entry `broken`                                                             | Do not quarantine. Its baseline on the default branch is wrong. Report it and recommend a re-baseline | Yes                                |
+| Story outside your change, quiet history, one rendering with the same size and content and a named noise source | `tolerate-create`, then `recompute-create`                                                            | No                                 |
+| Anything else (a real-looking change you did not make, too little history, unsure)                              | Stop and report what you saw                                                                          | Yes                                |
 
-- A PR number, branch name, or commit SHA paired with words like _visual review_, _VR_, _snapshot_, _screenshot_,
-  _storybook diff_, _playwright snapshot_, _baseline_, _approve_, _tolerated_, _quarantine_.
-- Questions about why a PR is blocked, what visually changed, or whether a diff is real.
-- "Is my run done?" / "What's left to review?" / "Has this story flaked recently?"
-- A failing `visual-review` GitHub check or a PR comment from the `posthog-bot` mentioning visual review.
-- A failing `Visual regression tests pass` check on a PR from a fork, which is the offline fallback and not a VR run.
+Never do these:
 
-When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual_review)
-is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
+- Tolerate to get past a gate. A toleration accepts one exact hash forever and cannot be undone through the API. A story that renders differently from run to run gets a quarantine, which also protects every other developer.
+- Quarantine a diff your own change caused, or a `broken` entry.
+- Call `recompute-create` on a run with approved snapshots. Recompute counts an approval as resolved but commits no baseline, so the PR merges with a stale baseline and the merge queue fails on the drift.
+- Finalize without an explicit human yes for that run. "Get the gate green" or "fix the PR" is not that yes.
 
-**First, check whether the PR comes from a fork.**
-A fork PR has no Visual Review run, so every run-scoped VR tool below returns nothing for it.
-Only the repo-scoped flakiness tool still answers.
-Read the flag before you query the tools:
+## What each write does
 
-```bash
-gh pr view <n> --json isCrossRepository
-```
+| Tool                                           | Effect                                                                                                                     | Gate                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `visual-review-runs-approve-create`            | Records approval in the database only                                                                                      | No change                                                 |
+| `visual-review-runs-tolerate-create`           | Accepts the current hash as an alternative baseline, in every future run                                                   | Needs recompute                                           |
+| `visual-review-repos-quarantine-create`        | Removes one identifier of one run type from pass or fail on every PR, until it expires (30 days if you omit `expires_at`)  | Needs recompute                                           |
+| `visual-review-repos-quarantine-expire-create` | Lifts the quarantine; the story gates again                                                                                | Next run                                                  |
+| `visual-review-runs-recompute-create`          | Recounts, posts the `visual-review` status, and re-runs the CI job that completed the run (about a minute, no new capture) | Turns the required check green when nothing is unresolved |
+| `visual-review-runs-finalize-create`           | Commits approved snapshots to the PR's baseline file. With nothing to commit, it re-runs the completing job                | Ships the change                                          |
 
-If `isCrossRepository` is `true`, stop here.
-Go to [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
+Branch protection requires the `Visual regression tests pass` and `Playwright tests pass` job checks, not the `visual-review` status.
+So a quarantine or toleration only unblocks the PR after `recompute-create` re-runs the completing job.
+Recompute refuses a run that is not completed or already finalized.
 
-## Fork PRs have no Visual Review run
+## Gather the evidence
 
-Visual Review needs a secret, and CI does not give a secret to a fork.
-The Visual Review upload is therefore skipped.
-No run, no snapshot row and no `visual-review` check exists for the PR.
-That is the designed behavior, not a fault.
+1. **Fork check.** `gh pr view <n> --json isCrossRepository`. If `true`, go to [Fork PRs](#fork-prs).
+2. **Find the run.** `visual-review-runs-list { pr_number: <n>, limit: 5 }`. Take the newest run that is not `stale`. Its `repo_id` feeds the repo tools.
+3. **List what changed.** `visual-review-runs-snapshots-list { id: <run_id>, limit: 50 }`. Work on `changed` and `new` rows with an empty `classification_reason` and `review_state: pending`.
+4. **Scope.** `git diff <base>...HEAD --stat`. Story identifiers look like `<area>-<scene>--<story>--<theme>`, for example `scenes-app-settings-user--settings-user-profile--dark` maps to `frontend/src/scenes/settings/user/`. Decide whether your change can reach the story, including shared components and styles.
+5. **Look at the images.** Download `baseline_artifact.download_url` and `current_artifact.download_url` with `curl -s -o`, then read both files. Name the visible difference in one line. Different `width` or `height` usually means a rendering race, not a UI change.
+6. **Flake history.** `visual-review-repos-flakiness-retrieve { id: <repo_id> }` and find the entry with the same `identifier` and `run_type`. No entry means the story is quiet on the default branch.
+   - `flakiness_state`: `broken` (fails nearly every run), `unstable` (fails some runs), `at_risk`, `noisy`, `clean`.
+   - `hard_rate` and `hard_count`: recent default-branch runs that failed the gate. `window_runs`: how many runs back the rate.
+   - `unstable` needs only one failure, so check `hard_count` and `window_runs` before you trust it.
+7. **Earlier variants.** `visual-review-runs-tolerated-hashes-list { id: <run_id>, identifier }`. Several tolerated hashes mean the story is not stable, so quarantine rather than tolerate.
 
-Each Storybook shard instead compares its own screenshots with the committed baseline file `frontend/snapshots.yml`, offline, in the `Verify snapshots against the baseline offline` step.
-A mismatch fails the `Visual regression tests pass` check.
+`visual-review-runs-snapshot-history-list` shows when the baseline moved on the default branch. It does not count flakes.
 
-The offline fallback is weaker than Visual Review in ways that change the triage:
+## Quarantine well
 
-| Visual Review                             | Offline fallback on a fork                                     |
-| ----------------------------------------- | -------------------------------------------------------------- |
-| Diffs with a noise threshold              | Exact pixel hash match only                                    |
-| Knows tolerated alternate hashes          | Knows none — a tolerated variant still fails                   |
-| Applies quarantine                        | Applies none — a quarantined story still fails                 |
-| Rendered diff images in the VR UI         | No images; the job log names the snapshots that differ         |
-| Triage and finalize through the MCP tools | No tools apply; a maintainer updates the baseline file instead |
+- `reason`: the flake and the evidence, for example "unstable on master: 3 of 40 runs failed in 7 days, chart animation timing; unrelated to PR 1234".
+- `source_run_id`: the run that failed.
+- `expires_at`: omit it for 30 days, or set an earlier date. Do not set a later one.
+- After the quarantine, call `visual-review-runs-recompute-create` on the PR's newest run and check `ci_rerun_triggered`.
+- Tell the user which identifiers you quarantined and why. A quarantine helps every PR, so the story owner must still fix the story.
 
-So a flaky story can fail a fork PR that changes nothing visible.
+## Lift quarantines
 
-How to triage a fork PR failure:
+Use this after you fix a flaky story, or when asked to clean up.
 
-1. Read the failing `Visual regression tests pass` job.
-   The step summary and the `Baseline mismatch` error name each snapshot that differs.
-   `gh run view <run_id> --log-failed` gets the log.
-2. Run the scope check from [Is the diff real or unrelated?](#is-the-diff-real-or-unrelated) against the named identifiers.
-   It needs only `git diff`, so it works without a run.
-3. Judge flakiness from the default branch, not from the fork PR.
-   Use `posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, with the repo id from `posthog:visual-review-repos-list`.
-   This is the one VR tool that still helps, because it reports repo-level history and does not need a run.
-4. Report the verdict and stop.
-   You cannot approve, tolerate or finalize anything, because there is no run to act on.
-   A snapshot that must change needs a maintainer to update `frontend/snapshots.yml` on the PR branch, with a Visual Review run on an in-repo branch.
+1. `visual-review-repos-flakiness-retrieve` lists quarantined entries. `needs_decision: true` marks one that stopped failing or expires soon.
+2. Lift with `visual-review-repos-quarantine-expire-create { id, run_type, identifier }` only when the story has had no hard failure in the window, or your merged fix removed the cause.
+3. For stories that keep needing tolerations, `visual-review-repos-toleration-pileups-retrieve` finds them. The fix belongs in the story: a pinned date, a disabled animation, a wait for a loader.
 
-Never push a fork's head to an in-repo branch to get it a Visual Review run.
+## Fork PRs
+
+A fork PR has no VR run, because CI gives no secret to a fork.
+Each Storybook shard instead compares exact hashes with `frontend/snapshots.yml` offline, and a mismatch fails `Visual regression tests pass`.
+That fallback knows no tolerations and no quarantines, so a flaky story can fail a fork PR that changes nothing visible.
+
+1. Read the failing job: `gh run view <run_id> --log-failed`. The `Baseline mismatch` error names each snapshot.
+2. Run the scope check against those identifiers.
+3. Judge flakiness with `visual-review-repos-flakiness-retrieve`, which needs no run.
+4. Report and stop. A snapshot that must change needs a maintainer to update `frontend/snapshots.yml` on the PR branch.
+
+Never push a fork's head to an in-repo branch to get it a VR run.
 See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
-## Tools
+## Vocabulary
 
-Read tools (safe to call freely):
+- Run `review_state`: `needs_review`, `clean`, `processing`, `stale` (superseded by a newer run on the same PR).
+- Run `run_type`: `storybook` or `playwright`.
+- Snapshot `result`: `unchanged`, `changed`, `new` (no baseline yet), `removed`.
+- Snapshot `classification_reason`: `tolerated_hash`, `below_threshold`, `exact`, or empty for a real diff.
+- Run `summary.unresolved`: what still blocks the PR.
 
-| Tool                                               | Purpose                                                                                                                                                                                                                                  |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-list`                  | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                                                                                                                                                 |
-| `posthog:visual-review-runs-retrieve`              | Full detail for a single run (status, summary counts, supersession). Carries the `repo_id` the repo tools need.                                                                                                                          |
-| `posthog:visual-review-runs-snapshots-list`        | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. Quarantined snapshots are excluded by default (see `quarantined_count`); pass `include_quarantined=true` to see them. |
-| `posthog:visual-review-repos-flakiness-retrieve`   | Repo snapshots whose rendering is untrusted, with a `flakiness_state` and flake rates for each. The flake check starts here.                                                                                                             |
-| `posthog:visual-review-runs-snapshot-history-list` | One story's baseline timeline on the default branch: one row per baseline change. Takes `{ id: <run_id>, identifier: <identifier> }`.                                                                                                    |
-| `posthog:visual-review-runs-counts-retrieve`       | Aggregate counts for queue triage (how many runs in `needs_review`, etc.).                                                                                                                                                               |
-| `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation". Takes the same two parameters as the history tool.                                                                                                      |
-| `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                                                                                                                                            |
-| `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                                                                                                                                            |
+## Triage the queue
 
-Triage tools (reversible, DB-only — they record a review decision but do NOT change the baseline or the gate):
+1. `visual-review-runs-counts-retrieve` for the size.
+2. `visual-review-repos-runs-list { repo_id, review_state: needs_review }`.
+3. Group by `run_type` and changed identifiers. Many PRs blocked on the same identifier means one flake or one master drift, which one quarantine or one re-baseline fixes.
 
-| Tool                                         | Purpose                                                                                                                |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-approve-create`  | Mark `changed` / `new` snapshots reviewed (approved) in the DB. Does NOT commit or green the gate — ship via finalize. |
-| `posthog:visual-review-runs-tolerate-create` | Mark a single changed snapshot as a known tolerated alternate. Does NOT change the baseline — use for benign variants. |
+## Report
 
-Ship tool (irreversible, outward-facing — requires explicit per-run human confirmation; see [the gate](#the-finalize-gate)):
-
-| Tool                                         | Purpose                                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-finalize-create` | Commit the approved baseline to the PR branch and green the GitHub `visual-review` check. This ships the change. |
-
-Mark-reviewed call shape (`approve-create`):
-
-- `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
-- `snapshots: [{identifier, new_hash}]` — `new_hash` is the `content_hash` of each snapshot's `current_artifact`. This only records the review in the DB; nothing is committed and the gate stays red until you finalize.
-
-Toleration call shape — both fields are required:
-
-- `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
-- `snapshot_id` (required) — the UUID of the individual snapshot to tolerate (from `visual-review-runs-snapshots-list`). This identifies _which_ snapshot inside the run; it does not replace the run `id`.
-
-Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
-
-- `id` (required) — the run UUID.
-- `approve_all: true` — approve every still-pending `changed`/`new` snapshot before finalizing (tolerated ones are left alone). Use when you've verified every remaining diff is intended.
-- Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` (and lists what's left) unless every changed/new snapshot is approved, tolerated, or quarantined.
-- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — the gate still greens) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
-
-If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
-
-### The finalize gate
-
-Finalize is the one irreversible, outward-facing action in this skill: it rewrites the baseline committed to the
-PR and greens the merge gate. Treat it like pushing to someone's branch — never automatic.
-
-Before _any_ `finalize-create` call, all of these must hold:
-
-1. **You verified the diffs.** You pulled the current (and, for `changed`, baseline) PNGs and looked at them, ran
-   the flake check on anything suspect, and reached a per-snapshot verdict. Metadata alone is never enough.
-2. **You presented the verdict and waited.** Show the user, per snapshot, what changed and your recommendation, then stop.
-3. **The user explicitly approved _this_ run.** A broad "get the gate green" / "fix the PR" is permission to
-   investigate and recommend — NOT to finalize. When the task implies finalizing but the human hasn't said it for
-   this specific run, ask.
-
-`approve-create` and `tolerate-create` are reversible triage and don't need this gate — but they don't ship anything
-either. The moment you're about to `finalize-create` and can't point to a specific human "yes" for this run, stop and ask.
-
-## Vocabulary cheat sheet
-
-These appear in tool output and matter for interpretation:
-
-- **Run `review_state`**: `needs_review` (open, awaiting human), `clean` (zero diffs), `processing` (CI still uploading),
-  `stale` (a newer run on the same PR has superseded this one — check `superseded_by_id`).
-- **Run `run_type`**: `storybook` (component snapshots) or `playwright` (full-page e2e snapshots).
-- **Snapshot `result`**: `unchanged`, `changed` (real diff), `new` (no baseline yet), `removed`.
-- **Snapshot `classification_reason`**: `tolerated_hash` (matches a known-tolerated hash, no action needed),
-  `below_threshold` (under the noise floor), `exact` (byte-identical), `""` (real diff requiring review).
-- **Snapshot `review_state`**: `pending` or `approved`.
-- **Run `summary`**: `total / changed / new / removed / unchanged / unresolved / tolerated_matched` —
-  `unresolved` is what's actually blocking review.
-
-## Workflows
-
-### "What's the VR status of this PR?"
-
-The single most common job. Map a PR number to its run state in two calls.
-First confirm the PR is not from a fork.
-A fork PR has no run, and `visual-review-runs-list` returns an empty list for it.
-
-1. `posthog:visual-review-runs-list { pr_number: <n>, limit: 5 }` — sort by `created_at` desc, take the latest non-stale one.
-2. If the run has `summary.changed > 0` or `summary.unresolved > 0`, drill in:
-   `posthog:visual-review-runs-snapshots-list { id: <run_id> }` and report the `changed` snapshots.
-
-Report back: PR number, run UUID, `review_state`, summary counts, and the `_posthogUrl` deep link so the
-user can click straight to the diff viewer.
-
-### "Is the diff real or unrelated?"
-
-The most useful judgment a code-aware agent can add. Combine three signals: **scope match**, **flake history**,
-and **the actual rendered images**. The agent should look at the screenshots — not just describe metadata.
-
-1. **Scope check** — `git diff master...HEAD --stat` (or against the PR's base branch) → list of touched paths.
-   Cross-reference with `posthog:visual-review-runs-snapshots-list { id }` filtered to `result: changed` → story identifiers.
-   Stories are namespaced like `<area>-<scene>--<story>--<theme>`; e.g. `scenes-app-settings-user--settings-user-profile--dark`
-   maps to `frontend/src/scenes/settings/user/...`. Use this to translate story id → likely source path.
-
-2. **Visual inspection** — for each `changed` snapshot, the tool result contains `current_artifact.download_url`
-   and `baseline_artifact.download_url`. These are pre-signed S3 URLs to PNG files; pull them and look:
-
-   ```bash
-   curl -s -o /tmp/vr-baseline.png "<baseline_artifact.download_url>"
-   curl -s -o /tmp/vr-current.png "<current_artifact.download_url>"
-   ```
-
-   Then `Read` both files (the Read tool renders images visually) and compare. Things to call out:
-   - The actual visible delta (text changed, button moved, layout shift, color drift, missing element).
-   - Whether the change is consistent with the diff_pixel_count and diff_percentage in the metadata
-     (e.g. 54% diff but the images look near-identical → screenshot framing changed, not the UI).
-   - Whether the baseline and current have different dimensions (`width` / `height` fields). Mismatched
-     dimensions usually mean the story rendered to a different viewport or didn't fully render before
-     screenshot — a flake signal, not a regression.
-
-3. **Flake history** — run the flake check below for any story that looks suspect.
-
-4. **Verdict** — combine all three:
-   - Scope plausible + visible regression matches the code change → real diff, recommend approval.
-   - Scope mismatch + dimensions mismatch + frequent prior changes → flake, recommend tolerating the hash.
-   - Scope plausible + visible regression looks unintended → push a fix; do not approve.
-
-Always include a one-line description of what you saw in the images — the user uses this to decide whether to
-trust your verdict without opening the VR UI themselves.
-
-### Flake check: "Has this story been changing?"
-
-Once you have a suspect snapshot row from `visual-review-runs-snapshots-list`, ask two separate questions.
-
-**Is the story unstable?** Only the flakiness overview answers this. Read the repo id with
-`posthog:visual-review-runs-retrieve { id: <run_id> }`. Then call
-`posthog:visual-review-repos-flakiness-retrieve { id: <repo_id> }`, and find the entry whose `identifier` and
-`run_type` match your snapshot. That entry carries the flake signal:
-
-- `flakiness_state`: `broken`, `unstable`, `at_risk`, `noisy`, or `clean`.
-- `hard_rate`: the share of recent default-branch runs that failed the gate.
-- `soft_rate`: the share that a toleration absorbed.
-- `window_runs`: the number of runs behind those two rates.
-
-A story with no entry is quiet. Nothing is tolerated for it, and it did not fail recently.
-
-**Did the baseline move?** Call
-`posthog:visual-review-runs-snapshot-history-list { id: <run_id>, identifier: <identifier> }`. It returns one row for
-each baseline transition on the default branch, not a run-by-run outcome list. It drops a feature branch, and it
-collapses consecutive runs that share a baseline. You therefore cannot count outcomes with it.
-
-Both parameters are required. Copy them from the snapshot row: its `run_id` goes in `id`, and its `identifier` goes in
-`identifier`. The snapshot's own `id` is not a run id, and a call that sends it fails.
-`visual-review-runs-tolerated-hashes-list` takes the same two parameters.
-
-Verdicts:
-
-- `flakiness_state` is `clean`, or the story has no entry → likely a real regression caused by this PR.
-- `flakiness_state` is `unstable` or `broken`, and `window_runs` is large enough to trust the rate → flaky story;
-  recommend tolerating the hash or a quarantine via the UI.
-- Recent `removed`, a large-jump dimension change, or a baseline that last moved long ago → baseline likely stale;
-  recommend re-baselining on master.
-
-### Triaging the queue
-
-When the user is doing housekeeping rather than asking about a specific PR:
-
-1. `posthog:visual-review-runs-counts-retrieve` → total queue size.
-2. `posthog:visual-review-runs-list { review_state: needs_review, limit: 50 }` (paginate if needed).
-3. Group by `branch` author or `run_type` to surface clusters (e.g., "12 PRs blocked on the same shared
-   component change" usually means a single underlying root cause to address).
-4. Prefer surfacing runs whose `summary.changed > 0` over runs that are only `new` — `new` means no baseline
-   yet, which is usually trivial to approve; `changed` is the real review work.
-
-## Output expectations
-
-For PR-status questions, lead with the verdict in one line, then 2-4 bullets of supporting context. Always
-include the `_posthogUrl` deep link to the run — humans need to see the rendered images to make the call,
-the agent can only describe the metadata.
-
-For triage / aggregate questions, a short table beats prose. Group by what the user is going to act on.
-
-## What NOT to do
-
-- Do not approve or tolerate without explicit user confirmation. The verdict is yours to recommend; the
-  decision to ship belongs to the user. Once they say "approve those" / "tolerate that", call the tool.
-- Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
-  a PR you're working on, that's the trigger to run this skill.
-- Do not read an empty run list on a fork PR as a broken or pending run.
-  Check `isCrossRepository` first, then triage the offline check instead.
-- Do not declare a verdict from metadata alone when `result: changed`. Pull the baseline and current PNGs
-  and look at them; metadata can only say "something changed", not whether the change is intended.
+Lead with the verdict in one line, then one line for each snapshot: what you saw in the images, the evidence, and the action you took or recommend.
+Include the run's `_posthogUrl`.

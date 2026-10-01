@@ -287,12 +287,15 @@ export interface QuarantineInputApi {
      */
     reason: string
     /**
+     * When the quarantine lifts itself, as an ISO 8601 datetime. Through MCP an omitted expiry becomes 30 days from now; anywhere else it means no expiry.
+     * @nullable
+     */
+    expires_at?: string | null
+    /**
      * Optional pointer to the run whose failing snapshot prompted this quarantine — used to surface a 'view the failing run' link later.
      * @nullable
      */
     source_run_id?: string | null
-    /** @nullable */
-    expires_at?: string | null
 }
 
 export interface UnquarantineQueryApi {

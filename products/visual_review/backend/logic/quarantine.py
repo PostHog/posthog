@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..db import READER_DB, WRITER_DB
-from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS
+from ..facade.contracts import AGENT_QUARANTINE_DEFAULT_DAYS, FLAKINESS_EXPIRY_SOON_DAYS
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
 from . import errors, github_api, repos
@@ -105,6 +105,8 @@ def quarantine_identifier(
 ) -> QuarantinedIdentifier:
     repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
+    if expires_at is None and source == ActorType.AGENT:
+        expires_at = now + timedelta(days=AGENT_QUARANTINE_DEFAULT_DAYS)
     # Resolve the source run inside the team scope so a malicious caller can't
     # attach a quarantine to an unrelated run. Silently drop on mismatch — the
     # quarantine itself still wins; we just lose the "what was wrong" pointer.
