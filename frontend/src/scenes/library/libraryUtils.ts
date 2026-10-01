@@ -105,3 +105,8 @@ export function sortLibraryTypes(types: LibraryObjectType[]): LibraryObjectType[
     }
     return [...types].sort((first, second) => rank(first) - rank(second) || first.label.localeCompare(second.label))
 }
+
+export function filterLibraryTypes(types: LibraryObjectType[], search: string): LibraryObjectType[] {
+    const query = search.trim().toLowerCase()
+    return query ? types.filter((type) => `${type.label} ${type.pluralLabel}`.toLowerCase().includes(query)) : types
+}
