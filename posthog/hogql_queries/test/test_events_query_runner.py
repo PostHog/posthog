@@ -1511,8 +1511,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 orderBy=order_by,
                 after="-30d",
             )
-            response = EventsQueryRunner(query=query, team=self.team).run()
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
 
+        assert len([query for query in queries if re.search(r"\bFROM\s+person\b", query)]) == 1
         assert isinstance(response, CachedEventsQueryResponse)
         assert [row[0]["display_name"] for row in response.results] == ["aa@example.com", "zz@example.com"]
 

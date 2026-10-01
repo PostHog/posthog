@@ -102,7 +102,8 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     # person_id holds the id that flag_evaluations resolved through person merges.
     person_id="person_id",
     # Reading person.properties in the query joins persons. That join deduplicates every person in the team before
-    # the query picks the page. The runner reads display names for only the page's persons after the query.
+    # the query picks the page. The runner reads display names for only the page's persons after the query, unless
+    # the query sorts by Person and joins persons anyway.
     looks_up_person_display_names=True,
 )
 
@@ -192,8 +193,25 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         props = self._person_display_name_property_exprs("person.properties")
         return f"coalesce({', '.join([*props, 'distinct_id'])}), toString({table.person_id})"
 
-    def _person_display_name_sort_key(self, table: EventsListTable) -> str:
-        return f"({self._person_display_name_key(table)})"
+    def _person_display_names_after_query(self, table: EventsListTable) -> bool:
+        """Whether the page lookup fills person_display_name, rather than the page query.
+
+        A sort by the Person column reads person.properties, which joins persons. The query then reads the names
+        from that join, and the lookup does not run.
+        """
+        return table.looks_up_person_display_names and not self._sorts_by_person_display_name()
+
+    def _sorts_by_person_display_name(self) -> bool:
+        if self.query.orderBy is not None:
+            return any(col.split("--")[0].strip() == "person_display_name" for col in self.query.orderBy)
+        # _default_order_by sorts by the first column only when no column is count(), an aggregation, or timestamp.
+        columns = self.select_input_raw()
+        return (
+            columns[0].split("--")[0].strip() == "person_display_name"
+            and "count()" not in columns
+            and "timestamp" not in columns
+            and not any(has_aggregation(parse_expr(column)) for column in columns)
+        )
 
     def select_cols(self, table: EventsListTable) -> tuple[list[str], list[ast.Expr]]:
         select_input: list[str] = []
@@ -208,7 +226,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 select_input.append("distinct_id")
                 person_indices.append(index)
             elif col.split("--")[0].strip() == "person_display_name":
-                if table.looks_up_person_display_names:
+                if self._person_display_names_after_query(table):
                     # _expand_person_display_name_columns replaces distinct_id with the person's name.
                     select_input.append(f"(distinct_id, toString({table.person_id}), distinct_id)")
                 else:
@@ -528,7 +546,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             if self.query.orderBy is not None:
                 order_by = self._requested_order_by(table, self.query.orderBy)
             else:
-                order_by = self._default_order_by(table, select_input, select, aggregations)
+                order_by = self._default_order_by(select_input, select, aggregations)
 
             first_order = order_by[0].expr if order_by else None
             self._cursor_eligible = (
@@ -551,19 +569,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         columns: list[str] = []
         for col in order_by_input:
             if col.split("--")[0].strip() == "person_display_name":
-                columns.append(
-                    re.sub(r"person_display_name -- Person ", self._person_display_name_sort_key(table), col)
-                )
+                expr = f"({self._person_display_name_key(table)})"
+                columns.append(re.sub(r"person_display_name -- Person ", expr, col))
             else:
                 columns.append(col)
         return [parse_order_expr(column, timings=self.timings) for column in columns]
 
     def _default_order_by(
-        self,
-        table: EventsListTable,
-        select_input: list[str],
-        select: list[ast.Expr],
-        aggregations: list[ast.Expr],
+        self, select_input: list[str], select: list[ast.Expr], aggregations: list[ast.Expr]
     ) -> list[ast.OrderExpr]:
         if "count()" in select_input:
             return [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
@@ -572,12 +585,6 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if "timestamp" in select_input:
             return [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
         if len(select) > 0:
-            if (
-                table.looks_up_person_display_names
-                and self.select_input_raw()[0].split("--")[0].strip() == "person_display_name"
-            ):
-                # The selected tuple holds distinct_id in place of the name. Sorting by that tuple does not sort by name.
-                return [ast.OrderExpr(expr=parse_expr(self._person_display_name_sort_key(table)), order="ASC")]
             return [ast.OrderExpr(expr=select[0], order="ASC")]
         return []
 
@@ -719,7 +726,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
     def _expand_person_display_name_columns(self, table: EventsListTable) -> list[int]:
         """Convert each person_display_name tuple into a dict, and return the `person` column indices.
 
-        When the table looks up display names, this queries `persons` in ClickHouse for the page's person ids.
+        When the page lookup fills the names, this queries `persons` in ClickHouse for the page's person ids.
         """
         person_indices: list[int] = []
         display_name_indices: list[int] = []
@@ -731,7 +738,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 display_name_indices.append(column_index)
 
         names: dict[str, str] = {}
-        if table.looks_up_person_display_names and display_name_indices:
+        if display_name_indices and self._person_display_names_after_query(table):
             with self.timings.measure("person_display_name_lookup"):
                 names = self._person_display_names(
                     {str(result[index][1]) for result in self.paginator.results for index in display_name_indices}
