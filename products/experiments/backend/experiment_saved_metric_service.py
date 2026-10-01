@@ -121,7 +121,7 @@ class ExperimentSavedMetricService:
         # normalized query carries the stored row's identity, so compare under that identity.
         stored_for_match = [{**existing_query, "uuid": normalized_query["uuid"]}] if existing_query else []
         if first_unitless_conversion_window([normalized_query], stored_for_match) is not None:
-            raise ValidationError(f"Invalid query: {UNITLESS_CONVERSION_WINDOW_ERROR}")
+            raise ValidationError(f"Invalid metric: {UNITLESS_CONVERSION_WINDOW_ERROR}")
 
         return normalized_query
 
