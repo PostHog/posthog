@@ -49,6 +49,8 @@ The release on Tuesday changed the plan picker layout. The start trial button no
 
 1. Pin the start trial button to the top of the plan table.
 2. Run an A/B test on the change for one week.
+
+![](https://example.com/markdown-pixel.png)
 `
 
 const CHART_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="Inter, sans-serif">
@@ -95,6 +97,7 @@ const SUMMARY_HTML = `<!doctype html>
   <div class="step"><span>Details</span><div class="track"><div class="bar" style="width: 35%"></div></div><span class="value">35%</span></div>
   <div class="step"><span>Trial started</span><div class="track"><div class="bar" style="width: 30%"></div></div><span class="value">30%</span></div>
   <div class="note">The plan picker step drops from 62% to 44% against the week before.</div>
+  <img src="https://example.com/html-pixel.png" alt="" width="1" height="1" />
 </main>
 </body>
 </html>`

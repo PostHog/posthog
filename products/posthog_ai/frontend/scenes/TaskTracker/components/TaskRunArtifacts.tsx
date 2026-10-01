@@ -44,6 +44,20 @@ function KindIcon({ kind }: { kind: ArtifactPreviewKind }): JSX.Element {
     return <IconDocument />
 }
 
+// The sandbox stops scripts but not subresources, so the policy keeps the page from fetching anything.
+const ARTIFACT_HTML_CSP =
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; form-action 'none'"
+
+function withStrictCsp(html: string): string {
+    const meta = `<meta http-equiv="Content-Security-Policy" content="${ARTIFACT_HTML_CSP}">`
+    const head = /<head[^>]*>/i.exec(html)
+    if (head) {
+        const end = head.index + head[0].length
+        return html.slice(0, end) + meta + html.slice(end)
+    }
+    return `<!doctype html><html><head>${meta}</head><body>${html}</body></html>`
+}
+
 /**
  * Agent-written HTML is untrusted. An empty `sandbox` gives the document an opaque origin with scripts,
  * forms, popups and top navigation all off, so it cannot reach the app's cookies, storage or DOM.
@@ -54,7 +68,7 @@ function SandboxedHtmlFrame({ html, name }: { html: string; name: string }): JSX
             className="size-full border-0 bg-white"
             sandbox=""
             referrerPolicy="no-referrer"
-            srcDoc={html}
+            srcDoc={withStrictCsp(html)}
             title={`Preview of ${name}`}
         />
     )
@@ -85,10 +99,9 @@ function CsvPreview({ text }: { text: string }): JSX.Element {
 }
 
 function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
-    const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId } = useValues(
-        taskRunArtifactsLogic({ taskId })
-    )
-    const { ensureSelectedText } = useActions(taskRunArtifactsLogic({ taskId }))
+    const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId, artifactTextLoading } =
+        useValues(taskRunArtifactsLogic({ taskId }))
+    const { ensureSelectedText, loadArtifactText } = useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
         ensureSelectedText()
     }, [selectedArtifact?.id, selectedRun?.id, currentProjectId, ensureSelectedText])
@@ -125,8 +138,17 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
     }
     if (selectedText.text === null) {
         return (
-            <div className="flex min-h-full items-center justify-center p-8 text-sm text-secondary">
-                {selectedText.error ?? 'This file did not load.'}
+            <div className="flex min-h-full flex-col items-center justify-center gap-2 p-8 text-sm text-secondary">
+                <span>{selectedText.error ?? 'This file did not load.'}</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={artifactTextLoading}
+                    onClick={() => loadArtifactText(selectedArtifact)}
+                    data-attr="task-artifact-retry"
+                >
+                    Try again
+                </LemonButton>
             </div>
         )
     }
@@ -140,7 +162,7 @@ function ArtifactPreview({ taskId }: { taskId: string }): JSX.Element | null {
         return (
             <div className="px-6 py-8">
                 <article className="mx-auto max-w-3xl rounded-lg border border-primary bg-surface-primary px-10 py-8">
-                    <LemonMarkdown>{selectedText.text}</LemonMarkdown>
+                    <LemonMarkdown disableImages="all">{selectedText.text}</LemonMarkdown>
                 </article>
             </div>
         )
