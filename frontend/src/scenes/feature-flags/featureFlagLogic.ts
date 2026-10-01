@@ -4139,8 +4139,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             const versioned = rowVersionToken(featureFlag)
             await deleteWithUndo({
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
-                object: { id: featureFlag.id, ...versioned },
+                object: { id: featureFlag.id },
                 label: featureFlag.key,
+                // A row in another config version refuses `id`, so the body is `deleted` and the row version only.
+                payload: versioned,
                 // The server refuses to restore a row in another config version, so there is nothing to undo.
                 undoable: isV1FeatureFlagConfig(featureFlag.filters),
                 onError: (error) => reloadIfStaleRowVersion(versioned, error, actions.refreshFeatureFlag),

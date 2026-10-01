@@ -2911,7 +2911,7 @@ describe('featureFlagLogic', () => {
                     .toFinishAllListeners()
 
                 // A `name` in the body overwrites the flag's description.
-                expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
+                expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: true })
                 const [message, options] = toastSpy.mock.calls[0]
                 expect(render(message as JSX.Element).container.textContent).toBe(
                     `${MOCK_FEATURE_FLAG.key} has been deleted`
@@ -4144,13 +4144,13 @@ describe('a flag in config version 2', () => {
     })
 
     it.each([
-        ['deleting', () => logic.actions.deleteFeatureFlag(V2_FLAG), { id: 7, deleted: true, version: 3 }],
+        ['deleting', () => logic.actions.deleteFeatureFlag(V2_FLAG), { deleted: true, version: 3 }],
         [
             'restoring',
             () => logic.actions.restoreFeatureFlag({ ...V2_FLAG, deleted: true }),
             { deleted: false, version: 3 },
         ],
-    ])('sends deleted and the row version when %s', async (_, act, body) => {
+    ])('sends only deleted and the row version when %s', async (_, act, body) => {
         const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, ...body, version: 4 })
 
         await expectLogic(logic, act).toFinishAllListeners()
