@@ -33,7 +33,7 @@ A 403 with "You don't have sufficient permissions in the project" means the pers
 ### 1. Pick the domain and the sender
 
 Ask which domain to send from if the person has not said.
-Recommend a subdomain such as `mail.example.com` or `updates.example.com`: it keeps marketing reputation and DMARC changes away from the root domain the company uses for everyday mail.
+Recommend the `mail.` subdomain, for example `mail.example.com`, or `send.example.com` if `mail.` is taken: it keeps marketing reputation and DMARC changes away from the root domain the company uses for everyday mail.
 Accept the root domain if they prefer it.
 
 If they only give a domain, default the sender to `hello@<domain>` with the company name as the display name, and tell them both can change later.
