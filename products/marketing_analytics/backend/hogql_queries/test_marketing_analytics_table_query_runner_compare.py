@@ -7,10 +7,13 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock
 
+from parameterized import parameterized
+
 from posthog.schema import (
     BaseMathType,
     ConversionGoalFilter2,
     DateRange,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsTableQueryResponse,
     NodeKind,
@@ -381,6 +384,22 @@ class TestMarketingAnalyticsTableQueryRunnerCompare(ClickhouseTestMixin, BaseTes
 
         assert len(response_beyond.results) == 0, "Should return empty results when offset exceeds data"
         assert response_beyond.hasMore is False, "Should not have more results when offset exceeds data"
+
+    @parameterized.expand(
+        [
+            ("campaign", MarketingAnalyticsDrillDownLevel.CAMPAIGN, 5),
+            ("channel", MarketingAnalyticsDrillDownLevel.CHANNEL, 1),
+        ]
+    )
+    def test_compare_with_row_key_columns_hidden(self, _name, level, expected_rows):
+        facebook_info = self._setup_csv_table("facebook_ads")
+        self._setup_team_source_configs([{"table_id": facebook_info.table.id, "source_map": FACEBOOK_SOURCE_MAP}])
+
+        query = self._create_basic_query(select=["Cost"], drillDownLevel=level)
+        response = get_default_query_runner(query, self.team).calculate()
+
+        assert response.columns == ["Cost"]
+        assert len(response.results) == expected_rows
 
     def test_invalid_table_configuration(self):
         source_configs = [
