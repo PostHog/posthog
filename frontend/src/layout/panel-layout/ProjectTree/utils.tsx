@@ -165,7 +165,6 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
-            tags: starredProduct ? starredProduct.tags : item.tags,
             visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {

@@ -93,6 +93,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
+        "claude-sonnet-5-5",
         "claude-haiku-4-5",
         "gpt-5.6-sol",
         "gpt-5.6-terra",
@@ -104,6 +105,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5-mini",
         "gpt-6-astra",
         "gpt-6-sol",
+        "gpt-6.1-sol",
         "gpt-6-luna",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
@@ -164,6 +166,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-5-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
+                "claude-sonnet-5-5",
                 "claude-haiku-4-5",
                 "gpt-5.4",
                 "gpt-5.3-codex",
@@ -176,6 +179,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.6-sol",
                 "gpt-6-astra",
                 "gpt-6-sol",
+                "gpt-6.1-sol",
                 "gpt-6-luna",
             }
             | BEDROCK_MODELS

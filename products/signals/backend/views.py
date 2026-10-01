@@ -39,7 +39,6 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from opentelemetry import trace
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
-from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -52,7 +51,12 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.auth import (
+    InternalAPIAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -85,6 +89,12 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
     parse_artefact_content,
 )
+from products.signals.backend.background_pilot import (
+    BACKGROUND_REPORT_DISMISSED_EVENT,
+    BACKGROUND_REPORT_RATED_EVENT,
+    BACKGROUND_REPORT_VIEWED_EVENT,
+    capture_background_report_events,
+)
 from products.signals.backend.billing import (
     REFUND_INELIGIBLE_BILLING_EXEMPT,
     REFUND_INELIGIBLE_NO_BILLABLE_PR,
@@ -98,10 +108,15 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
+from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
-from products.signals.backend.impact_measurement_plans import can_append_measurement_plan, latest_measurement_plans
+from products.signals.backend.impact_measurement_plans import (
+    can_append_measurement_plan,
+    latest_measurement_plans,
+    validate_authored_measurement_plan,
+)
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -155,6 +170,11 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_read_state import (
+    ReportReadStateRequestSerializer,
+    ReportReadStateResponseSerializer,
+    report_read_states,
+)
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
@@ -183,6 +203,8 @@ from products.signals.backend.serializers import (
     SignalReportMetricRefreshResponseSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
+    SignalReportsForYouQuerySerializer,
+    SignalReportsForYouResponseSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
@@ -596,8 +618,8 @@ SIGNAL_REPORT_TITLE_MAX_LENGTH = 300
 SIGNAL_REPORT_SUMMARY_MAX_LENGTH = 10_000
 
 # Canonical dismissal reason codes, mirrored from the inbox UI source of truth at
-# products/signals/frontend/inbox/utils/dismissalReasons.ts (itself a port of desktop's
-# packages/shared/src/dismissal-reasons.ts). Constraining the API to these values keeps
+# products/signals/frontend/inbox/utils/dismissalReasons.ts (itself a port of
+# packages/agent/packages/agent-contracts/src/dismissal-reasons.ts). Constraining the API to these values keeps
 # agent-supplied reasons rendering as labelled chips in the inbox instead of raw,
 # unrecognised codes. Keep the values (and order) in sync with that file.
 SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
@@ -1092,12 +1114,28 @@ class SignalReportViewSet(
         "id": "id",
     }
 
+    @extend_schema(request=ReportReadStateRequestSerializer, responses=ReportReadStateResponseSerializer)
+    @action(detail=False, methods=["post"], required_scopes=["task:read"])
+    def read_state(self, request, **kwargs):
+        serializer = ReportReadStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested = serializer.validated_data["report_ids"]
+        ids = list(self.get_queryset().filter(id__in=requested).values_list("id", flat=True))
+        if len(set(requested)) != len(ids):
+            raise NotFound("One or more reports are unavailable.")
+        states = report_read_states(
+            self.team_id, request.user.id, [str(id) for id in ids], serializer.validated_data.get("read")
+        )
+        return Response(ReportReadStateResponseSerializer({"states": states}).data)
+
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if self.action == "list":
+        if self.action in {"list", "for_you"}:
             return SignalReportListSerializer
         return SignalReportSerializer
 
     def safely_get_queryset(self, queryset):
+        if self.action == "read_state":
+            return queryset.filter(team=self.team).exclude(status=SignalReport.Status.DELETED)
         if self.action in {"viewed", "pr_ci_statuses", "refresh_metrics"}:
             # None of these actions renders a report, so they skip the rendering annotations and
             # prefetches every other action's serializer needs. `viewed` is passive telemetry fired
@@ -1127,6 +1165,20 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
+        unread = self.request.query_params.get("unread")
+        if unread is not None:
+            if unread not in {"true", "false"}:
+                raise serializers.ValidationError({"unread": "Use true or false."})
+            read_ids = (
+                SignalReportAction.objects.for_team(self.team_id)
+                .filter(
+                    user_id=cast(User, self.request.user).id,
+                    type=SignalReportAction.ActionType.READ,
+                    metadata__read=True,
+                )
+                .values("report_id")
+            )
+            qs = qs.exclude(id__in=read_ids) if unread == "true" else qs.filter(id__in=read_ids)
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
@@ -1202,7 +1254,7 @@ class SignalReportViewSet(
     _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "for_you"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1966,6 +2018,13 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="unread",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by the current user's report read state.",
+            ),
+            OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -2203,6 +2262,15 @@ class SignalReportViewSet(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
 
+        data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
+
+        if page is not None:
+            return self.get_paginated_response(data)
+        return Response(data)
+
+    def _render_report_rows(self, reports: Sequence[Any], *, include_source_metadata: bool) -> Any:
+        """Serialize report rows the way the inbox list does, with batched lookups instead of per-row queries."""
+        report_ids = [str(r.id) for r in reports]
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
         # unavailable, so a metadata failure does not hide otherwise available reports. The web inbox
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
@@ -2251,11 +2319,34 @@ class SignalReportViewSet(
         serializer = self.get_serializer(reports, many=True, context=context)
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
-            data = serializer.data
+            return serializer.data
 
-        if page is not None:
-            return self.get_paginated_response(data)
-        return Response(data)
+    @validated_request(
+        query_serializer=SignalReportsForYouQuerySerializer,
+        responses={200: OpenApiResponse(response=SignalReportsForYouResponseSerializer)},
+        summary="List the reports that matter most to the current user",
+        description=(
+            "The open, actionable reports for the current user, best first, and how many there are in "
+            "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
+            "show someone who asks what needs them."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
+    def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        user = cast(User, request.user)
+        ranked_ids = [
+            report.report_id
+            for report in reports_for_briefing(
+                team_id=self.team_id, user_id=user.id, limit=request.validated_query_data["limit"]
+            )
+        ]
+        by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
+        reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
+        more = open_report_counts(
+            team_id=self.team_id, user=user, exclude_report_ids=[str(report.id) for report in reports]
+        )
+        rows = self._render_report_rows(reports, include_source_metadata=True)
+        return Response({"results": rows, "count": len(rows) + more.for_person})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",
@@ -2457,7 +2548,6 @@ class SignalReportViewSet(
         serializer = SignalReportStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-
         outcome, detail = self._transition_report_state(
             report,
             target=data["state"],
@@ -2482,6 +2572,11 @@ class SignalReportViewSet(
             reports=[report],
             dismissal_reason=data.get("dismissal_reason"),
             dismissal_note=data.get("dismissal_note"),
+        )
+        self._capture_background_dismissals(
+            reports=[report] if getattr(report, "_newly_suppressed", False) else [],
+            target=data["state"],
+            dismissal_reason=data.get("dismissal_reason"),
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
@@ -2604,6 +2699,14 @@ class SignalReportViewSet(
                 metadata={"sentiment": data["sentiment"]},
                 bump_count=not note,
             )
+            if not note:
+                capture_background_report_events(
+                    team=self.team,
+                    user=request.user,
+                    event=BACKGROUND_REPORT_RATED_EVENT,
+                    report_ids=[str(report.id)],
+                    properties={"sentiment": data["sentiment"]},
+                )
 
         if not note:
             return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
@@ -2650,6 +2753,9 @@ class SignalReportViewSet(
                 report_id=str(report.id),
                 user_id=request.user.id,
                 action_type=SignalReportAction.ActionType.VIEW,
+            )
+            capture_background_report_events(
+                team=self.team, user=request.user, event=BACKGROUND_REPORT_VIEWED_EVENT, report_ids=[str(report.id)]
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -2746,6 +2852,19 @@ class SignalReportViewSet(
             }
         )
         return Response(serializer.data)
+
+    def _capture_background_dismissals(
+        self, *, reports: Sequence[SignalReport], target: str, dismissal_reason: str | None
+    ) -> None:
+        if target != SignalReport.Status.SUPPRESSED or not reports:
+            return
+        capture_background_report_events(
+            team=self.team,
+            user=self.request.user if isinstance(self.request.user, User) else None,
+            event=BACKGROUND_REPORT_DISMISSED_EVENT,
+            report_ids=[str(report.id) for report in reports],
+            properties={"dismissal_reason": dismissal_reason},
+        )
 
     def _forward_dismissal_note(
         self,
@@ -2992,6 +3111,8 @@ class SignalReportViewSet(
                 # and tracker issue. An external agent keeps its user principal, so it names the
                 # person who ran it rather than nobody.
                 report._transition_actor_user_id = self._request_attribution().user_id  # type: ignore[attr-defined]
+                # Read under the row lock, so two concurrent dismissals count as one new suppression.
+                report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
                 report.save(update_fields=updated_fields)
 
@@ -3097,6 +3218,7 @@ class SignalReportViewSet(
         results: list[dict] = []
         counts: dict[str, int] = {outcome.value: 0 for outcome in SignalReportBulkStateOutcome}
         transitioned: list[SignalReport] = []
+        newly_dismissed: list[SignalReport] = []
         for report_id in ordered_ids:
             report = reports_by_id.get(report_id)
             if report is None:
@@ -3115,6 +3237,8 @@ class SignalReportViewSet(
                 report_status = report.status if outcome == SignalReportBulkStateOutcome.TRANSITIONED else None
                 if outcome == SignalReportBulkStateOutcome.TRANSITIONED:
                     transitioned.append(report)
+                    if getattr(report, "_newly_suppressed", False):
+                        newly_dismissed.append(report)
             results.append(
                 {
                     "id": report_id,
@@ -3130,6 +3254,7 @@ class SignalReportViewSet(
             dismissal_reason=dismissal_reason,
             dismissal_note=dismissal_note,
         )
+        self._capture_background_dismissals(reports=newly_dismissed, target=target, dismissal_reason=dismissal_reason)
 
         return Response(
             {
@@ -4883,10 +5008,15 @@ class SignalReportArtefactViewSet(
                 {"error": f"content does not match the '{artefact_type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if isinstance(parsed_content, ImpactMeasurementPlan) and parsed_content.activated:
-            return Response(
-                {"error": "Activate a measurement with its approval action."}, status=status.HTTP_400_BAD_REQUEST
-            )
+        if isinstance(parsed_content, ImpactMeasurementPlan):
+            if parsed_content.activated:
+                return Response(
+                    {"error": "Activate a measurement with its approval action."}, status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                validate_authored_measurement_plan(parsed_content)
+            except ValueError as error:
+                return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         with transaction.atomic():

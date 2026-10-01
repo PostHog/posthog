@@ -6,6 +6,9 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import {
+    webAnalyticsContentAutopilotOpportunitiesDraft,
+    webAnalyticsContentAutopilotOpportunitiesList,
+    webAnalyticsContentAutopilotOpportunitiesRefresh,
     webAnalyticsContentAutopilotProfilesCreate,
     webAnalyticsContentAutopilotProfilesDestroy,
     webAnalyticsContentAutopilotProfilesDiscover,
@@ -24,6 +27,7 @@ import {
 import type { ContentAutopilotProposalListApi, ContentAutopilotRunApi } from '../generated/api.schemas'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import {
+    EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROPOSAL,
     EXAMPLE_PROPOSAL_LIST,
@@ -32,6 +36,10 @@ import {
 } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api', () => ({
+    webAnalyticsContentAutopilotOpportunitiesDismiss: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesDraft: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesList: jest.fn(),
+    webAnalyticsContentAutopilotOpportunitiesRefresh: jest.fn(),
     webAnalyticsContentAutopilotProfilesCreate: jest.fn(),
     webAnalyticsContentAutopilotProfilesDestroy: jest.fn(),
     webAnalyticsContentAutopilotProfilesDiscover: jest.fn(),
@@ -53,6 +61,8 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn() },
 }))
 
+const mockOpportunitiesDraft = jest.mocked(webAnalyticsContentAutopilotOpportunitiesDraft)
+const mockOpportunitiesRefresh = jest.mocked(webAnalyticsContentAutopilotOpportunitiesRefresh)
 const mockProfilesCreate = jest.mocked(webAnalyticsContentAutopilotProfilesCreate)
 const mockProfilesDestroy = jest.mocked(webAnalyticsContentAutopilotProfilesDestroy)
 const mockProfilesList = jest.mocked(webAnalyticsContentAutopilotProfilesList)
@@ -110,6 +120,9 @@ describe('contentAutopilotLogic', () => {
         jest.mocked(webAnalyticsContentAutopilotProposalsRegenerate).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotProposalsReject).mockResolvedValue(EXAMPLE_PROPOSAL)
         jest.mocked(webAnalyticsContentAutopilotRunsCancel).mockResolvedValue(EXAMPLE_RUN)
+        mockOpportunitiesRefresh.mockResolvedValue(EXAMPLE_OPPORTUNITIES)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(paginated(EXAMPLE_OPPORTUNITIES))
+        mockOpportunitiesDraft.mockResolvedValue({ ...EXAMPLE_RUN, run_status: 'pending', completed_at: null })
     })
 
     afterEach(() => {
@@ -122,6 +135,54 @@ describe('contentAutopilotLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
+
+    it('shows saved opportunities while the refresh runs and keeps rows the refresh response leaves out', async () => {
+        const [first] = EXAMPLE_OPPORTUNITIES
+        const pendingRefresh = deferred<typeof EXAMPLE_OPPORTUNITIES>()
+        mockOpportunitiesRefresh.mockReturnValue(pendingRefresh.promise)
+        logic = contentAutopilotLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadOpportunitiesSuccess', 'refreshOpportunities'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+        })
+
+        pendingRefresh.resolve([first])
+        await expectLogic(logic).toDispatchActions(['refreshOpportunitiesSuccess'])
+        expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
+    })
+
+    it('drafts only the selected opportunities for the current site and clears the selection', async () => {
+        const mountedLogic = await mountWorkspace()
+        const [first, second] = EXAMPLE_OPPORTUNITIES
+
+        expect(mountedLogic.values.draftDisabledReason).toEqual('Select at least one opportunity')
+
+        mountedLogic.actions.setOpportunitySearch(first.title.toUpperCase())
+        expect(mountedLogic.values.visibleOpportunities.map(({ id }) => id)).toEqual([first.id])
+        mountedLogic.actions.setOpportunitySearch('')
+
+        mountedLogic.actions.toggleOpportunitySelection(first.id)
+        mountedLogic.actions.toggleOpportunitySelection(second.id)
+        jest.mocked(webAnalyticsContentAutopilotOpportunitiesList).mockResolvedValue(
+            paginated([first, { ...second, status: 'queued' }])
+        )
+        await expectLogic(mountedLogic, () => mountedLogic.actions.refreshOpportunities()).toFinishAllListeners()
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([first.id])
+        expect(mountedLogic.values.draftDisabledReason).toBeUndefined()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.draftOpportunities()).toFinishAllListeners()
+
+        expect(mockOpportunitiesDraft).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            profile_id: EXAMPLE_PROFILE.id,
+            opportunity_ids: [first.id],
+        })
+        expect(mountedLogic.values.selectedOpportunityIds).toEqual([])
+        expect(mountedLogic.values.workspaceTab).toBe('drafts')
+    })
 
     it('sends typed run and profile payloads to the generated API clients', async () => {
         const mountedLogic = await mountWorkspace()

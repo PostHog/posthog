@@ -27,15 +27,18 @@ GORGIAS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sourc
 class _FakeManager(ResumableSourceManager[GorgiasResumeConfig]):
     """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
 
-    def __init__(self, resume_cursor: str | None = None) -> None:
+    def __init__(self, resume_cursor: str | None = None, resume_variant: int = 0) -> None:
         self._resume_cursor = resume_cursor
+        self._resume_variant = resume_variant
         self.saved: list[GorgiasResumeConfig] = []
 
     def can_resume(self) -> bool:
         return self._resume_cursor is not None
 
     def load_state(self) -> GorgiasResumeConfig | None:
-        return GorgiasResumeConfig(cursor=self._resume_cursor) if self._resume_cursor else None
+        if not self._resume_cursor:
+            return None
+        return GorgiasResumeConfig(cursor=self._resume_cursor, variant=self._resume_variant)
 
     def save_state(self, data: GorgiasResumeConfig) -> None:
         self.saved.append(data)
@@ -148,7 +151,7 @@ class TestGetRows:
         assert batches == [[{"id": 1}], [{"id": 2}]]
         assert session.get.call_count == 2
 
-    def test_saves_cursor_after_yielding_each_batch(self) -> None:
+    def test_stages_next_position_before_yielding_each_batch(self) -> None:
         session = MagicMock()
         session.get.side_effect = [
             _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": "c2"}}),
@@ -156,10 +159,13 @@ class TestGetRows:
         ]
         manager = _FakeManager()
         with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager))
-
-        # Only the page that has a following cursor triggers a save.
-        assert [c.cursor for c in manager.saved] == ["c2"]
+            rows = get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager)
+            assert next(rows) == [{"id": 1}]
+            assert manager.saved[-1] == GorgiasResumeConfig(cursor="c2", variant=0)
+            assert next(rows) == [{"id": 2}]
+            # The last page stages a position past the only variant, so a resume reads nothing.
+            assert manager.saved[-1] == GorgiasResumeConfig(cursor=None, variant=1)
+            assert list(rows) == []
 
     def test_resumes_from_saved_cursor(self) -> None:
         session = MagicMock()
@@ -191,7 +197,104 @@ class TestGetRows:
             batches = list(get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager))
 
         assert batches == []
-        assert manager.saved == []
+
+
+class TestParamVariants:
+    def test_custom_fields_paginates_each_object_type_from_a_fresh_cursor(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": "t2"}}),
+            _response(json_body={"data": [{"id": 2}], "meta": {"next_cursor": None}}),
+            _response(json_body={"data": [{"id": 3}], "meta": {"next_cursor": None}}),
+        ]
+        manager = _FakeManager()
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("acme", "e@acme.com", "key", "custom_fields", MagicMock(), manager))
+
+        assert batches == [[{"id": 1}], [{"id": 2}], [{"id": 3}]]
+        params = [c.kwargs["params"] for c in session.get.call_args_list]
+        assert [(p["object_type"], p.get("cursor")) for p in params] == [
+            ("Ticket", None),
+            ("Ticket", "t2"),
+            ("Customer", None),
+        ]
+        assert all(p["order_by"] == "priority:asc" for p in params)
+        assert [(c.variant, c.cursor) for c in manager.saved] == [(0, "t2"), (1, None), (2, None)]
+
+    def test_resumes_into_saved_variant(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
+        manager = _FakeManager(resume_cursor="c9", resume_variant=1)
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            list(get_rows("acme", "e@acme.com", "key", "custom_fields", MagicMock(), manager))
+
+        assert session.get.call_count == 1
+        params = session.get.call_args.kwargs["params"]
+        assert params["object_type"] == "Customer"
+        assert params["cursor"] == "c9"
+
+    def test_voice_calls_sends_no_order_by(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            list(get_rows("acme", "e@acme.com", "key", "voice_calls", MagicMock(), _FakeManager()))
+
+        url = session.get.call_args.args[0]
+        assert url == "https://acme.gorgias.com/api/phone/voice-calls"
+        assert "order_by" not in session.get.call_args.kwargs["params"]
+
+
+class TestTicketChildTables:
+    def _rows(self, endpoint: str, tickets: list[dict]) -> list[dict]:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": tickets, "meta": {"next_cursor": None}})
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager()))
+        assert session.get.call_args.args[0] == "https://acme.gorgias.com/api/tickets"
+        return [row for batch in batches for row in batch]
+
+    def test_ticket_tags_flattens_one_row_per_tag(self) -> None:
+        rows = self._rows(
+            "ticket_tags",
+            [
+                {
+                    "id": 10,
+                    "created_datetime": "2024-01-01T00:00:00+00:00",
+                    "tags": [{"id": 1, "name": "urgent"}, {"name": "no-id"}],
+                },
+                {"id": 11, "created_datetime": "2024-02-01T00:00:00+00:00", "tags": []},
+            ],
+        )
+
+        assert rows == [
+            {"id": 1, "name": "urgent", "ticket_id": 10, "ticket_created_datetime": "2024-01-01T00:00:00+00:00"}
+        ]
+
+    def test_ticket_field_values_keys_by_field_and_keeps_value_one_type(self) -> None:
+        rows = self._rows(
+            "ticket_field_values",
+            [
+                {
+                    "id": 10,
+                    "created_datetime": "2024-01-01T00:00:00+00:00",
+                    "custom_fields": {
+                        "5": {"id": 5, "value": "Order::Status", "prediction": None},
+                        "6": {"id": 6, "value": 3},
+                        "7": {"id": 7, "value": True},
+                        "8": {"id": 8, "value": None},
+                    },
+                },
+                {"id": 11, "created_datetime": "2024-02-01T00:00:00+00:00", "custom_fields": None},
+            ],
+        )
+
+        assert [(r["ticket_id"], r["field_id"], r["value"]) for r in rows] == [
+            (10, 5, "Order::Status"),
+            (10, 6, "3"),
+            (10, 7, "true"),
+            (10, 8, None),
+        ]
+        assert all(r["ticket_created_datetime"] == "2024-01-01T00:00:00+00:00" for r in rows)
 
 
 class TestIncrementalSync:
@@ -359,6 +462,13 @@ DOCUMENTED_ORDER_BY_DATETIME_FIELDS: dict[str, set[str]] = {
     "tags": {"created_datetime"},
     "views": {"created_datetime"},
     "teams": {"created_datetime"},
+    "custom_fields": set(),  # only priority:asc/desc
+    "voice_calls": set(),  # accepts no order_by
+    "ticket_tags": {"created_datetime", "updated_datetime"},
+    "ticket_field_values": {"created_datetime", "updated_datetime"},
+}
+DOCUMENTED_NON_DATETIME_ORDER_BY: dict[str, set[str]] = {
+    "custom_fields": {"priority:asc", "priority:desc"},
 }
 
 
@@ -373,9 +483,15 @@ class TestApiContract:
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_full_refresh_order_by_is_accepted_by_endpoint(self, endpoint: str) -> None:
         config = GORGIAS_ENDPOINTS[endpoint]
-        field, _, direction = config.order_by.partition(":")
-        assert field in DOCUMENTED_ORDER_BY_DATETIME_FIELDS[endpoint]
-        assert direction in {"asc", "desc"}
+        accepted = {
+            f"{field}:{direction}"
+            for field in DOCUMENTED_ORDER_BY_DATETIME_FIELDS[endpoint]
+            for direction in ("asc", "desc")
+        } | DOCUMENTED_NON_DATETIME_ORDER_BY.get(endpoint, set())
+        if accepted:
+            assert config.order_by in accepted
+        else:
+            assert config.order_by is None
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_advertised_incremental_fields_are_sortable(self, endpoint: str) -> None:
@@ -409,7 +525,7 @@ class TestGorgiasSource:
     def test_source_response_shape(self, endpoint: str) -> None:
         response = gorgias_source("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager())
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == list(GORGIAS_ENDPOINTS[endpoint].primary_keys)
         assert response.partition_mode == "datetime"
         assert response.partition_keys == [GORGIAS_ENDPOINTS[endpoint].partition_key]
         assert response.sort_mode == "asc"
@@ -436,5 +552,5 @@ class TestGorgiasSource:
 
     def test_every_endpoint_partitions_on_created_datetime(self) -> None:
         for config in GORGIAS_ENDPOINTS.values():
-            assert config.partition_key == "created_datetime"
+            assert config.partition_key in ("created_datetime", "ticket_created_datetime")
             assert "updated" not in config.partition_key

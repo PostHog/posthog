@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1363,14 +1363,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
-        try:
-            data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        p = data.get("priority")
-        return p if isinstance(p, str) else None
+        return priority_from_judgment(art.content)
 
     def get_actionability(self, obj: SignalReport) -> str | None:
         data = self._get_actionability_artefact_data(obj)
@@ -1663,6 +1656,36 @@ class SignalReportListQuerySerializer(serializers.Serializer):
             "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
             "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
             "Defaults to true."
+        ),
+    )
+
+
+MAX_FOR_YOU_REPORTS = 20
+
+
+class SignalReportsForYouQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_FOR_YOU_REPORTS,
+        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
+    )
+
+
+class SignalReportsForYouResponseSerializer(serializers.Serializer):
+    results = SignalReportListSerializer(
+        many=True,
+        help_text=(
+            "The open, actionable reports that matter most to the current user, best first: reports "
+            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
+            "reports that nobody owns. The Today briefing ranks reports the same way."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "How many open reports are for the current user: the reports in `results`, plus the other "
+            "open, actionable reports that name them as a reviewer."
         ),
     )
 

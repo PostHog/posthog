@@ -23,17 +23,17 @@ from uuid import UUID
 from pydantic import Field
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 # Re-exported: the exception is defined in an import-light module so ``storage.py`` can raise it
 # without dragging this module onto the ``django.setup()`` path.
 from products.tasks.backend.storage_errors import TaskRunLogAppendUnserialized as TaskRunLogAppendUnserialized
 
 
-class DesktopAccessReason(StrEnum):
-    STARTUP_PLAN = "startup_plan"
-    PREPAID_CREDITS = "prepaid_credits"
-
-
-DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
+# Each label repeats its value, because the API documents these choices as plain values.
+class DesktopAccessReason(LabeledStrEnum):
+    STARTUP_PLAN = "startup_plan", "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
 @dataclass(frozen=True)
@@ -241,6 +241,19 @@ class TaskCreateResponseDTO(TaskDetailDTO):
 
 
 @dataclass(frozen=True)
+class TaskRunResponseDTO(TaskCreateResponseDTO):
+    """The task ``run`` action's response: the refreshed task detail plus the run this call made.
+
+    ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+    from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+    Set on every 200; when ``run_error`` is also set, the run exists but its workflow did not
+    start.
+    """
+
+    run: "TaskRunDetailDTO | None" = None
+
+
+@dataclass(frozen=True)
 class ChannelDTO:
     """The HTTP representation of a task channel."""
 
@@ -254,6 +267,14 @@ class ChannelDTO:
     created_by: "TaskUserBasicInfo | None" = None
     starred: bool = False
     system_role: str | None = None
+
+
+@dataclass(frozen=True)
+class ChannelContributorsDTO:
+    """The people who own at least one task or canvas in a channel, most recently active first."""
+
+    channel: UUID
+    people: list["TaskUserBasicInfo"]
 
 
 @dataclass(frozen=True)
@@ -332,7 +353,7 @@ class TaskActivityDTO:
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None
@@ -467,11 +488,14 @@ class TaskRunResult:
 
     Exactly one of ``task`` / ``error`` is set. ``task`` is the refreshed task detail DTO with
     its new latest run; ``error`` carries the structured error the original view returned inline.
+    ``run_id`` names the run this call created or activated, so the view does not have to infer
+    it from ``task.latest_run`` (which a concurrent run creation can race past).
     """
 
     task: "TaskDetailDTO | None" = None
     error: TaskValidationError | None = None
     run_error: str | None = None
+    run_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -682,6 +706,8 @@ class TaskRunSandboxConnectionDTO:
 
     Carries the sandbox URL and connect token parsed off the run state plus a freshly-minted
     connection token. ``sandbox_url`` is ``None`` when the run has no active sandbox.
+    ``run_is_terminal`` disambiguates that case: a terminal run's sandbox is cleaned up and
+    never comes back, while a non-terminal run's sandbox may simply not be reachable yet.
     """
 
     sandbox_url: str | None
@@ -689,6 +715,7 @@ class TaskRunSandboxConnectionDTO:
     connection_token: str | None = None
     # Query-param name the transport token travels under (provider-specific).
     sandbox_token_param: str = "_modal_connect_token"
+    run_is_terminal: bool = False
 
 
 SPACE_SETUP_SCOPES = (

@@ -141,20 +141,30 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
 
 
+def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
+    """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
+    return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
+
+
 def commit_covers_batch(commit: dict[str, Any], run_uuid: str, batch_index: int) -> bool:
     """Whether this commit wrote `batch_index` of `run_uuid`, alone or as one member of a set.
 
-    A write of several consecutive batches is tagged with the first index under `batch_index` and
-    every member under `batch_indexes`, so a member's redelivery has to look in both.
+    A write of several batches is tagged with the head's run and index under `run_uuid` and
+    `batch_index`, the head run's members under `batch_indexes`, and every member of every run under
+    `members` when the set spans runs, so a member's redelivery has to look in all three.
     """
     wanted = str(batch_index)
+    wanted_member = f"{run_uuid}:{wanted}"
     for layout in _commit_metadata_layouts(commit):
+        members = layout.get("members")
+        if isinstance(members, str) and wanted_member in members.split(","):
+            return True
         if layout.get("run_uuid") != run_uuid:
             continue
         if layout.get("batch_index") == wanted:
             return True
-        members = layout.get("batch_indexes")
-        if isinstance(members, str) and wanted in members.split(","):
+        indexes = layout.get("batch_indexes")
+        if isinstance(indexes, str) and wanted in indexes.split(","):
             return True
     return False
 

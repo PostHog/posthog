@@ -21,6 +21,8 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
+import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
+import { AgentProjectInstructionsSettings } from 'scenes/settings/environment/AgentProjectInstructionsSettings'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -51,6 +53,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -132,6 +135,7 @@ import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyt
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -187,6 +191,7 @@ import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { PersonalCodexIntegration } from './user/PersonalCodexIntegration'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
@@ -399,6 +404,47 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'The model your own runs launch with, overriding the project default. Applies in the new PostHog AI view, in Slack, and in PostHog Desktop.',
                 component: <TaskAgentMyPreferenceSettings />,
                 keywords: ['ai', 'model', 'claude', 'codex', 'agent', 'tasks', 'preference', 'slack', 'desktop'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-ai-subscriptions',
+        title: 'Subscriptions',
+        group: 'AI',
+        flag: 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD',
+        settings: [
+            {
+                id: 'ai-subscription-codex',
+                title: 'Codex',
+                description:
+                    'Connect your ChatGPT account so your Codex cloud tasks can run on your own ChatGPT plan. The connection is yours and applies in every project.',
+                component: <PersonalCodexIntegration />,
+                keywords: ['codex', 'chatgpt', 'openai', 'subscription', 'plan', 'billing', 'cloud', 'personal'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-task-agent-instructions',
+        title: 'Agent instructions',
+        group: 'AI',
+        settings: [
+            {
+                id: 'task-agent-project-instructions',
+                title: 'Project instructions',
+                description:
+                    'Instructions that PostHog cloud agents read as their AGENTS.md in every Tasks run on this project, including all Self-driving runs (scouts, research, and implementation) and scheduled runs. Use them for project conventions and for guidance that spans repositories, such as which repository owns which part of your product.',
+                component: <AgentProjectInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'project'],
+            },
+            {
+                id: 'task-agent-my-instructions',
+                title: 'My instructions',
+                description:
+                    'Instructions that PostHog cloud agents read after the project instructions in Tasks runs you start, from PostHog AI, Slack, or PostHog Desktop. Use them for your personal preferences and for anything you want agents to remember about how you work. Anyone who continues a task you started can see them, so leave out anything private. Self-driving and scheduled runs do not use them.',
+                component: <AgentPersonalInstructionsSettings />,
+                keywords: ['ai', 'agent', 'agents.md', 'claude.md', 'instructions', 'tasks', 'cloud', 'personal'],
             },
         ],
     },
@@ -730,10 +776,34 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'environment-experiment-recalculation-time',
                 title: 'Daily recalculation time',
-                description:
+                description: (
+                    <>
+                        Select the time of day when experiment metrics should be recalculated. This time is in your
+                        project's timezone (<ProjectTimezoneName />
+                        ).
+                    </>
+                ),
+                searchDescription:
                     "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
+            },
+            {
+                id: 'environment-experiment-recalculation-time',
+                title: 'Daily recalculation times',
+                description: (
+                    <>
+                        Select up to two times of day when experiment metrics should be recalculated, at least 6 hours
+                        apart. Times are in your project's timezone (<ProjectTimezoneName />
+                        ).
+                    </>
+                ),
+                searchDescription:
+                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                component: <ExperimentRecalculationTime />,
+                keywords: ['schedule', 'refresh', 'update', 'time'],
+                flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
             },
             {
                 id: 'environment-experiment-matured-users',
@@ -824,7 +894,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Automatically apply default evaluation context tags to newly created feature flags. Users can still modify them during flag creation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/evaluation-contexts',
-                flag: 'DEFAULT_EVALUATION_ENVIRONMENTS',
                 component: <DefaultEvaluationContexts />,
                 keywords: ['evaluation', 'default', 'context', 'tag'],
             },
@@ -1379,6 +1448,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
                 keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
+            },
+            {
+                id: 'business-knowledge-github-repos',
+                title: 'GitHub repositories',
+                description:
+                    'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
+                component: <GithubReposSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
+                keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],
     },

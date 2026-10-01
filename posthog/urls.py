@@ -3,7 +3,7 @@ from django.urls import include, path, re_path
 from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 
-from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
+from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerSplitView
 from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
@@ -75,7 +75,7 @@ from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path
 from .views import (
@@ -113,7 +113,9 @@ urlpatterns = [
     # Optional UI:
     path(
         "api/schema/swagger-ui/",
-        SpectacularSwaggerView.as_view(url_name="schema"),
+        # The split view serves its init script from this URL with ?script. The plain view inlines
+        # that script without a nonce, and the app policy refuses it.
+        SpectacularSwaggerSplitView.as_view(url_name="schema"),
         name="swagger-ui",
     ),
     path(

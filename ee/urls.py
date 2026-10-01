@@ -89,7 +89,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_stats_view,
         notebook_markdown_migration_view,
     )
-    from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
 
@@ -102,21 +101,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/redisvalues", redis_values_view, name="redis_values"),
         path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
-        path(
-            "admin/radar-bypass/",
-            admin.site.admin_view(radar_bypass_view),
-            name="radar-bypass",
-        ),
-        path(
-            "admin/api/radar-bypass/",
-            RadarBypassViewSet.as_view({"get": "list", "post": "create"}),
-            name="radar-bypass-api-list",
-        ),
-        path(
-            "admin/api/radar-bypass/<str:email>/",
-            RadarBypassViewSet.as_view({"delete": "destroy"}),
-            name="radar-bypass-api-detail",
-        ),
         path(
             "admin/resave-cohorts/",
             admin.site.admin_view(resave_cohorts_view),

@@ -48,6 +48,8 @@ import type {
     RecordStructuredOutputRequestApi,
     RecordStructuredOutputResponseApi,
     RememberRequestApi,
+    ReportReadStateRequestApi,
+    ReportReadStateResponseApi,
     ReportSignalsResponseApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
@@ -59,6 +61,7 @@ import type {
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRubricDocumentApi,
+    ScoutRubricGenerateApi,
     ScoutRubricSaveApi,
     ScoutRunIdsBatchRequestApi,
     ScoutRunTokenCostsApi,
@@ -91,6 +94,7 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportsForYouResponseApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
     SignalScoutCreateApi,
@@ -116,6 +120,7 @@ import type {
     SignalsReportPrReviewCommentsCreateParams,
     SignalsReportsAvailableReviewersRetrieve200,
     SignalsReportsAvailableReviewersRetrieveParams,
+    SignalsReportsForYouRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
     SignalsScoutConfigListParams,
@@ -1159,6 +1164,37 @@ export const signalsReportsBulkStateCreate = async (
     })
 }
 
+export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: SignalsReportsForYouRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/for_you/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/for_you/`
+}
+
+/**
+ * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them.
+ * @summary List the reports that matter most to the current user
+ */
+export const signalsReportsForYouRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsForYouRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportsForYouResponseApi> => {
+    return apiMutator<SignalReportsForYouResponseApi>(getSignalsReportsForYouRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSignalsReportsPrCiStatusesUrl = (projectId: string, params: SignalsReportsPrCiStatusesParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1187,6 +1223,23 @@ export const signalsReportsPrCiStatuses = async (
     return apiMutator<PullRequestCiStatusesResponseApi>(getSignalsReportsPrCiStatusesUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsReadStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/read_state/`
+}
+
+export const signalsReportsReadStateCreate = async (
+    projectId: string,
+    reportReadStateRequestApi: ReportReadStateRequestApi,
+    options?: RequestInit
+): Promise<ReportReadStateResponseApi> => {
+    return apiMutator<ReportReadStateResponseApi>(getSignalsReportsReadStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reportReadStateRequestApi),
     })
 }
 
@@ -1643,11 +1696,14 @@ export const getSignalsScoutRubricsGenerateUrl = (projectId: string, id: string)
 export const signalsScoutRubricsGenerate = async (
     projectId: string,
     id: string,
+    scoutRubricGenerateApi?: ScoutRubricGenerateApi,
     options?: RequestInit
 ): Promise<ScoutRubricDocumentApi> => {
     return apiMutator<ScoutRubricDocumentApi>(getSignalsScoutRubricsGenerateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRubricGenerateApi),
     })
 }
 
@@ -1706,7 +1762,7 @@ export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: st
 }
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks again later, and any other reason ends the check. Send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResult = async (

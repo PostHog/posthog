@@ -17,7 +17,7 @@ from posthog.temporal.common.schedule import describe_schedule
 from posthog.temporal.common.test_utils import start_test_worker
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
 
-from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
+from products.batch_exports.backend.facade.temporal import ACTIVITIES, WORKFLOWS
 from products.early_access_features.backend.models import EarlyAccessFeature
 
 

@@ -371,6 +371,7 @@ const inboxReportsList = (): ToolBase<
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
                 unclaimed: params.unclaimed,
+                unread: params.unread,
                 use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
@@ -745,6 +746,9 @@ const scoutCheckRecordResult = (): ToolBase<
         if (params.outcome !== undefined) {
             body['outcome'] = params.outcome
         }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
         if (params.explanation !== undefined) {
             body['explanation'] = params.explanation
         }
@@ -949,6 +953,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -1059,7 +1066,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
 const ScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, Schemas.EmitReportResponse> => ({
@@ -1927,6 +1936,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.suggestion_id !== undefined) {
+            body['suggestion_id'] = params.suggestion_id
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -2002,7 +2014,9 @@ const signalsScoutEditReport = (): ToolBase<
 const SignalsScoutEmitReportSchema = () => {
     const SignalsScoutEmitReportBody = orvalSchemas.SignalsScoutEmitReportBody()
     const SignalsScoutEmitReportParams = orvalSchemas.SignalsScoutEmitReportParams()
-    return SignalsScoutEmitReportParams.omit({ project_id: true }).extend(SignalsScoutEmitReportBody.shape)
+    return SignalsScoutEmitReportParams.omit({ project_id: true })
+        .extend(SignalsScoutEmitReportBody.shape)
+        .meta({ 'x-required-when-set': { priority: ['priority_explanation'] } })
 }
 
 const signalsScoutEmitReport = (): ToolBase<
