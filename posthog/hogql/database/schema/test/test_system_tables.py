@@ -550,11 +550,11 @@ def _create_message_recipient_preference(team: Team, label: str):
     )
 
 
-def _create_message_suppression(team: Team, label: str, **fields):
+def _create_message_suppression(team: Team, label: str, suppressed: bool = True, **fields: object):
     from products.messaging.backend.models.message_suppression import MessageSuppression
 
     return MessageSuppression.objects.for_team(team.id).create(
-        team=team, identifier=f"{label}@example.com", **{"suppressed": True, **fields}
+        team=team, identifier=f"{label}@example.com", suppressed=suppressed, **fields
     )
 
 
