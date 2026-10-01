@@ -10,7 +10,7 @@ internal names.
 
 When the agent keeps a todo list, the relay shows that list instead (see ``agent_plan_steps``).
 
-While a line is open it can also say what runs now: the description the agent gives a shell
+Under its title a line lists what each call was for: the description the agent gives a shell
 command or a PostHog call, else the last sentence the agent wrote before the call.
 """
 
@@ -62,6 +62,11 @@ PHASES: dict[str, ProgressPhase] = {
 }
 
 PLAN_TITLE_WORKING = "Working on it"
+# Placeholder lines that keep a spinner in the plan while no step is open.
+PREPARING_LINE_TITLE = "Getting ready"
+THINKING_LINE_TITLE = "Thinking"
+# The placeholder becomes this when the turn answers without a tool.
+ANSWER_LINE_TITLE = "Writing the answer"
 PLAN_TITLE_STOPPED = "Stopped"
 
 # Tools that manage the agent's own session. They say nothing about the work, so no line shows them.
@@ -220,15 +225,12 @@ def phase_for_tool_call(call: ToolCall) -> ProgressPhase | None:
     return None
 
 
-def phase_line_title(phase: ProgressPhase, count: int, activity: str | None = None) -> str:
+def phase_line_title(phase: ProgressPhase, count: int) -> str:
     """The plan line for a phase, such as "Execute SQL query (3 calls)". A single call shows no count.
 
-    ``activity`` replaces the counter while the line is open, so the reader sees what runs now.
-    The line carries everything in its title because Slack replaces a step's title on each
-    task_update but appends its details and output to the text it already shows.
+    The count goes in the title because Slack replaces a step's title on each task_update but
+    appends its details to the text it already shows.
     """
-    if activity:
-        return f"{phase.title}: {activity}"
     if phase.counter is None or count <= 1:
         return phase.title
     singular, plural = phase.counter

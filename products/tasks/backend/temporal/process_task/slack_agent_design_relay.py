@@ -5,8 +5,9 @@ Drives one chat.startStream message per turn:
 - A plan block with one line per kind of work (see ``slack_progress_phases``). A line
   appears the first time its phase is used and completes the line before it. Later calls
   of an earlier phase only move that line's counter. Tool names and arguments never show.
-  The open line says what runs now: the description the agent gave the call, else the last
-  sentence the agent wrote before it.
+  Under its title, a line keeps one description per call: the description the agent gave
+  the call, else the last sentence the agent wrote before it. Slack appends a step's details
+  on each update, so the relay sends each description once.
   Phases past ``MAX_PLAN_LINES`` fold into one "Other work" line.
 - When the agent keeps a todo list, the plan shows that list instead. Lines already shown
   stay, because Slack cannot remove a line, and later tool calls add no line.
@@ -21,7 +22,9 @@ repository", "Starting agent") through ``setup_step``. A setup line changes in p
 the first tool call completes every setup line still open.
 
 Slack ends a stream that gets no update for a few minutes and marks its open step as
-failed, so a quiet relay re-sends its open line as a keep-alive.
+failed, so a quiet relay re-sends its open line as a keep-alive. While the turn runs, a
+line always spins: when no step is open, a placeholder line ("Thinking") shows until the
+next line takes over its Slack task id.
 """
 
 from dataclasses import dataclass
@@ -45,9 +48,12 @@ with workflow.unsafe.imports_passed_through():
         stop_slack_agent_design_stream,
     )
     from .slack_progress_phases import (
+        ANSWER_LINE_TITLE,
         OTHER_WORK,
         PLAN_TITLE_STOPPED,
         PLAN_TITLE_WORKING,
+        PREPARING_LINE_TITLE,
+        THINKING_LINE_TITLE,
         ProgressPhase,
         done_plan_title,
         intent_from_narrative,
@@ -87,8 +93,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._phases: dict[str, ProgressPhase] = {}
         self._counts: dict[str, int] = {}
         self._current_key: Optional[str] = None
-        # The description of the latest call per line, shown while that line is open.
-        self._activity: dict[str, Optional[str]] = {}
+        # Call descriptions per line that Slack has not received yet, the lines that already have
+        # details, and the latest description per line, so a repeat is not listed twice.
+        self._unsent_details: dict[str, list[str]] = {}
+        self._keys_with_details: set[str] = set()
+        self._last_description: dict[str, str] = {}
+        # The spinning line shown while no step is open, until the next line takes over its id.
+        self._placeholder: Optional[TaskUpdateChunk] = None
         # Sandbox setup lines by progress step, in the order they appeared, and the steps
         # that changed since the last flush.
         self._setup_lines: dict[str, TaskUpdateChunk] = {}
@@ -141,11 +152,13 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             phase = OTHER_WORK
         key = phase.key
         self._phases[key] = phase
-        activity = payload.get("activity") or intent
-        self._activity[key] = activity if isinstance(activity, str) and activity else None
+        description = payload.get("activity") or intent
+        if isinstance(description, str) and description and description != self._last_description.get(key):
+            self._last_description[key] = description
+            self._unsent_details.setdefault(key, []).append(description)
         self._counts[key] = self._counts.get(key, 0) + 1
         if key not in self._line_ids:
-            self._line_ids[key] = str(workflow.uuid4())
+            self._line_ids[key] = self._claim_line_id()
             self._line_order.append(key)
             self._new_keys.append(key)
         else:
@@ -156,7 +169,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         for index, step in enumerate(steps):
             if not isinstance(step, dict) or not isinstance(step.get("title"), str):
                 continue
-            line_id = self._agent_plan[index].id if index < len(self._agent_plan) else str(workflow.uuid4())
+            line_id = self._agent_plan[index].id if index < len(self._agent_plan) else self._claim_line_id()
             lines.append(TaskUpdateChunk(id=line_id, title=step["title"], status=str(step.get("status") or "pending")))
         if lines:
             # A step the agent dropped keeps its line, because Slack cannot remove one.
@@ -172,11 +185,26 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             return
         existing = self._setup_lines.get(step)
         self._setup_lines[step] = TaskUpdateChunk(
-            id=existing.id if existing else str(workflow.uuid4()),
+            id=existing.id if existing else self._claim_line_id(),
             title=title,
             status=_SETUP_STATUSES.get(str(payload.get("status")), "in_progress"),
         )
         self._mark_setup_changed(step)
+
+    def _claim_line_id(self) -> str:
+        """The Slack task id for a new line. The placeholder's id turns the placeholder into it."""
+        if self._placeholder is None:
+            return str(workflow.uuid4())
+        line_id = self._placeholder.id
+        self._placeholder = None
+        return line_id
+
+    def _needs_placeholder(self) -> bool:
+        if self._turn_complete or self._placeholder is not None or self._current_key is not None:
+            return False
+        if self._agent_plan or not self._setup_lines:
+            return False
+        return all(line.status != "in_progress" for line in self._setup_lines.values())
 
     def _mark_setup_changed(self, step: str) -> None:
         if step not in self._changed_setup_steps:
@@ -199,10 +227,15 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._turn_complete = True
         self._trace_id = trace_id
 
-    def _line_chunk(self, key: str, status: str) -> TaskUpdateChunk:
-        activity = self._activity.get(key) if status == "in_progress" and key == self._current_key else None
-        title = phase_line_title(self._phases[key], self._counts.get(key, 0), activity)
-        return TaskUpdateChunk(id=self._line_ids[key], title=title, status=status)
+    def _line_chunk(self, key: str, status: str, *, with_details: bool = False) -> TaskUpdateChunk:
+        title = phase_line_title(self._phases[key], self._counts.get(key, 0))
+        details = None
+        unsent = self._unsent_details.pop(key, None) if with_details else None
+        if unsent:
+            # Slack appends details to the text it shows, so later descriptions start a new line.
+            details = ("\n" if key in self._keys_with_details else "") + "\n".join(unsent)
+            self._keys_with_details.add(key)
+        return TaskUpdateChunk(id=self._line_ids[key], title=title, status=status, details=details)
 
     def _open_line(self) -> Optional[TaskUpdateChunk]:
         """The line shown in progress right now."""
@@ -210,20 +243,22 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             return next((line for line in self._agent_plan if line.status == "in_progress"), self._agent_plan[-1])
         if self._current_key is not None:
             return self._line_chunk(self._current_key, "in_progress")
-        return next((line for line in reversed(self._setup_lines.values()) if line.status == "in_progress"), None)
+        setup_line = next((line for line in reversed(self._setup_lines.values()) if line.status == "in_progress"), None)
+        return setup_line or self._placeholder
 
-    def _take_pending_chunks(self) -> list[TaskUpdateChunk]:
+    def _take_pending_chunks(self, *, allow_placeholder: bool = True) -> list[TaskUpdateChunk]:
         """Chunks for the lines added or changed since the last flush, in plan order."""
         chunks = [self._setup_lines[step] for step in self._changed_setup_steps]
         self._changed_setup_steps = []
         for key in sorted(self._changed_keys, key=self._line_order.index):
             if key not in self._new_keys:
-                chunks.append(self._line_chunk(key, "in_progress" if key == self._current_key else "complete"))
+                status = "in_progress" if key == self._current_key else "complete"
+                chunks.append(self._line_chunk(key, status, with_details=True))
         for key in self._new_keys:
             if self._current_key is not None:
                 chunks.append(self._line_chunk(self._current_key, "complete"))
             self._current_key = key
-            chunks.append(self._line_chunk(key, "in_progress"))
+            chunks.append(self._line_chunk(key, "in_progress", with_details=True))
         self._new_keys = []
         self._changed_keys = set()
         if self._agent_plan_changed:
@@ -233,6 +268,11 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 self._current_key = None
             chunks.extend(self._agent_plan)
             self._agent_plan_changed = False
+        if allow_placeholder and self._needs_placeholder():
+            agent_ready = self._setup_lines.get("agent")
+            title = THINKING_LINE_TITLE if agent_ready and agent_ready.status == "complete" else PREPARING_LINE_TITLE
+            self._placeholder = TaskUpdateChunk(id=str(workflow.uuid4()), title=title, status="in_progress")
+            chunks.append(self._placeholder)
         return chunks
 
     def _has_pending(self) -> bool:
@@ -332,7 +372,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         final_status = "complete" if self._turn_complete else "error"
         self._finish_setup(final_status)
         # Lines that never reached Slack because the turn ended inside the debounce window.
-        pending = self._take_pending_chunks()
+        pending = self._take_pending_chunks(allow_placeholder=False)
         if self._stream is None and (final_answer or pending):
             # A turn with no flushed step still streams its answer in a stream of its own.
             self._stream = await self._start_stream(
@@ -355,6 +395,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             closing = None
         elif self._current_key is not None:
             closing = self._line_chunk(self._current_key, "complete")
+        elif self._placeholder is not None:
+            # The turn answered without a tool, so the placeholder is where the answer came from.
+            title = ANSWER_LINE_TITLE if self._turn_complete else self._placeholder.title
+            closing = TaskUpdateChunk(id=self._placeholder.id, title=title, status="complete")
         else:
             closing = None
         if closing is not None and not self._turn_complete:

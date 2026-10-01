@@ -23,6 +23,9 @@ from products.tasks.backend.temporal.process_task.slack_agent_design_relay impor
 
 pytestmark = [pytest.mark.asyncio]
 
+# A pseudo signal for ``_run_relay``: skip this many seconds, so the relay flushes what it has.
+WAIT = "__wait__"
+
 SLACK_CTX = {"integration_id": 1, "channel": "C1", "thread_ts": "1.0", "mentioning_slack_user_id": "U1"}
 
 
@@ -49,14 +52,19 @@ class _SlackCalls:
         return [start, append, stop]
 
     def final_lines(self) -> dict[str, tuple[str, str | None, str]]:
-        lines: dict[str, tuple[str, str | None, str]] = {}
-        for chunks in [s.task_updates for s in self.starts] + [a.task_updates for a in self.appends]:
-            for chunk in chunks:
-                lines[chunk.id] = (chunk.title, chunk.details, chunk.status)
+        """Each line as Slack shows it at the end: the last title and status, and every details text appended."""
+        lines: dict[str, tuple[str, str]] = {}
+        details: dict[str, str] = {}
+        for chunk in self.sent_chunks():
+            lines[chunk.id] = (chunk.title, chunk.status)
+            if chunk.details:
+                details[chunk.id] = details.get(chunk.id, "") + chunk.details
         for stop in self.stops:
             if stop.complete_task_id and stop.complete_task_title:
-                lines[stop.complete_task_id] = (stop.complete_task_title, stop.complete_task_details, "complete")
-        return lines
+                lines[stop.complete_task_id] = (stop.complete_task_title, "complete")
+                if stop.complete_task_details:
+                    details[stop.complete_task_id] = details.get(stop.complete_task_id, "") + stop.complete_task_details
+        return {line_id: (title, details.get(line_id), status) for line_id, (title, status) in lines.items()}
 
     def sent_chunks(self) -> list[TaskUpdateChunk]:
         return [chunk for start in self.starts for chunk in start.task_updates] + [
@@ -89,6 +97,9 @@ async def _run_relay(
                 task_queue=task_queue,
             )
             for name, arg in signals:
+                if name == WAIT:
+                    await env.sleep(arg)
+                    continue
                 await handle.signal(name, arg)
             if cancel:
                 await asyncio.sleep(0.5)
@@ -117,22 +128,15 @@ class TestSlackAgentDesignRelay:
             ]
         )
 
+        # Each call's description stays under its line. With no description, the agent's own last
+        # sentence says what the call is for. Slack appends details, so a resent one shows twice.
         assert sorted(calls.final_lines().values()) == [
-            ("Execute SQL query (3 calls)", None, "complete"),
+            ("Execute SQL query (3 calls)", "Look at the data\nLook into this", "complete"),
             ("Making changes", None, "complete"),
-            ("Reading the code", None, "complete"),
+            ("Reading the code", "Search for callers", "complete"),
         ]
         assert calls.answer() == "Signups grew."
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
-        sent = calls.sent_chunks()
-        # The open line shows what runs now, and the finished line goes back to its count.
-        open_titles = [c.title for c in sent if c.status == "in_progress"]
-        assert "Reading the code: Search for callers" in open_titles
-        # With no shell description, the agent's own last sentence says what the call is for.
-        assert "Execute SQL query: Look into this" in open_titles
-        # Slack appends a step's details on every update, so a counter there reads "1 query2 queries".
-        assert all(chunk.details is None for chunk in sent)
-        assert all(stop.complete_task_details is None for stop in calls.stops)
 
     @pytest.mark.parametrize(
         "tail",
@@ -186,6 +190,40 @@ class TestSlackAgentDesignRelay:
             *work_lines,
         ]
         assert [(s.plan_title or "").startswith("Done in ") for s in calls.stops] == [True]
+
+    @pytest.mark.parametrize(
+        "work, last_line",
+        [
+            (
+                [("agent_status_update", {"phase": "posthog:Execute SQL query"})],
+                ("Execute SQL query", None, "complete"),
+            ),
+            ([("agent_text_delta", "Hi! What should I look at?")], ("Writing the answer", None, "complete")),
+        ],
+        ids=["tool_call", "answer_without_tools"],
+    )
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_a_line_spins_between_setup_and_work(
+        self, work: list[tuple[str, Any]], last_line: tuple[str, None, str]
+    ) -> None:
+        # With setup done and no call yet, nothing else shows that the agent is working. The
+        # next line must take over the placeholder, or a finished "Thinking" line stays behind.
+        calls = await _run_relay(
+            [
+                ("setup_step", {"step": "sandbox", "status": "completed", "title": "Sandbox ready"}),
+                ("setup_step", {"step": "agent", "status": "completed", "title": "Agent ready"}),
+                (WAIT, 10),
+                *work,
+            ],
+            setup_title="Setting up sandbox",
+        )
+
+        assert ("Thinking", "in_progress") in [(c.title, c.status) for c in calls.sent_chunks()]
+        assert list(calls.final_lines().values()) == [
+            ("Sandbox ready", None, "complete"),
+            ("Agent ready", None, "complete"),
+            last_line,
+        ]
 
     @pytest.mark.timeout(60, func_only=True)
     async def test_stopped_run_marks_the_open_step_failed(self) -> None:
