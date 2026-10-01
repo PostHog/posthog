@@ -63,10 +63,10 @@ Their status follows the ownership and MX records, so always publish them, or me
 Pick the first path that works:
 
 1. **Domain Connect (the person approves at their DNS host).**
-   Skip this path when the DMARC record from step 3 is already `success`: the domain has its own DMARC policy, and Domain Connect always writes the template's DMARC record next to it, which invalidates both.
-   Otherwise call `integrations-domain-connect-check-retrieve` with the sending domain.
+   Call `integrations-domain-connect-check-retrieve` with the sending domain.
    If `supported` is true, call `integrations-domain-connect-apply-url-create` with `context: email` and the `integration_id`, and omit `redirect_uri`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
+   If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
 2. **Your own DNS tools.**
    If you can manage the domain's DNS (a DNS provider MCP server, CLI or API you are authorized to use), add the missing records yourself.
    Read [references/publishing-records.md](references/publishing-records.md) first: it covers the records that must be merged, not duplicated.
@@ -74,7 +74,7 @@ Pick the first path that works:
    List the records that are not `success` plus the two SPF records, as a table with type, name, value and priority.
    Mention that many DNS hosts append the domain to the name field, so they enter `_amazonses.mail` rather than `_amazonses.mail.example.com` when the zone is `example.com`.
 
-Never create a second `_dmarc` record on any path.
+When you publish records yourself or hand them over, never create a second `_dmarc` record.
 If the domain already has one, the DMARC record shows as `success` with the existing value; keep it.
 
 ### 5. Verify until it succeeds

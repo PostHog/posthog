@@ -98,7 +98,7 @@ tools:
         description: >
             Build a signed URL that adds an email sender's DNS records at the domain's DNS host in one step. Call it
             with context `email` and the sender's integration_id after integrations-domain-connect-check-retrieve says
-            the domain is supported. Do not use it when integrations-email-verify-create already reports the DMARC record as `success`: the domain has its own DMARC policy, and this URL always adds a second one, which invalidates both. Publish the other records by hand in that case. You cannot open this URL yourself: give it to the person you work with. They sign
+            the domain is supported. If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy. You cannot open this URL yourself: give it to the person you work with. They sign
             in at their DNS host and approve the records there; nothing changes until they approve. Omit redirect_uri.
             Then call integrations-email-verify-create until it reports success. If this tool returns an error, fall
             back to adding the records from integrations-email-verify-create by hand.
@@ -115,7 +115,7 @@ tools:
         title: Check one-click DNS setup for a domain
         description: >
             Check whether a domain's DNS host supports one-click record setup with Domain Connect (for example
-            Cloudflare or Vercel). Pass the sending domain of an email sender, for example `mail.example.com`. When `supported` is true and the domain has no DMARC record yet, use integrations-domain-connect-apply-url-create to get a URL the person approves at
+            Cloudflare or Vercel). Pass the sending domain of an email sender, for example `mail.example.com`. When `supported` is true, use integrations-domain-connect-apply-url-create to get a URL the person approves at
             their DNS host. When it is false, add the records from integrations-email-verify-create yourself, or give
             them to the person to add.
         feature_flag: workflows-email-domain-agent-setup
