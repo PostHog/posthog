@@ -1,20 +1,22 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useId, useMemo } from 'react'
 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { sessionPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
 import { TodaySessionBadges } from './TodaySessionBadges'
-import { TodaySessionMenu } from './TodaySessionMenu'
+import { TodaySessionContextMenu } from './TodaySessionContextMenu'
+import { TodaySessionDialogs } from './TodaySessionDialogs'
 import { TodaySessionSurface, todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionRenameInput } from './TodaySessionRenameInput'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
-import { TodayWorkItem, activeCloudRunId, analysisRunId, canHandOff } from './todayWorkItems'
+import { TodayWorkItem, sessionDetails } from './todayWorkItems'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -43,10 +45,14 @@ export function TodaySessionRow({
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
     const { pullRequestStates, spaceNames } = useValues(todaySpacesLogic)
+    const { fields } = useValues(todayListAppearanceLogic)
+    const menuId = useId()
+    const userId = user?.id
     const preview = useMemo(
-        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames }),
-        [item, unread, pinned, pullRequestStates, spaceNames]
+        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames, menuId, userId }),
+        [item, unread, pinned, pullRequestStates, spaceNames, menuId, userId]
     )
+    const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
 
     const [pullRequest] = item.pullRequests
     const pinBadge = pinned && showPinBadge
@@ -76,19 +82,16 @@ export function TodaySessionRow({
             ticker
             selected={selected}
             onClickCapture={onSelectClick}
-            action={
-                <TodaySessionMenu
-                    sessionId={item.id}
-                    title={item.title}
-                    pinned={pinned}
-                    spaceId={item.channel}
-                    surface={surface}
-                    canHandOff={canHandOff(item, user?.id)}
-                    analysisRunId={analysisRunId(item)}
-                    activeRunId={activeCloudRunId(item)}
-                />
-            }
+            details={details}
         />
     )
-    return <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
+    // Like Desktop, the row's actions live in its hover card and its right-click menu, which open the dialogs on the row's behalf.
+    return (
+        <>
+            <TodaySessionContextMenu target={preview.menu} surface={surface}>
+                <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
+            </TodaySessionContextMenu>
+            <TodaySessionDialogs target={preview.menu} />
+        </>
+    )
 }

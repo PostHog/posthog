@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useId } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import {
@@ -20,11 +21,13 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { TodaySessionContextMenu } from '~/layout/today/TodaySessionContextMenu'
+import { TodaySessionDialogs } from '~/layout/today/TodaySessionDialogs'
 import { TodaySessionMenu } from '~/layout/today/TodaySessionMenu'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
 import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
-import { activeCloudRunId, analysisRunId, canHandOff, sessionItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
+import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
 import { spaceFeedPreview } from './spaceFeedPreview'
@@ -46,7 +49,10 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
+    const menuId = useId()
     const item = sessionItem(task)
+    // The "…" menu and the right-click menu share one menu id, so either one opens the same dialogs.
+    const menu = sessionMenuTarget(item, { menuId, pinned, userId: user?.id })
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
@@ -54,7 +60,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
 
-    return (
+    const card = (
         <Card
             size="sm"
             className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-muted"
@@ -100,16 +106,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                             {status.label}
                         </Badge>
                     )}
-                    <TodaySessionMenu
-                        sessionId={task.id}
-                        title={item.title}
-                        pinned={pinned}
-                        spaceId={item.channel}
-                        surface="feed"
-                        canHandOff={canHandOff(item, user?.id)}
-                        analysisRunId={analysisRunId(item)}
-                        activeRunId={activeCloudRunId(item)}
-                    />
+                    <TodaySessionMenu target={menu} surface="feed" />
                 </div>
             </div>
             {preview && (
@@ -183,5 +180,14 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             )}
         </Card>
+    )
+    // The dialogs sit outside the right-click area, so a right-click inside one does not reach the card's menu.
+    return (
+        <>
+            <TodaySessionContextMenu target={menu} surface="feed">
+                {card}
+            </TodaySessionContextMenu>
+            <TodaySessionDialogs target={menu} />
+        </>
     )
 }
