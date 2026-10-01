@@ -333,6 +333,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
   list([
+    'agent_context',
     'body',
   ])
 # ---
@@ -495,6 +496,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -568,6 +570,7 @@
     'MultipleObjectsReturned',
     'PrivilegeLevel',
     'RestrictionLevel',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -610,6 +613,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -689,6 +693,7 @@
     'ExperimentType',
     'MultipleObjectsReturned',
     'Status',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -817,6 +822,7 @@
     'DoesNotExist',
     'EVALUATION_RUNTIME_CHOICES',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -828,6 +834,7 @@
     '_meta',
     '_payloads',
     '_tombstone_suffix',
+    '_v1_filters',
     'access',
     'aggregation_group_type_index',
     'analytics_dashboards',
@@ -883,6 +890,7 @@
     'DoesNotExist',
     'MATERIAL_INSIGHT_FIELDS',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__init__',

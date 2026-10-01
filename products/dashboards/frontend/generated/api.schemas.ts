@@ -1196,6 +1196,12 @@ export interface CreateTextTileRequestApi {
      * @maxLength 4000
      */
     body: string
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1). */
     layouts?: TileLayoutsApi
     /**
@@ -1604,6 +1610,8 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
@@ -8572,55 +8580,6 @@ export interface AccountsTableCustomPropertyHistoryColumnApi {
     windowDays: WindowDaysApi
 }
 
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -8641,6 +8600,23 @@ export interface AccountsTableAccountFieldFilterApi {
     kind?: 'account_field'
     operator: AccountsTableAccountFieldOperatorApi
     values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
 }
 
 export type AccountsTableCustomPropertyOperatorApi =
@@ -8670,6 +8646,38 @@ export interface AccountsTableCustomPropertyFilterApi {
     operator: AccountsTableCustomPropertyOperatorApi
     /** Values interpreted according to the custom property definition's display type. */
     values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
 }
 
 export const AccountsTableCountMetricApiValue = {
@@ -8770,6 +8778,14 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?:
         | (
@@ -9232,6 +9248,11 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+/**
+ * Warnings attached to the query response that produced an insight's results.
+ */
+export type _InsightResultWarningsApi = (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[]
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     date_from?: string | null
@@ -9430,6 +9451,8 @@ export interface InsightApi {
     readonly resolved_date_range: InsightApiResolvedDateRange
     /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
     readonly query_scan: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
     _create_in_folder?: string
     readonly alerts: readonly unknown[]
     /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -9449,6 +9472,12 @@ export interface TextApi {
      * @nullable
      */
     body?: string | null
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     readonly last_modified_at: string
     team: number
@@ -9589,7 +9618,7 @@ export interface ReorderTilesRequestApi {
 }
 
 /**
- * InsightSerializer restricted to identifiers + result only.
+ * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
  */
 export interface InsightResultApi {
     readonly id: number
@@ -9599,6 +9628,8 @@ export interface InsightResultApi {
     /** @nullable */
     readonly derived_name: string | null
     readonly result: unknown
+    /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+    readonly warnings: _InsightResultWarningsApi | null
 }
 
 /**
@@ -9650,6 +9681,12 @@ export interface UpdateTextTileRequestApi {
      * @maxLength 4000
      */
     body?: string
+    /**
+     * Optional context that helps AI agents make consistent dashboard updates, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance. PostHog's Data Catalog is the semantic layer. Store canonical metric definitions there, not in this field. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
+     * @maxLength 10000
+     * @nullable
+     */
+    agent_context?: string | null
     /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
     layouts?: TileLayoutsApi
     /**

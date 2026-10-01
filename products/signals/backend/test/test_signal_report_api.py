@@ -1571,8 +1571,11 @@ class TestSignalReportListAPI(APIBaseTest):
         ]
         assert filter_sql
         for sql in filter_sql:
-            # Django aliases the task, legacy artefact, and assignment association tables as V0.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 3
+            # Django aliases the PR artefact, task-run artefact, legacy task, and assignment task tables as V0.
+            assert sql.count(f'V0."team_id" = {self.team.id}') == 4
+            # A join to the assignment or pull request table lets the planner scan every team's rows first.
+            assert "JOIN" not in sql
+            assert '"pull_request_id" = ANY((ARRAY(SELECT' in sql
 
     def test_filter_has_implementation_pr_absent_returns_all(self):
         report_with_pr = self._create_report(title="Report with PR")
@@ -1823,6 +1826,63 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.json()["source_products"] == ["zendesk", "github"]
         # scout_name flows from the ClickHouse meta through the view's map split into the serializer.
         assert response.json()["scout_name"] == "signals-scout-error-tracking"
+
+    @parameterized.expand(
+        [
+            ("default", {}, True),
+            ("opted_out", {"include_source_metadata": "false"}, False),
+        ]
+    )
+    def test_list_source_metadata_opt_out(self, _name, query, expect_lookup):
+        report = self._create_report()
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={
+                str(report.id): ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")
+            },
+        ) as fetch_source_products:
+            response = self.client.get(self._list_url(**query))
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert fetch_source_products.called is expect_lookup
+        assert row["source_products"] == (["zendesk"] if expect_lookup else [])
+        assert row["scout_name"] == ("signals-scout-support" if expect_lookup else None)
+
+    def test_source_metadata_returns_one_entry_per_requested_id(self):
+        known, unknown = str(uuid.uuid4()), str(uuid.uuid4())
+
+        with patch(
+            "products.signals.backend.views.fetch_source_products_for_reports",
+            return_value={known: ReportSignalMeta(source_products=["zendesk"], scout_name="signals-scout-support")},
+        ) as fetch_source_products:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/source_metadata/",
+                {"report_ids": [unknown, known, unknown]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "reports": [
+                {"id": unknown, "source_products": [], "scout_name": None},
+                {"id": known, "source_products": ["zendesk"], "scout_name": "signals-scout-support"},
+            ]
+        }
+        fetch_source_products.assert_called_once_with(self.team, [unknown, known])
+
+    @parameterized.expand([("empty", 0), ("over_cap", 101)])
+    def test_source_metadata_rejects_out_of_range_id_lists(self, _name, id_count):
+        with patch("products.signals.backend.views.fetch_source_products_for_reports") as fetch_source_products:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/source_metadata/",
+                {"report_ids": [str(uuid.uuid4()) for _ in range(id_count)]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        fetch_source_products.assert_not_called()
 
     def test_source_products_present_on_signals_action(self):
         report = self._create_report()

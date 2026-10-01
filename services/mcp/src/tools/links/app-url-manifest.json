@@ -119,6 +119,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityOfflineScorerHistory": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}/offline",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityPlayground": {
         "template": "/ai-observability/playground",
         "params": [],
@@ -136,6 +141,11 @@
     },
     "aiObservabilityReviews": {
         "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityScorers": {
+        "template": "/ai-evals/evaluations/scorers",
         "params": [],
         "scope": "project"
     },
@@ -239,6 +249,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -271,6 +296,11 @@
     },
     "businessKnowledge": {
         "template": "/business-knowledge",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
         "params": [],
         "scope": "project"
     },
@@ -1636,6 +1666,21 @@
     },
     "taskNew": {
         "template": "/tasks/new",
+        "params": [],
+        "scope": "project"
+    },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaces": {
+        "template": "/spaces",
         "params": [],
         "scope": "project"
     },

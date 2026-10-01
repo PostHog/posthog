@@ -214,12 +214,18 @@ def _next_calendar_schedule_start_time(
 ) -> datetime:
     earliest_allowed = now
     if next_check_at is not None:
+        # `next_check_at` is when the check became due, which is not always the anchor: enabling
+        # an alert or changing its threshold sets it to now, and a spring-forward date shifts it
+        # past an anchor that does not exist. Adding the interval to a due time later in the
+        # period than the anchor puts the bound past the next anchor, which skips a whole period.
+        # So the interval is added to the anchor the due time belongs to.
+        previous_anchor_local = datetime.combine(
+            next_check_at.astimezone(team_timezone).date(),
+            first_candidate_local.time(),
+        )
         earliest_allowed = max(
             earliest_allowed,
-            _localize_wall_time(
-                team_timezone,
-                (next_check_at.astimezone(team_timezone) + interval_delta).replace(tzinfo=None),
-            ).astimezone(UTC),
+            _localize_wall_time(team_timezone, previous_anchor_local + interval_delta).astimezone(UTC),
         )
 
     candidate_local = first_candidate_local
@@ -520,12 +526,16 @@ def _minute_of_local_datetime(dt_local: datetime) -> int:
     return dt_local.hour * 60 + dt_local.minute
 
 
+def local_minute_of(dt_utc: datetime, tz_name: str) -> int:
+    """The minute of the local day, for a caller testing many windows against one instant."""
+    local = dt_utc.astimezone(pytz.timezone(tz_name)).replace(second=0, microsecond=0)
+    return _minute_of_local_datetime(local)
+
+
 def is_utc_datetime_blocked(dt_utc: datetime, tz_name: str, windows: list[BlockedWindow] | None) -> bool:
     if not windows:
         return False
-    tz = pytz.timezone(tz_name)
-    local = dt_utc.astimezone(tz).replace(second=0, microsecond=0)
-    return is_local_minute_blocked(_minute_of_local_datetime(local), windows)
+    return is_local_minute_blocked(local_minute_of(dt_utc, tz_name), windows)
 
 
 def scan_next_unblocked_utc(

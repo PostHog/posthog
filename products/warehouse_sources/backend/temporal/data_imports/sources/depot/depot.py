@@ -21,12 +21,15 @@ JSONObject = dict[str, Any]
 
 DEPOT_CI_SERVICE_URL = "https://api.depot.dev/depot.ci.v1.CIService"
 REQUEST_TIMEOUT_SECONDS = 60
-LIST_RUNS_PAGE_SIZE = 200
-IN_FLIGHT_STATUSES = ["queued", "running"]
+# When a ListRuns page ends inside a second, the next page skips that second's other runs. A walk with
+# another page size ends its pages elsewhere and returns most of them; a run both walks skip is lost
+# until Depot fixes its cursor. Depot caps pages at 100.
+LIST_RUNS_PAGE_SIZES = (100, 57)
 TERMINAL_STATUSES = ["finished", "failed", "cancelled"]
-# Depot can leave a run in `queued` and never start it. A queued run older than this counts as stuck,
-# so it does not hold the sync horizon back. A running run always holds it, because its jobs time out.
-QUEUED_MAX_AGE = dt.timedelta(hours=6)
+# Depot can leave a run queued or running forever. A real run can take hours, but a real queued run
+# starts in minutes, so past these ages an in-flight run counts as stuck.
+IN_FLIGHT_MAX_AGE = {"queued": dt.timedelta(hours=6), "running": dt.timedelta(hours=24)}
+IN_FLIGHT_STATUSES = list(IN_FLIGHT_MAX_AGE)
 
 # Connect sends every RPC as a POST. Every RPC this source calls is a read, so a retry is as safe as
 # a retried GET.
@@ -58,8 +61,8 @@ def _parse_timestamp(value: dt.datetime | str) -> dt.datetime:
     return parsed
 
 
-def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterator[JSONObject]:
-    body: JSONObject = {"repo": repository, "status": statuses, "pageSize": LIST_RUNS_PAGE_SIZE}
+def _walk_runs(session: Session, repository: str, statuses: list[str], page_size: int) -> Iterator[JSONObject]:
+    body: JSONObject = {"repo": repository, "status": statuses, "pageSize": page_size}
     while True:
         page = _call(session, "ListRuns", body)
         yield from page.get("runs", [])
@@ -69,31 +72,49 @@ def _list_runs(session: Session, repository: str, statuses: list[str]) -> Iterat
         body = {**body, "pageToken": next_page_token}
 
 
-# The sync only takes runs created before every recent in-flight run, so the watermark never passes
-# a run that has not finished and each run is fetched once, after it is terminal. A job that is
-# retried after its run was synced is therefore never picked up.
-def _in_flight_horizon(session: Session, repository: str, now: dt.datetime) -> dt.datetime:
+def _list_runs(
+    session: Session, repository: str, statuses: list[str], created_after: dt.datetime | None = None
+) -> list[tuple[dt.datetime, JSONObject]]:
+    """Oldest first. ListRuns has no time filter, but it lists newest first, so each walk stops at the
+    first run older than ``created_after``. The second walk's copy of a run wins, as the fresher status."""
+    runs: dict[str, tuple[dt.datetime, JSONObject]] = {}
+    for page_size in LIST_RUNS_PAGE_SIZES:
+        listed = 0
+        for run in _walk_runs(session, repository, statuses, page_size):
+            created_at = _parse_timestamp(run["createdAt"])
+            if created_after is not None and created_at < created_after:
+                break
+            runs[run["runId"]] = (created_at, run)
+            listed += 1
+        if listed < page_size:
+            # No page end inside the listing, so nothing was skipped.
+            break
+    return sorted(runs.values(), key=lambda entry: (entry[0], entry[1]["runId"]))
+
+
+# The watermark stays behind every run still going, because a run it passed is never read. A stuck run
+# with no workflows is the exception: it can never produce rows, and holding for it would stop every
+# sync. A job retried after its run synced is not read again.
+def _in_flight_horizon(
+    session: Session, repository: str, now: dt.datetime, logger: FilteringBoundLogger
+) -> dt.datetime:
     horizon = now
-    for run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
-        created_at = _parse_timestamp(run["createdAt"])
-        if run["status"] == "running" or created_at > now - QUEUED_MAX_AGE:
-            horizon = min(horizon, created_at)
+    for created_at, run in _list_runs(session, repository, IN_FLIGHT_STATUSES):
+        if created_at < now - IN_FLIGHT_MAX_AGE.get(run["status"], IN_FLIGHT_MAX_AGE["queued"]):
+            if not _call(session, "GetRunStatus", {"runId": run["runId"]}).get("workflows"):
+                continue
+            logger.warning("depot_ci.stuck_run_holds_horizon", run_id=run["runId"], created_at=created_at.isoformat())
+        horizon = min(horizon, created_at)
     return horizon
 
 
 def _runs_to_sync(
     session: Session, repository: str, created_after: dt.datetime | None, created_before: dt.datetime
 ) -> list[JSONObject]:
-    runs: list[JSONObject] = []
-    # ListRuns has no time filter but returns terminal runs newest first, so the walk stops at the
-    # first run at or before the lower bound, and reversing the walk yields the runs oldest first.
-    for run in _list_runs(session, repository, TERMINAL_STATUSES):
-        created_at = _parse_timestamp(run["createdAt"])
-        if created_after is not None and created_at <= created_after:
-            break
-        if created_at < created_before:
-            runs.append(run)
-    return runs[::-1]
+    # Depot stamps runs in whole seconds, and a sync that stopped partway through a second saved it as
+    # the watermark, so that second is read again. The merge on attempt_id drops the repeats.
+    runs = _list_runs(session, repository, TERMINAL_STATUSES, created_after)
+    return [run for created_at, run in runs if created_at < created_before]
 
 
 def _attempt_rows(run: JSONObject, workflow: JSONObject, run_workflow_count: int) -> list[JSONObject]:
@@ -167,7 +188,7 @@ def depot_source(
 
     def items() -> Iterator[list[JSONObject]]:
         session = _make_session(api_token)
-        horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC))
+        horizon = _in_flight_horizon(session, repository, dt.datetime.now(dt.UTC), logger)
         runs = _runs_to_sync(session, repository, lower_bound, horizon)
         logger.info(
             "depot_ci.runs_to_sync",
@@ -188,6 +209,8 @@ def depot_source(
         partition_format="week",
         partition_keys=[RUN_CREATED_AT],
         sort_mode="asc",
+        # The watermark saves per chunk, and the default chunk holds a whole first sync of a busy repository.
+        chunk_size=5_000,
     )
 
 
