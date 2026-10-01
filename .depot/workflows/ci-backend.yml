@@ -4400,16 +4400,20 @@ jobs:
                       cancelled) title="Backend tests cancelled on Depot" ;;
                       *) title=$(head -1 "$GATE_TITLE" 2>/dev/null || true); title="${title:-Backend tests failed on Depot}" ;;
                   esac
-                  id=$(gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
-                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --jq .id)
-                  # The relay reads the check above for its verdict, so the output is attached afterwards
-                  # and cannot cost the check. GitHub rejects a summary over 65535 characters, and the
-                  # byte budget below stays under that however the characters are encoded.
+                  # One request carries the verdict and the output. A PATCH sent right after the POST
+                  # can answer 404, because GitHub does not always find a check it just created.
+                  # GitHub rejects a summary over 65535 characters, and the byte budget below stays
+                  # under that however the characters are encoded.
                   touch "$GATE_SUMMARY"
-                  jq -n --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
-                      '{output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
-                      | gh api "repos/$REPO/check-runs/$id" --method PATCH --input - --silent \
-                      || echo "::warning::Could not attach the gate summary to check $id"
+                  jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
+                      --arg title "$title" --arg run_url "$RELAY_RUN_URL" --rawfile summary "$GATE_SUMMARY" \
+                      '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
+                        output: {title: $title, summary: ("GitHub Actions run: \($run_url)\n\n" + ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end))}}' \
+                      | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
+                  # The relay reads this check for its verdict, so a rejected output must not lose the check.
+                  echo "::warning::Could not post the gate check with its summary. Posting it without."
+                  gh api "repos/$REPO/check-runs" --method POST -f name="$GATE_CHECK" \
+                      -f head_sha="$SHA" -f status=completed -f conclusion="$CONCLUSION" -f details_url="$DEPOT_JOB_URL" --silent
     test-selection-verdict:
         needs: [django, turbo-tests, changes, turbo-discover]
         name: Test selection verdict
