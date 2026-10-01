@@ -1710,6 +1710,30 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             assert pagination.limit == req_limit
             assert pagination.offset == req_offset
 
+    @parameterized.expand(
+        [
+            ("truncated_at_default_limit", 150, 100, True),
+            ("under_default_limit", 20, 20, False),
+        ]
+    )
+    def test_inline_run_without_limit_reports_has_more(self, _name, num_rows, expected_rows, expected_has_more):
+        endpoint = create_endpoint_with_version(
+            name="no_limit_has_more",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": f"SELECT number FROM numbers({num_rows})"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        data = response.json()
+        self.assertEqual(len(data["results"]), expected_rows)
+        self.assertEqual(data["hasMore"], expected_has_more)
+
     def test_inline_pagination_with_variables(self):
         """Pagination on a HogQL query with {variables.*} placeholders must not raise."""
         query_sql = "SELECT event, count() FROM events WHERE event = {variables.event_name} GROUP BY event LIMIT 1000"
