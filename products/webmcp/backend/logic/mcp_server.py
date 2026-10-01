@@ -75,10 +75,15 @@ class McpServerClient:
             },
         }
         try:
-            response = requests.post(self._url, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+            # A redirect can resend the bearer token and the command to a URL nobody configured.
+            response = requests.post(
+                self._url, json=body, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
+            )
         except requests.RequestException as error:
             raise McpServerError(f"Could not reach the MCP server: {error.__class__.__name__}") from error
 
+        if 300 <= response.status_code < 400:
+            raise McpServerError(f"The MCP server returned HTTP {response.status_code}")
         if response.status_code == 401:
             raise McpServerUnauthorizedError("The MCP server rejected the access token")
         try:
