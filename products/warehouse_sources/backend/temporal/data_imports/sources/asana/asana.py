@@ -99,7 +99,10 @@ _PARENTS: dict[FanOut, _ParentSpec] = {
         name="teams", param="team_gid", path="/organizations/{workspace_gid}/teams", fan_out="organization"
     ),
     "portfolio": _ParentSpec(
-        name="portfolios", param="portfolio_gid", path="/portfolios?workspace={workspace_gid}", fan_out="workspace"
+        name="portfolios",
+        param="portfolio_gid",
+        path="/portfolios?workspace={workspace_gid}&owner=me",
+        fan_out="workspace",
     ),
 }
 

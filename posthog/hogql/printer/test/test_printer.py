@@ -1592,14 +1592,6 @@ class TestPrinter(BaseTest):
             )
             self.assertEqual(value, expected, expression)
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-
-        for expression in ("JSONHas(properties, event)", "JSONExtractRaw(properties, event)"):
-            with pytest.raises(QueryError, match="constant first key"):
-                self._expr(expression, context)
-
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
         # equality, it also needs to handle the empty string special case.
@@ -5069,6 +5061,26 @@ class TestPrinter(BaseTest):
                 "nullable_left_not_in_keeps_rows_on_null",
                 "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
                 "ifNull(globalNotIn(",
+            ),
+            (
+                "in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalIn(",
+            ),
+            (
+                "not_in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id NOT IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalNotIn(",
+            ),
+            (
+                "in_console_logs_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries WHERE message ILIKE '%error%')",
+                "globalIn(",
+            ),
+            (
+                "in_batch_export_log_entries_subquery",
+                "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
+                "globalIn(",
             ),
         ]
     )

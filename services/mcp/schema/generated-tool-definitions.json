@@ -1240,7 +1240,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-train-create": {
-        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, where pipeline writes are refused. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily scoring job scores the inference population and emits autoresearch_prediction events. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
+        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily scoring job scores the inference population and emits autoresearch_prediction events. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Start training",
@@ -1755,6 +1755,36 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-repositories-file-retrieve": {
+        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Read a file from a selected repository",
+        "title": "Read a file from a selected repository",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
+    "business-knowledge-repositories-search": {
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search inside file contents and does not call GitHub code search.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search selected repositories",
+        "title": "Search selected repositories",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -1856,8 +1886,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "canvas-comments-mcp"
+        }
     },
     "canvas-comments-retrieve": {
         "description": "Read one comment thread on a canvas: the root comment and its replies, oldest first, with the text or region anchor and the canvas version each comment was written on. Read the full thread before you act on a root comment, because a later reply can change the request. If `next` is not null, call again with `cursor`. If an entry has `content_truncated: true`, call again with `comment_id` set to that entry's id and `content_offset` set to its `content_next_offset`.",
@@ -1871,8 +1900,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "canvas-comments-mcp"
+        }
     },
     "canvas-connectors-retrieve": {
         "description": "List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every native provider (GitHub) and every MCP store server the authenticated user has connected, each with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own connection at view time, never the author's, so results are never baked into the source. Only read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.",
@@ -2774,7 +2802,7 @@
         }
     },
     "conversations-tickets-messages-retrieve": {
-        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — use the limit and offset query params to page through long threads, and read count/next from the response envelope. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
+        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page): use the limit and offset query params to page through long threads, and read count/next from the response envelope. The thread includes messages that were never sent to the customer, so read each message's message_type before you say what the team has sent to the customer. customer_message is written by the customer. sent_reply is a reply sent to the customer by a teammate, a workflow, or the AI. A sent_reply does not confirm delivery, because delivery can fail, so say the reply was sent, not that the customer received it. internal_note is a note for the team only. ai_draft is a reply or question the AI wrote for a teammate to review: it can read like a finished reply, but it was never sent, and a teammate may have sent their own version later as a separate sent_reply. internal_note and ai_draft messages both have is_private set to true. Never describe an internal_note or an ai_draft as sent to the customer.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Read support ticket messages",
@@ -5531,7 +5559,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval (full_refresh_interval_days), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -5587,7 +5615,7 @@
         }
     },
     "external-data-sources-bulk-update-schemas": {
-        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval (full_refresh_interval_days), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
+        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update many table schemas in one request",
@@ -7382,6 +7410,76 @@
             "readOnlyHint": false
         },
         "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-evaluation-backfill-cancel": {
+        "description": "Stop a running backfill of an evaluation. Evaluations the backfill already started still finish, and their results are kept. A cancelled backfill cannot be resumed; start a new one over the remaining range instead.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Cancel evaluation backfill",
+        "title": "Cancel evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-backfill-create": {
+        "description": "Run an evaluation over past data: every generation, trace, or session in a time window that matches its conditions. Every unit evaluated is one evaluation run and counts as an AI observability event, plus a model call for an llm_judge, so never call this first. Call llma-evaluation-backfill-estimate with the same window_start, window_end, conditions, and rerun_existing, show the user the unit count and the clamped window, and start only after they confirm. Pass the window_start and window_end the estimate returned, not the ones you requested, with the same conditions and rerun_existing, so the run matches what they approved. One backfill runs per evaluation at a time. The evaluation must be enabled. Returns the backfill; track it with llma-evaluation-backfill-get. Results are '$ai_evaluation' events.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Start evaluation backfill",
+        "title": "Start evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-backfill-estimate": {
+        "description": "Count how many units a backfill of an evaluation would evaluate over a time window, without starting anything. Always call this before llma-evaluation-backfill-create and confirm the count with the user. total_units is what the backfill would evaluate. already_evaluated_units already have a result and are left out unless rerun_existing is true. The window is clamped to the last 30 days and held back by the evaluation's settle time, so report the returned window_start and window_end, not the requested ones. Conditions default to the evaluation's own.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Estimate evaluation backfill",
+        "title": "Estimate evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-backfill-get": {
+        "description": "Get one backfill of an evaluation with its status and progress. While status is running, dispatched_count plus skipped_count is how many units it has handled. Skipped units were already being evaluated by the evaluation itself, so they are covered, not missed. Once completed, remaining_count is how many units in the window still have no result; null means it was not measured. total_count is the count taken at the start.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation backfill",
+        "title": "Get evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-backfill-list": {
+        "description": "List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running at a time. See llma-evaluation-backfill-get for what each count means.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List evaluation backfills",
+        "title": "List evaluation backfills",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
@@ -12360,6 +12458,38 @@
         },
         "feature_flag": "tasks"
     },
+    "today-briefing-get": {
+        "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the items that need them most (reports assigned to them, insights and dashboards they use, firing alerts, assigned support tickets and error issues, and GitHub pull requests), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
+        "category": "Today",
+        "feature": "today",
+        "summary": "Get my Today briefing",
+        "title": "Get my Today briefing",
+        "required_scopes": ["today:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "today-rail-nav",
+        "feature_flag_behavior": "enable"
+    },
+    "today-candidates-list": {
+        "description": "The items behind the current user's briefing, each with its source, the reason it was picked, a link, and the facts the text rests on (for example a priority, a status, or the two values behind a change). Use this when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.",
+        "category": "Today",
+        "feature": "today",
+        "summary": "List my Today candidates",
+        "title": "List my Today candidates",
+        "required_scopes": ["today:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "today-rail-nav",
+        "feature_flag_behavior": "enable"
+    },
     "update-feature-flag": {
         "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
         "category": "Feature flags",
@@ -14354,6 +14484,20 @@
         "feature": "workflows",
         "summary": "List workflow revisions",
         "title": "List workflow revisions",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-list-versions": {
+        "description": "List the published versions of one workflow, newest first, each with the time it went live. Read it to tell how long the live version has been sending before you trust its metrics: a version whose sends began in the last two days has not had time to collect opens. A workflow never published since version history began has no rows here, so its live version is missing: judge that one's age from when its sends began in workflows-stats instead. Takes the workflow id as 'id'.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List a workflow's published versions",
+        "title": "List a workflow's published versions",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,

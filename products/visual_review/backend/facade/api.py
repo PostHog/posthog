@@ -248,6 +248,7 @@ def _to_run(
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -687,14 +688,19 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None, check_run_id: str | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
     """
     if team_id is not None:
         run_queries.get_run(run_id, team_id=team_id)  # validates ownership
     run = runs.complete_run(run_id)
-    return _to_run(run)
+    # After `complete_run`, whose baseline healing saves a whole metadata dict it may have read stale.
+    if check_run_id is not None:
+        runs.record_completing_job(run_id, check_run_id)
+    # A re-run of the completing CI job lands here on a completed run, and the CLI gates on this
+    # number, so it must be the commit status verdict and not the unprefetched default of 0.
+    return _to_run(run, unresolved=gating.count_gating(run))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
@@ -855,6 +861,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)

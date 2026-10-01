@@ -61,6 +61,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
+from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -2193,6 +2194,13 @@ class ProjectViewSet(
                 before=str(current_organization.id),
                 after=str(target_organization.id),
             )
+
+            # The cache invalidation receiver reads organization_id from the saved row, which already
+            # points at the target organization. Without this bump the source organization keeps
+            # listing the project until its cached project list expires. Register it before the saves,
+            # because Django skips the remaining commit hooks when an earlier one raises.
+            source_organization_id = str(current_organization.id)
+            transaction.on_commit(lambda: _bump_org_serializer_cache_version(source_organization_id))
 
             project.organization_id = target_organization.id
             project.save()

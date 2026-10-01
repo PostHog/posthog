@@ -1,0 +1,25 @@
+{
+  "source_repository": "https://github.com/PostHog/posthog-sdk-test-harness",
+  "source_revision": "32c8e08d36e20a5450fdcdd6ee80e2bdfd857a0a",
+  "release_status": "released",
+  "contract_version": "2.3.0",
+  "v2_boolean_evaluation_version": "1.0.0",
+  "v2_value_evaluation_version": "1.0.0",
+  "v1_corpus_version": "1.1.0",
+  "registry_version": "2.0.0",
+  "config_schema_version": "1.0.0",
+  "source_sha256sums_digest": "9c1b081e8a2097d8727da4cbbbb6aa2beb53de8f17daf112df01855dc9cbac69",
+  "files": [
+    "README.md",
+    "manifest.json",
+    "registries/literals.json",
+    "schemas/config.schema.json",
+    "schemas/v2_boolean_evaluation.schema.json",
+    "corpus/v2_boolean_evaluation.json",
+    "schemas/v2_value_evaluation.schema.json",
+    "corpus/v2_value_evaluation.json"
+  ],
+  "vendoring_scope": "subset",
+  "upstream_metadata": "README.md, manifest.json, and SHA256SUMS describe the full upstream package. Only the paths in files and the source checksum index are vendored here, unchanged.",
+  "source_release": "1.13.0"
+}
