@@ -728,6 +728,15 @@ func TestProcessEnvelopeLineSplitsEveryOutput(t *testing.T) {
 
 func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
 	proc := processor{kind: eventEnvelope}
+	var amplified strings.Builder
+	amplified.WriteString(`{"keep":1,"` + strings.Repeat("k", 1024) + `":{`)
+	for i := range 300 {
+		if i > 0 {
+			amplified.WriteByte(',')
+		}
+		fmt.Fprintf(&amplified, `"%d":null`, i)
+	}
+	amplified.WriteString(`}}`)
 	tests := []struct {
 		name, properties string
 		want             []string
@@ -736,6 +745,7 @@ func TestProcessEnvelopeLineNullKeysIgnoreSurvivingValues(t *testing.T) {
 		{"duplicate keeps later value", `{"a":1,"a":null}`, nil},
 		{"dotted key keeps nested null", `{"Account.client_id":"abc","Account":{"client_id":null}}`, []string{"Account.client_id"}},
 		{"duplicate dotted key keeps value", `{"a.b":null,"a.b":1}`, nil},
+		{"paths over the byte budget record none", amplified.String(), nil},
 		{"repeated null once", `{"x":null,"x":null}`, []string{"x"}},
 		{"dropped list never recorded", `{"$ai_input":null,"$feature_flag_payload":null,"kept":null}`, []string{"kept"}},
 		{"null flags map", `{"$feature_flags":null}`, []string{"$feature_flags"}},

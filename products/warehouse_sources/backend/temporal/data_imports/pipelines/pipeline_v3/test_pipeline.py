@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+_SAFE_POINT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
 _CONSUMER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
 _PRODUCER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer"
@@ -1112,6 +1113,50 @@ class TestResumeCursorCommit:
 
         assert cast(AsyncMock, pipeline._process_batch).await_count == 1
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a"]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_page_safe_point_hands_off_at_shutdown_with_its_cursor(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            manager.save_state(_Cursor("a"))
+            yield [{"id": "a"}]
+            for page in ("b", "c"):
+                manager.save_state(_Cursor(page))
+                manager.safe_point()
+
+        pipeline = _runnable_pipeline(manager, items)
+        shutdown = WorkerShuttingDownError("id", "type", "queue", 1, "workflow", "workflow_type")
+        cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = _raise_on_second_call(
+            shutdown
+        )
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        assert cast(AsyncMock, pipeline._process_batch).await_count == 1
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["b"]
+
+    @pytest.mark.asyncio
+    async def test_empty_page_safe_points_commit_the_cursor_when_nothing_is_unwritten(self) -> None:
+        redis = MagicMock()
+        manager = _manager()
+
+        def items():
+            for page in ("a", "b"):
+                manager.save_state(_Cursor(page))
+                manager.safe_point()
+            yield from ()
+            raise RuntimeError("page budget")
+
+        pipeline = _runnable_pipeline(manager, items)
+        pipeline._pg_producer = _recording_producer()
+
+        with patch(f"{_SAFE_POINT}.SAFE_POINT_COMMIT_INTERVAL_SECONDS", 0):
+            await _run_expecting(pipeline, redis, RuntimeError)
+
+        cast(AsyncMock, pipeline._process_batch).assert_not_awaited()
+        assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == ["a", "b"]
 
 
 def _recording_producer(events: list[str] | None = None) -> PostgresProducer:

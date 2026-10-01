@@ -2981,24 +2981,38 @@ class TestUpdateExternalDataSchema:
         return stack
 
     @pytest.mark.parametrize(
-        "initial_sync_complete, prior_config",
+        "initial_sync_complete, prior_config, management_mode",
         [
-            pytest.param(False, {}, id="never_synced"),
-            pytest.param(True, {}, id="loaded_by_full_refresh"),
+            pytest.param(False, {}, "posthog", id="never_synced"),
+            pytest.param(True, {}, "posthog", id="loaded_by_full_refresh"),
             pytest.param(
                 True,
-                {"cdc_mode": "streaming", "cdc_last_log_position": "0/16B3748", "cdc_deferred_runs": [{"run": 1}]},
+                {
+                    "cdc_mode": "streaming",
+                    "cdc_last_log_position": "0/16B3748",
+                    "cdc_deferred_runs": [{"run": 1}],
+                    "cdc_snapshot_lane": "buffer",
+                },
+                "posthog",
                 id="left_over_from_earlier_cdc_period",
+            ),
+            pytest.param(
+                True,
+                {"cdc_mode": "streaming", "cdc_snapshot_lane": "buffer"},
+                "self_managed",
+                id="left_over_on_a_self_managed_source",
             ),
         ],
     )
     def test_switch_to_cdc_starts_a_fresh_snapshot(
-        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config
+        self, team, user, client: HttpClient, temporal, initial_sync_complete, prior_config, management_mode
     ):
         client.force_login(user)
-        _, schema = self._managed_cdc_source_and_full_refresh_schema(
+        source, schema = self._managed_cdc_source_and_full_refresh_schema(
             team, initial_sync_complete=initial_sync_complete, sync_type_config=prior_config
         )
+        source.job_inputs = {**source.job_inputs, "cdc_management_mode": management_mode}
+        source.save()
 
         with self._patch_cdc_switch():
             response = client.patch(
@@ -3013,6 +3027,7 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert "cdc_snapshot_lane" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
     @pytest.mark.parametrize(

@@ -2,10 +2,11 @@ import datetime as dt
 import contextlib
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     CONSOLIDATED_WRITE_MODE,
     CDCLane,
     CDCSourceManager,
+    ListingProof,
     ReplayFilter,
     build_output_lanes,
     captures_to_buffer,
@@ -41,6 +43,7 @@ _PREFIX = f"bucket/cdc_producer/{_TEAM_ID}/{_SCHEMA_ID}"
 _NOW = dt.datetime(2026, 8, 14, 12, 0, tzinfo=dt.UTC)
 # Older than any completed-run start minus the clock-skew margin.
 _OLD_MTIME = _NOW - dt.timedelta(hours=2)
+_RECENT = _NOW - dt.timedelta(minutes=1)
 
 
 def _table(ids: list[int], seqs: list[int]) -> pa.Table:
@@ -106,6 +109,9 @@ class _FakeS3:
         missing_prefix: bool = False,
         mtimes: dict[str, dt.datetime] | None = None,
         missing_keys: set[str] | None = None,
+        etags: dict[str, str] | None = None,
+        etags_at_delete: dict[str, str] | None = None,
+        conflicting_deletes: set[str] | None = None,
     ) -> None:
         self.files = dict(files)
         # Listed but gone by the time the reader opens them, as a concurrent retry leaves things.
@@ -114,6 +120,10 @@ class _FakeS3:
         self.opened: list[str] = []
         self.missing_prefix = missing_prefix
         self.mtimes = mtimes or {}
+        self.etags = etags or {}
+        # What the store holds after the listing, for a file capture rewrote in between.
+        self.etags_at_delete = etags_at_delete or {}
+        self.conflicting_deletes = conflicting_deletes or set()
 
     async def _ls(self, prefix, detail=True, refresh=False):
         # The manager must always bypass the fsspec dircache — capture writes through a different
@@ -121,7 +131,40 @@ class _FakeS3:
         assert refresh, "buffer listings must pass refresh=True"
         if self.missing_prefix:
             raise FileNotFoundError(prefix)
-        return [{"type": "file", "Key": key, "LastModified": self.mtimes.get(key, _OLD_MTIME)} for key in self.files]
+        return [
+            {
+                "type": "file",
+                "Key": key,
+                "LastModified": self.mtimes.get(key, _OLD_MTIME),
+                "ETag": f'"{self.etags.get(key, "etag-0")}"',
+            }
+            for key in self.files
+        ]
+
+    def _current_etag(self, key):
+        return self.etags_at_delete.get(key, self.etags.get(key, "etag-0"))
+
+    def split_path(self, path):
+        bucket, _, key = path.partition("/")
+        return bucket, key, None
+
+    def invalidate_cache(self, path=None):
+        pass
+
+    async def get_s3(self, bucket):
+        fake = self
+
+        class _Client:
+            async def delete_object(self, Bucket, Key, IfMatch=None):
+                full_key = f"{Bucket}/{Key}"
+                if full_key in fake.conflicting_deletes:
+                    raise ClientError({"Error": {"Code": "ConditionalRequestConflict"}}, "DeleteObject")
+                if IfMatch is not None and IfMatch != f'"{fake._current_etag(full_key)}"':
+                    raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "DeleteObject")
+                fake.removed.append(full_key)
+                fake.files.pop(full_key, None)
+
+        return _Client()
 
     async def _rm(self, key):
         self.removed.append(key)
@@ -158,18 +201,18 @@ def _patched(s3: _FakeS3):
         yield
 
 
-def _manager(*, deletion_floor: int | None = None, proof_time: dt.datetime | None = None) -> CDCSourceManager:
+def _manager(*, deletion_floor: int | None = None, proof: ListingProof | None = None) -> CDCSourceManager:
     inputs = MagicMock()
     inputs.team_id = _TEAM_ID
     inputs.schema_id = _SCHEMA_ID
     inputs.reset_pipeline = False
-    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof_time=proof_time)
+    return CDCSourceManager(inputs=inputs, logger=AsyncMock(), deletion_floor=deletion_floor, proof=proof)
 
 
 async def _collect(
-    s3: _FakeS3, *, deletion_floor: int | None = None, proof_time: dt.datetime | None = None, **kwargs
+    s3: _FakeS3, *, deletion_floor: int | None = None, proof: ListingProof | None = None, **kwargs: int
 ) -> list[pa.Table]:
-    manager = _manager(deletion_floor=deletion_floor, proof_time=proof_time)
+    manager = _manager(deletion_floor=deletion_floor, proof=proof)
     with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", AsyncMock()):
         return [t async for t in manager.get_items(**kwargs)]
 
@@ -650,7 +693,7 @@ class TestFloorDeletion:
 
     async def test_a_file_at_the_floor_goes_once_an_older_completed_listing_covers_it(self):
         s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
-        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == [_key(11, 20)]
 
@@ -661,14 +704,116 @@ class TestFloorDeletion:
         so without this proof an idle schema re-writes and re-bills its last transaction forever.
         """
         s3 = _FakeS3({_key(11, 20): _parquet_bytes(_table([1], [20]))})
-        await _collect(s3, deletion_floor=20, proof_time=_NOW)
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == [_key(11, 20)]
         assert s3.opened == []
 
+    @parameterized.expand(
+        [
+            (
+                "listed_with_the_same_etag",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                False,
+                True,
+            ),
+            (
+                "rewritten_with_an_mtime_that_looks_old",
+                {build_buffer_file_name(11, 20, 0): "etag-0"},
+                _OLD_MTIME,
+                "etag-1",
+                False,
+                False,
+            ),
+            ("not_in_the_listing", {}, _RECENT, "etag-1", False, False),
+            (
+                "rewritten_after_this_runs_listing",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-2",
+                False,
+                False,
+            ),
+            (
+                "written_to_during_the_delete",
+                {build_buffer_file_name(11, 20, 0): "etag-1"},
+                _RECENT,
+                "etag-1",
+                True,
+                False,
+            ),
+        ]
+    )
+    async def test_a_file_written_just_before_the_listing_goes_on_the_next_run_only_if_that_listing_read_it(
+        self,
+        _name: str,
+        tail: dict[str, str],
+        modified: dt.datetime,
+        etag_at_delete: str,
+        delete_conflicts: bool,
+        deleted: bool,
+    ) -> None:
+        key = _key(11, 20)
+        s3 = _FakeS3(
+            {key: _parquet_bytes(_table([1], [20]))},
+            mtimes={key: modified},
+            etags={key: "etag-1"},
+            etags_at_delete={key: etag_at_delete},
+            conflicting_deletes={key} if delete_conflicts else None,
+        )
+        await _collect(s3, deletion_floor=20, proof=ListingProof(listed_at=_NOW, tail=tail))
+
+        assert (s3.removed, s3.opened) == (([key], []) if deleted else ([], [key]))
+
+    async def test_a_listing_records_the_files_at_its_highest_position(self) -> None:
+        s3 = _FakeS3(
+            {
+                _key(1, 10): _parquet_bytes(_table([1], [10])),
+                _key(11, 20, 0): _parquet_bytes(_table([2], [20])),
+                _key(11, 20, 1): _parquet_bytes(_table([3], [20])),
+            },
+            etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
+        )
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        stamp.assert_awaited_once_with(
+            ANY,
+            {build_buffer_file_name(11, 20, 0): "etag-a", build_buffer_file_name(11, 20, 1): "etag-b"},
+        )
+
+    async def test_a_listed_file_that_is_gone_before_the_read_leaves_the_tail(self) -> None:
+        s3 = _FakeS3(
+            {
+                _key(11, 20, 0): _parquet_bytes(_table([2], [20])),
+                _key(11, 20, 1): _parquet_bytes(_table([3], [20])),
+            },
+            etags={_key(11, 20, 0): "etag-a", _key(11, 20, 1): "etag-b"},
+            missing_keys={_key(11, 20, 1)},
+        )
+        stamped: list[dict[str, str]] = []
+        stamp = AsyncMock(side_effect=lambda _listed_at, tail: stamped.append(dict(tail)))
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        first, second = build_buffer_file_name(11, 20, 0), build_buffer_file_name(11, 20, 1)
+        assert stamped == [{first: "etag-a", second: "etag-b"}, {first: "etag-a"}]
+
+    async def test_a_tail_too_large_to_store_is_left_out(self) -> None:
+        files = {_key(11, 20, index): _parquet_bytes(_table([index], [20])) for index in range(101)}
+        s3 = _FakeS3(files, etags={key: f"etag-{key}" for key in files})
+        stamp = AsyncMock()
+        with _patched(s3), patch.object(CDCSourceManager, "stamp_listing", stamp):
+            [t async for t in _manager().get_items()]
+
+        stamp.assert_awaited_once_with(ANY, {})
+
     async def test_nothing_is_deleted_before_every_lane_has_a_position(self):
         s3 = _FakeS3({_key(1, 10): _parquet_bytes(_table([1], [10]))})
-        await _collect(s3, deletion_floor=None, proof_time=_NOW)
+        await _collect(s3, deletion_floor=None, proof=ListingProof(listed_at=_NOW, tail={}))
 
         assert s3.removed == []
 
