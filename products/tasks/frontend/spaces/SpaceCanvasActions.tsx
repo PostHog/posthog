@@ -28,7 +28,7 @@ export function SpaceCanvasActions({
 
     return (
         <>
-            <Item onClick={() => copyCanvasLink(canvas.id)} dataAttr={attr('copy-link')}>
+            <Item onClick={() => copyCanvasLink(canvas)} dataAttr={attr('copy-link')}>
                 <IconCopy />
                 Copy link
             </Item>

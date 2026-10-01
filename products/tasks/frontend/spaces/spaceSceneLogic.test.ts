@@ -574,22 +574,31 @@ describe('spaceSceneLogic', () => {
         expect(logic.values.space?.starred).toBe(true)
     })
 
-    it.each<[string, string, (logic: ReturnType<typeof spaceSceneLogic.build>) => void]>([
-        ['the space', '/spaces/space-a', () => todaySpacesLogic.actions.copySpaceLink('space-a')],
-        ['a canvas', '/canvases/c-0', (logic) => logic.actions.copyCanvasLink('c-0')],
-    ])('copies the project-scoped link to %s', async (_, path, copy) => {
+    it('copies the project-scoped link to the space', async () => {
         const writeText = jest.fn().mockResolvedValue(undefined)
         Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
         const logic = spaceSceneLogic({ id: 'space-a' })
         logic.mount()
 
-        copy(logic)
+        todaySpacesLogic.actions.copySpaceLink('space-a')
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(todaySpacesLogic).toFinishAllListeners()
 
         expect(writeText).toHaveBeenCalledWith(
-            expect.stringMatching(new RegExp(`^${window.location.origin}/project/\\d+${path}$`))
+            expect.stringMatching(new RegExp(`^${window.location.origin}/project/\\d+/spaces/space-a$`))
         )
+    })
+
+    it('copies the canonical link a canvas carries, so it opens for people without the web canvas page', async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+        const logic = spaceSceneLogic({ id: 'space-a' })
+        logic.mount()
+
+        logic.actions.copyCanvasLink({ ...canvasesNamed(1)[0], url: 'https://app.example.com/code/canvas/space-a/c-0' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(writeText).toHaveBeenCalledWith('https://app.example.com/code/canvas/space-a/c-0')
     })
 
     it('focuses the composer once when a new session is requested for this space', async () => {

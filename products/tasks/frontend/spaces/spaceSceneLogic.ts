@@ -35,7 +35,6 @@ import {
 } from '../generated/api'
 import { ChannelDTOApi, PatchedChannelUpdateApi, TaskListItemApi, TaskUserBasicInfoApi } from '../generated/api.schemas'
 import { SpaceCanvasSections, spaceCanvasSections } from './spaceCanvasDisplay'
-import { spaceCanvasUrl } from './spaceCanvasUrls'
 import {
     SpaceFeedFilters,
     SpaceFeedGrouping,
@@ -218,8 +217,8 @@ export interface spaceSceneLogicActions {
     confirmCanvasDelete: () => {
         value: true
     }
-    copyCanvasLink: (canvasId: string) => {
-        canvasId: string
+    copyCanvasLink: (canvas: CanvasApi) => {
+        canvas: CanvasApi
     }
     deleteSpace: () => {
         value: true
@@ -468,7 +467,7 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         commitName: true,
         ensureCanvases: true,
         setAccessConfirmOpen: (open: boolean) => ({ open }),
-        copyCanvasLink: (canvasId: string) => ({ canvasId }),
+        copyCanvasLink: (canvas: CanvasApi) => ({ canvas }),
         toggleCanvasPinned: (canvasId: string) => ({ canvasId }),
         canvasPinRequested: (canvasId: string, pinned: boolean) => ({ canvasId, pinned }),
         canvasPinFailed: (canvasId: string, pinnedAt: string | null) => ({ canvasId, pinnedAt }),
@@ -869,8 +868,8 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
                 actions.loadCanvases()
             }
         },
-        copyCanvasLink: async ({ canvasId }) => {
-            const outcome = await writeToClipboard(urls.absolute(urls.currentProject(spaceCanvasUrl(canvasId))))
+        copyCanvasLink: async ({ canvas }) => {
+            const outcome = await writeToClipboard(canvas.url)
             if (outcome === 'copied') {
                 toast.success({ title: 'Link copied' })
             } else {
