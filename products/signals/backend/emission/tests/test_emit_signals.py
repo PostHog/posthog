@@ -688,6 +688,7 @@ class TestEmitSignals:
             description="bug report",
             weight=0.5,
             extra={},
+            idempotency_key=None,
         )
 
     @pytest.mark.asyncio
