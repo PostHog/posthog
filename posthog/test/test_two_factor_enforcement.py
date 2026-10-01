@@ -30,6 +30,7 @@ from posthog.helpers.two_factor_session import (
 from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
+from posthog.models.webauthn_credential import WebauthnCredential
 
 
 class TestTwoFactorSessionUtils(TestCase):
@@ -685,3 +686,43 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         response = client.post("/api/login/token/", {"token": "123456"})
         self.assertEqual(response.status_code, 429)
+
+
+class TestReauthenticationDuringTwoFactorSetup(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="passkey@example.com", password="testpassword", first_name="Passkey"
+        )
+        self.organization, _, _ = Organization.objects.bootstrap(self.user)
+        self.organization.enforce_2fa = True
+        self.organization.save()
+        WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"test_credential_id",
+            public_key=b"test_public_key",
+            algorithm=-7,
+            label="Test Passkey",
+            verified=True,
+        )
+
+        self.client = APIClient()
+        self.client.force_login(self.user)
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time() - 2 * 60 * 60
+        session.save()
+
+    def test_passkey_user_in_setup_state_with_old_session_can_reach_reauthentication_endpoints(self):
+        blocked = self.client.get("/api/organizations/@current/")
+        self.assertEqual(blocked.status_code, 403)
+        self.assertEqual(blocked.json()["code"], "two_factor_setup_required")
+
+        responses = [
+            self.client.post("/api/login/precheck/", {"email": self.user.email}),
+            self.client.get("/api/login/2fa/passkey/methods/"),
+            self.client.post("/api/login/2fa/passkey/begin/"),
+            self.client.post("/api/webauthn/login/begin/"),
+            self.client.post("/api/webauthn/login/complete/", {}, format="json"),
+        ]
+
+        for response in responses:
+            self.assertNotEqual(response.status_code, 403, response.content)

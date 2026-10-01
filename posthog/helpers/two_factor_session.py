@@ -74,6 +74,12 @@ WHITELISTED_PATHS = [
     "/api/login/",
     "/api/login/token/",
     "/api/login/code-based-verification/",
+    # Re-authentication endpoints. Finishing 2FA setup needs a fresh session, so a user in setup state must reach them.
+    "/api/login/precheck/",
+    "/api/login/2fa/passkey/methods/",
+    "/api/login/2fa/passkey/begin/",
+    "/api/webauthn/login/begin/",
+    "/api/webauthn/login/complete/",
     "/api/users/@me/",
     "/_health/",
 ]
