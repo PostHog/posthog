@@ -16,7 +16,7 @@ import { TodaySessionRenameInput } from './TodaySessionRenameInput'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { todaySpacesLogic } from './todaySpacesLogic'
 import { TodaySpacesRow } from './TodaySpacesRow'
-import { TodayWorkItem, sessionDetails } from './todayWorkItems'
+import { TodayWorkItem, sessionBadges, sessionDetails } from './todayWorkItems'
 
 interface TodaySessionRowProps {
     item: TodayWorkItem
@@ -54,9 +54,10 @@ export function TodaySessionRow({
     )
     const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
 
+    const badges = useMemo(() => sessionBadges(item), [item])
     const [pullRequest] = item.pullRequests
     const pinBadge = pinned && showPinBadge
-    const badgeCount = (pullRequest ? 1 : 0) + (pinBadge ? 1 : 0)
+    const badgeCount = badges.length + (pinBadge ? 1 : 0)
 
     if (renaming?.sessionId === item.id && renaming.surface === surface) {
         return <TodaySessionRenameInput sessionId={item.id} title={item.title} />
@@ -72,13 +73,13 @@ export function TodaySessionRow({
             badge={
                 badgeCount > 0 ? (
                     <TodaySessionBadges
-                        pullRequest={pullRequest ?? null}
+                        badges={badges}
                         pullRequestState={pullRequest ? pullRequestStates[pullRequest.url] : null}
                         pinned={pinBadge}
                     />
                 ) : null
             }
-            badgeCount={badgeCount === 2 ? 2 : 1}
+            badgeCount={badgeCount >= 3 ? 3 : badgeCount === 2 ? 2 : 1}
             ticker
             selected={selected}
             onClickCapture={onSelectClick}
