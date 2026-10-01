@@ -1,6 +1,7 @@
 """Temporal workflow for logs alert checking — two-phase fan-out."""
 
 import asyncio
+import contextlib
 from itertools import batched
 
 import temporalio
@@ -70,18 +71,25 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
             for chunk in batched(discovery.manifests, discovery.batch_size, strict=False)
         ]
 
-        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
-        # batch's `ActivityError` doesn't abort the cycle.
-        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
-            *(
-                workflow.execute_activity(
+        # The workflow event loop is deterministic, so a semaphore here replays the same
+        # activity start order. It bounds ClickHouse concurrency across the whole cycle,
+        # which the per-batch cohort limit alone cannot do.
+        limit = discovery.max_concurrent_batches
+        slot = asyncio.Semaphore(limit) if limit > 0 else contextlib.nullcontext()
+
+        async def run_batch(batch: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+            async with slot:
+                return await workflow.execute_activity(
                     evaluate_cohort_batch_activity,
                     batch,
                     start_to_close_timeout=ACTIVITY_TIMEOUT,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
-                for batch in batches
-            ),
+
+        # `return_exceptions=True` isolates per-batch retry-exhaustion: one
+        # batch's `ActivityError` doesn't abort the cycle.
+        results: list[EvaluateCohortBatchOutput | BaseException] = await asyncio.gather(
+            *(run_batch(batch) for batch in batches),
             return_exceptions=True,
         )
 

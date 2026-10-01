@@ -6,6 +6,7 @@ the sandbox doesn't trip on Django imports inside `activities.py`.
 """
 
 import uuid
+import asyncio
 
 import pytest
 
@@ -31,7 +32,10 @@ TASK_QUEUE = "logs-alerting-test"
 
 
 @pytest.mark.asyncio
-async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
+@pytest.mark.parametrize("max_concurrent_batches, expected_peak", [(0, 3), (2, 2), (1, 1)])
+async def test_workflow_chunks_manifests_and_aggregates_results(
+    max_concurrent_batches: int, expected_peak: int
+) -> None:
     # 7 manifests, batch_size=3 → 3 batches: sizes 3, 3, 1.
     manifests = [
         CohortManifest(
@@ -45,10 +49,17 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
 
     @activity.defn(name="discover_cohorts_activity")
     async def fake_discover(_input: DiscoverCohortsInput) -> DiscoverCohortsOutput:
-        return DiscoverCohortsOutput(manifests=manifests, batch_size=3)
+        return DiscoverCohortsOutput(manifests=manifests, batch_size=3, max_concurrent_batches=max_concurrent_batches)
+
+    running = {"now": 0, "peak": 0}
 
     @activity.defn(name="evaluate_cohort_batch_activity")
     async def fake_evaluate(input: EvaluateCohortBatchInput) -> EvaluateCohortBatchOutput:
+        running["now"] += 1
+        running["peak"] = max(running["peak"], running["now"])
+        # Hold the slot long enough for every batch the workflow allows to start.
+        await asyncio.sleep(0.2)
+        running["now"] -= 1
         return EvaluateCohortBatchOutput(
             alerts_checked=len(input.manifests),
             alerts_fired=0,
@@ -73,6 +84,7 @@ async def test_workflow_chunks_manifests_and_aggregates_results() -> None:
 
     assert result.alerts_checked == 7
     assert result.alerts_errored == 0
+    assert running["peak"] == expected_peak
 
 
 @pytest.mark.asyncio
