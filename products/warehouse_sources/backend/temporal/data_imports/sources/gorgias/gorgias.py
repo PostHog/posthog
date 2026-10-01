@@ -34,7 +34,7 @@ class GorgiasRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GorgiasResumeConfig:
     # Opaque, short-lived cursor token returned in `meta.next_cursor`. We only persist
     # it for the duration of a single sync (Redis TTL is 24h) — never longer-term.
@@ -235,28 +235,31 @@ def get_rows(
             data = fetch_page(cursor, variant_params)
 
             items = data.get("data", [])
-            if items:
-                yield _flatten_ticket_child(items, config.ticket_child) if config.ticket_child else items
+            next_cursor = (data.get("meta") or {}).get("next_cursor")
 
             # Rows arrive newest-first under incremental sort; once an entire page predates the
             # watermark, everything further back is already synced, so stop.
+            reached_watermark = False
             if watermark is not None and sort_field is not None and items:
                 page_newest = _page_newest(items, sort_field)
-                if page_newest is not None and page_newest < watermark:
-                    break
+                reached_watermark = page_newest is not None and page_newest < watermark
 
-            next_cursor = (data.get("meta") or {}).get("next_cursor")
-            if not next_cursor:
+            # Stage the position after this page before yielding it. A resumed full refresh
+            # appends, so a cursor that lags one page behind would write that page twice. The
+            # final page stages a variant past the end, so a resume after it reads nothing.
+            if next_cursor and not reached_watermark:
+                resumable_source_manager.save_state(GorgiasResumeConfig(cursor=next_cursor, variant=variant_index))
+            else:
+                resumable_source_manager.save_state(GorgiasResumeConfig(cursor=None, variant=variant_index + 1))
+
+            if items:
+                yield _flatten_ticket_child(items, config.ticket_child) if config.ticket_child else items
+
+            if not next_cursor or reached_watermark:
                 break
-
             cursor = next_cursor
-            # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
-            # primary key) instead of skipping it.
-            resumable_source_manager.save_state(GorgiasResumeConfig(cursor=cursor, variant=variant_index))
 
         cursor = None
-        if variant_index + 1 < len(config.param_variants):
-            resumable_source_manager.save_state(GorgiasResumeConfig(cursor=None, variant=variant_index + 1))
 
 
 def gorgias_source(

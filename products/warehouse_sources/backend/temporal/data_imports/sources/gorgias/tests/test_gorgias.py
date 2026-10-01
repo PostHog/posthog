@@ -27,15 +27,18 @@ GORGIAS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sourc
 class _FakeManager(ResumableSourceManager[GorgiasResumeConfig]):
     """Minimal stand-in for ResumableSourceManager that records saved state in memory."""
 
-    def __init__(self, resume_cursor: str | None = None) -> None:
+    def __init__(self, resume_cursor: str | None = None, resume_variant: int = 0) -> None:
         self._resume_cursor = resume_cursor
+        self._resume_variant = resume_variant
         self.saved: list[GorgiasResumeConfig] = []
 
     def can_resume(self) -> bool:
         return self._resume_cursor is not None
 
     def load_state(self) -> GorgiasResumeConfig | None:
-        return GorgiasResumeConfig(cursor=self._resume_cursor) if self._resume_cursor else None
+        if not self._resume_cursor:
+            return None
+        return GorgiasResumeConfig(cursor=self._resume_cursor, variant=self._resume_variant)
 
     def save_state(self, data: GorgiasResumeConfig) -> None:
         self.saved.append(data)
@@ -148,7 +151,7 @@ class TestGetRows:
         assert batches == [[{"id": 1}], [{"id": 2}]]
         assert session.get.call_count == 2
 
-    def test_saves_cursor_after_yielding_each_batch(self) -> None:
+    def test_stages_next_position_before_yielding_each_batch(self) -> None:
         session = MagicMock()
         session.get.side_effect = [
             _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": "c2"}}),
@@ -156,10 +159,13 @@ class TestGetRows:
         ]
         manager = _FakeManager()
         with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager))
-
-        # Only the page that has a following cursor triggers a save.
-        assert [c.cursor for c in manager.saved] == ["c2"]
+            rows = get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager)
+            assert next(rows) == [{"id": 1}]
+            assert manager.saved[-1] == GorgiasResumeConfig(cursor="c2", variant=0)
+            assert next(rows) == [{"id": 2}]
+            # The last page stages a position past the only variant, so a resume reads nothing.
+            assert manager.saved[-1] == GorgiasResumeConfig(cursor=None, variant=1)
+            assert list(rows) == []
 
     def test_resumes_from_saved_cursor(self) -> None:
         session = MagicMock()
@@ -191,7 +197,6 @@ class TestGetRows:
             batches = list(get_rows("acme", "e@acme.com", "key", "tickets", MagicMock(), manager))
 
         assert batches == []
-        assert manager.saved == []
 
 
 class TestParamVariants:
@@ -214,14 +219,12 @@ class TestParamVariants:
             ("Customer", None),
         ]
         assert all(p["order_by"] == "priority:asc" for p in params)
-        assert [(c.variant, c.cursor) for c in manager.saved] == [(0, "t2"), (1, None)]
+        assert [(c.variant, c.cursor) for c in manager.saved] == [(0, "t2"), (1, None), (2, None)]
 
     def test_resumes_into_saved_variant(self) -> None:
         session = MagicMock()
         session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
-        manager = _FakeManager()
-        manager.can_resume = lambda: True  # type: ignore[method-assign]
-        manager.load_state = lambda: GorgiasResumeConfig(cursor="c9", variant=1)  # type: ignore[method-assign]
+        manager = _FakeManager(resume_cursor="c9", resume_variant=1)
         with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
             list(get_rows("acme", "e@acme.com", "key", "custom_fields", MagicMock(), manager))
 

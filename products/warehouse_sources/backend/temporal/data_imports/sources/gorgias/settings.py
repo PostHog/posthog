@@ -16,7 +16,7 @@ CREATED = "created_datetime"
 UPDATED = "updated_datetime"
 
 
-@dataclass
+@dataclass(frozen=True)
 class GorgiasEndpointConfig:
     name: str
     path: str
