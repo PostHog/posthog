@@ -95,10 +95,10 @@ export interface canvasSceneLogicValues {
     currentProjectId: number | null // projectLogic
     bodyState: CanvasBodyState
     breadcrumbs: Breadcrumb[]
-    busy: boolean
     buildStatus: CanvasBuildStatus
     builds: CanvasBuildsResponseApi | null
     buildsLoading: boolean
+    busy: boolean
     canvas: CanvasApi | null
     draftCode: string | null
     generationStarting: boolean
@@ -151,9 +151,6 @@ export interface canvasSceneLogicActions {
         value: true
     }
     generationStarted: () => {
-        value: true
-    }
-    reportBusy: () => {
         value: true
     }
     loadBuilds: () => any
@@ -222,6 +219,9 @@ export interface canvasSceneLogicActions {
     renameCanvas: (name: string) => {
         name: string
     }
+    reportBusy: () => {
+        value: true
+    }
     setInstruction: (
         instruction: string,
         fromSuggestion: boolean
@@ -244,6 +244,7 @@ export interface canvasSceneLogicActions {
 export interface canvasSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        busy: (isGenerating: boolean, buildStatus: CanvasBuildStatus) => boolean
         canvas: (view: CanvasViewResponseApi | null) => CanvasApi | null
         sandboxDocumentUrl: (view: CanvasViewResponseApi | null) => string | null
         liveBuild: (view: CanvasViewResponseApi | null) => CanvasBuildApi | null
@@ -270,7 +271,6 @@ export interface canvasSceneLogicMeta {
             buildStatus: CanvasBuildStatus
         ) => boolean
         breadcrumbs: (canvas: CanvasApi | null, space: CanvasSpace | null, arg: string) => Breadcrumb[]
-        busy: (isGenerating: boolean, buildStatus: CanvasBuildStatus) => boolean
     }
 }
 

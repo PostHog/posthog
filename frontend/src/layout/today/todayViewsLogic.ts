@@ -62,10 +62,14 @@ export interface todayViewsLogicActions {
         errorObject?: any
     }
     loadFirstBuildsSuccess: (
-        firstBuilds: Record<string, FirstBuildState>,
+        firstBuilds: {
+            [k: string]: FirstBuildState
+        },
         payload?: void
     ) => {
-        firstBuilds: Record<string, FirstBuildState>
+        firstBuilds: {
+            [k: string]: FirstBuildState
+        }
         payload?: void
     }
     loadRecentViews: (_: void) => void
