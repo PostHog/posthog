@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import time_machine
 from unittest.mock import patch
@@ -21,7 +22,7 @@ from products.product_analytics.backend.facade.models import Insight
 class TestEvaluationDelay(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(timezone="UTC")
-        self.query = {
+        self.query: dict[str, Any] = {
             "kind": "TrendsQuery",
             "series": [{"kind": "EventsNode", "event": "order completed"}],
             "interval": "hour",
