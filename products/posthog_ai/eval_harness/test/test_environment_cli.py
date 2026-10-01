@@ -421,7 +421,9 @@ class TestEnvironmentCLI(TestCase):
             backend.assert_not_called()
             self.assertFalse((root / "state/receipt.json").exists())
 
-    @parameterized.expand(["matching_pin", "wrong_pin", "profile", "invalid_site_url"])
+    @parameterized.expand(
+        ["matching_pin", "wrong_pin", "profile", "invalid_site_url", "missing_source_pin", "invalid_source_uri"]
+    )
     def test_local_archive_options_validate_before_start_and_never_contact_aws(self, option: str) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -431,6 +433,15 @@ class TestEnvironmentCLI(TestCase):
                 arguments += ["--aws-profile", "example-employee"]
             elif option == "invalid_site_url":
                 arguments += ["--site-url", "https://["]
+            elif option == "missing_source_pin":
+                arguments += ["--source-uri", S3_URI]
+            elif option == "invalid_source_uri":
+                arguments += [
+                    "--source-uri",
+                    "https://example.com/archive.tar.gz",
+                    "--sha256",
+                    cli.file_sha256(archive),
+                ]
             else:
                 arguments += ["--sha256", cli.file_sha256(archive) if option == "matching_pin" else "0" * 64]
             with (
@@ -592,9 +603,9 @@ class TestEnvironmentCLI(TestCase):
             start.assert_not_called()
             backend.restore.assert_not_called()
 
-    @parameterized.expand([None, "https://app--example--developer.example.com"])
+    @parameterized.expand([(None, None), ("https://app--example--developer.example.com", None), (None, S3_URI)])
     def test_cli_passes_optional_cutoff_to_receipt_owner_and_never_prints_credentials(
-        self, site_url: str | None
+        self, site_url: str | None, source_uri: str | None
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -614,6 +625,7 @@ class TestEnvironmentCLI(TestCase):
                 patch.object(cli, "load_backend", return_value=backend),
                 patch.object(cli.LocalApp, "ensure", return_value="/invented/app-checkout"),
                 patch.object(cli, "assert_local_databases", return_value={}),
+                patch.object(download.boto3, "Session") as aws,
                 patch.dict(os.environ, {"SITE_URL": "https://cli.example.com"}),
                 redirect_stdout(output),
             ):
@@ -624,9 +636,10 @@ class TestEnvironmentCLI(TestCase):
                         target_cutoff=None,
                         user_id=42,
                         timeout=60,
-                        sha256=None,
+                        sha256=cli.file_sha256(archive) if source_uri else None,
                         aws_profile=None,
                         site_url=site_url,
+                        source_uri=source_uri,
                     )
                 )
             self.assertIsNone(backend.restore.call_args.kwargs["target_cutoff"])
@@ -635,6 +648,12 @@ class TestEnvironmentCLI(TestCase):
             self.assertIn(f"{site_url or 'https://cli.example.com'}/project/456/", output.getvalue())
             self.assertIn(str(workspace / "login-credentials.json"), output.getvalue())
             self.assertNotIn("password", output.getvalue())
+            aws.assert_not_called()
+            if source_uri:
+                self.assertEqual(backend.restore.call_args.kwargs["provenance"]["bundle_source"], source_uri)
+                self.assertEqual(
+                    backend.restore.call_args.kwargs["provenance"]["bundle_sha256"], cli.file_sha256(archive)
+                )
 
     @parameterized.expand(
         ["https://user:password@example.com", "https://example.com/?token=secret", "file:///tmp/page", "https://["]
