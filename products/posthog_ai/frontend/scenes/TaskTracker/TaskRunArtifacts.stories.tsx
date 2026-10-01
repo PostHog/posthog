@@ -23,6 +23,7 @@ import { taskRunArtifactsLogic } from './taskRunArtifactsLogic'
 
 const TASK_ID = 'task-trials'
 const RUN_ID = 'run-trials'
+const EARLIER_RUN_ID = 'run-trials-earlier'
 
 const REPORT_MARKDOWN = `# Trial starts dropped at the plan picker
 
@@ -155,9 +156,9 @@ const CONTENT_BY_PATH: Record<string, string> = {
     'tasks/artifacts/artifact-csv': WEEKS_CSV,
 }
 
-function mockRun(artifacts: TaskRunArtifactResponseApi[]): TaskRun {
+function mockRun(artifacts: TaskRunArtifactResponseApi[], id = RUN_ID): TaskRun {
     return {
-        id: RUN_ID,
+        id,
         task: TASK_ID,
         stage: null,
         branch: null,
@@ -241,11 +242,17 @@ const RUN_LOGS = [
     ),
 ].join('\n')
 
-function taskMocks(artifacts: TaskRunArtifactResponseApi[]): {
+/** With `resumed`, the files sit on an earlier run and the latest run has none, as after a resume. */
+function taskMocks(
+    artifacts: TaskRunArtifactResponseApi[],
+    { resumed = false }: { resumed?: boolean } = {}
+): {
     get: Record<string, MockSignature>
     post: Record<string, MockSignature>
 } {
-    const run = mockRun(artifacts)
+    const run = mockRun(resumed ? [] : artifacts)
+    const earlierRun = mockRun(resumed ? artifacts : [], EARLIER_RUN_ID)
+    const runs = resumed ? [run, earlierRun] : [run]
     const task = mockTask(run)
     return {
         get: {
@@ -255,17 +262,24 @@ function taskMocks(artifacts: TaskRunArtifactResponseApi[]): {
                 return [200, { results, count: results.length, next: null, previous: null }]
             },
             [`/api/projects/:team_id/tasks/${TASK_ID}/`]: task,
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/`]: { count: 1, next: null, previous: null, results: [run] },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/`]: {
+                count: runs.length,
+                next: null,
+                previous: null,
+                // The real runs list carries no artifact manifests.
+                results: runs.map(({ artifacts: _artifacts, ...rest }) => rest),
+            },
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: run,
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${EARLIER_RUN_ID}/`]: earlierRun,
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/logs`]: () => new HttpResponse(RUN_LOGS),
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/artifact-chart/download/`]: () =>
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/artifact-chart/download/`]: () =>
                 new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
             '/api/projects/:team_id/task_channels/': [],
             '/api/projects/:team_id/integrations/': { results: [] },
             '/api/environments/:team_id/conversations/': { results: [], next: null },
         },
         post: {
-            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/artifacts/download/`]: async ({
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/download/`]: async ({
                 request,
             }: {
                 request: Request
@@ -349,4 +363,9 @@ export const NoArtifacts: Story = {
 export const FlagOff: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.TASKS] },
     render: () => <StoryPage tab="conversation" />,
+}
+
+export const ResumedTask: Story = {
+    decorators: [mswDecorator(taskMocks(ARTIFACTS, { resumed: true }))],
+    render: () => <StoryPage artifactId="artifact-report" />,
 }

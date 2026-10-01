@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { IconChevronRight, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
@@ -10,7 +10,7 @@ import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { getVariableValue } from './playgroundTemplating'
 
 export function PlaygroundVariablesPanel(): JSX.Element {
-    const { detectedVariables, variableValues } = useValues(llmPlaygroundVariablesLogic)
+    const { detectedVariables, unfilledVariables, variableValues } = useValues(llmPlaygroundVariablesLogic)
     const { setVariableValue } = useActions(llmPlaygroundVariablesLogic)
     const { collapsedSections } = useValues(llmPlaygroundPromptsLogic)
     const { toggleCollapsed } = useActions(llmPlaygroundPromptsLogic)
@@ -19,7 +19,7 @@ export function PlaygroundVariablesPanel(): JSX.Element {
 
     return (
         <div className="border rounded p-4 py-2 shrink-0">
-            <div className={collapsed ? '' : 'mb-2'}>
+            <div className={`flex items-center gap-2 ${collapsed ? '' : 'mb-2'}`}>
                 <LemonButton
                     size="small"
                     noPadding
@@ -32,6 +32,11 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                 >
                     Variables{detectedVariables.length > 0 ? ` (${detectedVariables.length})` : ''}
                 </LemonButton>
+                {unfilledVariables.length > 0 && (
+                    <LemonTag type="warning" size="small">
+                        {unfilledVariables.length} unfilled
+                    </LemonTag>
+                )}
             </div>
 
             <AnimatedCollapsible collapsed={collapsed}>
@@ -45,6 +50,18 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                         {detectedVariables.map((name) => (
                             <div key={name} className="flex items-start gap-2">
                                 <code className="text-xs pt-2 whitespace-nowrap">{`{{${name}}}`}</code>
+                                {unfilledVariables.includes(name) && (
+                                    <Tooltip title="No value set. The placeholder is sent as written.">
+                                        <span
+                                            tabIndex={0}
+                                            role="img"
+                                            aria-label="No value set"
+                                            className="text-warning mt-2 shrink-0"
+                                        >
+                                            <IconWarning />
+                                        </span>
+                                    </Tooltip>
+                                )}
                                 <LemonTextArea
                                     className="text-sm flex-1"
                                     placeholder="Value"
