@@ -11,7 +11,7 @@ The other half is `../inference/`, which consumes what this package produces and
 
 - `runner.py`
   The real path. `run_training()` creates the `AutoresearchTrainingRun` (status `RUNNING`) and fires `Task.create_and_run()` with `internal=True` and no repository, so the run shows up as an internal Task rather than in the normal Tasks list.
-  The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads and the autoresearch scopes), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
+  The brief carries user-authored text, so the sandbox token holds only `TRAINING_MCP_SCOPES` (the `execute-sql` reads, the autoresearch scopes, and `user:read`, which the PostHog MCP server needs to start a session), and an empty connector allowlist keeps the team's shared MCP connectors out of the sandbox.
   `build_agent_description()` assembles the agent's brief — the target, the horizon, the population, and the contract for the bundle it must author.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
