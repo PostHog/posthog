@@ -1,4 +1,5 @@
 import copy
+import inspect
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, Generic, TypeVar, cast
@@ -24,8 +25,15 @@ T = TypeVar("T", bound=BaseModel)
 _SCHEMA_HINT = "Please update the provided API schema to ensure API docs remain up to date"
 
 # What drf-spectacular accepts for one status code, and what this decorator validates against.
-# A bare serializer class or instance is as valid as an OpenApiResponse wrapping one.
-ResponseDeclaration = OpenApiResponse | type[serializers.BaseSerializer[Any]] | serializers.BaseSerializer[Any] | None
+# A bare serializer or pydantic model, as a class or an instance, is as valid as an OpenApiResponse wrapping one.
+ResponseDeclaration = (
+    OpenApiResponse
+    | type[serializers.BaseSerializer[Any]]
+    | serializers.BaseSerializer[Any]
+    | type[BaseModel]
+    | BaseModel
+    | None
+)
 
 
 class ValidatedRequest(Request):
@@ -174,6 +182,11 @@ class _ResponseValidator:
         )
 
     def _check_body(self, view: Any, status_code: int, data: Any, response_serializer: Any) -> None:
+        pydantic_model = self._pydantic_model(response_serializer)
+        if pydantic_model is not None:
+            self._check_pydantic_body(status_code, data, pydantic_model)
+            return
+
         # A PolymorphicProxySerializer only describes the schema; it cannot validate data.
         # `many=True` wraps one in a plain ListSerializer, so the child needs the same check.
         if isinstance(response_serializer, PolymorphicProxySerializer) or isinstance(
@@ -203,13 +216,30 @@ class _ResponseValidator:
             return
 
         if not body_matches_serializer:
-            logger.warning(
-                f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. {_SCHEMA_HINT}",
-                view_func=self.view_name,
-                status_code=status_code,
-                serializer_class=type(serialized).__name__,
-                validation_errors=serialized.errors,
-            )
+            self._warn_body_mismatch(status_code, type(serialized).__name__, serialized.errors)
+
+    def _check_pydantic_body(self, status_code: int, data: Any, model: type[BaseModel]) -> None:
+        try:
+            model.model_validate(data)
+        except ValidationError as exc:
+            if self.strict:
+                raise serializers.ValidationError(str(exc)) from exc
+            self._warn_body_mismatch(status_code, model.__name__, exc.errors(include_url=False, include_input=False))
+
+    def _warn_body_mismatch(self, status_code: int, serializer_class: str, validation_errors: Any) -> None:
+        logger.warning(
+            f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. {_SCHEMA_HINT}",
+            view_func=self.view_name,
+            status_code=status_code,
+            serializer_class=serializer_class,
+            validation_errors=validation_errors,
+        )
+
+    @staticmethod
+    def _pydantic_model(response_serializer: Any) -> type[BaseModel] | None:
+        # drf-spectacular's PydanticExtension matches a model class or an instance of one.
+        model = response_serializer if inspect.isclass(response_serializer) else type(response_serializer)
+        return model if issubclass(model, BaseModel) else None
 
     @staticmethod
     def _instantiate(response_serializer: Any, data: Any, context: dict[str, Any]) -> serializers.BaseSerializer[Any]:

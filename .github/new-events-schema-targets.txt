@@ -25,6 +25,7 @@ posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
+products/ai_observability/backend/tests/logic/traces
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries
 products/marketing_analytics/backend/hogql_queries

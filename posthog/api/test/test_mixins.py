@@ -1,5 +1,5 @@
 import uuid
-from typing import NoReturn
+from typing import Literal, NoReturn
 
 import pytest
 from unittest.mock import Mock, patch
@@ -8,6 +8,8 @@ from django.test import SimpleTestCase, override_settings
 
 from drf_spectacular.utils import OpenApiResponse, PolymorphicProxySerializer
 from parameterized import parameterized
+from pydantic import BaseModel, ConfigDict
+from pydantic.alias_generators import to_camel
 from rest_framework import serializers, status
 from rest_framework.response import Response
 
@@ -25,6 +27,14 @@ class EventCaptureResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=["ok", "queued"])
     event_id = serializers.UUIDField()
     distinct_id = serializers.CharField()
+
+
+class EventCaptureResponseModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, validate_by_alias=True, validate_by_name=True)
+
+    status: Literal["ok", "queued"]
+    event_id: uuid.UUID
+    distinct_id: str
 
 
 class ErrorResponseSerializer(serializers.Serializer):
@@ -209,6 +219,12 @@ class TestValidatedRequestDecorator(SimpleTestCase):
                 {"wrong_field": "value"},
                 "EventCaptureResponseSerializer",
             ),
+            (
+                "pydantic_model",
+                OpenApiResponse(response=EventCaptureResponseModel),
+                {"wrong_field": "value"},
+                "EventCaptureResponseModel",
+            ),
         ]
     )
     def test_invalid_response_data_logs_warning(self, _name, declared_response, response_data, serializer_class_name):
@@ -386,6 +402,37 @@ class TestValidatedRequestDecorator(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("class", EventCaptureResponseModel),
+            (
+                "instance",
+                EventCaptureResponseModel(status="ok", event_id=uuid.uuid4(), distinct_id="declared"),
+            ),
+        ]
+    )
+    @override_settings(DEBUG=True)
+    def test_pydantic_response_model_accepts_its_aliased_body(
+        self, _name: str, declared: type[EventCaptureResponseModel] | EventCaptureResponseModel
+    ) -> None:
+        payload = {"status": "ok", "eventId": str(uuid.uuid4()), "distinctId": "user_123"}
+
+        @validated_request(responses={200: OpenApiResponse(response=declared)})
+        def mock_endpoint(view_self: object, request: object) -> Response:
+            return Response(payload, status=status.HTTP_200_OK)
+
+        mock_request = Mock()
+        mock_request._full_data = {}
+        mock_request.data = {}
+
+        with patch("posthog.api.mixins.logger") as mock_logger:
+            response = mock_endpoint(Mock(), mock_request)
+
+            mock_logger.warning.assert_not_called()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data == payload
+
+    @parameterized.expand(
+        [
             ("single", False, {"anything": True}),
             ("many", True, [{"anything": True}]),
         ]
@@ -527,13 +574,21 @@ class TestValidatedRequestDecorator(SimpleTestCase):
         assert "Response status code 500 not declared" in str(exc_info.value)
         assert "Declared status codes" in str(exc_info.value)
 
-    def test_strict_response_validation_invalid_data_raises(self):
+    @parameterized.expand(
+        [
+            ("serializer", EventCaptureResponseSerializer),
+            ("pydantic_model", EventCaptureResponseModel),
+        ]
+    )
+    def test_strict_response_validation_invalid_data_raises(
+        self, _name: str, declared: type[EventCaptureResponseSerializer] | type[EventCaptureResponseModel]
+    ) -> None:
         """Strict response validation: invalid response data should raise exception"""
 
         @validated_request(
             request_serializer=EventCaptureRequestSerializer,
             responses={
-                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+                200: OpenApiResponse(response=declared),
             },
             strict_response_validation=True,
         )
