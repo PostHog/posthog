@@ -48,6 +48,7 @@ from .serializers import (
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     BaselineOverviewSerializer,
+    CompleteRunInputSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
@@ -734,12 +735,19 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(request=None, responses={200: RunSerializer})
+    @validated_request(
+        request_serializer=CompleteRunInputSerializer,
+        responses={200: OpenApiResponse(response=RunSerializer)},
+    )
     @action(detail=True, methods=["post"])
-    def complete(self, request: Request, pk: str, **kwargs) -> Response:
+    def complete(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Complete a run: detect removals, verify uploads, trigger diff processing."""
         try:
-            run = api.complete_run(_parse_uuid(pk), team_id=self.team_id)
+            run = api.complete_run(
+                _parse_uuid(pk),
+                team_id=self.team_id,
+                check_run_id=request.validated_data.get("check_run_id"),
+            )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.GitHubRateLimitError as e:

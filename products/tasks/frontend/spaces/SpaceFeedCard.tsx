@@ -30,6 +30,7 @@ import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskListItemApi } from '../generated/api.schemas'
+import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
@@ -63,7 +64,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const card = (
         <Card
             size="sm"
-            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
+            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition hover:bg-fill-hover hover:ring-1 hover:ring-input"
         >
             <div className="flex min-w-0 items-center gap-3">
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
@@ -109,11 +110,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                     <TodaySessionMenu target={menu} surface="feed" />
                 </div>
             </div>
-            {preview && (
-                <Text size="xs" variant="muted" className="mt-1.5 line-clamp-2 leading-normal break-words">
-                    {preview}
-                </Text>
-            )}
+            <SpaceFeedCardPrompt taskId={task.id} prompt={preview} />
             {(repository || author || item.pullRequests.length > 0) && (
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
                     {repository && (

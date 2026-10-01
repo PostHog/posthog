@@ -301,11 +301,18 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/")
+        complete_url = f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/complete/"
+        response = self.client.post(complete_url, {"check_run_id": "111"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "completed")
         mock_delay.assert_not_called()
+
+        response = self.client.post(complete_url, {"check_run_id": "222"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run = Run.objects.get(id=create_result.run_id)
+        self.assertEqual(run.metadata["github_check_run_id"], "222")
 
     def test_approve_run(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)

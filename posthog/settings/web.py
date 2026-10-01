@@ -50,6 +50,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -633,6 +634,10 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
+            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
+            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
+            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
+            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -1322,6 +1327,10 @@ AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
 HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
+# Limits for one `jev`/`decide` query: rows read per SELECT, and model decisions across the whole query.
+# Each decision is a billed gateway call, so these bound the cost of one query.
+HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
+HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
