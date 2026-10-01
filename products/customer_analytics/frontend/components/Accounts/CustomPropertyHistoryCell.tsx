@@ -30,7 +30,7 @@ export function CustomPropertyHistoryCell({
     const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
     if (chartPoints.length < 2) {
         return (
-            <Tooltip title="Not enough history to chart yet — showing the current value.">
+            <Tooltip title="Not enough history to chart yet. Showing the current value.">
                 <span>{formatValue(latest[1])}</span>
             </Tooltip>
         )
