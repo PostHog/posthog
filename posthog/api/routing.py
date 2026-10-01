@@ -465,12 +465,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def team(self) -> Team:
-        if self._is_project_view:
+        if team_from_token := self._get_team_from_request():
+            team = team_from_token
+        elif self._is_project_view:
             team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-        elif team_from_token := self._get_team_from_request():
-            team = team_from_token
         elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             assert user.team is not None
@@ -664,8 +664,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @lru_cache(maxsize=1)  # noqa: B019 - short-lived per-request router
     def _get_team_from_request(self) -> Optional["Team"]:
-        # The token replaces the team that the route identifies. A route that identifies no team
-        # must stay without one, because permission classes treat a resolved `team` as the target.
+        # Permission classes treat `view.team` as the target of the request, so a route that
+        # identifies no team must not gain one from a request parameter.
         if not (self._is_team_view or self._is_project_view):
             return None
 

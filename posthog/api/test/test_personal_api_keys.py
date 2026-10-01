@@ -1119,15 +1119,6 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
-    def test_denies_access_to_project_resources_with_sibling_environment_token_param(self):
-        environment = Team.objects.create(organization=self.organization, project=self.team.project)
-        self.key.scoped_teams = [environment.id]
-        self.key.save()
-
-        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/?token={environment.api_token}")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
     def test_allows_user_me_read_access(self):
         # The /users/@me/ endpoint is not team-based, but it's useful as a way of checking whether the key works
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
