@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 from functools import partial
+from typing import cast
 
 from django.db import transaction
 from django.db.models import F, Window
@@ -53,6 +54,7 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
 )
+from products.signals.backend.report_check_timing import metric_check_ready_at, metric_check_window_start
 from products.signals.backend.report_checks import (
     AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_SOAK_HOURS,
@@ -223,6 +225,26 @@ def measure_check(check: SignalReportCheck, *, deadline: float) -> CheckVerdict:
         config = parse_check_config(check.kind, check.config)
         assert isinstance(config, MetricThresholdConfig)
         query = resolve_check_query(config, check.report)
+        if check.measurement_start_at is not None:
+            now = timezone.now()
+            window_start = metric_check_window_start(query, check.report.team, now)
+            if window_start < check.measurement_start_at:
+                return CheckVerdict(
+                    outcome="inconclusive", reason="awaiting_data", explanation="Waiting for a full measurement window."
+                )
+            # Pin this run's bounds so a cached relative query cannot include pre-resolution data.
+            query = {
+                **query,
+                "source": {
+                    **query["source"],
+                    "dateRange": {
+                        **query["source"]["dateRange"],
+                        "date_from": window_start.isoformat(),
+                        "date_to": now.isoformat(),
+                        "explicitDate": True,
+                    },
+                },
+            }
         tag_queries(trigger="signals_report_check")
         measurement = measure_metric(query, check.report.team, deadline=deadline, include_series=False)
     except Exception as error:
@@ -578,6 +600,7 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
             .update(
                 status=SignalReportCheck.Status.PENDING,
                 soak_minutes=soak_minutes,
+                measurement_start_at=None,
                 next_run_at=now + timedelta(minutes=soak_minutes),
                 expires_at=now + MAX_CHECK_HORIZON,
                 consecutive_errors=0,
@@ -669,6 +692,20 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
                     "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
                 )
             continue
+        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+            start_at = check.measurement_start_at or now
+            try:
+                query = resolve_check_query(
+                    cast(MetricThresholdConfig, parse_check_config(check.kind, check.config)), check.report
+                )
+                ready_at = metric_check_ready_at(query, check.report.team, start_at)
+            except (CheckConfigValidationError, ValueError):
+                ready_at = now
+            if check.measurement_start_at is None or now < ready_at:
+                SignalReportCheck.objects.for_team(check.team_id).filter(
+                    id=check.id, status=SignalReportCheck.Status.ACTIVE, measurement_start_at=check.measurement_start_at
+                ).update(measurement_start_at=start_at, next_run_at=max(check.next_run_at, ready_at), updated_at=now)
+                continue
         verdict = measure_check(check, deadline=deadline)
         try:
             record_check_verdict(check, verdict)
