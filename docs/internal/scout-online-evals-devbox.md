@@ -1,84 +1,28 @@
-# Online scout evaluation in a synthetic devbox
+# Online scout trials in a devbox
 
-Use this guide to validate private scout trials **inside an existing PostHog devbox**. Here, “online” means scouts use the real running application, tools, data queries, sandbox and model providers against the devbox's synthetic project. Scoring uses the scout's reviewed, saved rubric and its saved reference instructions. Scout execution, rubric generation and judging should be real.
+Trials compare versions of a scout against its saved rubric. Each version can change the prompt, model or reasoning effort, with repeated runs to check consistency.
+Scouts run in parallel through the real application, tools, sandboxes and model gateway. The server judges their saved evidence and produces a comparison report.
+Use a devbox with synthetic data for validation. Scout execution, rubric generation and judging incur model charges.
 
-Start by reading this document and the repository's `AGENTS.md`. Follow the stages in order, fix local setup problems, and continue through a saved scored comparison and a first quality iteration. Preserve the existing synthetic dataset. Record any required local adaptations and the exact code revision used.
+## Prerequisites
 
-## Starting point and boundaries
+Use the existing [devbox setup](../../.agents/skills/setting-up-devbox/SKILL.md) and [local stack](../../.agents/skills/run-posthog/SKILL.md) instructions.
+Preserve the devbox's synthetic dataset. Keep credentials, prompts, transcripts and downloaded reports outside version control.
 
-- Implementation branch: `signals/scout-live-experiments`, [PR #105078](https://github.com/PostHog/posthog/pull/105078).
-- Implemented: private repeated scout launches, shared starting history, prompt/model/effort versions, automatic paid judging, saved reports, criterion evidence and JSON export.
-- Verify the full flow on this devbox: generate a rubric, review and save it with its reference, run parallel scouts through the current shared Python gateway's private route, then use the real comparison judge and reload its saved report. Passing unit tests and mocked browser stories do not establish this.
-- Rubric editing, generation and storage come from [PR #106580](https://github.com/PostHog/posthog/pull/106580). Use that generator and editor. New comparisons require a reviewed, saved rubric with the reference instructions captured by the generator; they do not fall back to a mock or generate a rubric automatically.
-- This guide authorizes no production operation. Use only the devbox's synthetic project and local services. A remote model provider can still charge for inference.
+- The Trials UI and scoring require a staff user in project 2, with project membership and permission to edit the source skill.
+- The source scout must support reports through `emit_report` or `edit_report`. Trials reject extra product write scopes, external MCP servers and structured-output schemas.
+- Backend, frontend, MCP, Temporal, Docker sandboxes, databases, Redis and object storage must be ready. The normal Temporal worker runs both scouts and judging.
+- Trials currently use the Python LLM gateway with the trial capture policy installed. Subscription credentials are not supported. Moving to the Go gateway requires equivalent capture behavior and model support.
+- Provider credentials must support the scout models returned by trial setup and the judge model, currently `gpt-6-astra`.
 
-Use the existing remaining test budget agreed with the operator. Record a cap and a running ledger before paid calls; missing usage or `cost: null` does not mean free. Begin with one small trial: two versions and one run each. Stop repeated authentication, routing or provider failures before they consume the budget.
+Use the normal local OAuth setup, including `setup_tasks_oauth`, and register Temporal search attributes if the devbox has not already done so.
+The gateway must authenticate against the local database. Keep the Temporal worker on the same code revision as the backend.
+Disable worker hot reload during paid runs with `TEMPORAL_DISABLE_HOT_RELOAD=1`.
 
-The gateway exempts staff users from per-user cost caps by default. Fleet limits and gateway limits do not enforce this exercise's dollar budget; use bounded batches and provider accounting.
+### Routing and capture
 
-For local spend checks, set `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` and an explicit `LLM_GATEWAY_REDIS_URL` pointing to the devbox's existing Redis. The standalone gateway does not inherit Django's `REDIS_URL` fallback; without its own URL, it uses reduced in-memory limits and loses counters on restart. To inspect `/metrics`, also set `ENABLE_METRICS=true` alongside `LLM_GATEWAY_METRICS_ENABLED=true`. Confirm the running endpoint exposes the intended Signals cost limit before making paid calls.
-
-Check the remaining burst, sustained and per-task allowances before reserving a batch. A larger operator budget does not update an existing local gateway cap. If an approved test needs a higher local limit, retain the counter, window and multiplier, then verify the counter and its expiry survive the gateway restart. Exercise a denied request as well: the scout must record failure and release its sandbox without an operator cancellation.
-
-## 1. Pull the implementation without losing devbox state
-
-All commands below run inside the devbox, from its repository root. Substitute its real path if it is not `~/posthog`.
-
-```sh
-cd ~/posthog
-git status --short --branch
-git remote get-url origin
-git fetch origin signals/scout-live-experiments
-```
-
-Preserve existing edits and the current branch before switching. Do not reset, clean, automatically stash, reseed or delete volumes. If another session owns the checkout, coordinate the switch; a second worktree alone does not isolate ports, databases or Temporal workers.
-
-With a clean checkout, create a local iteration branch:
-
-```sh
-git switch -c scout-devbox-evals --no-track origin/signals/scout-live-experiments
-git rev-parse HEAD
-.codex/with-flox --prepare true
-```
-
-If `scout-devbox-evals` already exists, inspect and resume it instead of recreating it. Run environment-dependent commands through `.codex/with-flox`; request tool elevation on the first attempt for preparation, dependency changes and service lifecycle commands. Use the repository's existing `run-posthog` and `setting-up-devbox` skills when needed.
-
-Keep observations, exports, prompts and credentials outside Git. For example, use `~/.local/state/posthog/scout-evals/`, with directory mode `700`, and separate subdirectories per batch. Create a local `RUNBOOK.md` there containing the branch/SHA, synthetic project and operator IDs, source config ID, data scenario/version, process URLs, local patches, run IDs and budget ledger. Do not print credentials into it.
-
-## 2. Inspect the existing project and the access gates
-
-Before changing services, record which project holds the synthetic data, its parent project if any, and which user will launch runs. Check that the relevant data is queryable through PostHog and that its timestamps match the scout's investigation window. A running UI alone does not prove ClickHouse data is ready.
-
-Scout configuration resolves to the canonical parent project. For a child environment, verify the actual tool queries reach the intended synthetic dataset. Any local access override must account explicitly for both the requested UI project and the canonical config/context project.
-
-The current comparison UI, setup/history APIs, scoring API **and scoring worker require a staff user in project 2**. Staff status alone does not replace organization membership, project access or skill editor permission.
-
-- If project 2 already holds the synthetic data, use it and a local staff operator with the required access.
-- If the data is elsewhere, keep it there. Make a small, explicit devbox-only access adaptation before testing the complete flow. Do not renumber project rows or move data into an empty project just to expose the page.
-- The adaptation must cover `trial_views.py::_internal_trial_config`, `trial_evaluation.py::_assert_context_access`, `ScoutTrialsScene.tsx`, `ScoutsRosterActions.tsx`, and the inner `ScoutTrials.tsx` guard. Search for all project-2 checks before editing.
-- Retain staff, current membership, project/skill access, launching-operator ownership and sandbox restrictions. A backend exception must require `DEBUG` plus an explicit local project allowlist, default off. Keep frontend visibility consistent with the backend. Verify an unrelated project and another user still cannot read the results.
-- This local override does **not exist** in the implementation commit. Record its patch separately and do not publish an unrestricted gate removal as a feature fix.
-
-The broader trial launch API is not a workaround for scoring permissions: it can launch a run in a project that the scoring worker later rejects.
-
-## 3. Make the real execution path ready
-
-Preserve the devbox's existing ingestion and synthetic traffic setup. Inspect the current process configuration before changing it:
-
-```sh
-.codex/with-flox hogli dev:explain
-.codex/with-flox hogli dev:list-units tasks
-.codex/with-flox hogli dev:list-units mcp
-.codex/with-flox hogli doctor
-```
-
-Required processes are backend, frontend, MCP, the **Python** LLM gateway, Temporal server and worker, Docker agent sandboxes, PostgreSQL, ClickHouse, Redis and object storage. `tasks` supplies the task/gateway workers; MCP needs the separate `mcp` intent. `ai_features` also needs `mcp` separately. If using `hogli dev:apply`, supply the complete previous intent list plus the missing intents: the command replaces the list.
-
-The normal local stack performs migrations on startup. Check its PostgreSQL and ClickHouse migration units and apply any outstanding migrations using the existing setup. Preserve the synthetic database. SeaweedFS object storage must be ready, including its configured credentials; the evaluation uses private write-once objects as well as task state.
-
-### Local routes and configuration
-
-Inspect actual listeners first. The following are the usual addresses when app processes run on the devbox host and agents run in Docker:
+Sandboxes need direct service URLs that do not pass through the browser's Coder login proxy.
+For services on the devbox host, the usual settings are below; verify the actual ports and Docker host mapping:
 
 ```dotenv
 SANDBOX_PROVIDER=docker
@@ -88,287 +32,104 @@ SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308
 LLM_GATEWAY_URL=http://localhost:3308
 ```
 
-Retain the existing public `SITE_URL` for browser access. A sandbox cannot authenticate through the devbox's browser sign-in proxy. `localhost` inside a sandbox means that container, not the devbox host. Verify Docker's host mapping and actual connectivity; adjust ports if this devbox differs.
+MCP also needs a direct `POSTHOG_API_BASE_URL` for backend calls. Keep `POSTHOG_PUBLIC_URL` and the application's `SITE_URL` on the public browser URL.
 
-Use the existing local development configuration. `DEBUG=true` with `CLOUD_DEPLOYMENT=US`, `EU` or `DEV` is deliberately rejected. Do not configure a local box as a production region to obtain missing capabilities.
-
-The gateway process must run this branch's `services/llm-gateway` code and authenticate against the **local** database. Use the normal `llm-gateway` unit, not a second private gateway. Trial credentials select private capture themselves. A healthy older gateway or the Go gateway is not equivalent.
-
-Verify configured provider keys through the gateway's supported secret plumbing. Its settings use the `LLM_GATEWAY_` prefix, including `LLM_GATEWAY_OPENAI_API_KEY` and, when needed for the scout model, `LLM_GATEWAY_ANTHROPIC_API_KEY`. The current comparison judge uses **`gpt-6-astra`**; scout model support comes from `trial_setup`. Provider reachability and authorization both need a real request.
-
-`.codex/with-flox` builds a minimal environment and loads the repository dotenv file. Do not assume shell-exported credentials or new `.env.local` values reach every manual command. Hogli loads `.env.local`; standalone `bin/start-llm-gateway` also sources root `.env`. Use the established ignored configuration files and verify effective settings without dumping the environment or key values.
-
-MCP has a second routing trap: `bin/start-mcp-server` rewrites its `.env` API address from public `SITE_URL`. For sandbox calls, explicitly configure the MCP process with `POSTHOG_API_BASE_URL=http://localhost:8000` and `POSTHOG_PUBLIC_URL` equal to the existing public app URL. Preexisting process variables take precedence over the service dotenv file. If a process override is needed, its command can use:
-
-```sh
-.codex/with-flox env \
-  POSTHOG_API_BASE_URL=http://localhost:8000 \
-  POSTHOG_PUBLIC_URL='<existing devbox public app URL>' \
-  bin/start-mcp-server
-```
-
-Replace the placeholder and install the command in the existing process manager; do not start a competing MCP listener. Configure all telemetry destinations outside the synthetic project being investigated, or disable capture during quality iteration. Clear placeholder analytics keys in the MCP example configuration. Global capture disablement does not prove request-specific private suppression.
-
-### OAuth, worker and sandbox preparation
-
-After local migrations and configuration are ready:
-
-```sh
-.codex/with-flox python manage.py setup_tasks_oauth
-.codex/with-flox python manage.py register_temporal_search_attributes
-```
-
-`setup_tasks_oauth` creates the Signals application with the canonical local identity. `setup_background_agents` alone is insufficient. If setup warns that an existing OAuth application has a different primary key, diagnose it; deleting the row also deletes its tokens.
-
-If the ordinary local gateway credential is missing, with `CLOUD_DEPLOYMENT` unset, provision its scope using `.codex/with-flox python manage.py setup_local_api_key --add-scopes llm_gateway:read >/dev/null`. Output is suppressed because this command prints the key. It rejects even `CLOUD_DEPLOYMENT=E2E`. This development key can belong to a different user; it is separate from the operator key used for trial APIs.
-
-Check only nonsecret facts:
-
-```sh
-.codex/with-flox python manage.py shell <<'PY'
-from django.conf import settings
-from posthog.temporal.oauth import SIGNALS_APP_ID_DEV, get_signals_app
-
-assert settings.DEBUG
-assert settings.CLOUD_DEPLOYMENT not in {"US", "EU", "DEV"}
-app = get_signals_app()
-assert app is not None and str(app.id) == SIGNALS_APP_ID_DEV
-assert settings.VIDEO_EXPORT_TASK_QUEUE == "development-task-queue"
-assert settings.TASKS_TASK_QUEUE == "development-task-queue"
-assert settings.SANDBOX_JWT_PRIVATE_KEY
-print("Local OAuth, queues and sandbox signing configuration verified.")
-PY
-```
-
-The normal local `temporal-worker` registers both scout execution and comparison judging. There is no new evaluation queue to provision. Confirm that the running worker uses this checkout, not an older branch.
-
-For paid runs, start the dev supervisor with `TEMPORAL_DISABLE_HOT_RELOAD=1`. Otherwise, edits to Python tests or source files can restart the worker and cancel an active generation or comparison. Let the previous worker finish shutting down before starting its replacement, and verify the worker itself is healthy; a running `nodemon` process does not prove its worker started successfully.
-
-Finish linting and CI preflight before paid work. Checks can write caches without changing source: Ruff's `products/.ruff_cache` can trigger the backend watcher and cause temporary API 502s. Set `RUFF_CACHE_DIR` to an ignored directory outside the backend's watched trees (`posthog/`, `ee/`, and `products/`), and wait for checks to finish and the backend to become healthy before the next paid step.
-
-If the sandbox image needs preparation, build it before a paid run:
-
-```sh
-.codex/with-flox python manage.py shell <<'PY'
-from products.tasks.backend.logic.services.docker_sandbox import ensure_fresh_base_image
-ensure_fresh_base_image()
-PY
-```
-
-Once the branch's gateway policy, local endpoints and capture destinations are checked, set these values on **both backend and worker**:
+Deploy the gateway's private capture policy before enabling trials. Then set both flags on the backend and worker:
 
 ```dotenv
 SCOUT_LIVE_TRIALS_ENABLED=true
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 ```
 
-The second setting is an operator attestation, not a capability probe or a telemetry configuration switch. Restart the devbox app supervisor after environment changes so its children receive the new values. A normal restart keeps database volumes:
+`SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` is an operator attestation, not automatic gateway detection.
+It confirms that gateway capture, query/task telemetry and warehouse replicas do not expose trial content to the project being inspected.
+The gateway suppresses trial generation, exception and rate-limit denial events, while retaining cost and rate-limit enforcement. Ordinary requests keep their normal capture behavior.
+For local validation, direct telemetry to a separate destination. Globally disabling capture does not prove trial-specific suppression.
 
-```sh
-.codex/with-flox hogli down -y
-.codex/with-flox hogli up -d -y
-.codex/with-flox hogli services:ready -y
-.codex/with-flox hogli wait -y
-curl -fsS http://localhost:8010/_health
-curl -fsS http://localhost:3308/_readiness
-```
+Set a test budget before launching runs. Staff users bypass the gateway's per-user cost caps by default; use `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` to exercise those caps locally.
+Configure `LLM_GATEWAY_REDIS_URL` explicitly so gateway counters persist across restarts. An unavailable cost is not zero cost.
 
-Use process-specific logs when the broad wait reports unrelated failures. Readiness does not verify provider authentication. If private routing fails its first real test, disable new trial launches until corrected.
+## Run a trial
 
-## 4. Choose one supported scout and run a small smoke test
+1. Open a supported scout over the synthetic data. In its rubric editor, generate suggestions, review the checks and captured reference instructions, then save the checklist. Unsaved defaults or suggestions cannot be scored.
+2. Open **Trials → New trial**, or select the scout at `/project/2/scout-trials`. Check any setup blocker before launching.
+3. Start with two versions and one run per version. Change the second version's model, effort or prompt. **Current** uses the saved scout prompt; **Custom** replaces it only for that version.
+4. Select **Start trial**. The server saves the versions, rubric and starting history, runs the scouts, then judges automatically. Closing the page does not stop the trial.
+5. Read the result, compare checks across versions, and open individual runs for reports and criterion evidence. Reopen the saved trial or export its JSON report without another model call.
 
-Use an existing scout over the synthetic data, or create one through the local scout editor with a small, bounded task. Keep scheduled runs off during the experiment. The simplest first scout has no repository dependency.
+A trial supports 2–20 versions and 1–20 runs per version, up to 400 runs. There is no overall concurrency cap across trials; each trial judges three runs at a time.
+Start small: repeats increase scout and judge costs. Available models, effort choices, permissions and launch blockers come from `trial_setup/`.
 
-The source skill must support report output through `emit_report` or `edit_report`. Trials currently reject extra product `write_scopes`, external `mcp_gateway_server_ids`, and `structured_output_schema`. Preserve those checks. Enable the local organization's required AI consent and source configuration where missing.
+## Judging and results
 
-Open the source scout as the operator and select its **Trials** tab, after **Runs**. The tab stays scoped to that scout and opens the saved trial list. The standalone trial page is `/project/<project_id>/scout-trials`. The UI calls a comparison a **trial**, each configuration a **version**, and each execution a **run**; API field names remain unchanged. Inspect:
+The saved rubric stays fixed across scout edits. Trials never regenerate it automatically.
+Only an explicit saved rubric update changes future grading. Each trial freezes its checklist and reference instructions before scouts start, so all versions use the same requirements.
+Editing the rubric during a trial does not change that trial. Incomplete captured references must be regenerated, reviewed and saved before scoring.
 
-```text
-GET /api/projects/<project_id>/signals/scout/configs/<config_id>/trial_setup/
-```
+The judge reads bounded evidence from reports, memory changes, summaries and available tool calls/results.
+It receives the fixed requirements without version labels or scout model settings. Candidate prompts and launch notes cannot relax the rubric or prove that an action happened.
+Each check returns **pass**, **fail**, **unknown**, or **not applicable**, with reasons and supporting evidence. Invalid citations fail judging; missing proof remains unknown.
+Missing or truncated evidence is visible in the report. The judge does not independently query source truth or measure missed findings.
 
-Require `ready: true`. Read `blocked_reason` otherwise. Fleet enrollment, source/skill permissions, spend quotas and daily run budgets remain active. Resolve the local cause instead of deleting checks or editing production feature flags. `signals-scout` enrollment comes from the SDK flag payload; adding a similarly named flag in an arbitrary project does not necessarily change that payload.
+The winner passes the most checks across repeated runs, with equal weight for each check. Cost and speed are shown separately.
+A winner requires at least two versions, equal repeat counts and complete judgments on the same applicable checks. Equal top totals produce a tie.
+Unknown verdicts, failed or missing runs, judge errors, or different applicability produce **No clear winner**.
+An execution failure remains excluded even if it left partial output. A report containing only judge errors is not a successful comparison.
 
-Choose a model and effort from the returned `models` list. If the source effort is null, set it explicitly. Record the source skill version, prompt hash, model, effort and data window.
+For exported metrics, a run's score is `pass / (pass + fail)`, or null without decisive verdicts; a version's score is the equal mean of its non-null run scores.
+Coverage is `(pass + fail) / (pass + fail + unknown)`. Not-applicable checks are excluded from both denominators.
+These scores describe the captured runs; they do not establish statistical significance or guarantee results on other data.
 
-1. Open the source scout's rubric editor. Generate suggestions once, review the criteria and reference, then save the checklist with that generation's reference. Generation is a separate paid action. Unsaved defaults, unreviewed suggestions and older rubrics without a captured reference cannot start scoring.
-2. Select **New trial**. Keep the editable baseline and **Version B**, then change the second version's model, effort or prompt. **Current** uses the saved scout prompt; **Custom** replaces it for that version only.
-3. Set **Runs per version** to **1**. Review the saved rubric revision and optional instructions for every run, then select **Start trial**. Both scout runs and judging use model credits.
-4. Follow **Run scouts → Judge runs → Results**. Judging starts automatically after every run finishes; closing the page does not stop the trial.
-5. Inspect the leaderboard and check-by-check results. Open a run to read its report, then expand failed or unknown checks for reasoning and evidence. A report consisting of judge errors is not successful validation.
-6. Return to **All trials**, reopen the saved trial, reload the page and export the report. Confirm these actions retain the same IDs without another model call. Also close the tab during a trial and verify server-side judging still completes.
-7. Confirm both versions share starting history but keep separate writable memory and reports. The live scout's instructions, shared memory and normal inbox must stay unchanged.
+Saved evaluations retain their original rubric, evidence, judge model and judging rules. Reading an older report does not rejudge it.
+Exact-ID retries reuse the original request. New evaluations require a reviewed saved rubric, even when an older report used a mock checklist.
 
-The setup allows 2–20 versions and 1–20 runs per version, up to 400 runs per trial. Repeats do not reduce the version limit, and there is no overall concurrency cap across trials. Larger trials take longer to judge; each trial judges three runs at a time. The baseline cannot be deleted; other versions can be deleted only while more than two remain. Start stays disabled while the saved rubric is unavailable, has no enabled checks, or lacks a complete captured reference.
+## Isolation and recovery
 
-The report ranks versions by total checks passed; cost and duration do not affect the ranking. Equal top totals produce a tie. Missing runs or unknown checks produce **No clear winner**. The check grid can show only differences, and run details keep each check's explanation collapsed until opened. Missing cost appears as **Unavailable**, never zero.
+Versions share starting history but keep separate writable memory and captured reports. They do not change the source scout's instructions, shared memory or normal inbox.
+Trial tasks, logs, artifacts and results are accessible only to the launching operator or the sandbox bound to that task. Other project members cannot discover them through ordinary task lists or searches.
+Shared starting history does not freeze live project data or the clock; keep synthetic inputs stable during a comparison.
 
-Keep the saved rubric fixed while comparing scout edits. Editing a skill or running a comparison does not regenerate the rubric or change its reference instructions. To change the grading standard, explicitly review and save rubric changes. Adopting a new generation's reference applies it to the whole checklist; ordinary criterion edits retain the saved reference. Existing evaluation IDs keep their original rubric and evidence.
+Trial reports cannot create or cancel follow-up checks, record their results, or persist typed report links. Unsupported operations return explicit errors; they must not be treated as successful execution.
+Existing live report checks remain readable. Skill reads serve the pinned candidate; stub skill bundles are supported, while full-content bundles and ZIP exports are unavailable to trial credentials.
 
-Also check a second local user cannot read the operator's trial tasks/results, and each sandbox's ordinary scoped calls cannot access its sibling's private state. Inspect only credentials issued through normal application interfaces; never scrape other processes for tokens.
+Polling and reloading only read saved state. Resume the same saved trial after an interruption instead of creating fresh launch IDs.
+Retries do not automatically repeat an attempted paid judge call. A deliberate **New scoring attempt** can reuse completed scouts with the current saved rubric, creates a new evaluation ID, and may charge for judging every run again.
+It preserves the previous report. A timeout does not cancel server runs; inspect their state and use the task controls to stop an active run.
 
-For capture acceptance, compare one synthetic ordinary gateway call with one trial call using a separate telemetry destination: the ordinary call retains expected capture, the private call suppresses content, and both retain spend/rate-limit enforcement. Include provider-library stderr logs, background stream failures, and exception events in this check; all ordinary gateway events use the configured capture host. Global capture-off plus an empty event list is insufficient evidence. Record any unverified part explicitly.
+## API and CLI
 
-Verify that interrupted scout streams on the standard Anthropic route fail in the client instead of returning a partial answer as complete. The gateway requires a complete `message_stop` event for Signals requests on that route and sends a generic Anthropic error when the stream ends early; the initial HTTP 200 alone does not prove completion.
+The scout API base path is `/api/projects/{team_id}/signals/scout/configs/{config_id}/`:
 
-## 5. Repeatable API/CLI alternative
+| Endpoint                                                        | Purpose                                                                   |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `GET trial_setup/`                                              | Supported settings and launch blockers.                                   |
+| `POST trial_comparison/`                                        | Start a saved trial with automatic judging.                               |
+| `GET trial_comparison_result/`, `GET trial_comparison_history/` | Read a trial or list saved trials.                                        |
+| `POST trial_comparison_resume/`                                 | Resume the same saved work.                                               |
+| `GET trial_result/`                                             | Read one launch's execution result.                                       |
+| `POST trial_evaluation/`, `GET trial_evaluation_result/`        | Start a deliberate scoring attempt for existing runs, or read its result. |
 
-The existing CLI launches, resumes, polls and downloads results/logs. **It does not score.** Prefer the UI for the first complete loop.
+Separate scoring uses `rubric_source: saved`. Runs must share the scout, operator and starting context; settings must match within each version.
+Reuse an evaluation ID only with its exact saved request. Polling reads the saved status without starting a judge.
 
-Create a private `variants.json` beside a full candidate skill body:
+The [operator CLI](../../products/signals/eval/run_live_trials.py) launches, resumes and downloads individual runs; it does not score them. Use the UI or comparison API for the complete flow.
+Run `.codex/with-flox python products/signals/eval/run_live_trials.py --help` from the repository root for its options.
+It reads `POSTHOG_API_KEY` and requires `signal_scout:write`, `llm_skill:write` and `task:read` scopes. Load the key through private local configuration.
+Keep the output directory private and outside Git. Resume with the same host and output directory plus `--resume`; the manifest preserves launch IDs, context and concurrency.
+Only one CLI controller may use an output directory at a time.
 
-```json
-[{ "label": "baseline" }, { "label": "candidate", "skill_file": "candidate.md" }]
-```
+## Troubleshooting and validation
 
-`skill_file` is relative to that JSON file and replaces the complete skill body. Optional fields are `model`, `reasoning_effort` and `skill_body`; do not combine `skill_body` with `skill_file`.
+| Symptom                               | Check                                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Setup/scoring returns 404             | Staff status, project 2, project membership and source skill access.                                                     |
+| Setup is blocked                      | `blocked_reason`, both trial flags, source capabilities, fleet enrollment and quotas.                                    |
+| Run stays queued                      | Temporal worker revision, local OAuth setup, task queue and Docker sandbox readiness.                                    |
+| Sandbox receives HTML or a login page | Direct sandbox URLs and MCP's backend URL; avoid the browser proxy.                                                      |
+| Gateway returns 401/403               | Local Signals OAuth identity, token scope/expiry and provider authorization. Readiness alone does not test model access. |
+| Result export or scoring fails        | Object storage readiness, worker logs and the saved error. Preserve IDs before retrying.                                 |
+| Most checks are unknown               | Missing or truncated tool evidence; do not turn missing proof into a pass.                                               |
 
-The CLI reads an operator personal API key from `POSTHOG_API_KEY`. It needs the selected project's scout and skill read/write scopes plus `task:read` for log downloads. Cancellation through the Tasks API separately requires task write access. Keep the key in the devbox's private secret storage. One option is a mode-`600` file at `~/.config/posthog/scout-devbox.pat`, containing the key on one newline-terminated line; load it **inside** the wrapper so environment filtering cannot discard it:
-
-```sh
-.codex/with-flox bash -c '
-  IFS= read -r POSTHOG_API_KEY < "$HOME/.config/posthog/scout-devbox.pat" || exit 1
-  export POSTHOG_API_KEY
-  exec python "$@"
-' scout-trials \
-  products/signals/eval/run_live_trials.py \
-  --host http://localhost:8000 \
-  --project-id '<project_id>' --config-id '<config_uuid>' \
-  --variants "$HOME/.local/state/posthog/scout-evals/variants.json" \
-  --effort '<supported_effort>' --repeats 2 --concurrency 2 \
-  --note '<same bounded investigation instructions for both variants>' \
-  --output "$HOME/.local/state/posthog/scout-evals/batch-001"
-```
-
-Replace the angle-bracket placeholders. The output directory must be private (mode `700`) and outside Git or ignored. Use local HTTP only for `localhost`/`127.0.0.1`; other hosts require HTTPS. Redirects are rejected.
-
-A timeout does not cancel server runs. Resume with the same secret-loading wrapper and script, passing only the same `--host`, `--output`, and `--resume`. The manifest preserves launch IDs, the shared context and the concurrency limit; do not regenerate IDs to retry an uncertain submission. An explicit `--concurrency` replaces the saved limit for this and later resumes. Older manifests without a saved limit resume one run at a time unless you provide one. Existing active runs keep polling even when they exceed a lower limit; new launches wait for space.
-
-Only one CLI controller can use an output directory at a time. A second controller stops before reading or changing its manifest or launching a run. The operating system releases the lock when the controller exits, including after a crash. Leave `.controller.lock` in place; its presence does not mean a controller is still running.
-
-For each saved launch, inspect:
-
-```text
-GET /api/projects/<project_id>/signals/scout/configs/<config_id>/trial_result/?launch_id=<launch_uuid>
-```
-
-All selected runs must be terminal: `completed`, `failed`, `cancelled`, or `skipped`. Inspect `error`, `invalid_reason`, `export_error` and `task_status`; a failed controller can leave its underlying task active. Task completion alone does not make a result ready: polling and scoring wait for the scout's final export or a terminal controller before recovering a missing export. A task can show `completed` while its trial remains `in_progress` or `unknown` during finalization. Conversely, a saved completed scout result can precede task shutdown; polling keeps it `in_progress` and scoring waits until the task finishes. A failed or cancelled task cannot become a successful comparison through an earlier completed export.
-
-Create and save an explicit scoring request before sending it:
-
-```json
-{
-  "evaluation_id": "<new evaluation UUID>",
-  "baseline_variant_id": "<baseline variant UUID>",
-  "rubric_source": "saved",
-  "variants": [
-    {
-      "id": "<baseline variant UUID>",
-      "label": "baseline",
-      "launch_ids": ["<baseline launch 1>", "<baseline launch 2>"]
-    },
-    {
-      "id": "<candidate variant UUID>",
-      "label": "candidate",
-      "launch_ids": ["<candidate launch 1>", "<candidate launch 2>"]
-    }
-  ]
-}
-```
-
-Submit that body through authenticated `POST .../trial_evaluation/`, then poll `GET .../trial_evaluation_result/?evaluation_id=<evaluation_uuid>`. Use the same config base path as above. The response contains `request`, `evaluation_id`, `context_id`, `status`, `error` and `report`. GET never starts a judge.
-
-Group launches from the known variant specification and repeat count, not by parsing display labels. The CLI manifest is variant-major, then repeat order. Limits are 20 versions and 20 distinct launches per version. All runs must share scout, operator and starting context; settings must match within each variant.
-
-Retrying the same evaluation ID requires the exact saved request. It reuses saved work and does not automatically repeat an attempted paid call. **New scoring attempt** uses a new evaluation ID and may charge for every included run again. It preserves the previous report.
-
-## 6. Iterate on scout quality and judge quality separately
-
-Prepare a small synthetic case set using the existing data generator/fixtures. Keep an answer key outside the scout prompt and the judge's evidence. Do not build another generic eval framework.
-
-| Case                              | Check against the synthetic truth                                                               |
-| --------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Clear finding                     | The scout finds the planted issue, cites the right records and proposes a proportionate action. |
-| Quiet period                      | The scout avoids inventing a finding or overstating weak evidence.                              |
-| Known issue/history               | Relevant prior memory prevents duplicates; a material change is explained.                      |
-| Distractor or incomplete evidence | The scout distinguishes uncertainty from a supported claim.                                     |
-
-Record expected findings, relevant synthetic record IDs, acceptable actions/priorities and known false positives **before** looking at results. Check that the seed actually created these facts in queryable data; a scenario description is not proof of successful ingestion.
-
-For each iteration:
-
-1. Keep the data stable within a comparison. Shared context freezes initial history, not live project reads or the clock. Pause changing synthetic traffic if appropriate, or record its schedule and exact time window. Restore it afterward.
-2. Run two variants with two repeats per scenario initially. Change one scout prompt/model/effort dimension at a time, using the same investigation note. Start a fresh context for each independent scenario.
-3. Read the scout output and raw evidence, then label the criteria manually before opening the evaluation report with its judge verdicts. Record missed planted findings and false positives against the answer key separately.
-4. Compare the judge's passes, failures and unknowns with those labels. Investigate unsupported passes and missing tool evidence before tuning prompts for a higher score.
-5. When changing only the judge/rubric, reuse completed scout runs under a **new evaluation ID**. When changing the scout or data, run a new comparison.
-6. Confirm promising scout changes on held-out scenarios and additional repeats within budget. Report results by scenario, including execution failures and cost uncertainty.
-
-The run score is `pass / (pass + fail)`. The variant score is the equal mean of non-null run scores. Coverage is `(pass + fail) / (pass + fail + unknown)`; not-applicable criteria are excluded. The UI explains this through passed, failed and undecided check counts. Execution failures and judge errors are separate from quality. Each baseline difference requires complete, comparable outcomes for that variant and the baseline, independently of other variants. Per-check differences apply that rule to the individual check.
-New reports identify the best variant or a tie only when at least two variants have equal repeat counts and complete judgments on the same applicable checks. The winner passes the most checks; each check has equal weight. Missing evidence or incomplete runs produce an inconclusive result. Cost and speed do not decide the winner.
-
-A high score with low coverage is not strong evidence. The judge checks bounded saved evidence and exact quotations; it does not independently query source truth or measure recall. Use the synthetic answer key to measure missed findings and false positives. These small live comparisons do not establish statistical significance.
-
-### Where to make changes
-
-| Change                                      | Source                                                                                                                   |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Scout prompt/model/effort                   | Comparison variant inputs; preserve a baseline and source skill.                                                         |
-| Saved criteria and reference                | Existing scout rubric editor and generator; `facade/rubrics.py`                                                          |
-| Saved rubric reader                         | `trial_rubrics.py`; reader construction in `trial_evaluation.py::prepare_trial_evaluation`                               |
-| Judge instructions and citation parsing     | `trial_judge.py`                                                                                                         |
-| Judge model and saved prompt version        | `trial_evaluation.py`; keep prompt-version compatibility in `trial_judge.py` synchronized.                               |
-| Scores, coverage and comparison eligibility | `trial_evaluation_report.py`                                                                                             |
-| Paid-call claims and saved state            | `trial_evaluation.py`, `temporal/agentic/scout_trial_evaluation.py`                                                      |
-| UI state and report display                 | `frontend/inbox/logics/scoutTrialsLogic.ts`, `frontend/inbox/components/config/scouts/trials/` under `products/signals/` |
-
-The reader uses the same team-scoped rubric facade as `GET /api/projects/{team_id}/signals/scout/rubrics/{config_id}/`. Revision zero is an unsaved default checklist. New evaluations require a saved revision, enabled criteria and a complete saved reference. Oversized or incomplete references produce an actionable error before judging, rather than silently dropping instructions.
-
-New evaluation IDs freeze the rubric document, its reference instructions and generation ID, evidence, model and prompt version. Reports export the saved provenance. The judge treats reference and candidate instructions as requirements, not proof that the scout performed an action. Historical mock reports and exact-ID retries remain readable with their original source label, but new evaluation IDs must use `rubric_source: "saved"`.
-
-## 7. Debug and validate changes
-
-| Symptom                                          | First checks                                                                                                                        |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Comparison page/setup/scoring returns 404        | Project-2 gates, staff status, operator membership and skill access; include worker checks.                                         |
-| `ready: false` or immediate rejection            | Read `blocked_reason`; verify both flags, source capabilities, enrollment, quotas and selected effort.                              |
-| Run remains queued                               | Correct branch in Temporal worker, development queue registration, sandbox image and Docker access.                                 |
-| Sandbox sees HTML/login instead of API JSON      | Public proxy/Coder route used for backend, MCP or gateway; check direct sandbox URLs and MCP upstream.                              |
-| Gateway 401/403                                  | Local Signals app identity, local token database, token scope/expiry and provider authorization; health endpoints are insufficient. |
-| Results complete but logs return 403             | Operator key lacks `task:read`, or the caller is not the original operator.                                                         |
-| Scoring fails or reports only judge errors       | Judge model access, gateway credentials, worker logs, immutable saved attempt. Fix before explicitly paying for a new attempt.      |
-| Scoring asks for a saved rubric or reference     | Open the rubric editor, generate and review suggestions, then explicitly save the checklist with the captured reference.            |
-| Scores mostly unknown                            | Read evidence limitations and trace extraction; do not convert missing evidence to a pass.                                          |
-| Object-store `InvalidAccessKeyId`                | Wait for SeaweedFS credential readiness; confirm the processes share the intended local store.                                      |
-| Frontend types miss a newly added quill property | Rebuild the local package with `.codex/with-flox pnpm --filter=@posthog/quill-components build`.                                    |
-
-For backend changes, start with the relevant existing tests, for example:
-
-```sh
-.codex/with-flox uv run pytest \
-  products/signals/backend/test/test_scout_trial_evaluation.py \
-  products/signals/backend/test/test_scout_trial_evaluation_report.py \
-  products/signals/backend/test/test_scout_trial_judge.py \
-  products/signals/backend/test/test_scout_trials_api.py \
-  products/signals/backend/test/test_scout_trial_state.py \
-  --reuse-db -q
-```
-
-Use an isolated test database/Redis configuration, not destructive test setup against the seeded application database. Serialize suites sharing the same test database. If this is a cloud task environment, follow `docs/internal/cloud-task-sandbox.md` first.
-
-Run affected frontend tests and render UI changes. For type-risky Python changes, run repository-wide mypy. Regenerate OpenAPI after serializer changes. Follow `running-ci-preflight` before committing/pushing; never bypass hooks. Keep devbox-only configuration, tokens and runtime artifacts out of source commits. Report a broken local workflow through the repository's devex feedback command when applicable.
-
-## Validation record
-
-Leave the devbox usable, with synthetic data intact and temporary generator pauses restored. Record:
-
-- The exact code revision, local setup/access patches, source scout and synthetic scenario versions.
-- At least one completed real scout run and a saved real judged comparison, with IDs, JSON exports and supporting evidence.
-- Confirmation that reload/retry does not create unintended paid calls; private results remain isolated.
-- A baseline/candidate result by scenario, human/judge disagreements, missing findings and false positives.
-- Actual or bounded spend, unknown charges, remaining budget and any unverified acceptance check.
-- The next concrete quality improvement to try, with a command or saved comparison request that resumes the work.
-
-If the model request cannot authenticate, or scoring only produces errors, mark the end-to-end milestone incomplete. Preserve the saved IDs and diagnose the setup before running more comparisons.
-
-References: [live comparison and scoring semantics](ai-offline-evaluation-reporting.md#live-scout-comparisons), [operator script](../../products/signals/eval/run_live_trials.py), [run-posthog skill](../../.agents/skills/run-posthog/SKILL.md), [devbox skill](../../.agents/skills/setting-up-devbox/SKILL.md).
+Validate one complete real trial before increasing its size. Reopen and export the report, confirm no extra paid calls, and check that another local user and sibling sandbox cannot read its private state.
+Check private capture with an ordinary request and a trial request: ordinary telemetry should remain, trial content should be suppressed, and both should retain spend/rate limits.
+For judge accuracy, use synthetic cases with known answers, including a clear issue, a quiet period and incomplete evidence. Label expected outcomes before reading judge verdicts; record missed findings and false positives separately.
