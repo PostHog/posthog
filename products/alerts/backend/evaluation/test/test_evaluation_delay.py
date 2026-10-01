@@ -174,9 +174,11 @@ class TestEvaluationDelay(SimpleTestCase):
                 "time-series Trends",
             ),
             ({"kind": "TrendsQuery", "series": []}, {"check_ongoing_interval": True}, "Turn off"),
+            ({"kind": "TrendsQuery", "series": []}, '{"type": "TrendsAlertConfig"}', "JSON object"),
+            ({"kind": "TrendsQuery", "series": []}, [1], "JSON object"),
         ]
     )
-    def test_unsupported_delay_configuration(self, query: dict, config: dict, message: str) -> None:
+    def test_unsupported_delay_configuration(self, query: dict, config: object, message: str) -> None:
         validate_evaluation_delay(query, config, 0)
         with self.assertRaisesRegex(ValueError, message):
             validate_evaluation_delay(query, config, 1)

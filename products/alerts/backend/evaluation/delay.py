@@ -13,7 +13,7 @@ class DelayedEvaluationUnavailable(Exception):
     pass
 
 
-def validate_evaluation_delay(query: object, config: dict | None, delay: int) -> None:
+def validate_evaluation_delay(query: object, config: object, delay: int) -> None:
     if isinstance(delay, bool) or not isinstance(delay, int) or not 0 <= delay <= 100:
         raise ValueError("Evaluation delay must be a whole number between 0 and 100 intervals.")
     if delay == 0:
@@ -24,6 +24,8 @@ def validate_evaluation_delay(query: object, config: dict | None, delay: int) ->
         TrendsQuery.model_validate(query)
     ):
         raise ValueError("Evaluation delay is only supported for time-series Trends insights.")
+    if config is not None and not isinstance(config, dict):
+        raise ValueError("Alert config must be a JSON object.")
     if (config or {}).get("check_ongoing_interval"):
         raise ValueError("Turn off Check ongoing period to use an evaluation delay.")
 
