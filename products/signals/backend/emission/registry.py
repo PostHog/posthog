@@ -52,6 +52,8 @@ class SignalSourceTableConfig(BaseModel):
     emitter: SignalEmitter
     # Each source defines how to fetch records — no default, must be explicit
     record_fetcher: RecordFetcher
+    # Snapshot sources deduplicate only after successful emission or an intentional filter.
+    record_processed_outputs: bool = False
     # Field used to filter records by time window (e.g. "created_at")
     partition_field: str
     # Columns to SELECT — only what the emitter and extra metadata need
