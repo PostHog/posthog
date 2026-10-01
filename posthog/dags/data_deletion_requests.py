@@ -1578,7 +1578,7 @@ def delete_person_profiles_op(
     context: dagster.OpExecutionContext,
     person_removal: PersonRemovalContext,
 ) -> PersonRemovalContext:
-    """Tombstone Person rows in CH and delete from Postgres, last.
+    """Tombstone Person rows in Postgres and publish the ClickHouse tombstones, last.
 
     On per-person failures, errors are recorded in op metadata and the request is allowed to
     transition to COMPLETED — Postgres rows remain for the failed UUIDs and the operator can
@@ -1586,10 +1586,10 @@ def delete_person_profiles_op(
     `POST /api/projects/:id/persons/bulk_delete/` endpoint and avoids flipping the whole
     request to FAILED after upstream events/recordings ops have already done their work.
 
-    The one exception is the batch Postgres delete or tombstone: when it fails, those persons are
-    still live in Postgres, so the op raises and the request finalizes as FAILED for a retry. A
-    failed ClickHouse publish after a Postgres tombstone does not raise, because the person is
-    deleted and the weekly deletion sweep republishes it.
+    The one exception is the Postgres tombstone: when it fails, those persons are still live in
+    Postgres, so the op raises and the request finalizes as FAILED for a retry. A failed
+    ClickHouse publish after a Postgres tombstone does not raise, because the person is deleted
+    and the weekly deletion sweep republishes it.
     """
     if not person_removal.drop_profiles:
         context.log.info("drop_profiles=False, skipping profile deletion")
@@ -1612,15 +1612,11 @@ def delete_person_profiles_op(
     if result.errors:
         context.log.warning(f"Person profile deletion had {len(result.errors)} per-person failures")
         metadata["error_uuids"] = dagster.MetadataValue.text(", ".join(str(u) for u in result.errors))
-    postgres_failures = [
-        f
-        for f in result.failures
-        if f.step in (PersonDeletionStep.DELETE_POSTGRES, PersonDeletionStep.TOMBSTONE_POSTGRES)
-    ]
+    postgres_failures = [f for f in result.failures if f.step == PersonDeletionStep.TOMBSTONE_POSTGRES]
     if postgres_failures:
         raise dagster.Failure(
             description=(
-                f"Deletion request {person_removal.request_id}: the Postgres delete failed for "
+                f"Deletion request {person_removal.request_id}: the Postgres tombstone failed for "
                 f"{len(postgres_failures)} persons ({postgres_failures[0].error})"
             ),
             metadata=metadata,
