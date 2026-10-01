@@ -2,14 +2,14 @@ import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
+import { retryImport } from 'lib/utils/retryImport'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -169,6 +169,17 @@ export const Table = (props: TableProps): JSX.Element => {
     } = useValues(dataVisualizationLogic)
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
 
+    // The Hog VM and its crypto polyfills are large, so only a table with formatting rules loads them.
+    const [hog, setHog] = useState<typeof import('lib/hog') | null>(null)
+    const needsHog = conditionalFormattingRules.length > 0
+    useEffect(() => {
+        if (needsHog && !hog) {
+            retryImport(() => import('lib/hog'))
+                .then(setHog)
+                .catch((error) => posthog.captureException(error))
+        }
+    }, [needsHog, hog])
+
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
     const tableColumns: LemonTableColumn<TableDataCell<any>[], any>[] = tabularColumns.map(
@@ -181,7 +192,7 @@ export const Table = (props: TableProps): JSX.Element => {
             const computeConditionalFormattingBackground = (data: TableDataCell<any>[]): string | undefined => {
                 const cell = data[index]
 
-                if (cell.isTransposedHeader) {
+                if (cell.isTransposedHeader || !hog) {
                     return undefined
                 }
 
@@ -201,7 +212,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     })
                     .map((n) => ({
                         rule: n,
-                        result: execHog(n.bytecode, {
+                        result: hog.execHog(n.bytecode, {
                             globals: {
                                 value: cell.value,
                                 input: convertTableValue(n.input, sourceColumnType),
