@@ -272,6 +272,9 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
+    # How long `_close` waits for in-flight groups before it cancels them. A workload whose
+    # handler must release held state on shutdown (a resumable extraction) needs longer.
+    shutdown_drain_timeout_seconds: float = SHUTDOWN_DRAIN_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -1782,7 +1785,7 @@ class BatchConsumer:
         if self._in_flight:
             logger.info(self._event("draining_in_flight_groups"), count=len(self._in_flight))
             tasks = list(self._in_flight.values())
-            done, pending = await asyncio.wait(tasks, timeout=SHUTDOWN_DRAIN_TIMEOUT_SECONDS)
+            done, pending = await asyncio.wait(tasks, timeout=self._config.shutdown_drain_timeout_seconds)
             for task in pending:
                 task.cancel()
             if pending:
