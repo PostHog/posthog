@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { AlertConditionType } from '~/queries/schema/schema-general'
 
-import { AlertType, supportsOngoingInterval } from '../types'
+import { AlertType, isFunnelsAlertConfig, isTrendsAlertConfig, supportsOngoingInterval } from '../types'
 import type { AlertFormType } from './alertFormLogic'
 import { quietHoursFormError } from './scheduleRestrictionValidation'
 
@@ -25,6 +25,25 @@ export function thresholdAlertHasBounds(alert: AlertFormType | AlertType): boole
     }
     const { lower, upper } = bounds
     return isFiniteThresholdBound(lower) || isFiniteThresholdBound(upper)
+}
+
+export function canCheckOngoingInterval(
+    alert?: AlertType | AlertFormType,
+    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
+): boolean {
+    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
+    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
+    // safe for an absolute/increase check above an upper bound.
+    if (isFunnelsAlertConfig(alert?.config)) {
+        return isTrendsFunnel
+    }
+    const upper = alert?.threshold?.configuration?.bounds?.upper
+    return (
+        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
+            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
+        upper != null &&
+        !isNaN(upper)
+    )
 }
 
 const alertFormSchema = z
@@ -52,10 +71,12 @@ const alertFormSchema = z
     .passthrough()
     .superRefine((alert, ctx) => {
         const config = (alert as AlertFormType).config
+        // Submit clears a Trends ongoing-period flag the condition no longer allows, so check that value.
         if (
             (alert.evaluation_delay_intervals ?? 0) > 0 &&
             supportsOngoingInterval(config) &&
-            config.check_ongoing_interval
+            config.check_ongoing_interval &&
+            (!isTrendsAlertConfig(config) || canCheckOngoingInterval(alert as AlertFormType))
         ) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,

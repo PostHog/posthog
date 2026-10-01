@@ -44,7 +44,7 @@ import {
     isTrendsAlertConfig,
     supportsOngoingInterval,
 } from '../types'
-import { getAlertFormValidationErrors } from './alertFormSchema'
+import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
@@ -52,7 +52,7 @@ import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPrevi
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
 
-export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
+export { canCheckOngoingInterval, THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -77,25 +77,6 @@ export type AlertFormType = Pick<
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
     insight?: InsightModel['id']
-}
-
-export function canCheckOngoingInterval(
-    alert?: AlertType | AlertFormType,
-    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
-): boolean {
-    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
-    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
-    // safe for an absolute/increase check above an upper bound.
-    if (isFunnelsAlertConfig(alert?.config)) {
-        return isTrendsFunnel
-    }
-    const upper = alert?.threshold?.configuration?.bounds?.upper
-    return (
-        (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||
-            alert?.condition?.type === AlertConditionType.RELATIVE_INCREASE) &&
-        upper != null &&
-        !isNaN(upper)
-    )
 }
 
 const ONGOING_DISABLED_REASON =

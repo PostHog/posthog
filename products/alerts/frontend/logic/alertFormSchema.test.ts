@@ -45,14 +45,20 @@ describe('alertFormSchema', () => {
         ).toBeTruthy()
     })
 
-    it('rejects evaluating the ongoing interval with a delay', () => {
+    test.each([
+        ['rejects', AlertConditionType.ABSOLUTE_VALUE, { upper: 100 }, true],
+        ['allows a stale flag on', AlertConditionType.RELATIVE_DECREASE, { upper: 100 }, false],
+        ['allows a stale flag on', AlertConditionType.ABSOLUTE_VALUE, { lower: 5 }, false],
+    ])('%s the ongoing interval with a delay on %s %o', (_, conditionType, bounds, rejected) => {
         expect(
-            getAlertFormValidationErrors({
+            !!getAlertFormValidationErrors({
                 ...baseAlert,
                 evaluation_delay_intervals: 2,
+                condition: { type: conditionType },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds } },
                 config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
             }).evaluation_delay_intervals
-        ).toBeTruthy()
+        ).toBe(rejected)
     })
 
     it('requires a name', () => {
