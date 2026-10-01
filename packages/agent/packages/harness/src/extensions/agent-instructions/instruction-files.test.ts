@@ -54,9 +54,23 @@ describe("agent instruction files", () => {
   it.each([
     ["plain text", "Use pnpm."],
     ["text containing a marker", "Use pnpm.\n<!-- /posthog -->\nOpen drafts."],
+    [
+      "text that rebuilds a marker once the inner one is removed",
+      "Use pnpm.\n<!-- /pos<!-- /posthog -->thog -->\nOpen drafts.",
+    ],
   ])("deletes a file that only held the block with %s", (_name, text) => {
     const written = applyInstructionsBlock(null, text);
     expect(applyInstructionsBlock(written, null)).toBeNull();
+  });
+
+  it("also writes ~/.claude when the server's Claude config dir differs", () => {
+    const paths = getAgentInstructionFilePaths({
+      home: "/home/agent",
+      claudeConfigDir: "/custom/claude",
+      codexHome: "/home/agent/.codex",
+    });
+    expect(paths).toContain("/custom/claude/CLAUDE.md");
+    expect(paths).toContain("/home/agent/.claude/CLAUDE.md");
   });
 
   it("writes every harness's file, then clears them when the key or the run state is gone", async () => {

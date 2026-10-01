@@ -28,8 +28,11 @@ export function getAgentInstructionFilePaths(
     (process.env.CLAUDE_CONFIG_DIR || join(home, ".claude"));
   const codexHome =
     options.codexHome ?? (process.env.CODEX_HOME || join(home, ".codex"));
+  // Subscription auth launches the Claude child with CLAUDE_CONFIG_DIR=~/.claude whatever the
+  // server's own value is, so both directories get the file.
+  const claudeDirs = [...new Set([claudeConfigDir, join(home, ".claude")])];
   return [
-    join(claudeConfigDir, "CLAUDE.md"),
+    ...claudeDirs.map((dir) => join(dir, "CLAUDE.md")),
     join(codexHome, "AGENTS.md"),
     join(home, ".pi", "agent", "AGENTS.md"),
   ];
@@ -45,12 +48,14 @@ export function applyInstructionsBlock(
     return rest ? `${rest}\n` : null;
   }
   // A marker inside the text would end the block early, and a later clear would leave the rest behind.
-  const body = instructions
-    .split(BLOCK_START)
-    .join("")
-    .split(BLOCK_END)
-    .join("")
-    .trim();
+  // Removing one marker can join its neighbors into a new one, so repeat until none is left.
+  let body = instructions;
+  let previous: string;
+  do {
+    previous = body;
+    body = body.split(BLOCK_START).join("").split(BLOCK_END).join("");
+  } while (body !== previous);
+  body = body.trim();
   const block = `${BLOCK_START}\n${body}\n${BLOCK_END}`;
   return rest ? `${rest}\n\n${block}\n` : `${block}\n`;
 }
