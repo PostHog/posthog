@@ -11,11 +11,13 @@ filters on it. Business rules live in the modules behind this facade, not in the
 
 import json
 import base64
+import asyncio
 import hashlib
 from datetime import timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Prefetch, Q
 from django.utils import timezone as django_timezone
@@ -710,6 +712,10 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
 _INFERENCE_RUN_STALE_AFTER = timedelta(hours=5)
 
 
+class _InferenceAlreadyStarted(Exception):
+    pass
+
+
 def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> AutoresearchRun | None:
     return (
         AutoresearchRun.objects.for_team(team_id)
@@ -786,18 +792,10 @@ def score_pipeline(team_id: int, pipeline_id: str | UUID, *, user: User, allow_a
     return _run_to_contract(run)
 
 
-class _InferenceAlreadyStarted(Exception):
-    pass
-
-
 def _start_inference_workflow(
     *, team_id: int, pipeline_id: str, prediction_date: str, run_id: str, user_id: int
 ) -> None:
     # The Temporal client and the workflow module load only when a manual run starts.
-    import asyncio  # noqa: PLC0415
-
-    from django.conf import settings  # noqa: PLC0415
-
     from temporalio.common import WorkflowIDReusePolicy  # noqa: PLC0415
     from temporalio.exceptions import WorkflowAlreadyStartedError  # noqa: PLC0415
 
