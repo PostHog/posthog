@@ -1,5 +1,7 @@
 import { IconDocument, IconGraph, IconLineGraph, IconPalette } from '@posthog/icons'
-import { Badge, Card, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
+import { Badge, Card, Text, cn } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { shortTimeAgo } from '~/layout/today/todayWorkItems'
 
@@ -18,7 +20,12 @@ interface SpaceFeedCanvasRowProps {
     listRow: boolean
 }
 
-/** A canvas in the feed's Canvases view, as a card or a list row, like PostHog Desktop's. It does not open on the web yet. */
+/** The canvas page from the canvas product. */
+function spaceFeedCanvasUrl(canvasId: string): string {
+    return `/canvases/${canvasId}`
+}
+
+/** A canvas in the feed's Canvases view, as a card or a list row, like PostHog Desktop's. */
 export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps): JSX.Element {
     const author: TaskAvatarUser = {
         uuid: canvas.created_by.uuid,
@@ -34,31 +41,19 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
             <TaskUserAvatar user={author} />
         </span>
     )
-    // A disabled button keeps the canvas on the keyboard's path, and its overlay carries the tooltip across the row.
     const name = (className: string): JSX.Element => (
-        <Tooltip>
-            <TooltipTrigger
-                render={
-                    <button
-                        type="button"
-                        aria-disabled="true"
-                        className={cn(
-                            'min-w-0 cursor-default truncate text-left text-foreground after:absolute after:inset-0',
-                            className
-                        )}
-                        data-attr="today-space-feed-canvas-row"
-                    />
-                }
-            >
-                {canvas.name || 'Untitled canvas'}
-            </TooltipTrigger>
-            <TooltipContent>Opens once canvases are on the web</TooltipContent>
-        </Tooltip>
+        <LinkPrimitive
+            to={spaceFeedCanvasUrl(canvas.id)}
+            className={cn('min-w-0 truncate text-foreground after:absolute after:inset-0', className)}
+            data-attr="today-space-feed-canvas-row"
+        >
+            {canvas.name || 'Untitled canvas'}
+        </LinkPrimitive>
     )
 
     if (listRow) {
         return (
-            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2">
+            <div className="relative flex h-8 w-full items-center gap-2 rounded-md px-2 transition-colors hover:bg-fill-selected">
                 <span aria-hidden className="size-3.5 shrink-0" />
                 {icon}
                 {name('flex-1 text-sm font-medium')}
@@ -70,7 +65,10 @@ export function SpaceFeedCanvasRow({ canvas, listRow }: SpaceFeedCanvasRowProps)
         )
     }
     return (
-        <Card size="sm" className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3">
+        <Card
+            size="sm"
+            className="relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover"
+        >
             <div className="flex min-w-0 items-center gap-3">
                 <span aria-hidden className="size-3.5 shrink-0" />
                 <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
