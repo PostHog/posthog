@@ -18,11 +18,12 @@ from posthog.hogql_queries.serialized_actors import (
     get_groups,
     get_serialized_people,
 )
-from posthog.models import Team
+from posthog.models import Person, Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
-from posthog.models.person.util import get_person_by_uuid
+from posthog.models.person.util import get_distinct_ids_for_person, get_person_by_uuid
 from posthog.models.property import GroupTypeIndex
+from posthog.personhog_client import consistency_to_read_options
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 
@@ -115,14 +116,30 @@ class RelatedActorsQuery:
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
         return [row[0] for row in response.results]
 
-    def _person_filter(self) -> ast.Expr:
+    @cached_property
+    def _person(self) -> Person | None:
         with personhog_caller_tag("persons/related-actors"):
-            person = get_person_by_uuid(self.team.pk, self.id, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS)
-        distinct_ids = person.distinct_ids if person else []
+            return get_person_by_uuid(self.team.pk, self.id, distinct_id_limit=0)
+
+    def _person_distinct_ids(self) -> list[str]:
+        if self._person is None:
+            return []
+
+        # ClickHouse merge updates can arrive before the personhog read replica catches up.
+        with personhog_caller_tag("persons/related-actors"):
+            distinct_ids = get_distinct_ids_for_person(
+                self.team.pk,
+                self._person.pk,
+                limit=MAX_LIMIT_DISTINCT_IDS,
+                read_options=consistency_to_read_options("strong"),
+            )
 
         # Personhog caps limited lookups at MAX_LIMIT_DISTINCT_IDS, so a full batch may be
         # incomplete. Keep the person_id predicate in that case, and for event-only persons.
-        if 0 < len(distinct_ids) < MAX_LIMIT_DISTINCT_IDS:
+        return distinct_ids if len(distinct_ids) < MAX_LIMIT_DISTINCT_IDS else []
+
+    def _person_filter(self, distinct_ids: list[str]) -> ast.Expr:
+        if distinct_ids:
             # Current distinct IDs include merged history and let ClickHouse filter events
             # before reading group keys, without joining the project's person overrides.
             return ast.CompareOperation(
@@ -137,7 +154,7 @@ class RelatedActorsQuery:
             right=ast.Constant(value=self.id),
         )
 
-    def _query_related_groups(self, group_type_indexes: list[int]) -> list:
+    def _query_related_groups(self, group_type_indexes: list[int], *, force_person_id: bool = False) -> list:
         if not list(group_type_indexes):
             return []
 
@@ -157,6 +174,7 @@ class RelatedActorsQuery:
             ]
         )
 
+        distinct_ids: list[str] = []
         if self.is_aggregating_by_groups:
             actor_filter: ast.Expr = ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -164,7 +182,8 @@ class RelatedActorsQuery:
                 right=ast.Constant(value=self.id),
             )
         else:
-            actor_filter = self._person_filter()
+            distinct_ids = [] if force_person_id else self._person_distinct_ids()
+            actor_filter = self._person_filter(distinct_ids)
 
         query = parse_select(
             """
@@ -183,6 +202,9 @@ class RelatedActorsQuery:
             },
         )
         response = execute_hogql_query(query, team=self.team, modifiers=self._modifiers)
+        # A merge can commit after the initial identity read and before the event query finishes.
+        if distinct_ids and set(distinct_ids) != set(self._person_distinct_ids()):
+            return self._query_related_groups(group_type_indexes, force_person_id=True)
         results = response.results
         if not results:
             return []

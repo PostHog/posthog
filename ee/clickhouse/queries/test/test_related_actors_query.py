@@ -13,6 +13,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -21,6 +22,12 @@ from posthog.models import Group
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
+    GetDistinctIdsForPersonRequest,
+    GetDistinctIdsForPersonResponse,
+)
 from posthog.test.persons import add_distinct_id, create_group_type_mapping, create_people_bulk
 
 from ee.clickhouse.queries.related_actors_query import RelatedActorsQuery
@@ -170,6 +177,31 @@ class TestRelatedGroupsQuery(BaseRelatedActorsTest):
         results = self.run_query()
 
         assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
+
+    @parameterized.expand([("replica_lag", False), ("merge_after_identity_read", True)])
+    def test_returns_groups_during_identity_changes(self, _name: str, merge_after_read: bool) -> None:
+        fake = get_active_fake()
+        read_distinct_ids = fake.get_distinct_ids_for_person
+        merged = not merge_after_read
+        if merged:
+            create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
+
+        def read_with_replica_lag(request: GetDistinctIdsForPersonRequest) -> GetDistinctIdsForPersonResponse:
+            nonlocal merged
+            response = read_distinct_ids(request)
+            if merged and request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
+                response.distinct_ids.add(distinct_id="user3", version=100)
+            if not merged:
+                create_person_id_override_by_distinct_id("user3", "user1", self.team.pk, version=100)
+                merged = True
+            return response
+
+        with patch.object(fake, "get_distinct_ids_for_person", side_effect=read_with_replica_lag):
+            with self.capture_select_queries() as queries:
+                results = self.run_query()
+
+        assert self.get_ids_from_results(results) == {"org:1", "instance:1", "another-org"}
+        assert any("person_distinct_id_overrides" in query for query in queries) == merge_after_read
 
     @parameterized.expand(
         [

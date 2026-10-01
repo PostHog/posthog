@@ -504,17 +504,36 @@ def get_persons_by_uuids(team_id: int, uuids: list[str], *, distinct_id_limit: i
     )
 
 
-def _distinct_ids_for_person(client: PersonHogClient, team_id: int, person_id: int, limit: int | None) -> list[str]:
+def _distinct_ids_for_person(
+    client: PersonHogClient,
+    team_id: int,
+    person_id: int,
+    limit: int | None,
+    read_options: ReadOptions | None = None,
+) -> list[str]:
     # Callers needing only person fields (not distinct_ids) pass distinct_id_limit=0 to skip the
     # per-person distinct-id fetch, which is otherwise unbounded and pulls thousands of rows for
     # merge-heavy persons. A positive limit bounds the fetch; None leaves it unbounded.
     if limit == 0:
         return []
-    request = GetDistinctIdsForPersonRequest(team_id=team_id, person_id=person_id)
+    request = GetDistinctIdsForPersonRequest(team_id=team_id, person_id=person_id, read_options=read_options)
     if limit is not None:
         request.limit = limit
     resp = client.get_distinct_ids_for_person(request)
     return [d.distinct_id for d in resp.distinct_ids]
+
+
+def get_distinct_ids_for_person(
+    team_id: int,
+    person_id: int,
+    *,
+    limit: int | None = None,
+    read_options: ReadOptions | None = None,
+) -> list[str]:
+    return personhog_call(
+        "get_distinct_ids_for_person",
+        lambda: _distinct_ids_for_person(_get_client(), team_id, person_id, limit, read_options),
+    )
 
 
 def _fetch_person_by_id_via_personhog(
