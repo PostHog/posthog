@@ -64199,6 +64199,7 @@ export namespace Schemas {
     /**
      * * `thumbnail` - Thumbnail
      * * `clip` - Clip
+     * * `chapter` - Chapter
      */
     export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
 
@@ -64206,6 +64207,7 @@ export namespace Schemas {
     export const ReplayObservationMediaKindEnum = {
       Thumbnail: 'thumbnail',
       Clip: 'clip',
+      Chapter: 'chapter',
     } as const;
 
     /**
@@ -64214,11 +64216,14 @@ export namespace Schemas {
     export interface ReplayObservationMedia {
       /** Id of this media entry. */
       readonly id: string;
-      /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
        *
        * * `thumbnail` - Thumbnail
-       * * `clip` - Clip */
+       * * `clip` - Clip
+       * * `chapter` - Chapter */
       readonly kind: ReplayObservationMediaKindEnum;
+      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+      readonly position: number;
       /** Export asset holding the bytes; fetch it from the export content endpoint. */
       readonly asset_id: number;
       /**
@@ -122372,6 +122377,14 @@ export namespace Schemas {
     verdict?: string;
     };
 
+    export type VisionObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number;
+    };
+
     export type VisionObservationsSearchRetrieveParams = {
     /**
      * Only observations analyzed at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.
@@ -122694,6 +122707,14 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type VisionScannersObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number;
     };
 
     export type VisionScannersObservationsStatsRetrieveParams = {

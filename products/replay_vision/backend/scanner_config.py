@@ -59,7 +59,7 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
     except (ValueError, PydanticValidationError):
         return "Scanner configuration is invalid."
     # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
-    unknown = set(scanner_config) - set(type(scanner).model_fields)
+    unknown = set(scanner_config) - (set(type(scanner).model_fields) - type(scanner).session_fields)
     if unknown:
         return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
