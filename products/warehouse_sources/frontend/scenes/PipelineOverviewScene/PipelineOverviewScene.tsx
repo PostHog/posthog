@@ -4,6 +4,7 @@ import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,7 +33,7 @@ export const scene: SceneExport = {
 
 export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { window, jobStatsLoading, hasIssues } = useValues(pipelineOverviewSceneLogic)
+    const { window, jobStatsLoading, hasIssues, lastUpdatedAt } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
 
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
@@ -73,6 +74,11 @@ export function PipelineOverviewScene(): JSX.Element {
             />
 
             <PipelineStatTiles />
+            {lastUpdatedAt ? (
+                <div className="-mt-1 text-xs text-muted">
+                    Updated <TZLabel time={lastUpdatedAt} />, and every 30 seconds while this page is open
+                </div>
+            ) : null}
 
             <SceneDivider />
 
@@ -80,10 +86,7 @@ export function PipelineOverviewScene(): JSX.Element {
                 vertical space, and its absence already says there is nothing wrong. */}
             {hasIssues ? (
                 <>
-                    <SceneSection
-                        title="Needs attention"
-                        description="Sources and tables that have stopped, most serious first."
-                    >
+                    <SceneSection title="Needs attention" description="Tables and sources that have stopped syncing.">
                         <PipelineHealth />
                     </SceneSection>
 
@@ -93,7 +96,7 @@ export function PipelineOverviewScene(): JSX.Element {
 
             <SceneSection
                 title="Runs"
-                description="How many runs finished, and how many of them failed."
+                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -113,7 +116,10 @@ export function PipelineOverviewScene(): JSX.Element {
 
             <SceneDivider />
 
-            <SceneSection title="Rows synced by destination" description="Where the imported rows were written.">
+            <SceneSection
+                title="Rows synced by destination"
+                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
+            >
                 <RowsByDestination />
             </SceneSection>
 

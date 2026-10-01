@@ -142,28 +142,52 @@ export type HogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface HogFlowTemplateApi {
+    /** ID of the template. */
     readonly id: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at: string
     /** @nullable */
     readonly created_by: HogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */
@@ -195,28 +219,52 @@ export type PatchedHogFlowTemplateApiVariablesItem = { [key: string]: string }
  * Validates and sanitizes the workflow before creating it as a template.
  */
 export interface PatchedHogFlowTemplateApi {
+    /** ID of the template. */
     readonly id?: string
-    /** @maxLength 400 */
+    /**
+     * Template name.
+     * @maxLength 400
+     */
     name?: string
+    /** Template description. */
     description?: string
     /**
+     * URL of the image shown on the template card.
      * @maxLength 8201
      * @nullable
      */
     image_url?: string | null
+    /** Tags for filtering templates. */
     tags?: string[]
+    /** Who can use the template: this project only, or every project in the organization.
+     *
+     * * `team` - Only team
+     * * `organization` - Organization
+     * * `global` - Global */
     scope?: HogFlowTemplateScopeEnumApi
+    /** When the template was created. */
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: PatchedHogFlowTemplateApiCreatedBy
+    /** When the template was last updated. */
     readonly updated_at?: string
+    /** Trigger config. Set from the config of the trigger action on save. */
     trigger?: unknown
     trigger_masking?: HogFlowMaskingApi | null
+    /** Conversion goal config. */
     conversion?: unknown
+    /** When a person exits a workflow created from the template.
+     *
+     * * `exit_on_conversion` - Conversion
+     * * `exit_on_trigger_not_matched` - Trigger Not Matched
+     * * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+     * * `exit_only_at_end` - Only At End */
     exit_condition?: ExitConditionEnumApi
+    /** Connections between the actions. */
     edges?: unknown
     actions?: HogFlowTemplateActionApi[]
     /**
+     * ID of the abort action.
      * @maxLength 400
      * @nullable
      */
@@ -305,6 +353,15 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface HogFlowLastRunApi {
+    /** The task this run belongs to. */
+    readonly task_id: string
+    /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+    readonly status: string
+    /** When the run started, or when the task was created if it has no run yet. */
+    readonly ran_at: string
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -337,6 +394,8 @@ export interface HogFlowMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -658,6 +717,8 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -757,6 +818,8 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run: HogFlowLastRunApi | null
 }
 
 /**
@@ -856,6 +919,8 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly email_sending_resumed_at?: string | null
+    /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+    readonly last_run?: HogFlowLastRunApi | null
 }
 
 /**
@@ -967,6 +1032,7 @@ export const HogFlowBatchJobStateEnumApi = {
 } as const
 
 export interface HogFlowBatchJobApi {
+    /** ID of the batch run. */
     readonly id: string
     /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
      *
@@ -983,8 +1049,11 @@ export interface HogFlowBatchJobApi {
     readonly filters: unknown
     /** Variable value overrides applied to this run. */
     variables?: unknown
+    /** When the batch run was created. */
     readonly created_at: string
+    /** User who started the batch run. */
     readonly created_by: UserBasicApi
+    /** When the batch run was last updated. */
     readonly updated_at: string
 }
 
@@ -1168,6 +1237,11 @@ export type AppMetricsTotalsResponseApiTotals = { [key: string]: number }
 
 export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
+}
+
+export interface HogFlowOptimizationApi {
+    /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+    enabled: boolean
 }
 
 /**
@@ -1954,6 +2028,10 @@ export type HogFlowsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimization_enabled?: boolean
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */

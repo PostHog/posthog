@@ -33,6 +33,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 
@@ -71,6 +72,7 @@ export function SceneTitlePanelButton({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { todayRailEnabled } = useValues(todayShellLogic)
 
     // Open Info tab if scene has panel content, otherwise default to PostHog AI
     const defaultTab = scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max
@@ -81,7 +83,7 @@ export function SceneTitlePanelButton({
 
     return (
         <>
-            {!sceneMenuBarEnabled && (
+            {!sceneMenuBarEnabled && !todayRailEnabled && (
                 <ButtonPrimitive
                     className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
