@@ -2519,12 +2519,14 @@ def send_ticket_assigned_notification(
 
     assigner = User.objects.filter(pk=assigner_id).first() if assigner_id else None
     traits = ticket.anonymous_traits or {}
+    # Reassigning to the same person has to email again, so the key carries the moment of
+    # assignment rather than the ticket alone. Hashed because a role UUID and a timestamp in
+    # plain text go past the 128 characters MessagingRecord.campaign_key allows.
+    assignment_digest = hashlib.sha256(f"{assignee_type}:{assignee_id}:{assigned_at}".encode()).hexdigest()[:16]
 
     message = EmailMessage(
         use_http=True,
-        # Reassigning to the same person has to email again, so the key carries the moment of
-        # assignment rather than the ticket alone.
-        campaign_key=f"conversation_ticket_assigned_{ticket.id}_{assignee_type}_{assignee_id}_{assigned_at}",
+        campaign_key=f"conversation_ticket_assigned_{ticket.id}_{assignment_digest}",
         subject=f"[Ticket #{ticket.ticket_number}] Assigned to you in {team.name}",
         template_name="conversation_ticket_assigned",
         template_context={
